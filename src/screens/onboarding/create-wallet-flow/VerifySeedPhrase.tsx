@@ -65,31 +65,31 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
   return (
     <div
-      className={classNames('flex-1', 'flex flex-col', 'bg-white gap-8 p-6', className)}
+      className={classNames('flex flex-col', 'bg-white gap-8 p-6', className)}
       data-testid="verify-seed-phrase"
       {...props}
     >
       <div className="flex flex-col items-center">
-        <header className="text-2xl font-semibold">{t('verifySeedPhrase')}</header>
-        <p className="text-sm font-normal mt-2 w-[500px] text-center">{t('verifyMessagePrefix')}</p>
+        <header className="text-lg font-semibold text-heading-gray">{t('verifySeedPhrase')}</header>
+        <p className="text-sm font-normal mt-2 text-center">{t('verifyMessagePrefix')}</p>
       </div>
 
-      <article className="grid grid-cols-3 gap-4 w-[80%] self-center">
+      <article className="grid grid-cols-3 gap-2 w-full">
         {shuffledWords.map((word, index) => (
-          <div className="relative">
+          <div className="relative" key={`seed-word-${index}`}>
             {(!!firstSelectedWordIndex || firstSelectedWordIndex === 0) && index === firstSelectedWordIndex && (
-              <div className="absolute -top-3 left-2 -translate-x-2 bg-primary-orange text-white px-2 py-0.5 rounded-full text-xs whitespace-nowrap">
+              <div className="absolute -top-3 left-2 -translate-x-2 bg-primary-500 text-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
                 {t('first')}
               </div>
             )}
             {(!!secondSelectedWordIndex || secondSelectedWordIndex === 0) && index === secondSelectedWordIndex && (
-              <div className="absolute -top-3 left-2 -translate-x-2 bg-primary-orange text-white px-2 py-0.5 rounded-full text-xs whitespace-nowrap">
+              <div className="absolute -top-3 left-2 -translate-x-2 bg-primary-500 text-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
                 {t('last')}
               </div>
             )}
             <button onClick={() => onSelectWord(index)} className="w-full">
               <Chip
-                className="cursor-pointer"
+                className="w-[104px] h-8 rounded-[10px] cursor-pointer"
                 selected={firstSelectedWordIndex === index || secondSelectedWordIndex === index}
                 label={word}
               />
@@ -100,7 +100,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
       <div className="flex-1" />
 
-      <div className="w-[360px] flex flex-col gap-4 self-center pb-4">
+      <div className="flex flex-col gap-4 self-center pb-4 w-full">
         {isHardwareSecurityAvailable && (
           <>
             <div className="flex flex-col gap-1 px-2">
@@ -113,7 +113,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
             </div>
           </>
         )}
-        <Button disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} />
+        <Button disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} className="rounded-[10px]" />
       </div>
     </div>
   );

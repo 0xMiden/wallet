@@ -30,6 +30,8 @@ module.exports = {
         black: '#000',
         white: '#fff',
 
+        'heading-gray': '#484848',
+
         gray: {
           25: '#F9F9F9',
           50: '#F3F3F3',

@@ -12,7 +12,7 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ className,
       {Array.from({ length: steps }).map((_, index) => (
         <div
           key={index}
-          className={classNames('w-2 h-2 rounded-full', index < currentStep ? 'bg-black' : 'bg-grey-200')}
+          className={classNames('w-2 h-2 rounded-full', index < currentStep ? 'bg-primary-500' : 'bg-grey-200')}
         />
       ))}
     </div>

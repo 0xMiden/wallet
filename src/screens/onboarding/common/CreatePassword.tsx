@@ -153,14 +153,14 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
   );
 
   return (
-    <div className={classNames('flex-1', 'flex flex-col', 'bg-white gap-y-8 p-6', className)} {...props}>
-      <div className="flex flex-col items-center">
-        <header className="text-2xl font-semibold">{t('createPassword')}</header>
-        <p className="text-sm text-center font-normal mt-2 w-[500px]">{t('createPasswordDescription')}</p>
+    <div className={classNames('flex flex-col', 'bg-white gap-y-6 p-6 text-heading-gray', className)} {...props}>
+      <div className="flex flex-col items-center text-heading-gray">
+        <header className="text-xl font-semibold">{t('createPassword')}</header>
+        <p className="text-sm text-center font-normal mt-2">{t('createPasswordDescription')}</p>
       </div>
 
-      <article className="w-full justify-center items-center flex flex-col gap-y-4 px-6">
-        <div className="flex flex-col w-[360px] gap-y-2">
+      <article className="w-full justify-center items-center flex flex-col gap-y-4">
+        <div className="flex flex-col gap-y-2 w-full">
           <Input
             type={isPasswordVisible ? 'text' : 'password'}
             label={t('password')}
@@ -177,7 +177,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
           <PasswordStrengthIndicator password={password} validation={passwordValidation} />
         </div>
 
-        <div className="flex flex-col w-[360px] gap-y-2">
+        <div className="flex flex-col gap-y-2 w-full">
           <Input
             ref={verifyPasswordRef}
             type={isVerifyPasswordVisible ? 'text' : 'password'}
@@ -210,8 +210,13 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
           </p>
         </div>
       </article>
-      <div className="w-[360px] flex flex-col gap-2 self-center">
-        <Button title={t('continue')} disabled={!isValidPassword} onClick={onPasswordSubmit} />
+      <div className="flex flex-col gap-2 self-center">
+        <Button
+          title={t('continue')}
+          disabled={!isValidPassword}
+          onClick={onPasswordSubmit}
+          className="rounded-[10px]"
+        />
         {/* eslint-disable-next-line i18next/no-literal-string */}
         <p className="text-grey-600 text-xs text-center px-4">
           {t('byProceeding')}{' '}

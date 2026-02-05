@@ -75,12 +75,13 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '*',
     (_p, ctx) => {
+      console.log('LOCKED STATUS', ctx);
       switch (true) {
         case ctx.locked:
           return <Unlock />;
 
-        case !ctx.ready && !ctx.fullPage:
-          return <OpenInFullPage />;
+        case !ctx.ready:
+          return <Welcome />;
 
         default:
           return Woozie.Router.SKIP;

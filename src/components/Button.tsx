@@ -30,7 +30,8 @@ const propsPerButtonVariant = {
     backgroundColor: 'bg-primary-500 focus:bg-primary-500',
     hoverBackgroundColor: 'hover:bg-primary-600',
     disabledBackgroundColor: 'bg-grey-200',
-    iconColor: 'white'
+    iconColor: 'white',
+    border: ''
   },
   [ButtonVariant.Secondary]: {
     color: 'text-black',
@@ -38,7 +39,8 @@ const propsPerButtonVariant = {
     backgroundColor: 'bg-grey-50',
     hoverBackgroundColor: 'hover:bg-grey-100',
     disabledBackgroundColor: 'bg-grey-200',
-    iconColor: 'black'
+    iconColor: 'black',
+    border: ''
   },
   [ButtonVariant.Ghost]: {
     color: 'text-black',
@@ -46,7 +48,8 @@ const propsPerButtonVariant = {
     backgroundColor: 'bg-transparent',
     hoverBackgroundColor: 'hover:bg-grey-50',
     disabledBackgroundColor: 'bg-grey-200',
-    iconColor: 'black'
+    iconColor: 'black',
+    border: 'border-[#0000004D] border-[0.5px]'
   },
   [ButtonVariant.Danger]: {
     color: 'text-white',
@@ -54,7 +57,8 @@ const propsPerButtonVariant = {
     backgroundColor: 'bg-red-500',
     hoverBackgroundColor: 'hover:bg-red-600',
     disabledBackgroundColor: 'bg-grey-200',
-    iconColor: 'white'
+    iconColor: 'white',
+    border: ''
   }
 };
 
@@ -73,7 +77,7 @@ export const Button: React.FC<ButtonProps> = ({
   let backgroundColor = propsPerButtonVariant[variant].backgroundColor;
   let hoverBackgroundColor = propsPerButtonVariant[variant].hoverBackgroundColor;
   const iconColor = propsPerButtonVariant[variant].iconColor;
-
+  const border = propsPerButtonVariant[variant].border;
   if (disabled) {
     backgroundColor = propsPerButtonVariant[variant].disabledBackgroundColor;
     color = propsPerButtonVariant[variant].disabledColor;
@@ -110,6 +114,7 @@ export const Button: React.FC<ButtonProps> = ({
       className={classNames(
         backgroundColor,
         hoverBackgroundColor,
+        border,
         isLoading ? 'pointer-events-none' : '',
         'flex justify-center items-center gap-x-2',
         'py-3 px-4 rounded-4xl',

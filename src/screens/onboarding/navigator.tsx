@@ -60,21 +60,17 @@ const Header: React.FC<{
   }
 
   return (
-    <div className="flex justify-between items-center pt-6 px-6">
+    <div className="flex justify-between items-center px-6 py-4 border-[0.5px] border-[#00000033] ">
       <CircleButton
         icon={IconName.ArrowLeft}
         onClick={onBack}
         className={shouldRenderBackButton ? '' : 'opacity-0 pointer-events-none'}
       />
 
-      <Icon
-        name={IconName.LeoLogoAndName}
-        style={{
-          width: 228,
-          height: 24
-        }}
-      />
-
+      <div className="flex gap-1 items-center justify-center">
+        <Icon name={IconName.OnboardingLogo} className=" w-7 h-6" />
+        <p className="text-heading-gray text-[19px] font-semibold">Miden Wallet</p>
+      </div>
       <ProgressIndicator currentStep={currentStep || 1} steps={3} className={currentStep ? '' : 'opacity-0'} />
     </div>
   );
@@ -232,18 +228,20 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         'flex flex-col',
         'bg-white',
         'overflow-hidden',
-        mobile ? 'w-full h-full' : 'w-[37.5rem] h-[40rem] mx-auto border border-gray-100 rounded-3xl'
+        mobile ? 'w-full h-full' : 'w-full h-full mx-auto border border-gray-100 rounded-3xl'
       )}
     >
-      <div className="flex-1 flex flex-col">
+      <div className="flex flex-col">
         <AnimatePresence mode={'wait'} initial={false}>
-          {step !== OnboardingStep.Confirmation && step !== OnboardingStep.SelectTransactionType && (
-            <Header onBack={onBack} step={step} onboardingType={onboardingType} key={'header'} />
-          )}
+          {step !== OnboardingStep.Confirmation &&
+            step !== OnboardingStep.SelectTransactionType &&
+            step !== OnboardingStep.Welcome && (
+              <Header onBack={onBack} step={step} onboardingType={onboardingType} key={'header'} />
+            )}
         </AnimatePresence>
         <AnimatePresence mode={'wait'} initial={false}>
           <motion.div
-            className="flex-1 flex flex-col"
+            className="flex flex-col"
             key={step}
             initial="initialState"
             animate="animateState"

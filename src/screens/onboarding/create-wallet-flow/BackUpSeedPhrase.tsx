@@ -46,42 +46,46 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   }, []);
 
   return (
-    <div className={classNames('flex-1', 'flex flex-col', 'bg-white gap-8 p-6', className)} {...props}>
-      <div className="flex flex-col items-center">
-        <header className="text-2xl font-semibold">{t('backUpYourWallet')}</header>
-        <p className="text-sm font-normal mt-2 text-center w-[500px]">{t('backUpWalletInstructions')}</p>
+    <div className={classNames('flex flex-col', 'bg-white gap-8 p-6', className)} {...props}>
+      <div className="flex flex-col items-center text-heading-gray">
+        <header className="text-xl font-semibold">{t('backUpYourWallet')}</header>
+        <div className="text-sm text-center font-medium">
+          <p>{t('backUpWalletInstructions')}</p>
+          <p>{t('doNotShareWithAnywone')}</p>
+        </div>
       </div>
 
-      <article className="grid grid-cols-3 gap-3 w-full px-4 sm:w-[82%] sm:px-0 self-center">
+      <article className="grid grid-cols-3 gap-2 w-full">
         {seedPhrase.map((word, index) => (
           <Chip
+            className="w-[104px] h-8 rounded-[10px]"
             key={`seed-word-${index}`}
             label={
               <label
                 className={classNames(
-                  'flex flex-row gap-1',
-                  'transition duration-300 ease-in-out',
+                  'flex flex-row gap-1 w-full',
+                  'transition duration-300 ease-in-out justify-between',
                   isWordsVisible ? 'blur-none' : 'blur-sm'
                 )}
               >
                 <p className="text-grey-600 select-none pointer-events-none">{`${index + 1}.`}</p>
-                <p>{`${word}`}</p>
+                <p className="flex w-[80%] justify-center">{`${word}`}</p>
               </label>
             }
           />
         ))}
       </article>
 
-      <div className="flex gap-2 w-[80%] self-center">
+      <div className="flex gap-2 w-full text-heading-gray">
         <Button
-          className="flex-1"
+          className="rounded-[10px] border-[#00000033] border-[0.5px] text-xs font-medium h-8 w-1/2 py-5"
           variant={ButtonVariant.Ghost}
           title={t(isWordsVisible ? 'hide' : 'show')}
           iconLeft={isWordsVisible ? IconName.EyeOff : IconName.Eye}
           onClick={onWordsVisibilityToggle}
         />
         <Button
-          className="flex-1"
+          className="text-xs font-medium h-8 border-0 w-1/2 py-5"
           variant={ButtonVariant.Ghost}
           title={t(isCopied ? 'copied' : 'copyToClipboard')}
           iconLeft={isCopied ? IconName.CheckboxCircleFill : IconName.FileCopy}
@@ -89,8 +93,8 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
         />
       </div>
 
-      <div className="w-[360px] flex flex-col gap-2 self-center">
-        <Button title={t('continue')} onClick={onSubmit} />
+      <div className="flex flex-col gap-2 self-center w-full">
+        <Button title={t('continue')} onClick={onSubmit} className="rounded-[10px]" />
       </div>
     </div>
   );
