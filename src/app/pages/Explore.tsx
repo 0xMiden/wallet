@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { ReactComponent as FaucetIcon } from 'app/icons/faucet.svg';
-import { ReactComponent as ReceiveIcon } from 'app/icons/receive.svg';
-import { ReactComponent as SendIcon } from 'app/icons/send.svg';
+import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
+import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
+import { ReactComponent as SendIcon } from 'app/icons/send-new.svg';
 import Header from 'app/layouts/PageLayout/Header';
 import AddressChip from 'app/templates/AddressChip';
 import { ChainInstabilityBanner } from 'components/ChainInstabilityBanner';
@@ -185,52 +185,56 @@ const Explore: FC = () => {
     return null;
   }
 
-  const background = 'url(/misc/bg.svg) white center top / cover no-repeat';
   const sendLink = allTokenBalances.length > 0 ? '/send' : '/get-tokens';
 
   // Content only - container and footer provided by TabLayout
   return (
-    <>
+    <div>
       <ConnectivityIssueBanner />
       <ChainInstabilityBanner />
-      <div className={classNames('flex-none', fullPage && 'rounded-t-3xl')} style={{ background }}>
-        <Header />
-        <div className={classNames('flex flex-col justify-start mt-6')}>
-          <div className="flex flex-col w-full justify-center items-center">
-            <MainBanner />
-            <AddressChip address={account.publicKey} className="flex items-center" />
-          </div>
-          <div className="flex justify-evenly items-center w-full mt-1 px-2 mb-4">
+      <Header />
+      <div className={classNames('flex flex-col justify-start', isMobile() ? 'pt-5' : 'pt-[34px]')}>
+        <div className="flex flex-col w-full justify-center items-center">
+          <MainBanner />
+          <AddressChip address={account.publicKey} className="flex items-center" />
+        </div>
+        <div
+          className={classNames(
+            'flex justify-center items-center w-full px-2',
+            isMobile() ? 'mt-6 gap-8' : 'mt-[3.87px] gap-[25.66px]'
+          )}
+        >
+          <ActionButton
+            label={t('send')}
+            Icon={SendIcon}
+            to={sendLink}
+            disabled={false}
+            tippyProps={tippyPropsMock}
+            testID={ExploreSelectors.SendButton}
+            isActive={true}
+          />
+          <div className="relative">
             <ActionButton
-              label={t('send')}
-              Icon={SendIcon}
-              to={sendLink}
-              disabled={false}
-              tippyProps={tippyPropsMock}
-              testID={ExploreSelectors.SendButton}
+              label={t('receive')}
+              Icon={ReceiveIcon}
+              to="/receive"
+              testID={ExploreSelectors.ReceiveButton}
+              isActive={false}
             />
-            <div className="relative">
-              <ActionButton
-                label={t('receive')}
-                Icon={ReceiveIcon}
-                to="/receive"
-                testID={ExploreSelectors.ReceiveButton}
-              />
-              {selfClaimableNotes.length > 0 && (
-                <div className="absolute top-[25%] left-[95%] -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full border-2 border-white">
-                  {selfClaimableNotes.length}
-                </div>
-              )}
-            </div>
-            <ActionButton
-              label={t('faucet')}
-              Icon={FaucetIcon}
-              to={isMobile() ? undefined : '/faucet'}
-              onClick={isMobile() ? handleFaucetClick : undefined}
-              testID={ExploreSelectors.FaucetButton}
-              iconStyle={{ height: '20px', width: '20px', stroke: 'none' }}
-            />
+            {selfClaimableNotes.length > 0 && (
+              <div className="absolute top-[25%] left-[95%] -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full border-2 border-white">
+                {selfClaimableNotes.length}
+              </div>
+            )}
           </div>
+          <ActionButton
+            label={t('faucet')}
+            Icon={FaucetIcon}
+            to={isMobile() ? undefined : '/faucet'}
+            onClick={isMobile() ? handleFaucetClick : undefined}
+            testID={ExploreSelectors.FaucetButton}
+            isActive={false}
+          />
         </div>
       </div>
 
@@ -239,7 +243,7 @@ const Explore: FC = () => {
           <Tokens />
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
@@ -253,7 +257,7 @@ interface ActionButtonProps extends TestIDProps {
   disabled?: boolean;
   tippyProps?: Partial<TippyProps>;
   className?: string;
-  iconStyle?: React.CSSProperties;
+  isActive?: boolean;
 }
 
 const ActionButton: FC<ActionButtonProps> = ({
@@ -266,7 +270,7 @@ const ActionButton: FC<ActionButtonProps> = ({
   testID,
   testIDProperties,
   className,
-  iconStyle
+  isActive = false
 }) => {
   const spanRef = useTippy<HTMLSpanElement>(tippyProps);
   const buttonContent = (
@@ -274,27 +278,27 @@ const ActionButton: FC<ActionButtonProps> = ({
       <div className={classNames('mb-1 flex flex-col items-center', 'rounded-lg', 'pt-1')}>
         <div
           className={classNames(
-            'py-1 flex flex-col justify-center bg-primary-500',
-            !isMobile() && 'hover:bg-primary-600'
+            'flex items-center justify-center',
+            isActive ? 'bg-primary-500' : 'bg-white',
+            !isMobile() && isActive && 'hover:bg-primary-600'
           )}
           style={{
-            height: '48px',
-            width: '48px',
-            borderRadius: '24px'
+            height: isMobile() ? '56px' : '51.32px',
+            width: isMobile() ? '56px' : '51.32px',
+            borderRadius: '3.38px',
+            border: '0.37px solid #00000033'
           }}
         >
           <Icon
+            className={isActive ? 'text-white' : 'text-primary-500'}
             style={{
-              margin: 'auto',
-              height: '12px',
-              width: '12px',
-              stroke: `${disabled ? '#CBD5E0' : '#FFF'}`,
-              ...iconStyle
+              height: '18px',
+              width: '18px'
             }}
           />
         </div>
         <span
-          className={classNames('text-xs text-center', disabled ? 'text-gray-400' : 'text-black', 'py-1')}
+          className={classNames('text-[13px] text-center', disabled ? 'text-gray-400' : 'text-[#292929]', 'py-1')}
           style={{
             fontSize: '12px',
             lineHeight: '16px'

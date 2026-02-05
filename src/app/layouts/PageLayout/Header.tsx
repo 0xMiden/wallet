@@ -22,8 +22,8 @@ const Header: FC = () => {
   const isGeneratingUrl = window.location.href.search('generating-transaction') > -1;
 
   return (
-    <header className={classNames('mx-4', appEnv.fullPage && '')}>
-      <ContentContainer className="py-5">
+    <header className={classNames('px-4', appEnv.fullPage && '', 'border-b-[#00000033] border-b-[0.5px]')}>
+      <ContentContainer className="py-[15px]">
         <div>
           <div className="flex w-full">{!isGeneratingUrl && <Control />}</div>
         </div>
@@ -90,7 +90,7 @@ const Control: FC = () => {
             >
               <ColorIdenticon publicKey={account.publicKey} />
               <div className="self-start flex overflow-x-hidden ml-2 leading-9">
-                <Name className={classNames('font-bold', 'text-black', 'text-sm', 'opacity-90')}>{account.name}</Name>
+                <Name className={classNames('text-sm', 'text-black')}>{account.name}</Name>
                 <ChevronDownIcon
                   className="ml-1 -mr-1 stroke-2"
                   style={{ height: 16, width: 'auto', marginTop: '10px' }}

@@ -75,7 +75,7 @@ export class MidenClientInterface {
   static async create(options: MidenClientCreateOptions = {}) {
     const seed = options.seed;
     const network = MIDEN_NETWORK_NAME.TESTNET;
-    const transportLayer = MIDEN_TRANSPORT_LAYER_NAME.TESTNET;
+    // Keep note transport on testnet for now.
 
     // In test builds, swap to the SDK's mock client to avoid hitting the real chain.
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
@@ -83,10 +83,10 @@ export class MidenClientInterface {
       const mockWebClient = await sdk.MockWebClient.createClient(undefined, undefined, options.seed);
       return new MidenClientInterface(mockWebClient as unknown as WebClient, 'mock', options.onConnectivityIssue);
     }
-
+    console.log(MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network)!);
     const webClient = await WebClient.createClientWithExternalKeystore(
       MIDEN_NETWORK_ENDPOINTS.get(network)!,
-      MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(transportLayer),
+      MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network)!,
       seed,
       undefined,
       options.getKeyCallback,
