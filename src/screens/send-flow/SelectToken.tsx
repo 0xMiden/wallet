@@ -48,7 +48,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
       });
       onAction?.({
         id: SendFlowActionId.Navigate,
-        step: SendFlowStep.SelectRecipient
+        step: SendFlowStep.SendDetails
       });
     },
     [onAction]

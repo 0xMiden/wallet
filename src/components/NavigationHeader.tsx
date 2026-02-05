@@ -13,6 +13,7 @@ export interface NavigationHeaderProps extends HTMLAttributes<HTMLDivElement> {
   onBack?: () => void;
   onClose?: () => void;
   showBorder?: boolean;
+  innerDivClassName?: string;
 }
 
 export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
@@ -20,6 +21,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   onBack,
   onClose,
   showBorder = false,
+  innerDivClassName,
   ...props
 }) => {
   return (
@@ -31,7 +33,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
       )}
       style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
     >
-      <div className="flex flex-row items-center gap-x-4">
+      <div className={classNames('flex flex-row items-center gap-x-4', innerDivClassName)}>
         {onBack ? <CircleButton icon={IconName.ArrowLeft} onClick={onBack} /> : null}
         <h1 className="text-lg font-semibold">{props.title}</h1>
       </div>

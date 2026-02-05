@@ -38,30 +38,40 @@ export const InputAmount: React.FC<InputAmountProps> = ({
   // 13-16 18px
   const textSize = useMemo(() => {
     if (!value) {
-      return 'text-4xl';
+      return 'text-6xl';
     }
-    if (value.length <= 5) {
-      return 'text-4xl md:text-4xl';
+    if (value.length >= 13) {
+      return 'text-lg';
     }
-    if (value.length <= 12) {
-      return 'text-2xl md:text-4xl';
+    if (value.length >= 6) {
+      return 'text-2xl';
     }
 
-    return 'text-lg md:text-4xl';
+    if (value.length >= 3) {
+      return 'text-4xl';
+    }
+
+    return 'text-6xl';
   }, [value]);
 
   const inputWidth = useMemo(() => (value?.length ? `${value?.length}ch` : '1ch'), [value]);
 
-  const textColor = useMemo(() => (error ? 'text-red-500' : 'text-black'), [error]);
+  const textColor = useMemo(() => (error ? 'text-red-500' : 'text-[#00000087]'), [error]);
 
   const currencyLabel = label || 'ALEO';
 
   return (
     <div {...props} className={classNames('flex flex-col items-center gap-y-2', className)}>
       <div className="flex cursor-pointer items-end" onClick={() => inputRef.current?.focus()}>
-        {displayFiat ? <label className={classNames('text-grey-300 text-left leading-snug', textSize)}>$</label> : null}
+        {displayFiat ? (
+          <label className={classNames('text-left leading-none text-[#00000087]', textSize)}>$</label>
+        ) : null}
         <CurrencyInput
-          className={classNames('p-0 placeholder-grey-300 outline-none leading-snug', textSize, textColor)}
+          className={classNames(
+            'p-0 placeholder-[#00000087] outline-none leading-snug font-medium',
+            textSize,
+            textColor
+          )}
           value={displayFiat ? fiatValue || value : value}
           style={{ width: inputWidth }}
           onValueChange={onValueChange}
@@ -75,7 +85,9 @@ export const InputAmount: React.FC<InputAmountProps> = ({
           autoFocus={autoFocus}
         />
         {!displayFiat ? (
-          <label className={classNames('ml-2 text-grey-300 text-left leading-snug', textSize)}>{currencyLabel}</label>
+          <label className={classNames('ml-2 text-[#00000087] text-left leading-snug', textSize)}>
+            {currencyLabel}
+          </label>
         ) : null}
       </div>
       {displayToggleCurrency && (

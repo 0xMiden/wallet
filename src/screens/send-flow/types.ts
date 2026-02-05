@@ -1,10 +1,7 @@
 export enum SendFlowStep {
   SelectToken = 'SelectToken',
-  SelectRecipient = 'SelectRecipient',
+  SendDetails = 'SendDetails',
   AccountsList = 'AccountsList',
-  SelectAmount = 'SelectAmount',
-  ReviewTransaction = 'ReviewTransaction',
-  GeneratingTransaction = 'GeneratingTransaction',
   TransactionInitiated = 'TransactionInitiated'
 }
 

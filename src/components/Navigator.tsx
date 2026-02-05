@@ -262,7 +262,6 @@ export const Navigator: React.FC<NavigatorProps> = ({
           initial="initialPosition"
           animate="focusPosition"
           exit="exitPosition"
-          className="flex-1 flex"
           transition={{
             duration: effectiveDuration,
             when: 'beforeChildren',
