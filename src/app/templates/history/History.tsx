@@ -127,7 +127,8 @@ async function fetchTransactionsAsHistoryEntries(
       token: tokenMetadata ? tokenMetadata.symbol : undefined,
       secondaryAddress: tx.secondaryAccountId,
       txId: tx.id,
-      noteType: tx.noteType
+      noteType: tx.noteType,
+      faucetId: tx.faucetId
     } as IHistoryEntry;
 
     return entry;
@@ -156,7 +157,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       secondaryAddress: tx.secondaryAccountId,
       txId: tx.id,
       type: entryType,
-      noteType: tx.noteType
+      noteType: tx.noteType,
+      faucetId: tx.faucetId
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

@@ -19,6 +19,8 @@ export interface IHistoryEntry {
   noteType?: string;
   noteId?: string;
   externalTxId?: string;
+  faucetId?: string;
+  blockNumber?: number;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

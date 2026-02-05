@@ -292,8 +292,8 @@ const ActionButton: FC<ActionButtonProps> = ({
           <Icon
             className={isActive ? 'text-white' : 'text-primary-500'}
             style={{
-              height: '18px',
-              width: '18px'
+              height: isMobile() ? '18px' : '24px',
+              width: isMobile() ? '18px' : '24px'
             }}
           />
         </div>
