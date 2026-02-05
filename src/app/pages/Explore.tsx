@@ -189,7 +189,7 @@ const Explore: FC = () => {
 
   // Content only - container and footer provided by TabLayout
   return (
-    <div>
+    <div className={isMobile() ? 'text-heading-gray' : 'text-black'}>
       <ConnectivityIssueBanner />
       <ChainInstabilityBanner />
       <Header />
@@ -201,7 +201,7 @@ const Explore: FC = () => {
         <div
           className={classNames(
             'flex justify-center items-center w-full px-2',
-            isMobile() ? 'mt-6 gap-8' : 'mt-[3.87px] gap-[25.66px]'
+            isMobile() ? 'pt-6 gap-8' : 'pt-[3.87px] gap-[25.66px]'
           )}
         >
           <ActionButton
@@ -239,7 +239,7 @@ const Explore: FC = () => {
       </div>
 
       <div className="flex-grow overflow-y-auto relative" style={{ scrollbarGutter: 'stable' }}>
-        <div className={classNames('bg-transparent', 'md:w-[460px] md:mx-auto px-4')}>
+        <div className={classNames('bg-transparent', 'px-4')}>
           <Tokens />
         </div>
       </div>

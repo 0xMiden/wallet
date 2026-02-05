@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import { type ConsumableNoteRecord } from '@miden-sdk/miden-sdk';
+
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, WalletMessageType } from 'lib/shared/types';
@@ -7,10 +9,11 @@ import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { isMidenFaucet } from '../assets';
+import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { ConsumableNote } from '../types';
+import { ConsumableNote, NoteTypeEnum } from '../types';
 import { useTokensMetadata } from './assets';
 
 // Debug info for iOS troubleshooting
@@ -32,11 +35,12 @@ type ParsedNote = {
   amountBaseUnits: string;
   senderAddress: string;
   isBeingClaimed: boolean;
+  type: NoteTypeEnum | 'unknown';
 };
 
 // -------------------- Pure helpers (no side effects) --------------------
 
-function parseNotes(rawNotes: any[], notesBeingClaimed: Set<string>): ParsedNote[] {
+function parseNotes(rawNotes: ConsumableNoteRecord[], notesBeingClaimed: Set<string>): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
   for (const note of rawNotes) {
@@ -58,13 +62,14 @@ function parseNotes(rawNotes: any[], notesBeingClaimed: Set<string>): ParsedNote
       const faucetId = getBech32AddressFromAccountId(firstAsset.faucetId());
       const amountBaseUnits = firstAsset.amount().toString();
       const senderAddress = noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '';
-
+      const kind = noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown';
       parsed.push({
         id: noteId,
         faucetId,
         amountBaseUnits,
         senderAddress,
-        isBeingClaimed: notesBeingClaimed.has(noteId)
+        isBeingClaimed: notesBeingClaimed.has(noteId),
+        type: kind
       });
     } catch (err) {
       console.error('Error processing note:', err);
@@ -118,7 +123,8 @@ function attachMetadataToNotes(
       amount: n.amountBaseUnits, // base units
       metadata: metadataByFaucetId[n.faucetId]!,
       senderAddress: n.senderAddress,
-      isBeingClaimed: n.isBeingClaimed
+      isBeingClaimed: n.isBeingClaimed,
+      type: n.type
     }));
 }
 
@@ -264,7 +270,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
         }
       });
     }
-
+    console.log(parsedNotes);
     // 4) Return notes with available metadata immediately
     const result = attachMetadataToNotes(parsedNotes, metadataByFaucetId);
 

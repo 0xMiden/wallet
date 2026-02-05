@@ -7,6 +7,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
 import { useAccount, useAllTokensBaseMetadata, useAllBalances } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
@@ -18,11 +19,17 @@ const Tokens: FC = () => {
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
 
   return (
-    <>
-      <div className={classNames('w-full pt-3 mb-2', 'flex justify-start', 'text-sm font-semibold text-black')}>
+    <div className={classNames('w-full mb-2', isMobile() ? 'pt-6' : 'pt-5')}>
+      <div
+        className={classNames(
+          'flex',
+          'text-xl font-medium',
+          isMobile() ? 'justify-center pb-[25px]' : 'justify-start pb-[12.83px]'
+        )}
+      >
         {allTokenBalances.length > 0 && <span>{t('tokens')}</span>}
       </div>
-      <div className="flex-1 flex flex-col pb-4 gap-2">
+      <div className="flex flex-col pb-4 gap-2 w-full">
         {allTokenBalances.length > 0 &&
           allTokenBalances
             .sort(a => (a.tokenId === midenFaucetId ? -1 : 1))
@@ -38,17 +45,19 @@ const Tokens: FC = () => {
                     }
                     title={metadata.symbol}
                     subtitle={truncateAddress(tokenId, false)}
-                    titleRight={`$${balance.toFixed(2)}`}
-                    subtitleRight={balance.toFixed(2)}
-                    className="flex-1 border border-grey-50 rounded-lg"
+                    titleRight={balance.toFixed(2)}
+                    subtitleRight={`${balance.toFixed(2)} USD`}
+                    className="border-[0.53px] border-[#00000033] rounded-[5.35px] px-[17.11px] py-[13.9px] justify-between"
                     hoverable={true}
                     onClick={() => navigate(`/token-history/${tokenId}`)}
+                    titleClassName="!font-normal text-[12.83px]"
+                    subtitleClassName="!font-normal text-[#000000A3] text-[10.69px]"
                   />
                 </div>
               );
             })}
       </div>
-    </>
+    </div>
   );
 };
 

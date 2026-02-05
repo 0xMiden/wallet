@@ -92,7 +92,7 @@ export const Button: React.FC<ButtonProps> = ({
     return (
       <>
         {iconLeft && <span className="w-6">{<IconOrComponent icon={iconLeft} color={iconColor} />}</span>}
-        {isLoading ? <Loader color={iconColor} /> : <span className={`${color} font-medium text-base`}>{title}</span>}
+        {isLoading ? <Loader color={iconColor} /> : <span className={`${color} font-medium`}>{title}</span>}
         {iconRight && <span className="w-6">{<IconOrComponent icon={iconRight} color={iconColor} />}</span>}
       </>
     );

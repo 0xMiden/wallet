@@ -18,6 +18,8 @@ export interface CardItemProps extends React.ComponentProps<'div'> {
   titleRight?: string;
   subtitleRight?: string;
   hoverable?: boolean;
+  titleClassName?: string;
+  subtitleClassName?: string;
 }
 
 export const LeftIconOrComponent = ({
@@ -55,6 +57,8 @@ export const CardItem: React.FC<CardItemProps> = ({
   subtitleRight,
   hoverable = false,
   onClick,
+  titleClassName,
+  subtitleClassName,
   ...props
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -70,21 +74,29 @@ export const CardItem: React.FC<CardItemProps> = ({
     'rounded-lg transition', // Shape and transition classes
     'duration-300 ease-in-out', // Transition duration and timing function classes
     hoverable && 'hover:bg-grey-50 cursor-pointer', // Hover and cursor classes
-    'overflow-hidden',
+    'overflow-hidden w-full',
     className // User-defined classes
   );
 
   return (
     <div {...props} className={cardItemClasses} onClick={handleClick}>
       <div className="shrink-0">{iconLeft && <LeftIconOrComponent icon={iconLeft} color="black" />}</div>
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex-col flex justify-center overflow-hidden">
-          {title && <p className="text-sm font-medium text-black truncate text-ellipsis text-left">{title}</p>}
-          {subtitle && <p className="text-xs text-grey-600 truncate text-ellipsis">{subtitle}</p>}
+      <div className="flex overflow-hidden w-full justify-between">
+        <div className="flex-col flex justify-center overflow-hidden">
+          {title && (
+            <p
+              className={classNames('text-sm font-medium text-black truncate text-ellipsis text-left', titleClassName)}
+            >
+              {title}
+            </p>
+          )}
+          {subtitle && (
+            <p className={classNames('text-xs text-grey-600 truncate text-ellipsis', subtitleClassName)}>{subtitle}</p>
+          )}
         </div>
         {(titleRight || subtitleRight) && (
           <div className="text-sm text-grey-600 flex flex-col justify-center items-end">
-            {titleRight && <div className="text-sm font-medium text-black">{titleRight}</div>}
+            {titleRight && <div className="text-[17px] font-medium text-black">{titleRight}</div>}
             {subtitleRight && <div className="text-xs text-grey-600">{subtitleRight}</div>}
           </div>
         )}

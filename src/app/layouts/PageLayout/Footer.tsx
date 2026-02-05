@@ -1,13 +1,66 @@
-import React, { FC } from 'react';
+import React, { FC, FunctionComponent, SVGProps } from 'react';
 
+import classNames from 'clsx';
+
+import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
+import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
+import { ReactComponent as SettingsIcon } from 'app/icons/settings-new.svg';
 import { IconName } from 'app/icons/v2';
 import { FooterIconWrapper } from 'components/FooterIconWrapper';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { isDesktop, isMobile } from 'lib/platform';
+import { Link, useLocation } from 'lib/woozie';
 
 interface FooterProps {
   historyBadge?: boolean;
 }
+
+interface FooterNavButtonProps {
+  Icon: FunctionComponent<SVGProps<SVGSVGElement>>;
+  linkTo: string;
+  onClick: () => void;
+  badge?: boolean;
+}
+
+const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badge }) => {
+  const location = useLocation();
+  const currentPath = location.pathname;
+  const pathSegments = currentPath.split('/');
+  const currentPathSegment = pathSegments[1];
+  const active =
+    currentPathSegment === linkTo.replace('/', '') ||
+    (currentPathSegment === 'activity-details' && linkTo === '/activity') ||
+    (linkTo === '/' && currentPathSegment === '');
+
+  const handleClick = () => {
+    hapticSelection();
+    onClick();
+  };
+
+  return (
+    <Link to={linkTo} onClick={handleClick}>
+      <div className={classNames('flex relative flex-col items-center rounded-full hover:bg-grey-25')}>
+        <Icon
+          className={active ? 'text-primary-500' : 'text-black'}
+          style={{
+            height: '34.21px',
+            width: '34.21px'
+          }}
+        />
+        {badge && (
+          <div
+            className={classNames(
+              'absolute top-[30%] left-[70%] -translate-x-1/2 -translate-y-1/2',
+              'flex items-center justify-center',
+              'w-4 h-4 bg-red-500 rounded-full'
+            )}
+          />
+        )}
+      </div>
+    </Link>
+  );
+};
 
 const Footer: FC<FooterProps> = ({ historyBadge }) => {
   const { trackEvent } = useAnalytics();
@@ -35,24 +88,13 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
 
   return (
     <footer
-      className={`w-full relative bg-white border-t ${roundedClass} h-18 px-8 md:px-16 ${paddingClass}`}
+      className={`w-full relative bg-white ${roundedClass} h-18 px-8 md:px-16 ${paddingClass}`}
       style={mobileBottomPadding}
     >
-      <div className="flex justify-between">
-        <FooterIconWrapper icon={IconName.Home} iconFill={IconName.HomeFill} linkTo={'/'} onClick={onHomeClick} />
-        <FooterIconWrapper
-          icon={IconName.Time}
-          iconFill={IconName.TimeFill}
-          linkTo={'/history'}
-          onClick={onHistoryClick}
-          badge={historyBadge}
-        />
-        <FooterIconWrapper
-          icon={IconName.Settings}
-          iconFill={IconName.SettingsFill}
-          linkTo={'/settings'}
-          onClick={onSettingsClick}
-        />
+      <div className="flex justify-center gap-[68.42px]">
+        <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} />
+        <FooterNavButton Icon={ActivityIcon} linkTo={'/history'} onClick={onHistoryClick} badge={historyBadge} />
+        <FooterNavButton Icon={SettingsIcon} linkTo={'/settings'} onClick={onSettingsClick} />
         {(isMobile() || isDesktop()) && (
           <FooterIconWrapper
             icon={IconName.Globe}

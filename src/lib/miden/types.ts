@@ -29,6 +29,7 @@ export interface ConsumableNote {
   amount: string;
   senderAddress: string;
   isBeingClaimed: boolean;
+  type: NoteType | 'unknown';
 }
 
 export enum MidenSharedStorageKey {

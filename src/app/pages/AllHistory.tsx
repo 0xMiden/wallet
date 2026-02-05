@@ -21,10 +21,12 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     <>
       {/* Header */}
       <div
-        className="flex-none px-4 bg-white border-b border-grey-100"
-        style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
+        className={classNames(
+          'flex w-full items-center justify-center px-4 bg-white border-b-[0.5px] border-[#48484833] border-dashed',
+          isMobile() ? 'pt-6 pb-[18px]' : 'py-[18px]'
+        )}
       >
-        <h1 className="text-lg font-semibold text-black">{t('history')}</h1>
+        <h1 className="text-xl font-medium text-heading-gray">{t('activities')}</h1>
       </div>
 
       {/* Content */}

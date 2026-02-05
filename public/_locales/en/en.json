@@ -431,7 +431,7 @@
   "alreadyHaveTransactionFile": "Already have a transaction file?",
   "claimAll": "Claim All",
   "claimAllSummary": "$succeeded$ succeeded, $failed$ failed",
-  "readyToClaim": "$count$ notes ready to claim",
+  "readyToClaim": "Pending notes: $count$",
   "addTokens": "Add tokens",
   "getTokens": "Get tokens",
   "getTokensDescription": "You can get tokens from the faucet or transfer them from another wallet or account.",
@@ -515,5 +515,6 @@
   "historyDetails": "Details",
   "passwordsCanBeInsecure": "Passwords can be insecure. Use biometric authentication instead.",
   "unlockWallet": "Unlock Wallet",
-  "unlockWalletDescription": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+  "unlockWalletDescription": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
+  "activities": "Activities"
 }
