@@ -201,7 +201,7 @@ const Explore: FC = () => {
         <div
           className={classNames(
             'flex justify-center items-center w-full px-2',
-            isMobile() ? 'pt-6 gap-8' : 'pt-[3.87px] gap-[25.66px]'
+            isMobile() ? 'pt-6 gap-7' : 'pt-[3.87px] gap-[25.66px]'
           )}
         >
           <ActionButton
@@ -280,20 +280,19 @@ const ActionButton: FC<ActionButtonProps> = ({
           className={classNames(
             'flex items-center justify-center',
             isActive ? 'bg-primary-500' : 'bg-white',
-            !isMobile() && isActive && 'hover:bg-primary-600'
+            !isMobile() && isActive && 'hover:bg-primary-600',
+            'border border-[#00000033] rounded-[3.38px]'
           )}
           style={{
-            height: isMobile() ? '56px' : '51.32px',
-            width: isMobile() ? '56px' : '51.32px',
-            borderRadius: '3.38px',
-            border: '0.37px solid #00000033'
+            height: isMobile() ? '65px' : '51.32px',
+            width: isMobile() ? '65px' : '51.32px'
           }}
         >
           <Icon
             className={isActive ? 'text-white' : 'text-primary-500'}
             style={{
-              height: isMobile() ? '18px' : '24px',
-              width: isMobile() ? '18px' : '24px'
+              height: isMobile() ? '30px' : '24px',
+              width: isMobile() ? '30px' : '24px'
             }}
           />
         </div>

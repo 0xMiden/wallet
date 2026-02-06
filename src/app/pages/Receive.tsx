@@ -334,25 +334,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     individualClaimingIds
   ]);
 
-  const handleClose = () => {
-    if (fromNotification) {
-      goBack();
-    } else if (popup) {
-      // In popup (extension), go back if there's history, otherwise go home
-      goBack();
-    } else {
-      // Full page or mobile - go back
-      goBack();
-    }
-  };
-
-  const handleButtonClick = () => {
-    // Trigger the hidden input's click event
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
   const handleFileChange = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = async (e: ProgressEvent<FileReader>) => {
@@ -440,7 +421,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
       >
         <button
           type="button"
-          onClick={handleClose}
+          onClick={goBack}
           className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
           aria-label="Back"
         >

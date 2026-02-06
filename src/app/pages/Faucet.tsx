@@ -1,11 +1,11 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
-import PageLayout from 'app/layouts/PageLayout';
+import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Message } from 'components/Message';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import { useAccount, useNetwork } from 'lib/miden/front';
@@ -55,25 +55,40 @@ const Faucet: FC = () => {
   }
 
   return (
-    <PageLayout pageTitle={<span>{t('faucet')}</span>}>
-      <div className="flex-1 flex flex-col">
-        <div className="flex-1 flex flex-col justify-center bg-white p-4 md:w-[460px] md:mx-auto">
-          <Message
-            className="flex-1"
-            title={t('midenFaucet')}
-            description={t('midenFaucetDescription')}
-            icon={IconName.Tokens}
-            iconSize="3xl"
-            iconClassName="mb-8"
-          />
+    <div className={clsx('text-heading-gray')}>
+      <div
+        className="flex flex-row px-4 items-center justify-center border-b border-grey-100"
+        style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
+      >
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
+          aria-label="Back"
+        >
+          <Icon name={IconName.ArrowLeft} size="sm" fill="black" />
+        </button>
+        <h1 className="text-[20px] font-medium w-full flex items-center justify-center pr-10">{t('faucet')}</h1>
+      </div>
+      <div className={clsx('flex flex-col justify-between h-full w-full', isMobile() ? 'px-8' : 'px-4')}>
+        <div className="flex flex-col pt-[65px]">
+          <div className="flex flex-col justify-center items-center bg-white">
+            <div className="flex items-center justify-center mb-6 w-[156px] h-[156px]">
+              <FaucetIcon className="text-primary-orange" style={{ width: 78, height: 78 }} />
+            </div>
+            <div className="w-full flex flex-col items-center justify-center">
+              <h1 className="font-semibold text-2xl">{t('midenFaucet')}</h1>
+              <p className="text-sm text-center mt-2 ">{t('faucetMessage')}</p>
+            </div>
+          </div>
         </div>
-        <div className="p-4 flex flex-col gap-y-4">
-          <Button onClick={openFaucet}>
+        <div className="flex flex-col gap-y-4">
+          <Button onClick={openFaucet} className="rounded-[10px]">
             <span className="text-base font-medium text-white">{copied ? t('copiedAddress') : t('goToFaucet')}</span>
           </Button>
         </div>
       </div>
-    </PageLayout>
+    </div>
   );
 };
 

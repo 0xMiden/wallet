@@ -43,7 +43,7 @@ const getTransactionIcon = (entry: IHistoryEntry) => {
   }
 
   if (isFaucetRequest(entry)) {
-    return <FaucetIcon className="w-6 h-6 " />;
+    return <FaucetIcon className="w-6 h-6" />;
   }
 
   switch (entry.transactionIcon) {
@@ -88,7 +88,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       className={classNames(
         'w-full flex items-center gap-3 py-5 cursor-pointer transition-colors duration-200 hover:bg-grey-50',
         !lastEntry && 'border-b',
-        fullHistory ? 'border-b-[#00000033] border-b-[0.27px]' : 'border-b-grey-100 border-b-[0.5px]'
+        fullHistory && !lastEntry ? 'border-b-[#00000033] border-b-[0.27px]' : ''
       )}
     >
       {/* Icon */}
@@ -140,6 +140,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 };
 
 const HistoryItem = memo<HistoryItemProps>(({ className, fullHistory, entry, lastEntry }) => {
+  console.log('Rendering HistoryItem with entry:', entry, 'and fullHistory:', fullHistory, 'and lastEntry:', lastEntry);
   return (
     <div className={classNames('w-full text-black', className)}>
       {entry.explorerLink ? (

@@ -529,5 +529,6 @@
   "activities": "Activities",
   "sortBy": "Sort by",
   "recent": "Recent",
-  "faucetRequest": "Faucet Request"
+  "faucetRequest": "Faucet Request",
+  "faucetMessage": "You can get tokens from the faucet or transfer them from another wallet or account"
 }

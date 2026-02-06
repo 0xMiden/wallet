@@ -72,7 +72,7 @@ const HistoryView = memo<HistoryViewProps>(
     console.log('Rendering HistoryView with entries:', entries);
     // Group entries by date
     const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
-
+    console.log('Grouped entries:', groupedEntries);
     if (noEntries) {
       return initialLoading ? (
         <ActivitySpinner />
