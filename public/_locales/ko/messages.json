@@ -1136,6 +1136,22 @@
     "note": "Onboarding",
     "englishSource": "Private transactions anytime, anywhere."
   },
+  "midenWallet": {
+    "message": "Miden Wallet",
+    "englishSource": "Miden Wallet"
+  },
+  "privateTransactions": {
+    "message": "Private transactions.",
+    "englishSource": "Private transactions."
+  },
+  "anytime": {
+    "message": "Anytime.",
+    "englishSource": "Anytime."
+  },
+  "anywhere": {
+    "message": "Anywhere.",
+    "englishSource": "Anywhere."
+  },
   "createANewWallet": {
     "message": "새 지갑 만들기",
     "note": "Onboarding",
@@ -1167,9 +1183,8 @@
     "englishSource": "Copied"
   },
   "copyToClipboard": {
-    "message": "클립보드에 복사",
-    "note": "Onboarding",
-    "englishSource": "Copy to clipboard"
+    "message": "Copy",
+    "englishSource": "Copy"
   },
   "createsProofsOnYourComputer": {
     "message": "컴퓨터에서 증명을 생성합니다",
@@ -1273,9 +1288,12 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "이 12개의 단어를 비밀번호 관리자에 저장하거나 적어서 안전한 곳에 보관하세요. 누구와도 공유하지 마세요.",
-    "note": "Onboarding",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place. Do not share with anyone."
+    "message": "Save these 12 words to a password manager, or write down and store in a secure place.",
+    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+  },
+  "doNotShareWithAnywone": {
+    "message": "Do not share with anyone.",
+    "englishSource": "Do not share with anyone."
   },
   "select": {
     "message": "선택",
@@ -1863,6 +1881,46 @@
     "message": "비공개로 거래 공유",
     "englishSource": "Share transaction privately"
   },
+  "privatePayment": {
+    "message": "Private Payment",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "Keep transaction details private",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Use Delegate Proving",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Delegate Proving",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Outsource proof generation",
+    "englishSource": "Outsource proof generation"
+  },
+  "oneToManyPayment": {
+    "message": "One to Many Payment",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Send to multiple recipients",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "Recall Transaction",
+    "englishSource": "Recall Transaction"
+  },
+  "sendPayment": {
+    "message": "Send Payment",
+    "englishSource": "Send Payment"
+  },
+  "reviewTransaction": {
+    "message": "Review Transaction",
+    "englishSource": "Review Transaction"
+  },
   "alreadyHaveTransactionFile": {
     "message": "이미 거래 파일이 있나요?",
     "englishSource": "Already have a transaction file?"
@@ -1884,8 +1942,8 @@
     }
   },
   "readyToClaim": {
-    "message": "$count$ notes 청구 준비 완료",
-    "englishSource": "$count$ notes ready to claim",
+    "message": "Pending notes: $count$",
+    "englishSource": "Pending notes: $count$",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -2229,5 +2287,25 @@
   "unlockWalletDescription": {
     "message": "seed phrase을 사용하면 언제든지 공개 계정을 복원할 수 있습니다. 지갑을 빠르게 잠금 해제하는 방법을 아래에서 선택하세요.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+  },
+  "activities": {
+    "message": "Activities",
+    "englishSource": "Activities"
+  },
+  "sortBy": {
+    "message": "Sort by",
+    "englishSource": "Sort by"
+  },
+  "recent": {
+    "message": "Recent",
+    "englishSource": "Recent"
+  },
+  "faucetRequest": {
+    "message": "Faucet Request",
+    "englishSource": "Faucet Request"
+  },
+  "faucetMessage": {
+    "message": "You can get tokens from the faucet or transfer them from another wallet or account",
+    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account"
   }
 }
