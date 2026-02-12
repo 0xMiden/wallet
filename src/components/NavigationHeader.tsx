@@ -27,15 +27,15 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   return (
     <div
       className={classNames(
-        'flex flex-row px-4 items-center justify-between',
-        showBorder && 'border-b border-grey-100',
+        'flex flex-row px-4 items-center w-full',
+        showBorder && 'border-b-[0.5px] border-[#48484833]',
+        isMobile() ? 'py-6' : 'py-4',
         className
       )}
-      style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
     >
-      <div className={classNames('flex flex-row items-center gap-x-4', innerDivClassName)}>
-        {onBack ? <CircleButton icon={IconName.ArrowLeft} onClick={onBack} /> : null}
-        <h1 className="text-lg font-semibold">{props.title}</h1>
+      <div className={classNames('flex flex-row items-center gap-x-4 w-full', innerDivClassName)}>
+        {onBack ? <CircleButton icon={IconName.ChevronLeft} onClick={onBack} className="flex-0" /> : null}
+        <h1 className="text-xl flex-1 font-medium text-heading-gray text-center pr-10">{props.title}</h1>
       </div>
       {onClose ? <CircleButton icon={IconName.Close} onClick={onClose} /> : null}
     </div>

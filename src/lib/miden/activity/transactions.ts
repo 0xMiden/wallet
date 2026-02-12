@@ -132,12 +132,22 @@ export const initiateConsumeTransactionFromId = async (
   noteId: string,
   delegateTransaction?: boolean
 ): Promise<string> => {
+  const sdkNote = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+
+    return midenClient.webClient.getInputNote(noteId);
+  });
+  if (!sdkNote) {
+    throw new Error(`Note with id ${noteId} not found`);
+  }
+  const noteMeta = sdkNote.metadata();
   const note: ConsumableNote = {
     id: noteId,
     faucetId: '',
     amount: '',
     senderAddress: '',
-    isBeingClaimed: false
+    isBeingClaimed: false,
+    type: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
   };
 
   return await initiateConsumeTransaction(accountId, note, delegateTransaction);
