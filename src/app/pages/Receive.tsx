@@ -31,6 +31,16 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger
+} from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -428,14 +438,38 @@ export const Receive: React.FC<ReceiveProps> = () => {
           <Icon name={IconName.ArrowLeft} size="sm" fill="black" />
         </button>
         <h1 className="text-[20px] font-medium">{t('receive')}</h1>
-        <button
+        {/* <button
           type="button"
           onClick={() => setIsQRSheetOpen(true)}
           className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
           aria-label="Show QR Code"
         >
           <QRIcon className="text-[#484848]" style={{ width: '25px', height: '25px' }} />
-        </button>
+        </button> */}
+
+        <Drawer>
+          <DrawerTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
+              aria-label="Show QR Code"
+            >
+              <QRIcon className="text-[#484848]" style={{ width: '25px', height: '25px' }} />
+            </button>
+          </DrawerTrigger>
+          <DrawerContent>
+            <DrawerHeader>
+              <DrawerTitle>Are you absolutely sure?</DrawerTitle>
+              <DrawerDescription>This action cannot be undone.</DrawerDescription>
+            </DrawerHeader>
+            <DrawerFooter>
+              <Button>Submit</Button>
+              <DrawerClose>
+                <Button>Cancel</Button>
+              </DrawerClose>
+            </DrawerFooter>
+          </DrawerContent>
+        </Drawer>
       </div>
 
       {/* QR Code Sheet Overlay */}

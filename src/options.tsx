@@ -16,7 +16,7 @@ import { clearStorage } from 'lib/miden/reset';
 import { AlertFn, ConfirmFn, DialogsProvider, useAlert, useConfirm } from 'lib/ui/dialog';
 
 // Disable animations for extension
-document.documentElement.classList.add('extension-no-animations');
+// Animations enabled for extension
 
 const OptionsWrapper: FC = () => (
   <DialogsProvider>

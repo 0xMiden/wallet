@@ -12,7 +12,7 @@ import { WindowType, openInFullPage } from 'app/env';
 import { isPopupModeEnabled } from 'lib/popup-mode';
 
 // Disable animations for extension
-document.documentElement.classList.add('extension-no-animations');
+// Animations enabled for extension
 
 const container = document.getElementById('root');
 const root = createRoot(container!);

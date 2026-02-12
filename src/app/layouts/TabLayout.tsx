@@ -6,7 +6,7 @@ import { useAppEnv } from 'app/env';
 import { useHistoryBadge } from 'app/hooks/useHistoryBadge';
 import Footer from 'app/layouts/PageLayout/Footer';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isDesktop, isMobile } from 'lib/platform';
+import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { useLocation } from 'lib/woozie';
 
@@ -20,12 +20,14 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { pathname } = useLocation();
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Animate content on route change
+  // Animate content on route change (mobile only, not extension)
   // Remove class after animation completes to prevent replay on display toggle
   // (resetViewportAfterWebview toggles display:none which restarts CSS animations)
   useEffect(() => {
     if (!contentRef.current) return;
     if (isMobile() && isReturningFromWebview()) return;
+    // Skip animation on extension
+    if (isExtension()) return;
 
     const el = contentRef.current;
     el.classList.remove('mobile-page-enter');
