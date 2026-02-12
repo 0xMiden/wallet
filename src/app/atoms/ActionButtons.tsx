@@ -49,7 +49,7 @@ export const SecondaryButton = React.forwardRef<HTMLButtonElement, Props>(
         className={classNames(
           secondaryClassNames,
           additionalClassNames,
-          !disabled && 'hover:bg-gray-700 active:bg-gray-100 text-black',
+          !disabled && 'hover:bg-gray-300 active:bg-gray-100 text-black',
           disabled && 'pointer-events-none cursor-default text-gray-400'
         )}
         {...props}

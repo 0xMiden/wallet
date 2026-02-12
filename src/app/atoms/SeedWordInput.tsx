@@ -120,7 +120,7 @@ export const SeedWordInput: FC<SeedWordInputProps> = ({
             'absolute',
             'w-full',
             'cursor-pointer flex items-center justify-center',
-            'bg-gray-800 bg-opacity-80 rounded-lg'
+            'bg-gray-800 bg-opacity/80 rounded-lg'
           )}
           style={{ top: 20, height: 52 }}
           onClick={() => {

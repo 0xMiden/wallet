@@ -54,7 +54,7 @@ const DateSeparator: React.FC<{ date: string; isFirst?: boolean }> = ({ date, is
   return (
     <div className="flex items-center justify-center py-3 gap-3">
       <div className="flex-1 h-0" style={{ borderTop: '0.5px dashed #FF5500' }} />
-      <span className="px-4 py-1.5 text-sm text-grey-600 border border-grey-200 rounded-full bg-white flex-shrink-0">
+      <span className="px-4 py-1.5 text-sm text-grey-600 border border-grey-200 rounded-full bg-white shrink-0">
         {date}
       </span>
       <div className="flex-1 h-0" style={{ borderTop: '0.5px dashed #FF5500' }} />

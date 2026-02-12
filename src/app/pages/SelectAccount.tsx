@@ -53,12 +53,12 @@ const SelectAccount: FC = () => {
                     'transition ease-in-out duration-200',
                     'cursor-pointer',
                     'mb-1',
-                    'hover:bg-gray-800 active:bg-gray-700'
+                    'hover:bg-gray-200 active:bg-gray-300'
                   )}
                   style={{ height: '64px' }}
                   onClick={handleAccountClick}
                 >
-                  <ColorIdenticon publicKey={acc.publicKey} className="flex-shrink-0" />
+                  <ColorIdenticon publicKey={acc.publicKey} className="shrink-0" />
 
                   <div className="flex flex-col items-start ml-2">
                     <div className="flex flex-col text-left">
@@ -75,7 +75,7 @@ const SelectAccount: FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col flex-grow items-end">
+                  <div className="flex flex-col grow items-end">
                     <Checkmark className={`mr-1 ${selected ? '' : 'invisible'} w-5 h-5`} />
                   </div>
                 </div>

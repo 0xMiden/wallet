@@ -27,7 +27,7 @@ const ForgotPasswordInfoScreen: FC<ResetRequiredScreenProps> = ({ onConfirm }) =
     >
       <NavigationHeader title={t('resetRequired')} />
       <div className="flex flex-col flex-1 p-4 justify-between md:w-[460px] md:mx-auto">
-        <div className="flex flex-col flex-grow items-center justify-center">
+        <div className="flex flex-col grow items-center justify-center">
           <Message
             className="flex-1"
             title={t('resetRequired')}

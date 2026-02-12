@@ -93,14 +93,14 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     >
       {/* Icon */}
       <div
-        className="flex items-center justify-center flex-shrink-0 rounded-[10px]  bg-transparent text-primary-500"
+        className="flex items-center justify-center shrink-0 rounded-[10px]  bg-transparent text-primary-500"
         style={{ width: 40, height: 40 }}
       >
         {getTransactionIcon(entry)}
       </div>
 
       {/* Content */}
-      <div className="flex flex-col flex-grow min-w-0">
+      <div className="flex flex-col grow min-w-0">
         <span className="text-heading-gray font-medium truncate text-[15.11px]">{title}</span>
         {subtitle ? (
           <span className="text-xs text-heading-gray opacity-50">{subtitle}</span>
@@ -116,7 +116,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 
       {/* Amount */}
       {entry.amount && (
-        <div className="flex flex-col items-end flex-shrink-0">
+        <div className="flex flex-col items-end shrink-0">
           <span className={classNames('text-sm font-medium', isReceive ? 'text-[#24D845]' : 'text-[#D83C24]')}>
             {isReceive ? '+' : '-'}
             {entry.amount.replace(/^[+-]/, '')}
@@ -128,7 +128,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       {/* Cancel button for pending */}
       {entry.cancel && (
         <Button
-          className="hover:bg-grey-100 rounded-md p-1 flex-shrink-0"
+          className="hover:bg-grey-100 rounded-md p-1 shrink-0"
           onClick={handleCancelClick}
           testID={ExploreSelectors.CancelTransaction}
         >

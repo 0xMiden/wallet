@@ -477,7 +477,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
             </div>
           ) : (
             <>
-              <p className="text-xs text-heading-gray mb-4 flex-shrink-0 text-center font-medium">
+              <p className="text-xs text-heading-gray mb-4 shrink-0 text-center font-medium">
                 {t('readyToClaim', { count: safeClaimableNotes.length })}
               </p>
               {/* Scrollable grouped notes container */}
@@ -501,7 +501,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
             </>
           )}
           {unclaimedNotes.length > 0 && (
-            <div className="flex justify-center mt-4 pb-4 flex-shrink-0">
+            <div className="flex justify-center mt-4 pb-4 shrink-0">
               <Button
                 className="w-[120px] h-[40px] text-md"
                 variant={ButtonVariant.Primary}
@@ -585,7 +585,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
       >
         {/* Left: Icon + Symbol */}
         <div className="flex items-center gap-2 min-w-0">
-          <AssetIcon assetSlug={symbol} assetId={faucetId} size={24} className="flex-shrink-0 rounded-lg" />
+          <AssetIcon assetSlug={symbol} assetId={faucetId} size={24} className="shrink-0 rounded-lg" />
           <span className="text-sm font-normal">{symbol}</span>
         </div>
 

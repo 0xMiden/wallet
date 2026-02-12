@@ -46,7 +46,7 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
 
     return (
       <div
-        className={classNames('relative inline-flex flex-shrink-0 align-middle select-none', containerClassName)}
+        className={classNames('relative inline-flex shrink-0 align-middle select-none', containerClassName)}
         style={{ width: '48px', height: '24px', minWidth: '48px' }}
       >
         {/* Track - visual only, no pointer events */}

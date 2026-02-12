@@ -79,22 +79,19 @@ const Control: FC = () => {
     <>
       <div className={classNames('flex', 'justify-between', 'w-full')}>
         <div className={classNames('flex', 'justify-start')}>
-          <Link to={'/select-account'} testID={HeaderSelectors.AccountDropdown}>
+          <Link to={'/select-account'} testID={HeaderSelectors.AccountDropdown} className="flex">
             <Button
               className={classNames(
-                'flex-shrink-0 flex',
-                'rounded-md items-center',
+                'flex',
+                'rounded-md items-center justify-center',
                 'transition ease-in-out duration-200',
                 'cursor-pointer'
               )}
             >
               <ColorIdenticon publicKey={account.publicKey} />
-              <div className="self-start flex overflow-x-hidden ml-2 leading-9">
+              <div className="flex overflow-x-hidden ml-2 leading-9 items-center gap-1">
                 <Name className={classNames('text-sm', 'text-black')}>{account.name}</Name>
-                <ChevronDownIcon
-                  className="ml-1 -mr-1 stroke-2"
-                  style={{ height: 16, width: 'auto', marginTop: '10px' }}
-                />
+                <ChevronDownIcon style={{ height: 16, width: 'auto' }} />
               </div>
             </Button>
           </Link>

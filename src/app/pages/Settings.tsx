@@ -235,7 +235,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               'rounded-full',
               'flex',
               'text-black font-bold',
-              'hover:bg-black hover:bg-opacity-5',
+              'hover:bg-grey-100',
               'transition duration-300 ease-in-out'
             )}
             onClick={handleBack}

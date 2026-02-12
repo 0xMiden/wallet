@@ -74,7 +74,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
                   assetSlug={token.name.toLowerCase()}
                   assetId={token.id}
                   size={24}
-                  className="mr-2 flex-shrink-0 rounded bg-white"
+                  className="mr-2 shrink-0 rounded bg-white"
                 />
               }
               onClick={() => onSelectToken(token)}

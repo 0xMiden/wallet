@@ -311,7 +311,7 @@ const Browser: FC = () => {
       <div className="flex-none px-4 pt-4 pb-2">
         <form onSubmit={handleSubmit}>
           <div className="flex items-center gap-2">
-            <div className="flex-grow relative">
+            <div className="grow relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2">
                 <Icon name={IconName.Globe} size="sm" className="text-grey-400" />
               </div>
@@ -338,7 +338,7 @@ const Browser: FC = () => {
         </form>
       </div>
 
-      <main className="flex-grow flex flex-col px-4">
+      <main className="grow flex flex-col px-4">
         {/* Recent URLs */}
         {recentUrls.length > 0 && (
           <div className="mb-4">
@@ -350,7 +350,7 @@ const Browser: FC = () => {
                   onClick={() => openBrowser(recentUrl)}
                   className="w-full flex items-center gap-3 p-3 bg-grey-50 rounded-xl hover:bg-grey-100 transition-colors text-left"
                 >
-                  <Icon name={IconName.Globe} size="sm" className="text-grey-400 flex-shrink-0" />
+                  <Icon name={IconName.Globe} size="sm" className="text-grey-400 shrink-0" />
                   <span className="text-sm text-grey-700 truncate">{recentUrl}</span>
                 </button>
               ))}
@@ -360,7 +360,7 @@ const Browser: FC = () => {
 
         {/* Empty State */}
         {recentUrls.length === 0 && (
-          <div className="flex-grow flex flex-col items-center justify-center">
+          <div className="grow flex flex-col items-center justify-center">
             <Icon name={IconName.Globe} size="3xl" className="text-grey-200 mb-4" />
             <h2 className="text-lg font-semibold text-grey-600 mb-2">{t('dappBrowser')}</h2>
             <p className="text-grey-400 text-center text-sm max-w-xs">{t('dappBrowserDescription')}</p>

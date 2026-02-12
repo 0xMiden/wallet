@@ -50,7 +50,7 @@ const ManageAssetsContent: FC<Props> = ({ assetType }) => {
         <Link
           to="/add-asset"
           className={classNames(
-            'ml-2 flex-shrink-0',
+            'ml-2 shrink-0',
             'px-3 py-1',
             'rounded overflow-hidden',
             'flex items-center',
@@ -104,7 +104,7 @@ const ListItem = memo<ListItemProps>(({ assetSlug, assetId, last, checked, onUpd
         'cursor-pointer'
       )}
     >
-      <AssetIcon assetSlug={assetSlug} assetId={assetId} size={32} className="mr-3 flex-shrink-0" />
+      <AssetIcon assetSlug={assetSlug} assetId={assetId} size={32} className="mr-3 shrink-0" />
 
       <div className={classNames('flex items-center', styles.tokenInfoWidth)}>
         <div className="flex flex-col items-start w-full">
@@ -126,7 +126,7 @@ const ListItem = memo<ListItemProps>(({ assetSlug, assetId, last, checked, onUpd
           'mr-2 p-1',
           'rounded-full',
           'text-gray-400 hover:text-black',
-          'hover:bg-black hover:bg-opacity-5',
+          'hover:bg-black hover:bg-opacity/5',
           'transition ease-in-out duration-200'
         )}
         onClick={evt => {

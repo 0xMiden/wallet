@@ -44,7 +44,7 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     return (
       <div
         className={classNames(
-          'h-6 w-6 flex-shrink-0',
+          'h-6 w-6 shrink-0',
           localChecked ? 'bg-primary-orange' : 'bg-black-40',
           'border',
           (() => {

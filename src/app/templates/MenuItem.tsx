@@ -37,20 +37,20 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({
     <div>
       <hr className={`${width} m-auto mb-1`} style={hrStyle}></hr>
       <div
-        className={`${width} md:px-8 lg:px-16 m-auto py-4 hover:bg-gray-800 focus:bg-gray-800 transition-colors duration-500 ease-in-out cursor-pointer`}
+        className={`${width} md:px-8 lg:px-16 m-auto py-4 hover:bg-gray-200 focus:bg-gray-200 transition-colors duration-500 ease-in-out cursor-pointer`}
         style={{ borderRadius: '8px' }}
       >
         <div className="flex justify-between">
           <div className="flex justify-start">
             {Icon && (
-              <div className="ml-2 flex-shrink-0">
+              <div className="ml-2 shrink-0">
                 <div
                   className={classNames(
                     'block',
                     'rounded-full',
                     'flex items-center justify-center',
                     'transition ease-in-out duration-200',
-                    'opacity-90 hover:opacity-100 focus:opacity-100'
+                    'opacity-90'
                   )}
                 >
                   <Icon className={`h-6 w-6`} style={iconStyle} />

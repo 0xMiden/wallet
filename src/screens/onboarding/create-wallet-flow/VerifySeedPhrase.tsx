@@ -78,12 +78,12 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
         {shuffledWords.map((word, index) => (
           <div className="relative" key={`seed-word-${index}`}>
             {(!!firstSelectedWordIndex || firstSelectedWordIndex === 0) && index === firstSelectedWordIndex && (
-              <div className="absolute -top-3 left-2 -translate-x-2 bg-primary-500 text-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
+              <div className="absolute -top-4 left-2 -translate-x-3 bg-primary-500 text-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
                 {t('first')}
               </div>
             )}
             {(!!secondSelectedWordIndex || secondSelectedWordIndex === 0) && index === secondSelectedWordIndex && (
-              <div className="absolute -top-3 left-2 -translate-x-2 bg-primary-500 text-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
+              <div className="absolute -top-4 left-2 -translate-x-3 bg-primary-500 text-white px-2 py-0.5 rounded-[10px] text-xs whitespace-nowrap">
                 {t('last')}
               </div>
             )}

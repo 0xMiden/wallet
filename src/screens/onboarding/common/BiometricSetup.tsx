@@ -95,7 +95,7 @@ export const BiometricSetupScreen: React.FC<BiometricSetupScreenProps> = ({ pass
 
   return (
     <div className={classNames('flex-1', 'flex flex-col', 'bg-white gap-y-8 p-6')}>
-      <div className="flex flex-col items-center flex-grow justify-center">
+      <div className="flex flex-col items-center grow justify-center">
         {/* Biometric Icon */}
         <div className="w-32 h-32 rounded-full bg-grey-50 flex items-center justify-center mb-8">
           <Icon name={IconName.FaceId} size="3xl" className="text-primary-500" />

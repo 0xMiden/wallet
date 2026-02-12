@@ -124,7 +124,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               </div>
             )}
 
-            <div className="flex flex-col flex-grow overflow-scroll no-scrollbar">
+            <div className="flex flex-col grow overflow-scroll no-scrollbar">
               <h2 className="font-semibold text-base text-center whitespace-pre">{option.title}</h2>
               <ul className="flex flex-1 flex-col mt-6 px-5 divide-y divide-grey-100">
                 {option.features.map((feature, index) => (

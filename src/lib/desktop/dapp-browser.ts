@@ -232,7 +232,7 @@ export function generateDesktopConfirmationOverlay(
         display: flex;
         align-items: center;
         justify-content: center;
-        flex-shrink: 0;
+        shrink: 0;
       }
       .miden-modal-icon svg {
         width: 24px;
