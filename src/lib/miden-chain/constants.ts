@@ -16,7 +16,7 @@ export enum MIDEN_TRANSPORT_LAYER_NAME {
 
 export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.MAINNET, 'https://api.miden.io'], // Placeholder
-  [MIDEN_NETWORK_NAME.TESTNET, 'https://rpc.testnet.miden.io'],
+  [MIDEN_NETWORK_NAME.TESTNET, 'https://rpc.devnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://rpc.devnet.miden.io'],
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:57291']
 ]);
