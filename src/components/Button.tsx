@@ -117,8 +117,8 @@ export const Button: React.FC<ButtonProps> = ({
         border,
         isLoading ? 'pointer-events-none' : '',
         'flex justify-center items-center gap-x-2',
-        'py-3 px-4 rounded-4xl',
-        'transition duration-300 ease-in-out',
+        'py-3 px-4 rounded-[10px]',
+        'transition duration-300 ease-in-out text-base',
         className
       )}
       disabled={disabled}

@@ -135,10 +135,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
             <div className="relative flex flex-col items-center justify-center">
               <TextArea
                 placeholder={'mtst1qzv...5tfg'}
-                className={clsx(
-                  `w-full text-center border-[#00000033] border-[0.35px] rounded-[10px]`,
-                  isMobile() ? 'pr-20' : ''
-                )}
+                className={clsx(`w-full text-center border-[#00000033] border-[0.5px] `, isMobile() ? 'pr-20' : '')}
                 value={recipientAddress}
                 onChange={onAddressChange}
               />

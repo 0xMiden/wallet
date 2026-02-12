@@ -211,12 +211,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
         </div>
       </article>
       <div className="flex flex-col gap-2 self-center">
-        <Button
-          title={t('continue')}
-          disabled={!isValidPassword}
-          onClick={onPasswordSubmit}
-          className="rounded-[10px]"
-        />
+        <Button title={t('continue')} disabled={!isValidPassword} onClick={onPasswordSubmit} />
         {/* eslint-disable-next-line i18next/no-literal-string */}
         <p className="text-grey-600 text-xs text-center px-4">
           {t('byProceeding')}{' '}

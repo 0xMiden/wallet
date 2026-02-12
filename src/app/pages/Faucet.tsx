@@ -83,7 +83,7 @@ const Faucet: FC = () => {
           </div>
         </div>
         <div className="flex flex-col gap-y-4">
-          <Button onClick={openFaucet} className="rounded-[10px]">
+          <Button onClick={openFaucet}>
             <span className="text-base font-medium text-white">{copied ? t('copiedAddress') : t('goToFaucet')}</span>
           </Button>
         </div>

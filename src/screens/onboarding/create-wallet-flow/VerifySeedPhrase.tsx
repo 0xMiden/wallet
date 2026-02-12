@@ -89,7 +89,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
             )}
             <button onClick={() => onSelectWord(index)} className="w-full">
               <Chip
-                className="w-[104px] h-8 rounded-[10px] cursor-pointer"
+                className="w-[104px] h-8 cursor-pointer"
                 selected={firstSelectedWordIndex === index || secondSelectedWordIndex === index}
                 label={word}
               />
@@ -113,7 +113,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
             </div>
           </>
         )}
-        <Button disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} className="rounded-[10px]" />
+        <Button disabled={!isCorrectWordSelected} title={t('continue')} onClick={onSubmit} className="" />
       </div>
     </div>
   );

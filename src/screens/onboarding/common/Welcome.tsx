@@ -31,18 +31,12 @@ export const WelcomeScreen = ({ onSubmit, ...props }: WelcomeScreenProps) => {
         </p>
       </div>
       <div className={clsx('w-full flex flex-col gap-3 px-4 mt-auto pt-10', isMobile() ? 'pt-[120px]' : '')}>
-        <Button
-          tabIndex={0}
-          title={t('createANewWallet')}
-          onClick={() => onSubmit?.('select-wallet-type')}
-          className="rounded-[10px] font-semibold text-[17px]"
-        />
+        <Button tabIndex={0} title={t('createANewWallet')} onClick={() => onSubmit?.('select-wallet-type')} />
         <Button
           id={'import-link'}
           title={t('iAlreadyHaveAWallet')}
           variant={ButtonVariant.Ghost}
           onClick={() => onSubmit?.('select-import-type')}
-          className="rounded-[10px] text-[17px]"
         />
       </div>
     </div>

@@ -80,7 +80,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
             <Button
               tabIndex={0}
               title={hasError ? t('retry') : t('getStarted')}
-              className="self-center w-full rounded-[10px]"
+              className="self-center w-full text-base"
               onClick={onSubmit}
               isLoading={isLoading}
             />

@@ -193,16 +193,13 @@ const Explore: FC = () => {
       <ConnectivityIssueBanner />
       <ChainInstabilityBanner />
       <Header />
-      <div className={classNames('flex flex-col justify-start', isMobile() ? 'pt-5' : 'pt-[34px]')}>
+      <div className={classNames('flex flex-col justify-start', isMobile() ? 'pt-5' : 'pt-10')}>
         <div className="flex flex-col w-full justify-center items-center">
           <MainBanner />
           <AddressChip address={account.publicKey} className="flex items-center" />
         </div>
         <div
-          className={classNames(
-            'flex justify-center items-center w-full px-2',
-            isMobile() ? 'pt-6 gap-7' : 'pt-[3.87px] gap-[25.66px]'
-          )}
+          className={classNames('flex justify-center items-center w-full', isMobile() ? 'pt-6 gap-7' : 'pt-3 gap-6')}
         >
           <ActionButton
             label={t('send')}
@@ -211,7 +208,7 @@ const Explore: FC = () => {
             disabled={false}
             tippyProps={tippyPropsMock}
             testID={ExploreSelectors.SendButton}
-            isActive={true}
+            isActive={false}
           />
           <div className="relative">
             <ActionButton

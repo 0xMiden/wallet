@@ -58,7 +58,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       <article className="grid grid-cols-3 gap-2 w-full">
         {seedPhrase.map((word, index) => (
           <Chip
-            className="w-[104px] h-8 rounded-[10px]"
+            className="w-[104px] h-8"
             key={`seed-word-${index}`}
             label={
               <label
@@ -78,7 +78,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
 
       <div className="flex gap-2 w-full text-heading-gray">
         <Button
-          className="rounded-[10px] border-[#00000033] border-[0.5px] text-xs font-medium h-8 w-1/2 py-5"
+          className="border-[#00000033] border-[0.5px] text-xs font-medium h-8 w-1/2 py-5"
           variant={ButtonVariant.Ghost}
           title={t(isWordsVisible ? 'hide' : 'show')}
           iconLeft={isWordsVisible ? IconName.EyeOff : IconName.Eye}
@@ -94,7 +94,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       </div>
 
       <div className="flex flex-col gap-2 self-center w-full">
-        <Button title={t('continue')} onClick={onSubmit} className="rounded-[10px]" />
+        <Button title={t('continue')} onClick={onSubmit} className="text-base" />
       </div>
     </div>
   );
