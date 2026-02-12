@@ -37,7 +37,7 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({
     <div>
       <hr className={`${width} m-auto mb-1`} style={hrStyle}></hr>
       <div
-        className={`${width} md:px-8 lg:px-16 m-auto py-4 hover:bg-gray-200 focus:bg-gray-200 transition-colors duration-500 ease-in-out cursor-pointer`}
+        className={`${width} md:px-8 lg:px-16 m-auto py-4 hover:bg-gray-100 focus:bg-gray-100 transition-colors duration-500 ease-in-out cursor-pointer`}
         style={{ borderRadius: '8px' }}
       >
         <div className="flex justify-between">

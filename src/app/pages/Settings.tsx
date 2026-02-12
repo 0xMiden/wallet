@@ -24,6 +24,7 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 import { goBack, navigate } from 'lib/woozie';
@@ -223,27 +224,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   return (
     <>
       {/* Header */}
-      <div
-        className="flex-none px-4 bg-white border-b border-grey-100 flex justify-between items-center"
-        style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
-      >
-        <h1 className="text-lg font-semibold text-black">{activeTab ? t(activeTab.titleI18nKey) : t('settings')}</h1>
-        {activeTab && (
-          <Button
-            className={classNames(
-              'p-2',
-              'rounded-full',
-              'flex',
-              'text-black font-bold',
-              'hover:bg-grey-100',
-              'transition duration-300 ease-in-out'
-            )}
-            onClick={handleBack}
-          >
-            <Icon name={IconName.Close} fill={'black'} />
-          </Button>
-        )}
-      </div>
+      <NavigationHeader showBorder title={t('settings')} />
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto bg-white px-4">

@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import History from 'app/templates/history/History';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 
@@ -20,14 +21,15 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   return (
     <>
       {/* Header */}
-      <div
+      {/* <div
         className={classNames(
           'flex w-full items-center justify-center px-4 bg-white border-b-[0.5px] border-[#48484833] border-dashed',
           isMobile() ? 'pt-6 pb-[18px]' : 'py-[18px]'
         )}
       >
         <h1 className="text-xl font-medium text-heading-gray">{t('activities')}</h1>
-      </div>
+      </div> */}
+      <NavigationHeader showBorder title={t('activities')} innerDivClassName="text-2xl" />
 
       {/* Content */}
       <div className={classNames('flex-1 min-h-0 overflow-y-auto', 'bg-white z-30 relative')} ref={scrollParentRef}>

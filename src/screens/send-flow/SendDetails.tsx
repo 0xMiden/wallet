@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { TextArea } from 'components/TextArea';
 import { useAccount } from 'lib/miden/front';
 import { hapticError, hapticSuccess } from 'lib/mobile/haptics';
@@ -94,23 +95,8 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
   return (
     <div className="flex flex-col">
-      <div
-        className={clsx(
-          'flex w-full items-center px-4 bg-white border-b-[0.5px] border-[#48484833] border-dashed',
-          isMobile() ? 'pt-6 pb-[18px]' : 'py-[18px]'
-        )}
-      >
-        <button
-          type="button"
-          onClick={onGoBack}
-          className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
-          aria-label={t('back')}
-        >
-          <Icon name={IconName.ChevronLeft} fill="black" size="md" />
-        </button>
-        <h1 className="flex-1 text-xl font-medium text-heading-gray text-center">{t('send')}</h1>
-        <div className="w-8" /> {/* Spacer for centering */}
-      </div>
+      <NavigationHeader mode="back" title={t('send')} onBack={onGoBack} showBorder />
+
       <div className={clsx('flex flex-col relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col py-6 overflow-y-auto">
           {/* Amount Input */}

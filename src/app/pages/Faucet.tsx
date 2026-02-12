@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import { useAccount, useNetwork } from 'lib/miden/front';
@@ -56,22 +57,9 @@ const Faucet: FC = () => {
 
   return (
     <div className={clsx('text-heading-gray')}>
-      <div
-        className="flex flex-row px-4 items-center justify-center border-b border-grey-100"
-        style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
-      >
-        <button
-          type="button"
-          onClick={goBack}
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
-          aria-label="Back"
-        >
-          <Icon name={IconName.ArrowLeft} size="sm" fill="black" />
-        </button>
-        <h1 className="text-[20px] font-medium w-full flex items-center justify-center pr-10">{t('faucet')}</h1>
-      </div>
+      <NavigationHeader mode="back" title={t('faucet')} onBack={goBack} showBorder />
       <div className={clsx('flex flex-col justify-between h-full w-full', isMobile() ? 'px-8' : 'px-4')}>
-        <div className="flex flex-col pt-[65px]">
+        <div className="flex flex-col pt-16.25">
           <div className="flex flex-col justify-center items-center bg-white">
             <div className="flex items-center justify-center mb-6 w-[156px] h-[156px]">
               <FaucetIcon className="text-primary-orange" style={{ width: 78, height: 78 }} />

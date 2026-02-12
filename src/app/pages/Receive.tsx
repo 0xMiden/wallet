@@ -435,17 +435,9 @@ export const Receive: React.FC<ReceiveProps> = () => {
           className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
           aria-label="Back"
         >
-          <Icon name={IconName.ArrowLeft} size="sm" fill="black" />
+          <Icon name={IconName.ChevronLeft} size="sm" fill="black" />
         </button>
         <h1 className="text-[20px] font-medium">{t('receive')}</h1>
-        {/* <button
-          type="button"
-          onClick={() => setIsQRSheetOpen(true)}
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
-          aria-label="Show QR Code"
-        >
-          <QRIcon className="text-[#484848]" style={{ width: '25px', height: '25px' }} />
-        </button> */}
 
         <Drawer>
           <DrawerTrigger asChild>
@@ -458,41 +450,29 @@ export const Receive: React.FC<ReceiveProps> = () => {
             </button>
           </DrawerTrigger>
           <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle>Are you absolutely sure?</DrawerTitle>
-              <DrawerDescription>This action cannot be undone.</DrawerDescription>
-            </DrawerHeader>
-            <DrawerFooter>
-              <Button>Submit</Button>
-              <DrawerClose>
-                <Button>Cancel</Button>
-              </DrawerClose>
-            </DrawerFooter>
+            <div
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+              onClick={() => setIsQRSheetOpen(false)}
+            >
+              <div
+                className="w-full max-w-md bg-white rounded-t-2xl p-6 pb-8 animate-slide-up"
+                onClick={e => e.stopPropagation()}
+                style={{ paddingBottom: isMobile() ? 'max(2rem, env(safe-area-inset-bottom))' : '2rem' }}
+              >
+                <div className="flex justify-center mb-4">
+                  <div className="w-12 h-1 bg-grey-200 rounded-full" />
+                </div>
+                <div className="flex flex-col items-center">
+                  <QRCode address={address} size={200} onCopy={copy} className="w-full" />
+                  {copied && (
+                    <p className="text-xs text-primary-500 mt-2 transition-opacity duration-200">{t('copied')}</p>
+                  )}
+                </div>
+              </div>
+            </div>
           </DrawerContent>
         </Drawer>
       </div>
-
-      {/* QR Code Sheet Overlay */}
-      {isQRSheetOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
-          onClick={() => setIsQRSheetOpen(false)}
-        >
-          <div
-            className="w-full max-w-md bg-white rounded-t-2xl p-6 pb-8 animate-slide-up"
-            onClick={e => e.stopPropagation()}
-            style={{ paddingBottom: isMobile() ? 'max(2rem, env(safe-area-inset-bottom))' : '2rem' }}
-          >
-            <div className="flex justify-center mb-4">
-              <div className="w-12 h-1 bg-grey-200 rounded-full" />
-            </div>
-            <div className="flex flex-col items-center">
-              <QRCode address={address} size={200} onCopy={copy} className="w-full" />
-              {copied && <p className="text-xs text-primary-500 mt-2 transition-opacity duration-200">{t('copied')}</p>}
-            </div>
-          </div>
-        </div>
-      )}
 
       <div
         className="flex-1 flex flex-col min-h-0"

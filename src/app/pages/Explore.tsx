@@ -194,7 +194,7 @@ const Explore: FC = () => {
       <ChainInstabilityBanner />
       <Header />
       <div className={classNames('flex flex-col justify-start', isMobile() ? 'pt-5' : 'pt-10')}>
-        <div className="flex flex-col w-full justify-center items-center">
+        <div className="flex flex-col justify-center items-center">
           <MainBanner />
           <AddressChip address={account.publicKey} className="flex items-center" />
         </div>
@@ -235,7 +235,7 @@ const Explore: FC = () => {
         </div>
       </div>
 
-      <div className="grow overflow-y-auto relative" style={{ scrollbarGutter: 'stable' }}>
+      <div className="overflow-y-auto relative">
         <div className={classNames('bg-transparent', 'px-4')}>
           <Tokens />
         </div>

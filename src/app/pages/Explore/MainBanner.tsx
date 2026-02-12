@@ -45,11 +45,7 @@ const AssetBanner: FC = () => {
 
   return (
     <BannerLayout name={<Name style={{ maxWidth: popup ? '11rem' : '13rem' }}>{'Miden'}</Name>}>
-      <div className=" w-full flex justify-center">
-        <div className="flex items-center">
-          <Balance>{balance => <BalanceBanner balance={balance} />}</Balance>
-        </div>
-      </div>
+      <Balance>{balance => <BalanceBanner balance={balance} />}</Balance>
     </BannerLayout>
   );
 };
@@ -59,7 +55,7 @@ interface BannerLayoutProps extends PropsWithChildren {
 }
 
 const BannerLayout: FC<BannerLayoutProps> = ({ name, children }) => (
-  <div className={classNames('w-full', 'flex flex-col justify-start max-w-sm px-3')}>
-    <div className={classNames('relative', 'w-full', 'flex')}>{children}</div>
+  <div className={classNames('flex flex-col justify-start max-w-sm')}>
+    <div className={classNames('flex')}>{children}</div>
   </div>
 );

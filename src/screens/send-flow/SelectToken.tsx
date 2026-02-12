@@ -59,7 +59,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
   return (
     <div {...props} className={classNames('flex-1 flex flex-col ', className)}>
       <NavigationHeader mode="back" title={t('chooseToken')} onBack={onCancel} showBorder />
-      <div className="flex flex-col flex-1 p-4 justify-between md:w-[460px] md:mx-auto">
+      <div className="flex flex-col flex-1 p-4 justify-betwee md:mx-auto">
         <div className="flex-1">
           {tokens?.map(token => (
             <CardItem
