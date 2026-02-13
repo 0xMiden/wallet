@@ -212,8 +212,8 @@ describe('transactions utilities', () => {
   });
 
   describe('MAX_WAIT_BEFORE_CANCEL', () => {
-    it('is 30 minutes in milliseconds', () => {
-      expect(MAX_WAIT_BEFORE_CANCEL).toBe(30 * 60_000);
+    it('is 30 minutes in seconds', () => {
+      expect(MAX_WAIT_BEFORE_CANCEL).toBe(30 * 60);
     });
   });
 
@@ -364,17 +364,18 @@ describe('transactions utilities', () => {
 
   describe('cancelStuckTransactions', () => {
     it('cancels transactions that exceed MAX_WAIT_BEFORE_CANCEL', async () => {
+      const nowInSeconds = Math.floor(Date.now() / 1000);
       const stuckTx = {
         id: 'stuck-tx',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: 100,
-        processingStartedAt: Date.now() - MAX_WAIT_BEFORE_CANCEL - 1000
+        processingStartedAt: nowInSeconds - MAX_WAIT_BEFORE_CANCEL - 10 // 10 seconds past the limit
       };
       const recentTx = {
         id: 'recent-tx',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: 200,
-        processingStartedAt: Date.now()
+        processingStartedAt: nowInSeconds
       };
 
       mockTransactionsFilter.mockReturnValueOnce({

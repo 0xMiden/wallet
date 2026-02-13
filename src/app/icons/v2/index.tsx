@@ -69,6 +69,7 @@ import { ReactComponent as LeoLock } from './leo-lock.svg';
 import { ReactComponent as LeoLogoAndName } from './leo-logo-and-name-horizontal.svg';
 import { ReactComponent as List } from './list.svg';
 import { ReactComponent as Loader } from './loader.svg';
+import { ReactComponent as Loading } from './loading.svg';
 import { ReactComponent as Lock } from './lock.svg';
 import { ReactComponent as MidenLogoOrange } from './miden-logo-orange.svg';
 import { ReactComponent as MidenLogoWhite } from './miden-logo-white.svg';
@@ -165,6 +166,7 @@ export enum IconName {
   LeoLock = 'leo-lock',
   List = 'list',
   Loader = 'loader',
+  Loading = 'loading',
   Lock = 'lock',
   More = 'more',
   Pencil = 'pencil',
@@ -335,6 +337,8 @@ const IconSwitch = (props: IconProps) => {
       return <List {...props} />;
     case IconName.Loader:
       return <Loader {...props} />;
+    case IconName.Loading:
+      return <Loading {...props} />;
     case IconName.Lock:
       return <Lock {...props} />;
     case IconName.More:

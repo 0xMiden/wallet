@@ -25,7 +25,8 @@ function groupEntriesByDate(entries: IHistoryEntry[]): Map<string, IHistoryEntry
   const groups = new Map<string, IHistoryEntry[]>();
 
   for (const entry of entries) {
-    const date = new Date(entry.timestamp * 1000);
+    console.log('Processing entry:', entry.timestamp);
+    const date = new Date(entry.timestamp * 1000); // Convert seconds to milliseconds
     console.log('Processing entry with timestamp:', entry.timestamp, 'Parsed date:', date);
     const dateKey = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()}`;
 

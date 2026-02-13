@@ -405,16 +405,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     setIsDragging(false);
   }, []);
 
-  const onUploadFile = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        handleFileChange(file);
-      }
-    },
-    [handleFileChange]
-  );
-
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
   const containerClass = isMobile()
     ? 'h-full w-full'

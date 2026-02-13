@@ -38,7 +38,7 @@ import { compareAccountIds } from './utils';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
-export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60_000 : 30 * 60_000; // 2 mins on mobile, 30 mins on desktop
+export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60_000; // 30 minutes
@@ -467,7 +467,7 @@ export const cancelStuckTransactions = async () => {
       // Crashed before processing started — processingStartedAt is set atomically
       // with the status change, so undefined means the app crashed mid-transition
       if (!tx.processingStartedAt) return true;
-      return Date.now() - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
+      return Math.floor(Date.now() / 1000) - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
     })
     .map(async tx => cancelTransaction(tx, 'Transaction took too long to process and was cancelled'));
 
@@ -506,7 +506,7 @@ const CONSUMED_NOTE_STATES = [
 
 // Minimum time a transaction must be in GeneratingTransaction status before we consider it "stuck"
 // This prevents cancelling transactions that are actively being processed
-const MIN_PROCESSING_TIME_BEFORE_STUCK = 60_000; // 1 minute
+const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
 
 /**
  * Verify stuck transactions by checking note state from the node.
@@ -569,7 +569,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
       ) {
         // Note is still claimable - only cancel if tx has been processing for a while
         // This prevents cancelling transactions that are actively being processed
-        const processingTime = tx.processingStartedAt ? Date.now() - tx.processingStartedAt : 0;
+        const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
         if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
           await cancelTransaction(tx, 'Transaction was interrupted');
           resolvedCount++;
@@ -600,7 +600,7 @@ export const generateTransaction = async (
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
-    processingStartedAt: Date.now()
+    processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
 
   // Process transaction

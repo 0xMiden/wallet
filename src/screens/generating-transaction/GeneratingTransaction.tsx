@@ -5,8 +5,8 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import CircularProgress from 'app/atoms/CircularProgress';
 import useBeforeUnload from 'app/hooks/useBeforeUnload';
+import { ReactComponent as Loading } from 'app/icons/loading.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { Button, ButtonVariant } from 'components/Button';
@@ -167,7 +167,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
         containerClass,
         'mx-auto overflow-hidden ',
         'flex flex-1',
-        'flex-col bg-white p-6',
+        'flex-col bg-transparent p-6',
         'overflow-hidden relative'
       )}
     >
@@ -208,7 +208,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const renderIcon = useCallback(() => {
     const iconSize = inExtension ? 'xl' : '3xl';
-    const circleSize = inExtension ? 32 : 55;
 
     if (transactionComplete && hasErrors) {
       // Mixed results or all failed - show warning/error icon
@@ -220,17 +219,16 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
     return (
       <div className="flex items-center justify-center">
-        <Icon name={IconName.InProgress} className="absolute" size={iconSize} />
-        <CircularProgress
-          borderWeight={2}
-          progress={progress}
-          circleColor="black"
-          circleSize={circleSize}
-          spin={true}
+        <Loading
+          style={{
+            width: isMobile() ? '240px' : '180px',
+            height: isMobile() ? '240px' : '180px'
+          }}
+          className="animate-spin animation-duration-[2s]"
         />
       </div>
     );
-  }, [transactionComplete, hasErrors, progress, inExtension]);
+  }, [transactionComplete, hasErrors, inExtension]);
 
   const headerText = useCallback(() => {
     if (transactionComplete && hasErrors) {

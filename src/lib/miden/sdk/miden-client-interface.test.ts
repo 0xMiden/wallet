@@ -155,7 +155,7 @@ describe('MidenClientInterface', () => {
       type: 'send',
       extraInputs: { recallBlocks: 1 },
       status: 0,
-      initiatedAt: Date.now(),
+      initiatedAt: Math.floor(Date.now() / 1000),
       displayIcon: 'SEND'
     } as any);
   });
