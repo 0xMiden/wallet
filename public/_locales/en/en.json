@@ -1,7 +1,7 @@
 {
   "appName": "Miden Wallet",
   "appDesc": "A browser wallet for the Miden blockchain",
-  "createAccount": "Create or Restore account",
+  "createAccount": "Create Account",
   "importAccount": "Import account",
   "settings": "Settings",
   "openNewTab": "Open new tab",
@@ -530,5 +530,6 @@
   "sortBy": "Sort by",
   "recent": "Recent",
   "faucetRequest": "Faucet Request",
-  "faucetMessage": "You can get tokens from the faucet or transfer them from another wallet or account"
+  "faucetMessage": "You can get tokens from the faucet or transfer them from another wallet or account",
+  "accountCreationSucess": "Account created successfully!"
 }

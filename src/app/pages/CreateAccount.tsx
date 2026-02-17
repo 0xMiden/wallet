@@ -7,10 +7,9 @@ import { useTranslation } from 'react-i18next';
 import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
-import { ReactComponent as ArrowRightIcon } from 'app/icons/arrow-right.svg';
-import PageLayout from 'app/layouts/PageLayout';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { useMidenContext, useAllAccounts } from 'lib/miden/front';
-import { navigate } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 type FormData = {
@@ -53,7 +52,8 @@ const CreateAccount: FC = () => {
       const accLength = allAccounts.length;
       if (prevAccLengthRef.current < accLength) {
         await updateCurrentAccount(allAccounts[accLength - 1].publicKey);
-        navigate('/');
+        // Add ?created=1 to show AccountCreatedSucess
+        navigate('/select-account?fromCreateAccount=true');
       }
       prevAccLengthRef.current = accLength;
     }
@@ -99,8 +99,9 @@ const CreateAccount: FC = () => {
   );
 
   return (
-    <PageLayout pageTitle={<>{t('createAccount')}</>}>
-      <div className="w-full max-w-sm mx-auto px-4">
+    <div className="text-heading-gray">
+      <NavigationHeader title={t('createAccount')} showBorder className="bg-gray-25" onBack={goBack} />
+      <div className="w-full max-w-sm mx-auto px-6 pt-6">
         <form onSubmit={handleSubmit(onSubmit)}>
           <FormField
             {...register('name', {
@@ -109,60 +110,42 @@ const CreateAccount: FC = () => {
                 message: t('accountNameInputTitle')
               }
             })}
-            label={
-              <div className="font-medium -mb-2" style={{ fontSize: '14px', lineHeight: '20px' }}>
-                {t('accountName')}
-              </div>
-            }
+            label={<div className="font-semibold -mb-2 text-xl">{t('accountName')}</div>}
             id="create-account-name"
             type="text"
             placeholder={computedDefaultName}
             errorCaption={errors.name?.message}
             autoFocus
+            className="border-gray-500 border rounded-[10px]"
           />
-          <div className="text-gray-200 mb-8" style={{ fontSize: '12px', lineHeight: '16px' }}>
-            {t('accountNameInputDescription')}
-          </div>
-
           {/* Wallet Type Selection */}
-          <div className="mb-8">
-            <div className="font-medium mb-4" style={{ fontSize: '14px', lineHeight: '20px' }}>
-              {t('chooseYourAccountType')}
-            </div>
+          <div className="pb-8 pt-6">
+            <div className="font-semibold text-xl mb-4">{t('chooseYourAccountType')}</div>
             {WalletTypeOptions.map((option, idx) => (
               <div
                 key={option.id}
-                className={classNames('flex flex-col border p-4 rounded-lg cursor-pointer', 'w-full', 'mb-4', {
-                  'bg-blue-100': selectedWalletType === option.id // Highlight if selected
+                className={classNames('flex flex-col p-4 rounded-lg cursor-pointer', 'w-full', 'mb-4', {
+                  'bg-gray-25': selectedWalletType === option.id // Highlight if selected
                 })}
                 onClick={() => handleWalletTypeSelect(option.id)}
               >
                 <div className="flex flex-row justify-between items-center">
-                  <h3 className="font-medium text-base">{option.title}</h3>
-                  <ArrowRightIcon fill="black" height="20px" width="20px" />
+                  <h3 className="font-semibold text-base">{option.title}</h3>
                 </div>
-                <p className="text-grey-600">{option.description}</p>
+                <p className="text-grey-500 text-sm leading-4.5">{option.description}</p>
               </div>
             ))}
           </div>
 
           <FormSubmitButton
-            className="capitalize w-full justify-center"
+            className="capitalize w-full justify-center rounded-[10px] text-base font-semibold"
             loading={isSubmitting}
-            style={{
-              fontSize: '18px',
-              lineHeight: '24px',
-              paddingLeft: '0.5rem',
-              paddingRight: '0.5rem',
-              paddingTop: '12px',
-              paddingBottom: '12px'
-            }}
           >
             {t('createAccount')}
           </FormSubmitButton>
         </form>
       </div>
-    </PageLayout>
+    </div>
   );
 };
 

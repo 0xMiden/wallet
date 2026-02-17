@@ -48,7 +48,7 @@ export const Avatar: React.FC<AvatarProps> = ({
     return null;
   }, [image, identiconPublicKey, isCollectible, t]);
   return (
-    <div {...props} className={classNames('rounded-full overflow-hidden', classPerSize[size], className)}>
+    <div {...props} className={classNames('rounded-[3.21px] overflow-hidden', classPerSize[size], className)}>
       {imageComponent()}
     </div>
   );
