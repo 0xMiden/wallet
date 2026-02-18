@@ -20,7 +20,7 @@ export default {
           200: '#59657C',
           250: '#484848',
           300: '#e2e8f0',
-          400: '#969EAD',
+          400: '#737373',
           500: '#818181',
           600: '#656565',
           700: '#E9EBEF',
@@ -143,7 +143,9 @@ export default {
       },
       // Custom border radius
       borderRadius: {
-        '4xl': '2rem'
+        '4xl': '2rem',
+        5: '5px',
+        10: '10px'
       },
       // Custom stroke color
       stroke: {

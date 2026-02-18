@@ -1,21 +1,18 @@
 import React, { FC, useCallback, useMemo } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from 'app/atoms/Button';
 import { openInFullPage, useAppEnv } from 'app/env';
-import { ReactComponent as AppsIcon } from 'app/icons/apps.svg';
 import { ReactComponent as ContactBookIcon } from 'app/icons/contact-book.svg';
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
-import { ReactComponent as KeyIcon } from 'app/icons/key.svg';
-import { ReactComponent as LanguageIcon } from 'app/icons/language.svg';
 import { ReactComponent as MaximiseIcon } from 'app/icons/maximise.svg';
-import { ReactComponent as SettingsIcon } from 'app/icons/settings.svg';
-import { ReactComponent as StickerIcon } from 'app/icons/sticker.svg';
-import { ReactComponent as ToolIcon } from 'app/icons/tool.svg';
-import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as ToolIcon } from 'app/icons/settings/advanced-settings.svg';
+import { ReactComponent as AppsIcon } from 'app/icons/settings/dapp.svg';
+import { ReactComponent as EncryptedWalletIcon } from 'app/icons/settings/encrypted-wallet-file.svg';
+import { ReactComponent as SettingsIcon } from 'app/icons/settings/general.svg';
+import { ReactComponent as LanguageIcon } from 'app/icons/settings/language.svg';
+import { ReactComponent as KeyIcon } from 'app/icons/settings/secret-key.svg';
 import About from 'app/templates/About';
 import AddressBook from 'app/templates/AddressBook';
 import DAppSettings from 'app/templates/DAppSettings';
@@ -26,8 +23,6 @@ import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
-import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -49,161 +44,136 @@ type Tab = {
   Component: React.FC;
   descriptionI18nKey: string;
   testID?: SettingsSelectors;
-  insertHR: boolean;
   iconStyle?: React.CSSProperties;
   fullDialog?: boolean;
 };
 
-const TABS: Tab[] = [
+type TabGroup = {
+  titleI18nKey: string;
+  tabs: Tab[];
+};
+
+const TAB_GROUPS: TabGroup[] = [
   {
-    slug: 'general-settings',
-    titleI18nKey: 'generalSettings',
-    Icon: SettingsIcon,
-    Component: GeneralSettings,
-    descriptionI18nKey: 'generalSettingsDescription',
-    testID: SettingsSelectors.GeneralButton,
-    insertHR: false
+    titleI18nKey: 'preferences',
+    tabs: [
+      {
+        slug: 'general-settings',
+        titleI18nKey: 'generalSettings',
+        Icon: SettingsIcon,
+        Component: GeneralSettings,
+        descriptionI18nKey: 'generalSettingsDescription',
+        testID: SettingsSelectors.GeneralButton
+      },
+      {
+        slug: 'address-book',
+        titleI18nKey: 'addressBook',
+        Icon: SettingsIcon,
+        Component: AddressBook,
+        descriptionI18nKey: 'addressBookDescription',
+        testID: SettingsSelectors.AddressBookButton,
+        iconStyle: { stroke: '#000', strokeWidth: '2px' }
+      },
+      {
+        slug: 'language',
+        titleI18nKey: 'language',
+        Icon: LanguageIcon,
+        Component: LanguageSettings,
+        descriptionI18nKey: 'languageDescription',
+        testID: SettingsSelectors.LanguageButton,
+        iconStyle: { stroke: '#000', strokeWidth: '2px' }
+      }
+    ]
   },
   {
-    slug: 'language',
-    titleI18nKey: 'language',
-    Icon: LanguageIcon,
-    Component: LanguageSettings,
-    descriptionI18nKey: 'languageDescription',
-    testID: SettingsSelectors.LanguageButton,
-    insertHR: false,
-    iconStyle: { stroke: '#000', strokeWidth: '2px' }
+    titleI18nKey: 'security',
+    tabs: [
+      {
+        slug: 'reveal-seed-phrase',
+        titleI18nKey: 'revealSeedPhrase',
+        Icon: KeyIcon,
+        Component: RevealSeedPhrase,
+        descriptionI18nKey: 'revealSeedPhraseDescription',
+        testID: SettingsSelectors.RevealSeedPhraseButton
+      },
+      {
+        slug: 'encrypted-wallet-file',
+        titleI18nKey: 'encryptedWalletFile',
+        Icon: EncryptedWalletIcon,
+        Component: EncryptedFileFlow,
+        descriptionI18nKey: 'encryptedWalletFileDescription',
+        testID: SettingsSelectors.EncryptedWalletFile,
+        iconStyle: { stroke: '#000', strokeWidth: '2px' },
+        fullDialog: true
+      }
+    ]
   },
   {
-    slug: 'address-book',
-    titleI18nKey: 'addressBook',
-    Icon: ContactBookIcon,
-    Component: AddressBook,
-    descriptionI18nKey: 'addressBookDescription',
-    testID: SettingsSelectors.AddressBookButton,
-    insertHR: false,
-    iconStyle: { stroke: '#000', strokeWidth: '2px' }
+    titleI18nKey: 'developer',
+    tabs: [
+      {
+        slug: 'advanced-settings',
+        titleI18nKey: 'advancedSettings',
+        Icon: ToolIcon,
+        Component: AdvancedSettings,
+        descriptionI18nKey: 'advancedSettingsDescription',
+        testID: SettingsSelectors.AdvancedSettingsButton
+      },
+      {
+        slug: 'dapps',
+        titleI18nKey: 'authorizedDApps',
+        Icon: AppsIcon,
+        Component: DAppSettings,
+        descriptionI18nKey: 'dAppsDescription',
+        testID: SettingsSelectors.DAppsButton
+      }
+    ]
   },
-  // {
-  //   slug: 'reveal-view-key',
-  //   titleI18nKey: 'revealViewKey',
-  //   Icon: KeyIcon,
-  //   Component: RevealViewKey,
-  //   descriptionI18nKey: 'revealViewKeyDescription',
-  //   testID: SettingsSelectors.RevealViewKeyButton,
-  //   insertHR: true,
-  //   iconStyle: { stroke: '#000', strokeWidth: '1px' }
-  // },
-  // {
-  //   slug: 'reveal-private-key',
-  //   titleI18nKey: 'revealPrivateKey',
-  //   Icon: KeyIcon,
-  //   Component: RevealPrivateKey,
-  //   descriptionI18nKey: 'revealPrivateKeyDescription',
-  //   testID: SettingsSelectors.RevealPrivateKeyButton,
-  //   insertHR: false,
-  //   iconStyle: { stroke: '#000', strokeWidth: '1px' }
-  // },
   {
-    slug: 'reveal-seed-phrase',
-    titleI18nKey: 'revealSeedPhrase',
-    Icon: KeyIcon,
-    Component: RevealSeedPhrase,
-    descriptionI18nKey: 'revealSeedPhraseDescription',
-    testID: SettingsSelectors.RevealSeedPhraseButton,
-    insertHR: false,
-    iconStyle: { fill: '#000', strokeWidth: '2px' }
-  },
+    titleI18nKey: 'about',
+    tabs: [
+      {
+        slug: 'about',
+        titleI18nKey: 'aboutMidenWallet',
+        Icon: SettingsIcon,
+        Component: About,
+        descriptionI18nKey: 'aboutDescription',
+        testID: SettingsSelectors.AboutButton
+      }
+    ]
+  }
+];
+
+// Hidden tabs that are routable but not shown in the menu
+const HIDDEN_TABS: Tab[] = [
   {
     slug: 'edit-miden-faucet-id',
     titleI18nKey: 'editMidenFaucetId',
     Icon: SettingsIcon,
     Component: EditMidenFaucetId,
     descriptionI18nKey: 'editMidenFaucetIdDescription',
-    testID: SettingsSelectors.EditMidenFaucetButton,
-    insertHR: false
+    testID: SettingsSelectors.EditMidenFaucetButton
   },
-  {
-    slug: 'encrypted-wallet-file',
-    titleI18nKey: 'encryptedWalletFile',
-    Icon: StickerIcon,
-    Component: EncryptedFileFlow,
-    descriptionI18nKey: 'encryptedWalletFileDescription',
-    testID: SettingsSelectors.EncryptedWalletFile,
-    insertHR: false,
-    iconStyle: { stroke: '#000', strokeWidth: '2px' },
-    fullDialog: true
-  },
-  {
-    slug: 'advanced-settings',
-    titleI18nKey: 'advancedSettings',
-    Icon: ToolIcon,
-    Component: AdvancedSettings,
-    descriptionI18nKey: 'advancedSettingsDescription',
-    testID: SettingsSelectors.AdvancedSettingsButton,
-    insertHR: false,
-    iconStyle: { stroke: '#000', strokeWidth: '2px' }
-  },
-  // {
-  //   slug: 'remove-account',
-  //   titleI18nKey: 'removeAccount',
-  //   Icon: MinusIcon,
-  //   Component: RemoveAccount,
-  //   descriptionI18nKey: 'removeAccountDescription',
-  //   testID: SettingsSelectors.RemoveAccountButton,
-  //   insertHR: true
-  // },
-  // {
-  //   slug: 'reveal-seed-phrase',
-  //   titleI18nKey: 'exportWalletFile',
-  //   Icon: FileIcon,
-  //   Component: RevealSeedPhrase,
-  //   descriptionI18nKey: 'revealSeedPhraseDescription',
-  //   testID: SettingsSelectors.RevealSeedPhraseButton,
-  //   insertHR: false,
-  //   iconStyle: { stroke: '#000', strokeWidth: '0px' }
-  // },
-  {
-    slug: 'dapps',
-    titleI18nKey: 'authorizedDApps',
-    Icon: AppsIcon,
-    Component: DAppSettings,
-    descriptionI18nKey: 'dAppsDescription',
-    testID: SettingsSelectors.DAppsButton,
-    insertHR: true,
-    iconStyle: { stroke: '#000', strokeWidth: '1px' }
-  },
-  {
-    slug: 'about',
-    titleI18nKey: 'about',
-    Icon: InfoIcon,
-    Component: About,
-    descriptionI18nKey: 'aboutDescription',
-    testID: SettingsSelectors.AboutButton,
-    insertHR: false,
-    iconStyle: { fill: '#000' }
-  },
+
   {
     slug: 'networks',
     titleI18nKey: 'networks',
     Icon: ExtensionIcon,
     Component: NetworksSettings,
     descriptionI18nKey: 'networkDescription',
-    testID: SettingsSelectors.NetworksButton,
-    insertHR: false
+    testID: SettingsSelectors.NetworksButton
   }
 ];
+
+// Flat list of all tabs for route lookup
+const ALL_TABS: Tab[] = [...TAB_GROUPS.flatMap(g => g.tabs), ...HIDDEN_TABS];
 
 // TODO: Consider passing tabs in as a prop
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
-  const activeTab = useMemo(() => TABS.find(tab => tab.slug === tabSlug) || null, [tabSlug]);
-  let listMenuItems = TABS.filter(tab => tab.slug !== 'networks' && tab.slug !== 'edit-miden-faucet-id');
+  const activeTab = useMemo(() => ALL_TABS.find(tab => tab.slug === tabSlug) || null, [tabSlug]);
   const { fullPage, popup } = useAppEnv();
   const account = useAccount();
-  if (!account.isPublic) {
-    listMenuItems = listMenuItems.filter(tab => tab.slug !== 'reveal-seed-phrase');
-  }
 
   const handleMaximiseViewClick = useCallback(() => {
     openInFullPage();
@@ -211,14 +181,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       window.close();
     }
   }, [popup]);
-
-  const handleBack = useCallback(() => {
-    if (activeTab) {
-      navigate('/settings');
-    } else {
-      goBack();
-    }
-  }, [activeTab]);
 
   // Content only - container and footer provided by TabLayout
   return (
@@ -231,35 +193,30 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
         {activeTab ? (
           <activeTab.Component />
         ) : (
-          <div className="flex flex-col w-full py-4">
-            {listMenuItems.map(({ slug, titleI18nKey, Icon: MenuIcon, testID, insertHR, iconStyle, fullDialog }) => {
-              const linkTo = fullDialog ? slug : `/settings/${slug}`;
-              return (
-                <MenuItem
-                  key={titleI18nKey}
-                  slug={linkTo}
-                  titleI18nKey={titleI18nKey}
-                  Icon={MenuIcon}
-                  iconStyle={iconStyle}
-                  testID={testID?.toString() || ''}
-                  insertHR={insertHR}
-                  linksOutsideOfWallet={false}
-                />
-              );
-            })}
-            {popup && (
-              <MenuItem
-                key={'maximise'}
-                Icon={MaximiseIcon}
-                titleI18nKey={fullPage ? 'openNewTab' : 'maximiseView'}
-                slug={'/fullpage.html'}
-                onClick={handleMaximiseViewClick}
-                insertHR={false}
-                iconStyle={{ stroke: '#000', strokeWidth: '2px' }}
-                linksOutsideOfWallet={true}
-                testID={''}
-              />
-            )}
+          <div className="flex flex-col w-full py-4 gap-4 text-heading-gray">
+            {TAB_GROUPS.map(group => (
+              <div key={group.titleI18nKey}>
+                <h3 className="font-semibold pb-4">{t(group.titleI18nKey)}</h3>
+                <div className="overflow-hidden rounded-10">
+                  {group.tabs.map((tab, idx) => {
+                    const linkTo = tab.fullDialog ? tab.slug : `/settings/${tab.slug}`;
+                    return (
+                      <React.Fragment key={tab.slug}>
+                        <MenuItem
+                          slug={linkTo}
+                          titleI18nKey={tab.titleI18nKey}
+                          descriptionI18nKey={tab.descriptionI18nKey}
+                          Icon={tab.Icon}
+                          iconStyle={tab.iconStyle}
+                          testID={tab.testID?.toString() || ''}
+                          linksOutsideOfWallet={false}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
