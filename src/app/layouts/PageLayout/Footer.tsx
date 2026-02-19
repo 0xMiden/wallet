@@ -1,6 +1,7 @@
 import React, { FC, FunctionComponent, SVGProps } from 'react';
 
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
 import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
@@ -20,10 +21,11 @@ interface FooterNavButtonProps {
   Icon: FunctionComponent<SVGProps<SVGSVGElement>>;
   linkTo: string;
   onClick: () => void;
+  name: string;
   badge?: boolean;
 }
 
-const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badge }) => {
+const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badge, name }) => {
   const location = useLocation();
   const currentPath = location.pathname;
   const pathSegments = currentPath.split('/');
@@ -48,6 +50,9 @@ const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badg
             width: '34.21px'
           }}
         />
+        <p className={classNames('text-[10px] font-medium', active ? 'text-primary-500' : 'text-heading-gray')}>
+          {name}
+        </p>
         {badge && (
           <div
             className={classNames(
@@ -64,6 +69,7 @@ const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badg
 
 const Footer: FC<FooterProps> = ({ historyBadge }) => {
   const { trackEvent } = useAnalytics();
+  const { t } = useTranslation();
   const onSettingsClick = () => {
     trackEvent('Footer/Settings', AnalyticsEventCategory.ButtonPress, { type: 'settings' });
   };
@@ -91,10 +97,16 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
       className={`w-full relative bg-white ${roundedClass} h-18 px-8 md:px-16 ${paddingClass}`}
       style={mobileBottomPadding}
     >
-      <div className="flex justify-center gap-[68.42px]">
-        <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} />
-        <FooterNavButton Icon={ActivityIcon} linkTo={'/history'} onClick={onHistoryClick} badge={historyBadge} />
-        <FooterNavButton Icon={SettingsIcon} linkTo={'/settings'} onClick={onSettingsClick} />
+      <div className="flex justify-center gap-12">
+        <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
+        <FooterNavButton
+          Icon={ActivityIcon}
+          linkTo={'/history'}
+          onClick={onHistoryClick}
+          badge={historyBadge}
+          name={t('activity')}
+        />
+        <FooterNavButton Icon={SettingsIcon} linkTo={'/settings'} onClick={onSettingsClick} name={t('settings')} />
         {(isMobile() || isDesktop()) && (
           <FooterIconWrapper
             icon={IconName.Globe}

@@ -535,5 +535,6 @@
   "recent": "Recent",
   "faucetRequest": "Faucet Request",
   "faucetMessage": "You can get tokens from the faucet or transfer them from another wallet or account",
-  "accountCreationSucess": "Account created successfully!"
+  "accountCreationSucess": "Account created successfully!",
+  "activity": "Activity"
 }

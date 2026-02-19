@@ -23,6 +23,7 @@ import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount } from 'lib/miden/front';
+import { goBack } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -186,7 +187,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   return (
     <>
       {/* Header */}
-      <NavigationHeader showBorder title={t('settings')} />
+      <NavigationHeader showBorder title={t('settings')} onBack={goBack} />
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto bg-white px-4">
