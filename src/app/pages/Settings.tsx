@@ -173,28 +173,24 @@ const ALL_TABS: Tab[] = [...TAB_GROUPS.flatMap(g => g.tabs), ...HIDDEN_TABS];
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
   const activeTab = useMemo(() => ALL_TABS.find(tab => tab.slug === tabSlug) || null, [tabSlug]);
-  const { fullPage, popup } = useAppEnv();
-  const account = useAccount();
-
-  const handleMaximiseViewClick = useCallback(() => {
-    openInFullPage();
-    if (popup) {
-      window.close();
-    }
-  }, [popup]);
 
   // Content only - container and footer provided by TabLayout
   return (
     <>
-      {/* Header */}
-      <NavigationHeader showBorder title={t('settings')} onBack={goBack} />
+      {/* Header - only shown when no active tab */}
+      {!activeTab && <NavigationHeader showBorder title={t('settings')} />}
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-white px-4">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-white">
         {activeTab ? (
-          <activeTab.Component />
+          <>
+            <NavigationHeader showBorder title={t(activeTab.titleI18nKey)} onBack={goBack} />
+            <div className="px-4">
+              <activeTab.Component />
+            </div>
+          </>
         ) : (
-          <div className="flex flex-col w-full py-4 gap-4 text-heading-gray">
+          <div className="flex flex-col w-full py-4 gap-4 text-heading-gray px-4">
             {TAB_GROUPS.map(group => (
               <div key={group.titleI18nKey}>
                 <h3 className="font-semibold pb-4">{t(group.titleI18nKey)}</h3>
