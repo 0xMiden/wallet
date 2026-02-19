@@ -54,12 +54,12 @@ const AddressBook: React.FC = () => {
 
   return (
     <div className="w-full max-w-sm pb-4 mx-auto">
-      <AddNewContactForm className="mt-4 mb-8" />
+      <AddNewContactForm className="mt-4 mb-6 gap-4" />
+
+      <hr className="border-gray-300 mb-6" />
 
       <div className="mb-4 flex flex-col">
-        <span className="text-black font-medium text-black" style={{ fontSize: '14px', lineHeight: '20px' }}>
-          {t('currentContacts')}
-        </span>
+        <span className="text-black font-semibold text-lg">{t('currentContacts')}</span>
       </div>
       <CustomSelect
         actions={contactActions}
@@ -118,22 +118,19 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
   );
 
   return (
-    <form className={className} onSubmit={handleSubmit(onAddContactSubmit)}>
+    <form className={classNames('flex flex-col', className)} onSubmit={handleSubmit(onAddContactSubmit)}>
+      <span className="text-black font-semibold text-lg mb-2">{t('addContact')}</span>
       <FormField
         {...register('address', {
           required: t('required'),
           maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
         })}
-        label={
-          <div className="font-medium -mb-2" style={{ fontSize: '14px', lineHeight: '20px' }}>
-            {t('address')}
-          </div>
-        }
         id="address"
         name="address"
-        placeholder={t('recipientInputPlaceholder')}
+        placeholder={'Address'}
         errorCaption={errors.address?.message}
         autoFocus
+        className="border-gray-500 border"
       />
 
       <FormField
@@ -141,31 +138,23 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
           required: t('required'),
           maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
         })}
-        label={
-          <div className="font-medium -mb-2" style={{ fontSize: '14px', lineHeight: '20px' }}>
-            {t('name')}
-          </div>
-        }
         id="name"
         name="name"
-        placeholder={t('newContactPlaceholder')}
+        placeholder={'Name'}
         errorCaption={errors.name?.message}
         containerClassName="mb-2"
         maxLength={50}
+        className="border-gray-500 border"
       />
 
       <FormSubmitButton
-        className="capitalize w-full justify-center mt-4"
+        className="capitalize w-full justify-center mt-7 rounded-10 text-base font-semibold py-4.5"
         loading={isSubmitting}
-        style={{
-          fontSize: '18px',
-          lineHeight: '24px',
-          paddingLeft: '0.5rem',
-          paddingRight: '0.5rem',
-          paddingTop: '12px',
-          paddingBottom: '12px'
-        }}
         testID="AddressBook/AddNewContact"
+        style={{
+          paddingTop: '18px',
+          paddingBottom: '18px'
+        }}
       >
         {t('addContact')}
       </FormSubmitButton>

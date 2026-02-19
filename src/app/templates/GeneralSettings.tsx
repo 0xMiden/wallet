@@ -3,7 +3,6 @@ import React, { FC } from 'react';
 import DelegateSettings from 'app/templates/DelegateSettings';
 import { isMobile } from 'lib/platform';
 
-import AutoCloseSettings from './AutoCloseSettings';
 import AutoConsumeSettings from './AutoConsumeSettings';
 import HapticFeedbackSettings from './HapticFeedbackSettings';
 
