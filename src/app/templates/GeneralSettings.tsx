@@ -11,14 +11,13 @@ const GeneralSettings: FC = () => {
   const mobile = isMobile();
 
   return (
-    <div className="w-full max-w-sm mx-auto my-8">
+    <div className="w-full max-w-sm mx-auto my-8 text-heading-gray">
       {/* Haptic feedback settings - only visible on mobile */}
       {mobile && <HapticFeedbackSettings />}
 
       {/* Delegate settings - hidden on mobile (always enabled on mobile) */}
       {!mobile && <DelegateSettings />}
 
-      <AutoCloseSettings />
       <AutoConsumeSettings />
     </div>
   );

@@ -21,24 +21,7 @@ const AutoConsumeSettings: FC<{}> = () => {
   }, []);
 
   return (
-    <div className="flex w-full justify-between mt-6">
-      <div className="flex flex-col w-5/6">
-        <label className="leading-tight flex flex-col" htmlFor="consumeEnabled">
-          <span
-            className="text-black font-medium text-black my-1"
-            style={{
-              font: '14px',
-              lineHeight: '20px'
-            }}
-          >
-            {t('autoConsumeSettings')}
-          </span>
-
-          <span className="mt-1 text-black" style={{ fontSize: '12px', lineHeight: '16px' }}>
-            {t('autoConsumeSettingsDescription')}
-          </span>
-        </label>
-      </div>
+    <div className="flex w-full justify-between flex-col pt-8 items-center gap-4.25">
       <ToggleSwitch
         checked={consumeEnabled}
         onChange={handleAutoConsumeChange}
@@ -46,6 +29,15 @@ const AutoConsumeSettings: FC<{}> = () => {
         containerClassName="my-1"
         testID={GeneralSettingsSelectors.AutoConsumeToggle}
       />
+      <div className="flex flex-col gap-3.5">
+        <label className="leading-tight flex flex-col" htmlFor="consumeEnabled">
+          <span className="font-medium my-1 text-[18px] text-center">{t('autoConsumeSettings')}</span>
+
+          <span className="mt-1 text-gray-400 text-center text-base" style={{ lineHeight: '16px' }}>
+            {t('autoConsumeSettingsDescription')}
+          </span>
+        </label>
+      </div>
     </div>
   );
 };

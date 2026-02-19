@@ -21,24 +21,7 @@ const DelegateSettings: FC<{}> = () => {
   }, []);
 
   return (
-    <div className="flex justify-between mb-8">
-      <div className="flex flex-col w-5/6">
-        <label className="leading-tight flex flex-col" htmlFor="delegateEnabled">
-          <span
-            className="text-black font-medium text-black my-1"
-            style={{
-              font: '14px',
-              lineHeight: '20px'
-            }}
-          >
-            {t('delegateProofSettings')}
-          </span>
-
-          <span className="mt-1 text-black" style={{ fontSize: '12px', lineHeight: '16px' }}>
-            {t('delegateProofSettingsDescription')}
-          </span>
-        </label>
-      </div>
+    <div className="flex flex-col pb-8 items-center justify-center border-b border-[#EAE6E6] gap-4.25">
       <ToggleSwitch
         checked={delegateEnabled}
         onChange={handleDelegateSettingChange}
@@ -46,6 +29,15 @@ const DelegateSettings: FC<{}> = () => {
         containerClassName="my-1"
         testID={GeneralSettingsSelectors.DelegateToggle}
       />
+      <div className="flex flex-col gap-3.5">
+        <label className="leading-tight flex flex-col" htmlFor="delegateEnabled">
+          <span className="font-medium my-1 text-[18px] text-center">{t('delegateProofSettings')}</span>
+
+          <span className="mt-1 text-gray-400 text-center text-base" style={{ lineHeight: '16px' }}>
+            {t('delegateProofSettingsDescription')}
+          </span>
+        </label>
+      </div>
     </div>
   );
 };

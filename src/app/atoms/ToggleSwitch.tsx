@@ -47,14 +47,14 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
     return (
       <div
         className={classNames('relative inline-flex shrink-0 align-middle select-none', containerClassName)}
-        style={{ width: '48px', height: '24px', minWidth: '48px' }}
+        style={{ width: '46px', height: '26px', minWidth: '46px' }}
       >
         {/* Track - visual only, no pointer events */}
         <div
           className="rounded-full transition-colors duration-200 ease-in-out"
           style={{
-            width: '48px',
-            height: '24px',
+            width: '46px',
+            height: '26px',
             backgroundColor: localChecked ? '#F97316' : '#FFFFFF',
             border: localChecked ? 'none' : '2px solid #E5E7EB',
             pointerEvents: 'none'
@@ -66,8 +66,8 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
             style={{
               width: '16px',
               height: '16px',
-              top: '4px',
-              left: localChecked ? '28px' : '4px',
+              top: '5px',
+              left: localChecked ? '26px' : '4px',
               backgroundColor: localChecked ? '#FFFFFF' : '#F97316',
               pointerEvents: 'none'
             }}
