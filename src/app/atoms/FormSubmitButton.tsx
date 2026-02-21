@@ -33,23 +33,18 @@ const FormSubmitButton: FC<FormSubmitButtonProps> = ({
         'relative',
         small ? 'px-6' : 'px-8',
         'rounded-3xl',
-        disabled ? 'bg-blue-200' : 'bg-primary-500',
+        'bg-primary-500',
         'flex items-center',
         loading ? 'text-transparent' : 'text-white',
-        'text-sm',
         'font-semibold',
         'transition duration-200 ease-in-out',
-        loading || disabled ? 'opacity-75' : 'hover:opacity-90 focus:opacity-90',
+        loading || disabled ? 'opacity-60' : 'hover:opacity-90 focus:opacity-90',
         loading || disabled
           ? 'pointer-events-none'
-          : 'hover:bg-gradient-to-r hover:from-#472AA0 hover:from-0% hover:to-10%',
+          : 'hover:bg-linear-to-r hover:from-#472AA0 hover:from-0% hover:to-10%',
         className
       )}
-      style={{
-        paddingTop: small ? '0.5rem' : '0.625rem',
-        paddingBottom: small ? '0.5rem' : '0.625rem',
-        ...style
-      }}
+      style={style}
       disabled={disabled}
       {...rest}
     >

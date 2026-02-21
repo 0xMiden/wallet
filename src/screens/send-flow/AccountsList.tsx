@@ -31,7 +31,7 @@ export const AccountsList: React.FC<AccountsListProps> = ({
 
   return (
     <div {...props} className={classNames('flex-1 flex flex-col', className)}>
-      <NavigationHeader mode="close" title={t('yourAccounts')} onClose={onClose} showBorder />
+      <NavigationHeader mode="close" title={t('contacts')} onClose={onClose} showBorder />
       <div className="flex flex-col flex-1 p-4 gap-y-2 md:w-[460px] md:mx-auto">
         {accounts.length === 0 ? (
           <EmptyState
@@ -45,7 +45,7 @@ export const AccountsList: React.FC<AccountsListProps> = ({
             <CardItem
               key={c.id}
               title={c.name}
-              subtitle={truncateAddress(c.id)}
+              subtitle={`${t(c.contactType)} · ${truncateAddress(c.id)}`}
               iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
               iconRight={c.id === recipientAccountId ? IconName.CheckboxCircleFill : undefined}
               onClick={() => onSelectContact(c)}

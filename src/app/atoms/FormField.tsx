@@ -174,12 +174,12 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               getInnerClassName(isPasswordInput, extraInner),
               errorCaption ? 'border-red-500' : 'border-gray-100',
               secretBannerDisplayed ? 'border border-gray-800' : 'border',
-              'bg-white focus:bg-transparent',
-              'focus:border-black active:border-black focus:ring-1 focus:ring-black',
+              'bg-gray-25 focus:bg-transparent',
+              'focus:border-black active:border-black',
               'outline-none',
               'transition ease-in-out duration-200',
               'text-black leading-tight',
-              'placeholder-gray-400',
+              'placeholder:text-gray-600 placeholder:font-medium placeholder:text-sm',
               className
             )}
             style={{

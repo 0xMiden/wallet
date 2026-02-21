@@ -153,8 +153,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
           {/* Options */}
           <div className="flex flex-col gap-3">
-            {/* One to Many Payment - placeholder for future */}
-
             {/* Private Payment */}
             <div className="border-[0.5px] border-[#00000033] rounded-[5px] overflow-hidden">
               <OptionItem

@@ -55,7 +55,7 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
           style={{
             width: '46px',
             height: '26px',
-            backgroundColor: localChecked ? '#F97316' : '#FFFFFF',
+            backgroundColor: localChecked ? '#FF5500' : '#FFFFFF',
             border: localChecked ? 'none' : '2px solid #E5E7EB',
             pointerEvents: 'none'
           }}
@@ -68,7 +68,7 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
               height: '16px',
               top: '5px',
               left: localChecked ? '26px' : '4px',
-              backgroundColor: localChecked ? '#FFFFFF' : '#F97316',
+              backgroundColor: localChecked ? '#FFFFFF' : '#FF5500',
               pointerEvents: 'none'
             }}
           />

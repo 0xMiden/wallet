@@ -1,33 +1,25 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { t } from 'i18next';
 import { useForm } from 'react-hook-form';
 
-import ColorIdenticon from 'app/atoms/ColorIdenticon';
 import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
-import Name from 'app/atoms/Name';
-import { useAppEnv } from 'app/env';
-import { ReactComponent as CloseIcon } from 'app/icons/close.svg';
+import { Avatar } from 'components/Avatar';
+import { CardItem } from 'components/CardItem';
 import { useContacts, isAddressValid } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { WalletContact } from 'lib/shared/types';
+import { isMobile } from 'lib/platform';
 import { useConfirm } from 'lib/ui/dialog';
 import { withErrorHumanDelay } from 'lib/ui/humanDelay';
-
-import AddressChip from './AddressChip';
-import CustomSelect, { OptionRenderProps } from './CustomSelect';
-
-type ContactActions = {
-  remove: (address: string) => void;
-};
+import { truncateAddress } from 'utils/string';
 
 const AddressBook: React.FC = () => {
-  const { fullPage } = useAppEnv();
   const { removeContact } = useContacts();
   const { allContacts } = useFilteredContacts();
   const confirm = useConfirm();
+  const [searchQuery, setSearchQuery] = useState('');
 
   const handleRemoveContactClick = useCallback(
     async (address: string) => {
@@ -45,33 +37,51 @@ const AddressBook: React.FC = () => {
     [confirm, removeContact]
   );
 
-  const contactActions = useMemo<ContactActions>(
-    () => ({
-      remove: handleRemoveContactClick
-    }),
-    [handleRemoveContactClick]
-  );
+  const filteredContacts = useMemo(() => {
+    if (!searchQuery.trim()) return allContacts;
+    const query = searchQuery.toLowerCase();
+    return allContacts.filter(c => c.name.toLowerCase().includes(query) || c.address.toLowerCase().includes(query));
+  }, [allContacts, searchQuery]);
 
   return (
-    <div className="w-full max-w-sm pb-4 mx-auto">
-      <AddNewContactForm className="mt-4 mb-6 gap-4" />
+    <div className="w-full mx-auto">
+      <AddNewContactForm />
 
-      <hr className="border-gray-300 mb-6" />
+      <hr className="border-gray-300 my-8" />
 
-      <div className="mb-4 flex flex-col">
-        <span className="text-black font-semibold text-lg">{t('currentContacts')}</span>
+      <div className="flex flex-col gap-4">
+        <span className="text-heading-gray font-medium text-xl">{t('currentContacts')}</span>
+        <input
+          type="text"
+          placeholder={t('searchContacts')}
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className={classNames(
+            'w-full h-14 px-4',
+            'bg-gray-25 border border-gray-100 rounded-10',
+            'text-base placeholder:text-gray-600 placeholder:font-medium',
+            'outline-none focus:border-gray-100'
+          )}
+        />
       </div>
-      <CustomSelect
-        actions={contactActions}
-        className={fullPage ? 'mb-6' : ''}
-        getItemId={getContactKey}
-        items={allContacts}
-        OptionIcon={ContactIcon}
-        OptionContent={ContactContent}
-        light
-        hoverable={false}
-        maxHeight={fullPage ? '300px' : '160px'}
-      />
+
+      <div className="flex flex-col gap-y-2 mt-4">
+        {filteredContacts.length === 0 ? (
+          <p className="text-center text-grey-600 text-sm py-4">{t('noContactsFound')}</p>
+        ) : (
+          filteredContacts.map(contact => (
+            <CardItem
+              key={contact.address}
+              title={contact.name}
+              subtitle={`${contact.accountInWallet ? (contact.isPublic ? t('public') : t('private')) : t('external')} · ${truncateAddress(contact.address, true, 12)}`}
+              iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
+              hoverable={!contact.accountInWallet}
+              onClick={contact.accountInWallet ? undefined : () => handleRemoveContactClick(contact.address)}
+              className="bg-grey-25 rounded-xl h-auto py-3 px-3"
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 };
@@ -94,8 +104,13 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
     handleSubmit,
     clearErrors,
     setError,
+    watch,
     formState: { errors, isSubmitting }
   } = useForm<ContactFormData>();
+
+  const addressValue = watch('address');
+  const nameValue = watch('name');
+  const isFormEmpty = !addressValue || !nameValue;
 
   const onAddContactSubmit = useCallback(
     async ({ address, name }: ContactFormData) => {
@@ -118,95 +133,49 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
   );
 
   return (
-    <form className={classNames('flex flex-col', className)} onSubmit={handleSubmit(onAddContactSubmit)}>
-      <span className="text-black font-semibold text-lg mb-2">{t('addContact')}</span>
-      <FormField
-        {...register('address', {
-          required: t('required'),
-          maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
-        })}
-        id="address"
-        name="address"
-        placeholder={'Address'}
-        errorCaption={errors.address?.message}
-        autoFocus
-        className="border-gray-500 border"
-      />
-
-      <FormField
-        {...register('name', {
-          required: t('required'),
-          maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
-        })}
-        id="name"
-        name="name"
-        placeholder={'Name'}
-        errorCaption={errors.name?.message}
-        containerClassName="mb-2"
-        maxLength={50}
-        className="border-gray-500 border"
-      />
-
+    <form
+      className={classNames('flex flex-col', isMobile() ? 'pt-8' : 'pt-4', className)}
+      onSubmit={handleSubmit(onAddContactSubmit)}
+    >
+      <div className="flex flex-col gap-4">
+        <span className="text-heading-gray font-medium text-xl">{t('addContact')}</span>
+        <FormField
+          {...register('name', {
+            required: t('required'),
+            maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
+          })}
+          id="name"
+          name="name"
+          placeholder={'Enter username'}
+          errorCaption={errors.name?.message}
+          containerClassName="bg-gray-25 border-gray-100 border rounded-10"
+          maxLength={50}
+          className="bg-gray-25 h-14 active:border-none focus:border-none  placeholder:text-gray-600 placeholder:font-medium rounded-10"
+          fieldWrapperBottomMargin={false}
+        />
+        <FormField
+          {...register('address', {
+            required: t('required'),
+            maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
+          })}
+          id="address"
+          name="address"
+          placeholder={'Enter Address'}
+          errorCaption={errors.address?.message}
+          autoFocus
+          className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-gray-600 rounded-10"
+          fieldWrapperBottomMargin={false}
+          containerClassName="bg-gray-25 border-gray-100 border rounded-10"
+        />
+      </div>
       <FormSubmitButton
-        className="capitalize w-full justify-center mt-7 rounded-10 text-base font-semibold py-4.5"
+        className="capitalize w-full justify-center mt-7 rounded-10 text-base font-semibold h-14"
         loading={isSubmitting}
+        disabled={isFormEmpty}
         testID="AddressBook/AddNewContact"
-        style={{
-          paddingTop: '18px',
-          paddingBottom: '18px'
-        }}
       >
         {t('addContact')}
       </FormSubmitButton>
     </form>
   );
 };
-
-const ContactIcon: React.FC<OptionRenderProps<WalletContact, string, ContactActions>> = ({ item }) => (
-  <ColorIdenticon publicKey={item.address} className="shrink-0" />
-);
-
-const ContactContent: React.FC<OptionRenderProps<WalletContact, string, ContactActions>> = ({ item, actions }) => (
-  <div className="flex flex-1 w-full">
-    <div className="flex flex-col justify-between flex-1">
-      <Name className="mb-px text-sm font-medium leading-tight text-left">{item.name}</Name>
-
-      <div className="text-xs  leading-tight text-black">
-        <AddressChip address={item.address} small />
-      </div>
-    </div>
-
-    {item.accountInWallet ? (
-      <div className="flex items-center">
-        <span
-          className={classNames(
-            'mx-1',
-            'rounded-md',
-            'border-2',
-            'px-2 py-1',
-            'leading-tight',
-            'border-gray-800 bg-gray-800 text-black',
-            'font-medium'
-          )}
-          style={{ fontSize: '0.6rem' }}
-        >
-          {t('ownAccount')}
-        </span>
-      </div>
-    ) : (
-      <button
-        className={classNames('flex-none p-2', 'text-black hover:text-black', 'transition ease-in-out duration-200')}
-        onClick={evt => {
-          evt.stopPropagation();
-          actions?.remove(item.address);
-        }}
-      >
-        <CloseIcon className="w-auto h-5 stroke-current stroke-2" title={t('delete')} />
-      </button>
-    )}
-  </div>
-);
-
-function getContactKey(contact: WalletContact) {
-  return contact.address;
-}

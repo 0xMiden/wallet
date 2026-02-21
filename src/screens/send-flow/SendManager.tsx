@@ -14,6 +14,7 @@ import {
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import { useAccount, useAllAccounts } from 'lib/miden/front';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
@@ -80,20 +81,29 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
   const { fullPage } = useAppEnv();
   const delegateEnabled = isDelegateProofEnabled();
 
-  const otherAccounts: Contact[] = useMemo(
-    () =>
-      allAccounts
-        .filter(c => c.publicKey !== publicKey)
-        .map(
-          contact =>
-            ({
-              id: contact.publicKey,
-              name: contact.name,
-              isOwned: true
-            }) as Contact
-        ),
-    [allAccounts, publicKey]
-  );
+  const { contacts: addressBookContacts } = useFilteredContacts();
+
+  const allContactsList: Contact[] = useMemo(() => {
+    const walletContacts: Contact[] = allAccounts
+      .filter(c => c.publicKey !== publicKey)
+      .map(contact => ({
+        id: contact.publicKey,
+        name: contact.name,
+        isOwned: true,
+        contactType: contact.isPublic ? ('public' as const) : ('private' as const)
+      }));
+
+    const externalContacts: Contact[] = addressBookContacts
+      .filter(c => c.address !== publicKey && !allAccounts.some(acc => acc.publicKey === c.address))
+      .map(contact => ({
+        id: contact.address,
+        name: contact.name,
+        isOwned: false,
+        contactType: 'external' as const
+      }));
+
+    return [...walletContacts, ...externalContacts];
+  }, [allAccounts, addressBookContacts, publicKey]);
 
   const onClose = useCallback(() => {
     navigate('/');
@@ -367,7 +377,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
           return (
             <AccountsList
               recipientAccountId={recipientAddress}
-              accounts={otherAccounts}
+              accounts={allContactsList}
               onClose={goBack}
               onSelectContact={onSelectContact}
             />
@@ -381,7 +391,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
     [
       token,
       recipientAddress,
-      otherAccounts,
+      allContactsList,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,

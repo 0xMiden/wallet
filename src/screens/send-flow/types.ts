@@ -51,6 +51,7 @@ export type Contact = {
   id: string;
   name: string;
   isOwned: boolean;
+  contactType: 'public' | 'private' | 'external';
 };
 
 export enum UIFeeType {

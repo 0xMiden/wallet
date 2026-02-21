@@ -30,11 +30,11 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({
   const { t } = useTranslation();
 
   return (
-    <div className={clsx('w-full hover:bg-gray-50 transition-colors duration-200 cursor-pointer py-4')}>
+    <div className={clsx('w-full hover:bg-gray-50 transition-colors duration-200 cursor-pointer py-4 px-4')}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {Icon && (
-            <div className="p-2">
+            <div className="p-2 bg-gray-25 rounded-5">
               <Icon className="w-5 h-4" style={iconStyle} />
             </div>
           )}
