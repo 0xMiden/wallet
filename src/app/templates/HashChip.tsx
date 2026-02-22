@@ -19,7 +19,6 @@ const HashChip: FC<HashChipProps> = ({
   type = 'button',
   size = 'xs',
   fill = 'black',
-  className = 'ml-4',
   ...rest
 }) => (
   <CopyButton text={hash} type={type} {...rest}>
@@ -32,7 +31,7 @@ const HashChip: FC<HashChipProps> = ({
         lastCharsCount={lastCharsCount}
         displayName={displayName}
       />
-      <Icon name={IconName.Copy} size={size} fill={fill} className={className} />
+      <Icon name={IconName.Copy} size={size} fill={fill} />
     </span>
   </CopyButton>
 );

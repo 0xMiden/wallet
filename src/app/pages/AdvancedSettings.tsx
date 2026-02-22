@@ -1,5 +1,6 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
@@ -8,6 +9,7 @@ import HashChip from 'app/templates/HashChip';
 import { ListItem } from 'components/ListItem';
 import { useAccount } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { isMobile } from 'lib/platform';
 import { bytesToHex } from 'lib/shared/helpers';
 import { Link } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -41,14 +43,20 @@ const AdvancedSettings: FC = () => {
   }, [fetchPublicKey]);
 
   return (
-    <div className="flex justify-center py-6">
+    <div className="flex justify-center py-6 text-heading-gray">
       <div className="flex flex-col w-[328px] gap-y-4">
         <div className="flex flex-row gap-x-2 px-2 justify-between">
-          <span className="text-black text-sm py-1">{t('accountPublicKey')}</span>
+          <span className={clsx('py-1 font-medium', isMobile() ? 'text-[20px] leading-5' : 'text-sm')}>
+            {t('accountPublicKey')}
+          </span>
           <HashChip hash={publicKey || ''} small={false} trimHash={true} />
         </div>
         <Link to={'settings/edit-miden-faucet-id'}>
-          <ListItem title={t('editMidenFaucetId')} subtitle={faucetIdShortened} iconRight={IconName.ChevronRight} />
+          <ListItem
+            title={t('editMidenFaucetId')}
+            iconRight={IconName.ChevronRight}
+            titleClassName={clsx('py-1 font-medium', isMobile() ? 'text-[20px] leading-5' : 'text-sm')}
+          />
         </Link>
       </div>
     </div>

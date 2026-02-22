@@ -15,6 +15,7 @@ export interface ListItemProps extends React.ComponentProps<'div'> {
   iconRight?: React.ReactNode | IconName;
   title?: string;
   subtitle?: string;
+  titleClassName?: string;
 }
 
 /**
@@ -29,6 +30,7 @@ export const ListItem: React.FC<ListItemProps> = ({
   iconLeft,
   iconRight,
   onClick,
+  titleClassName,
   ...props
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -52,7 +54,9 @@ export const ListItem: React.FC<ListItemProps> = ({
     <div {...props} className={ListItemClasses} onClick={handleClick}>
       {iconLeft && <IconOrComponent icon={iconLeft} color="black" />}
       <div className="flex flex-1 justify-between overflow-hidden">
-        {title && <div className="text-sm text-black truncate text-ellipsis ">{title}</div>}
+        {title && (
+          <div className={classNames('text-sm text-heading-gray truncate text-ellipsis ', titleClassName)}>{title}</div>
+        )}
         {subtitle && <div className="text-sm text-grey-600 truncate text-ellipsis shrink-0">{subtitle}</div>}
       </div>
       {iconRight && <IconOrComponent icon={iconRight} color="black" />}
