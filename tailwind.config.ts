@@ -100,6 +100,9 @@ export default {
         'primary-orange-lighter': '#FFF0E5',
         'primary-orange-darker': '#882200',
         'primary-gray': '#656565',
+        'border-card': '#D6DAE0',
+        'chip-bg': '#EEEFF2',
+        'accent-orange': '#EE622F',
         ...customColors
       };
       return baseColors;

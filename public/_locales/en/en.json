@@ -129,7 +129,7 @@
   "disable": "disable",
   "enable": "enable",
   "dAppsCheckmarkPrompt": "Click on the toggle to $action$ DApps interaction feature",
-  "dAppsInteraction": "DApps interaction",
+  "dAppsInteraction": "DApps Interaction",
   "none": "None",
   "popupEnabled": "Enabled",
   "delete": "Delete",
@@ -547,5 +547,9 @@
   "faucetRequest": "Faucet Request",
   "faucetMessage": "You can get tokens from the faucet or transfer them from another wallet or account",
   "accountCreationSucess": "Account created successfully!",
-  "activity": "Activity"
+  "activity": "Activity",
+  "permissions": "Permissions",
+  "permissionUponRequest": "Upon Request",
+  "permissionAutomatic": "Automatic",
+  "dAppsToggleDescription": "Toggle to enable or disable DApp connections and balance visibility."
 }

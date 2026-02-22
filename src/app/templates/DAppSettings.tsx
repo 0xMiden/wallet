@@ -1,27 +1,20 @@
-import React, { ComponentProps, FC, useCallback, useMemo, useRef } from 'react';
+import React, { FC, useCallback, useRef } from 'react';
 
-import classNames from 'clsx';
+import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { useTranslation } from 'react-i18next';
 
-import Name from 'app/atoms/Name';
+import AddressShortView from 'app/atoms/AddressShortView';
+import CopyButton from 'app/atoms/CopyButton';
 import ToggleSwitch from 'app/atoms/ToggleSwitch';
 import { ReactComponent as CloseIcon } from 'app/icons/close.svg';
-import CustomSelect, { OptionRenderProps } from 'app/templates/CustomSelect';
-import DAppLogo from 'app/templates/DAppLogo';
+import { ReactComponent as CopySmallIcon } from 'app/icons/copy-small.svg';
+import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
 import { useStorage, useMidenContext, useAccount } from 'lib/miden/front';
 import { MidenDAppSession, MidenDAppSessions, MidenSharedStorageKey } from 'lib/miden/types';
 import { useRetryableSWR } from 'lib/swr';
 import { useConfirm } from 'lib/ui/dialog';
 
-import AddressChip from './AddressChip';
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
-
-type DAppEntry = [string, MidenDAppSession];
-type DAppActions = {
-  remove: (origin: string) => void;
-};
-
-const getDAppKey = (entry: DAppEntry) => entry[0];
 
 const DAppSettings: FC = () => {
   const { t } = useTranslation();
@@ -78,57 +71,32 @@ const DAppSettings: FC = () => {
 
   return (
     <div className="w-full max-w-sm mx-auto my-8">
-      <div className="flex justify-between mb-8">
-        <div className="flex flex-col w-4/6">
-          <label className="leading-tight flex flex-col" htmlFor="popupEnabled">
-            <span
-              className="text-black font-medium text-black my-1"
-              style={{
-                font: '14px',
-                lineHeight: '20px'
-              }}
-            >
-              {t('dAppsInteraction')}
-            </span>
-
-            <span className="mt-1 text-black" style={{ fontSize: '12px', lineHeight: '16px' }}>
-              {t('dAppsCheckmarkPrompt', { action: t(dAppEnabled ? 'disable' : 'enable') })}
-            </span>
-          </label>
+      {/* Toggle Card */}
+      <div className="border border-border-card rounded-5 p-4 flex justify-between items-center">
+        <div className="flex flex-col">
+          <span className="font-medium text-sm text-[#0F131A]">{t('dAppsInteraction')}</span>
+          <span className="text-xs text-[#555D6D] mt-1">{t('dAppsToggleDescription')}</span>
         </div>
         <ToggleSwitch
           checked={dAppEnabled}
           onChange={handleChange}
           name="dAppEnabled"
-          containerClassName="mb-4"
           testID={GeneralSettingsSelectors.DAppToggle}
         />
       </div>
 
       {dAppEntries.length > 0 && (
         <>
-          <h2>
-            <span className="text-black font-medium" id="authorizedDApps">
-              {t('authorizedDApps')}
-            </span>
-          </h2>
+          {/* Dashed Separator */}
+          <div className="my-6" style={{ borderTop: '1px dashed #818898' }} />
 
-          <div className="mb-4">
-            <span className="text-xs text-black" style={{ maxWidth: '90%' }} id="clickIconToResetPermissions">
-              {t('clickIconToResetPermissions')}
-            </span>
-          </div>
+          {/* Heading */}
+          <h2 className="text-[20px] leading-5 font-medium text-heading-gray mb-4">{t('authorizedDApps')}</h2>
 
-          <CustomSelect
-            actions={{ remove: handleRemoveClick }}
-            className="mb-4 text-xs rounded-lg border border-gray-600"
-            getItemId={getDAppKey}
-            items={dAppEntries}
-            OptionIcon={DAppIcon}
-            OptionContent={DAppDescription}
-            light
-            hoverable={false}
-          />
+          {/* DApp Cards */}
+          {dAppEntries.map(([origin, session]) => (
+            <DAppCard key={origin} origin={origin} session={session} onRemove={handleRemoveClick} />
+          ))}
         </>
       )}
     </div>
@@ -137,89 +105,95 @@ const DAppSettings: FC = () => {
 
 export default DAppSettings;
 
-const DAppIcon: FC<OptionRenderProps<DAppEntry, string, DAppActions>> = props => (
-  <DAppLogo className="flex-none mr-1" style={{ alignSelf: 'flex-center' }} origin={props.item[0]} size={36} />
-);
-
-const DAppDescription: FC<OptionRenderProps<DAppEntry, string, DAppActions>> = props => {
+const DAppCard: FC<{
+  origin: string;
+  session: MidenDAppSession;
+  onRemove: (origin: string) => void;
+}> = ({ origin, session, onRemove }) => {
   const { t } = useTranslation();
-  const {
-    actions,
-    item: [origin, { network, accountId, privateDataPermission }]
-  } = props;
-  const { remove: onRemove } = actions!;
+  const { network, accountId, privateDataPermission } = session;
+
+  const hostname = (() => {
+    try {
+      return new URL(origin).hostname;
+    } catch {
+      return origin;
+    }
+  })();
 
   const handleRemoveClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
+    (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
       onRemove(origin);
     },
     [onRemove, origin]
   );
 
-  const dAppAttributes = useMemo(
-    () => [
-      {
-        key: 'originLabel',
-        value: origin,
-        Component: ({ className, ...rest }: ComponentProps<typeof Name>) => (
-          <a
-            href={origin}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={classNames('text-black hover:underline', className)}
-          >
-            <Name {...rest} />
-          </a>
-        )
-      },
-      {
-        key: 'networkLabel',
-        value: network,
-        valueClassName: network.toString() && 'capitalize',
-        Component: Name
-      },
-      {
-        key: 'pkhLabel',
-        value: <AddressChip address={accountId} type="link" small />,
-        Component: 'span'
-      },
-      {
-        key: 'permissionLabel',
-        value: t(`${privateDataPermission.toString()}_SHORT`),
-        Component: 'span'
-      }
-    ],
-    [origin, network, accountId, privateDataPermission, t]
-  );
+  const permissionLabel =
+    privateDataPermission === PrivateDataPermission.UponRequest ? t('permissionUponRequest') : t('permissionAutomatic');
+
+  const explorerHash = accountId.split('_')[0] || accountId;
 
   return (
-    <div className="flex flex-1 w-full">
-      <div className="flex flex-col justify-between flex-1">
-        <Name className="mb-1 text-xs font-medium leading-tight text-left" style={{ maxWidth: '14rem' }}>
-          {origin}
-        </Name>
-
-        {dAppAttributes.map(({ key, value, valueClassName, Component }) => (
-          <div className="text-xs  leading-tight text-black" key={key}>
-            {`${t(key)} `}
-            <Component
-              className={classNames('font-normal text-xs inline-flex', valueClassName)}
-              style={{ maxWidth: '10rem' }}
-              key={key}
-            >
-              {value}
-            </Component>
-          </div>
-        ))}
+    <div className="border border-border-card rounded-5 mb-4">
+      {/* Header */}
+      <div className="flex justify-between items-center border-b border-border-card px-4 py-3">
+        <span className="text-[14px] font-medium text-[#0F131A]">{hostname}</span>
+        <button
+          className="flex-none text-gray-500 hover:text-black transition ease-in-out duration-200"
+          onClick={handleRemoveClick}
+        >
+          <CloseIcon className="w-auto h-5 stroke-current stroke-2" title={t('delete')} />
+        </button>
       </div>
 
-      <button
-        className={classNames('flex-none', 'text-gray-500 hover:text-black', 'transition ease-in-out duration-200')}
-        onClick={handleRemoveClick}
-      >
-        <CloseIcon className="w-auto h-5 stroke-current stroke-2" title={t('delete')} />
-      </button>
+      <div className="p-4">
+        {/* Origin */}
+        <div className="flex justify-between items-center">
+          <span className="text-[#555D6D] text-sm">{t('originLabel')}</span>
+          <span className="text-sm text-heading-gray">{origin}</span>
+        </div>
+
+        {/* Network */}
+        <div className="flex justify-between items-center pt-2">
+          <span className="text-[#555D6D] text-sm">{t('networkLabel')}</span>
+          <span className="text-sm text-heading-gray capitalize">{network}</span>
+        </div>
+
+        {/* Account */}
+        <div className="flex justify-between items-center pt-2">
+          <span className="text-[#555D6D] text-sm">{t('pkhLabel')}</span>
+          <div className="flex items-center gap-1">
+            <span className="text-sm text-accent-orange">
+              <AddressShortView address={accountId} />
+            </span>
+            <CopyButton text={accountId} small>
+              <CopySmallIcon className="w-3 h-3 text-[#555D6D]" />
+            </CopyButton>
+            <a
+              href={`https://testnet.midenscan.com/account/${explorerHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1 hover:bg-grey-50 rounded-sm transition ease-in-out duration-300"
+            >
+              <ExternalLinkSmallIcon className="w-3 h-3 text-[#555D6D]" />
+            </a>
+          </div>
+        </div>
+
+        {/* Permissions */}
+        <div className="mt-2 border-border-card pt-1 border-t-[0.63px]">
+          <span className="text-[#555D6D] text-sm">{t('permissions')}</span>
+          <div className="flex gap-2 mt-1">
+            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-heading-gray">
+              {t('permissionLabel')}
+            </span>
+            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-heading-gray">
+              {permissionLabel}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
