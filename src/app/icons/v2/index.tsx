@@ -200,7 +200,7 @@ export enum IconName {
   Tokens = 'tokens'
 }
 
-export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | '3xl' | '5xl';
+export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | '3xl' | '4xl' | '5xl';
 
 export interface IconProps extends React.SVGAttributes<SVGElement> {
   name: IconName;
@@ -416,6 +416,7 @@ const iconClassNamePerSize = {
   xl: 'w-12 h-12',
   xxl: 'w-16 h-16',
   '3xl': 'w-40 h-40',
+  '4xl': 'w-49 h-49',
   '5xl': 'w-64 h-64'
 };
 

@@ -8,9 +8,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
-import { NavigationHeader } from 'components/NavigationHeader';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
-import { goBack } from 'lib/woozie';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const LOCK_TIME = 60_000;
@@ -97,12 +95,11 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   );
 
   return (
-    <div className="flex-1 flex flex-col">
-      <NavigationHeader title={t('encryptedWalletFile')} onBack={goBack} mode="back" />
-      <div className="flex flex-col flex-1 p-4 md:w-[460px] md:mx-auto">
+    <div className="flex-1 flex flex-col text-heading-gray">
+      <div className="flex flex-col flex-1 p-4 pt-8">
         <div className="flex-1 flex flex-col justify-stretch gap-y-4">
-          <p className="text-sm">{t('encryptedWalletFileDescription')}</p>
-          <div className="flex flex-col gap-y-2">
+          <p className="text-base font-normal">{t('encryptedWalletFileDescription')}</p>
+          <div className="flex flex-col gap-y-4">
             <Input
               type={isPasswordVisible ? 'text' : 'password'}
               label={t('password')}
@@ -117,15 +114,14 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
               onChange={onPasswordChange}
               onKeyDown={handleEnterKey}
               autoFocus
+              labelClassName="text-[20px] font-medium leading-[20px]"
             />
             {errors.password && <p className="h-4 text-red-500 text-xs">{errors.password.message}</p>}
           </div>
           <div className="flex gap-x-2 text-sm text-left">
             <button className="flex mt-3 gap-x-2 text-left" onClick={() => setConfirmed(!confirmed)}>
               <Checkbox id="help-us" value={confirmed} />
-              <span className="text-black cursor-pointer text-left mt-[-4px]">
-                {t('encryptedWalletFileConfirmation')}
-              </span>
+              <span className="text-sm cursor-pointer text-left -mt-1">{t('encryptedWalletFileConfirmation')}</span>
             </button>
           </div>
           {isDisabled && (
@@ -142,7 +138,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           className="w-full justify-center mt-6"
           variant={ButtonVariant.Primary}
           title={t('continue')}
-          disabled={isDisabled || !confirmed}
+          disabled={isDisabled || !confirmed || !walletPassword}
           onClick={onSubmit}
           isLoading={isSubmitting}
         />

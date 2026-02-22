@@ -8,7 +8,6 @@ import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { useAccountBadgeTitle } from 'app/defaults';
-import { Icon, IconName } from 'app/icons/v2';
 import AccountBanner from 'app/templates/AccountBanner';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -35,6 +34,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     handleSubmit,
     setError,
     clearErrors,
+    watch,
     formState: { errors, isSubmitting }
   } = useForm<FormData>();
 
@@ -124,35 +124,15 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         return {
           name: t('seedPhrase'),
           accountBanner: null,
-          derivationPathBanner: (
-            <div className={classNames('mb-6 mt-4', 'flex flex-col')}>
-              <h2 className={classNames('mb-4', 'leading-tight', 'flex flex-col')}>
-                <span className="text-black font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
-                  {t('derivationPath')}
-                </span>
-
-                <span className={classNames('mt-2', 'text-xs  text-black')} style={{ maxWidth: '90%' }}>
-                  {t('pathForHDAccounts')}
-                </span>
-              </h2>
-
-              <div className={classNames('w-full', 'border rounded-md', 'p-2', 'flex items-center')}>
-                <span className="text-sm font-medium text-black">{t('derivationPathExample')}</span>
-              </div>
-            </div>
-          ),
-          attention: (
-            <div className="flex flex-col text-left text-black">
-              <span className="font-medium" style={{ fontSize: '14px', lineHeight: '20px', marginBottom: '4px' }}>
-                {t('doNotSharePhrase1')} <br />
-              </span>
-              <span className="text-xs">{t('doNotSharePhrase2')}</span>
-            </div>
-          ),
+          attention: null,
           fieldDesc: (
-            <>
-              {t('youWillNeedThisSeedPhrase')} {t('keepSeedPhraseSecret')}
-            </>
+            <div className="flex flex-col text-heading-gray text-sm gap-3">
+              <p className="">{t('seedPhraseDescription')}</p>
+              <p className="font-bold">{t('doNotShareWithAnyone')}</p>
+              <p className="">
+                {t('anyoneCanTakeAssets')} <span className="font-bold">{t('keepSeedPhraseSecret')}</span>
+              </p>
+            </div>
           )
         };
     }
@@ -189,7 +169,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
     if (secret) {
       return (
-        <>
+        <div className="pt-8">
           <FormField
             ref={secretFieldRef}
             secret
@@ -197,56 +177,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             rows={4}
             readOnly
             label={texts.name}
+            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-t0"
             labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
-            labelWarning={
-              <Alert
-                description={
-                  <div>
-                    <div
-                      className="flex w-full max-w-sm mx-auto text-center rounded-lg bg-yellow-300"
-                      style={{ fontSize: '14px', lineHeight: '20px' }}
-                    >
-                      <Icon
-                        name={IconName.Warning}
-                        fill="black"
-                        style={{ height: '16px', width: '40px', marginTop: '2px' }}
-                      />
-                      {texts.attention}
-                    </div>
-                  </div>
-                }
-                className="bg-yellow-300 rounded-lg text-black"
-              />
-            }
             id="reveal-secret-secret"
             spellCheck={false}
             className="resize-none notranslate"
             value={secret}
           />
-
-          <div className="flex">
-            <button
-              type="button"
-              className={classNames(
-                'w-full mt-2 mb-6',
-                'py-4 px-2 w-40',
-                'hover:bg-gray-700',
-                'active:bg-gray-100',
-                'flex items-center justify-center',
-                'text-black bg-gray-800 rounded-lg',
-                'font-semibold',
-                'transition duration-300 ease-in-out',
-                'opacity-90 hover:opacity-100 focus:opacity-100',
-                'shadow-sm',
-                'hover:shadow focus:shadow'
-              )}
-              style={{ fontSize: '16px', lineHeight: '24px' }}
-              onClick={copy}
-            >
-              {copied ? t('copiedAddress') : t('copyAddressToClipboard')}
-            </button>
-          </div>
-        </>
+        </div>
       );
     }
 
@@ -261,22 +199,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           name="password"
           placeholder="********"
           errorCaption={errors.password?.message}
-          containerClassName="mb-4"
+          containerClassName="mb-4 pt-8"
           onChange={() => clearErrors()}
         />
 
-        <FormSubmitButton
-          className="capitalize w-full justify-center mt-6"
-          loading={isSubmitting}
-          style={{
-            fontSize: '18px',
-            lineHeight: '24px',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-            paddingTop: '12px',
-            paddingBottom: '12px'
-          }}
-        >
+        <FormSubmitButton className="capitalize w-full justify-center mt-8" loading={isSubmitting}>
           {t('reveal')}
         </FormSubmitButton>
       </form>
@@ -291,8 +218,6 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     texts,
     isSubmitting,
     clearErrors,
-    copy,
-    copied,
     secretFieldRef,
     t,
     accountBadgeTitle

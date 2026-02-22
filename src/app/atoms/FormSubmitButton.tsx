@@ -30,9 +30,9 @@ const FormSubmitButton: FC<FormSubmitButtonProps> = ({
   const button = (
     <Button
       className={classNames(
-        'relative',
+        'relative py-4.5 text-base',
         small ? 'px-6' : 'px-8',
-        'rounded-3xl',
+        'rounded-10',
         'bg-primary-500',
         'flex items-center',
         loading ? 'text-transparent' : 'text-white',

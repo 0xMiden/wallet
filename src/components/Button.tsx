@@ -26,10 +26,10 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 const propsPerButtonVariant = {
   [ButtonVariant.Primary]: {
     color: 'text-white',
-    disabledColor: 'text-grey-400',
+    disabledColor: 'text-white',
     backgroundColor: 'bg-primary-500 focus:bg-primary-500',
     hoverBackgroundColor: 'hover:bg-primary-600',
-    disabledBackgroundColor: 'bg-grey-200',
+    disabledBackgroundColor: 'bg-[#FF550099]',
     iconColor: 'white',
     border: ''
   },

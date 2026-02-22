@@ -2,8 +2,10 @@ import React, { ChangeEvent, useCallback, useEffect } from 'react';
 
 import classNames from 'clsx';
 import { SubmitHandler, useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { navigate } from 'lib/woozie';
@@ -36,6 +38,7 @@ export interface EncryptedFileManagerProps {}
 export const EncryptedFileManager: React.FC<{}> = () => {
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { fullPage } = useAppEnv();
+  const { t } = useTranslation();
 
   const onClose = useCallback(() => {
     navigate('/settings');
@@ -56,7 +59,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
     defaultValues: {
       walletPassword: '',
       filePassword: '',
-      fileName: 'Encrypted Wallet File'
+      fileName: ''
     }
   });
 
@@ -216,7 +219,9 @@ export const EncryptedFileManager: React.FC<{}> = () => {
       )}
       data-testid="encrypted-file-manager-flow"
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex">
+      {}
+      <NavigationHeader showBorder title={t('encryptedWalletFile')} onBack={onClose} />
+      <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
         <Navigator renderRoute={renderStep} initialRouteName={EncryptedFileStep.WalletPassword} />
       </form>
     </div>

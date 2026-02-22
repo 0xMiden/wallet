@@ -2,12 +2,9 @@ import React, { useCallback, useEffect } from 'react';
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { useAppEnv } from 'app/env';
 import { Icon, IconName } from 'app/icons/v2';
-import { Alert, AlertVariant } from 'components/Alert';
 import { Button, ButtonVariant } from 'components/Button';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
@@ -35,7 +32,6 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
 }) => {
   const { t } = useTranslation();
   const { revealMnemonic } = useMidenContext();
-  const { fullPage } = useAppEnv();
 
   const getExportFile = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
@@ -109,27 +105,25 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
   }, [getExportFile]);
 
   return (
-    <div className="flex flex-col justify-between md:w-[460px] mx-auto items-center">
-      <div className="flex flex-col w-full items-center p-4 justify-center flex-1">
-        <div className="w-40 aspect-square flex items-center justify-center">
-          <Icon name={IconName.Success} size="3xl" />
+    <div className="flex flex-col flex-1 items-center px-4">
+      <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
+        <div className="w-49 aspect-square flex items-center justify-center">
+          <Icon name={IconName.Success} size="4xl" />
         </div>
-        <div className="flex flex-col items-center mt-8 max-w-sm">
-          <h1 className="font-semibold text-2xl lh-title text-center">{t('encryptedWalletFileExported')}</h1>
-          <p className="mt-2 text-sm text-center lh-title">{t('encryptedWalletFileExportedDescription')}</p>
-          <Alert
-            variant={AlertVariant.Warning}
-            className={classNames('mt-4 text-left', fullPage ? 'text-sm' : 'text-xs')}
-            title={
-              <>
-                <p className="font-medium">{t('doNotShareEncryptedWalletFile')}</p>
-                <p>{t('doNotShareEncryptedWalletFileDescription')}</p>
-              </>
-            }
-          />
+        <div className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+          <h1 className="text-[32px] leading-[120%] tracking-[-0.04em]">
+            <span className="font-semibold">{t('encryptedWalletFileExportedTitle1')}</span>
+            <br />
+            <span className="font-medium">{t('encryptedWalletFileExportedTitle2')}</span>
+          </h1>
+          <div className="pt-6 text-base leading-[130%]">
+            <p>{t('encryptedWalletFileExportedDesc1')}</p>
+            <p className="font-bold pt-5">{t('encryptedWalletFileExportedDesc2')}</p>
+            <p className="pt-5">{t('encryptedWalletFileExportedDesc3')}</p>
+          </div>
         </div>
       </div>
-      <div className="w-full pb-4 px-4">
+      <div className="w-full pt-8 pb-4">
         <Button className="w-full justify-center" title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />
       </div>
     </div>

@@ -253,6 +253,7 @@ export const Navigator: React.FC<NavigatorProps> = ({
     <AnimatePresence mode="wait" initial={false}>
       {activeRoute ? (
         <motion.div
+          className="flex-1 flex flex-col min-h-0"
           key={activeRoute?.name}
           custom={{
             direction: direction,
