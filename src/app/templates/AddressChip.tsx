@@ -21,7 +21,7 @@ const AddressChip: FC<AddressChipProps> = ({
 }) => (
   <CopyButton text={address} type={type} {...rest} className="pt-2.25! pb-0! pl-4!">
     <span className="flex flex-row items-center">
-      <span className="mr-1 break-all">
+      <span className="mr-1 break-all text-heading-gray">
         <AddressShortView address={address} displayName={displayName} trim={trim} />
       </span>
       <Icon name={IconName.Copy} size={size} fill={fill} className={className} />

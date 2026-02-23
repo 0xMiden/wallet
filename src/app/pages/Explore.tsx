@@ -189,17 +189,17 @@ const Explore: FC = () => {
 
   // Content only - container and footer provided by TabLayout
   return (
-    <div className={isMobile() ? 'text-heading-gray' : 'text-black'}>
+    <div className="text-heading-gray font-geist">
       <ConnectivityIssueBanner />
       <ChainInstabilityBanner />
       <Header />
-      <div className={classNames('flex flex-col justify-start', isMobile() ? 'pt-5' : 'pt-10')}>
+      <div className={classNames('flex flex-col justify-start', 'pt-5')}>
         <div className="flex flex-col justify-center items-center">
           <MainBanner />
           <AddressChip address={account.publicKey} className="flex items-center" />
         </div>
         <div
-          className={classNames('flex justify-center items-center w-full', isMobile() ? 'pt-6 gap-7' : 'pt-3 gap-6')}
+          className={classNames('flex justify-center items-center w-full', isMobile() ? 'pt-6 gap-8' : 'pt-3 gap-6')}
         >
           <ActionButton
             label={t('send')}
@@ -236,7 +236,7 @@ const Explore: FC = () => {
       </div>
 
       <div className="overflow-y-auto relative">
-        <div className={classNames('bg-transparent', 'px-4')}>
+        <div className={classNames('bg-transparent')}>
           <Tokens />
         </div>
       </div>
@@ -271,39 +271,37 @@ const ActionButton: FC<ActionButtonProps> = ({
 }) => {
   const spanRef = useTippy<HTMLSpanElement>(tippyProps);
   const buttonContent = (
-    <>
-      <div className={classNames('mb-1 flex flex-col items-center', 'rounded-lg', 'pt-1')}>
-        <div
-          className={classNames(
-            'flex items-center justify-center',
-            isActive ? 'bg-primary-500' : 'bg-white',
-            !isMobile() && isActive && 'hover:bg-primary-600',
-            'border border-[#00000033] rounded-[3.38px]'
-          )}
+    <div className={classNames('mb-1 flex flex-col items-center', 'rounded-10', 'pt-1', 'text-heading-gray')}>
+      <div
+        className={classNames(
+          'flex items-center justify-center',
+          isActive ? 'bg-primary-500' : 'bg-white',
+          !isMobile() && isActive && 'hover:bg-primary-600',
+          'border border-[#00000033] rounded-10'
+        )}
+        style={{
+          height: isMobile() ? '65px' : '51.32px',
+          width: isMobile() ? '65px' : '51.32px'
+        }}
+      >
+        <Icon
+          className={isActive ? 'text-white' : 'text-primary-500'}
           style={{
-            height: isMobile() ? '65px' : '51.32px',
-            width: isMobile() ? '65px' : '51.32px'
+            height: isMobile() ? '30px' : '24px',
+            width: isMobile() ? '30px' : '24px'
           }}
-        >
-          <Icon
-            className={isActive ? 'text-white' : 'text-primary-500'}
-            style={{
-              height: isMobile() ? '30px' : '24px',
-              width: isMobile() ? '30px' : '24px'
-            }}
-          />
-        </div>
-        <span
-          className={classNames('text-[13px] text-center', disabled ? 'text-gray-400' : 'text-[#292929]', 'py-1')}
-          style={{
-            fontSize: '12px',
-            lineHeight: '16px'
-          }}
-        >
-          {label}
-        </span>
+        />
       </div>
-    </>
+      <span
+        className={classNames('text-sm text-center', disabled ? 'text-gray-400' : 'text-[#292929]', 'pt-2')}
+        style={{
+          fontSize: '12px',
+          lineHeight: '16px'
+        }}
+      >
+        {label}
+      </span>
+    </div>
   );
 
   if (disabled) {

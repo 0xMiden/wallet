@@ -21,15 +21,11 @@ const Tokens: FC = () => {
   return (
     <div className={classNames('w-full mb-2', isMobile() ? 'pt-6' : 'pt-5')}>
       <div
-        className={classNames(
-          'flex',
-          'text-xl font-medium',
-          isMobile() ? 'justify-center pb-[25px]' : 'justify-start pb-[12.83px]'
-        )}
+        className={classNames('w-full text-center', 'text-xl font-medium text-heading-gray', 'bg-gray-25', 'py-2.25')}
       >
         {allTokenBalances.length > 0 && <span>{t('tokens')}</span>}
       </div>
-      <div className="flex flex-col pb-4 gap-2 w-full">
+      <div className="flex flex-col py-4 w-full px-4">
         {allTokenBalances.length > 0 &&
           allTokenBalances
             .sort(a => (a.tokenId === midenFaucetId ? -1 : 1))
@@ -47,11 +43,11 @@ const Tokens: FC = () => {
                     subtitle={truncateAddress(tokenId, false)}
                     titleRight={balance.toFixed(2)}
                     subtitleRight={`${balance.toFixed(2)} USD`}
-                    className="border-[0.53px] border-[#00000033] rounded-[5.35px] px-[17.11px] py-[13.9px] justify-between"
+                    className="border-b-[0.25px] border-[#00000033] border-dashed rounded-none px-4.25 py-3.5 justify-between"
                     hoverable={true}
                     onClick={() => navigate(`/token-history/${tokenId}`)}
-                    titleClassName="!font-normal text-[12.83px]"
-                    subtitleClassName="!font-normal text-[#000000A3] text-[10.69px]"
+                    titleClassName="!font-normal text-sm"
+                    subtitleClassName="!font-normal text-[#484848A3] text-xs"
                   />
                 </div>
               );

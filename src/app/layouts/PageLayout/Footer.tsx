@@ -88,15 +88,11 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
 
   // Remove rounded corners on mobile so footer extends edge-to-edge
   // On mobile, use safe area for bottom padding (replaces py-3 bottom portion)
-  const roundedClass = isMobile() ? '' : 'rounded-b-3xl';
   const paddingClass = isMobile() ? 'pt-3 md:py-4' : 'py-3 md:py-4';
   const mobileBottomPadding = isMobile() ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : {};
 
   return (
-    <footer
-      className={`w-full relative bg-white ${roundedClass} h-18 px-8 md:px-16 ${paddingClass}`}
-      style={mobileBottomPadding}
-    >
+    <footer className={`w-full relative bg-gray-25 h-18 px-8 md:px-16 ${paddingClass}`} style={mobileBottomPadding}>
       <div className="flex justify-center gap-12">
         <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
         <FooterNavButton

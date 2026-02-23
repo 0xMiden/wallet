@@ -96,8 +96,8 @@ export const CardItem: React.FC<CardItemProps> = ({
         </div>
         {(titleRight || subtitleRight) && (
           <div className="text-sm text-grey-600 flex flex-col justify-center items-end">
-            {titleRight && <div className="text-[17px] font-medium text-black">{titleRight}</div>}
-            {subtitleRight && <div className="text-xs text-grey-600">{subtitleRight}</div>}
+            {titleRight && <div className="text-lg leading-[100%] font-medium text-heading-gray">{titleRight}</div>}
+            {subtitleRight && <div className="text-xs text-[#4848489E]#4848489E">{subtitleRight}</div>}
           </div>
         )}
       </div>

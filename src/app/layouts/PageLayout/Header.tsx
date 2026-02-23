@@ -22,8 +22,8 @@ const Header: FC = () => {
   const isGeneratingUrl = window.location.href.search('generating-transaction') > -1;
 
   return (
-    <header className={classNames('px-4', appEnv.fullPage && '', 'border-b-[#00000033] border-b-[0.5px]')}>
-      <ContentContainer className="py-[15px]">
+    <header className={classNames('px-4', appEnv.fullPage && '')}>
+      <ContentContainer className="py-3.75">
         <div>
           <div className="flex w-full">{!isGeneratingUrl && <Control />}</div>
         </div>
