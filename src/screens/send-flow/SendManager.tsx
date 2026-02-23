@@ -423,13 +423,13 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
     <div
       className={classNames(
         containerClass,
-        'mx-auto overflow-hidden ',
-        'flex-col bg-white',
+        'mx-auto overflow-hidden',
+        'flex flex-col bg-white',
         'overflow-hidden relative'
       )}
       data-testid="send-flow"
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="">
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 h-full min-h-0">
         <Navigator renderRoute={renderStep} initialRouteName={SendFlowStep.SelectToken} />
       </form>
     </div>

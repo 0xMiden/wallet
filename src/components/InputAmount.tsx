@@ -33,26 +33,24 @@ export const InputAmount: React.FC<InputAmountProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 0-5 36px
-  // 6-12 24px
-  // 13-16 18px
+  // Scale text size based on total display length (value + label)
+  // to prevent overflow on narrower mobile screens
   const textSize = useMemo(() => {
-    if (!value) {
-      return 'text-6xl';
-    }
-    if (value.length >= 13) {
+    const valueLen = value?.length || 1;
+    const labelLen = label?.length || 4;
+    const totalLen = valueLen + labelLen + 1; // +1 for the space between
+
+    if (totalLen >= 16) {
       return 'text-lg';
     }
-    if (value.length >= 6) {
+    if (totalLen >= 12) {
       return 'text-2xl';
     }
-
-    if (value.length >= 3) {
+    if (totalLen >= 8) {
       return 'text-4xl';
     }
-
-    return 'text-6xl';
-  }, [value]);
+    return 'text-5xl';
+  }, [value, label]);
 
   const inputWidth = useMemo(() => (value?.length ? `${value?.length}ch` : '1ch'), [value]);
 

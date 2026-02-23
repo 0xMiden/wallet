@@ -1,11 +1,10 @@
-import React, { HTMLAttributes, useCallback, useMemo } from 'react';
+import React, { HTMLAttributes, useCallback, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
-import { formatValue } from 'react-currency-input-field';
 import { useTranslation } from 'react-i18next';
 
-import { AssetIcon } from 'app/templates/AssetIcon';
-import { Button, ButtonVariant } from 'components/Button';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
@@ -21,6 +20,9 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const midenFaucetId = useMidenFaucetId();
+  const [searchQuery, setSearchQuery] = useState('');
+
   const tokens = useMemo(() => {
     return (
       balanceData?.map(token => ({
@@ -32,6 +34,13 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
       })) || []
     );
   }, [balanceData]);
+
+  const filteredTokens = useMemo(() => {
+    if (!searchQuery.trim()) return tokens;
+    const query = searchQuery.toLowerCase();
+    return tokens.filter(token => token.name.toLowerCase().includes(query));
+  }, [tokens, searchQuery]);
+
   const onCancel = useCallback(() => {
     onAction?.({
       id: SendFlowActionId.Finish
@@ -57,30 +66,35 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
   const fiatBalance = (token: UIToken): number => token.balance * token.fiatPrice;
 
   return (
-    <div {...props} className={classNames('flex-1 flex flex-col ', className)}>
-      <NavigationHeader mode="back" title={t('chooseToken')} onBack={onCancel} showBorder />
-      <div className="flex flex-col flex-1 p-4 justify-betwee md:mx-auto">
-        <div className="flex-1">
-          {tokens?.map(token => (
-            <CardItem
-              key={token.id}
-              title={token.name.toUpperCase()}
-              titleRight={formatValue({
-                value: token.balance.toString()
-              })}
-              subtitleRight={['≈ ', '$', fiatBalance(token)].join('')}
-              iconLeft={
-                <AssetIcon
-                  assetSlug={token.name.toLowerCase()}
-                  assetId={token.id}
-                  size={24}
-                  className="mr-2 shrink-0 rounded bg-white"
-                />
-              }
-              onClick={() => onSelectToken(token)}
-              hoverable
-            />
-          ))}
+    <div {...props} className={classNames('flex-1 flex flex-col', className)}>
+      <NavigationHeader mode="back" title={t('send')} onBack={onCancel} onClose={onCancel} />
+      <div className="flex flex-col flex-1 px-4 pt-4">
+        <input
+          type="text"
+          placeholder={t('searchByNameOrSymbol')}
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="w-full bg-gray-25 rounded-xl py-4 px-4 text-center text-base placeholder-[#484848A3] outline-none"
+        />
+        <div className="flex flex-col py-4">
+          {filteredTokens.map(token => {
+            const isMiden = token.id === midenFaucetId;
+            return (
+              <CardItem
+                key={token.id}
+                iconLeft={<Avatar size="lg" image={isMiden ? '/misc/miden.png' : '/misc/token-logos/default.svg'} />}
+                title={token.name}
+                subtitle={token.name.toUpperCase()}
+                titleRight={token.balance.toFixed(0)}
+                subtitleRight={`${fiatBalance(token).toFixed(0)} USD`}
+                className="border-b-[0.25px] border-[#00000033] border-dashed rounded-none px-0 py-3 justify-between"
+                hoverable={true}
+                onClick={() => onSelectToken(token)}
+                titleClassName="!font-medium text-lg"
+                subtitleClassName="!font-normal text-[#484848A3] text-xs"
+              />
+            );
+          })}
         </div>
       </div>
     </div>

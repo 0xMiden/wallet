@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import { ReactComponent as LeoLogo } from '../leo-logo-blue.svg';
 import { ReactComponent as AddCircle } from './add-circle.svg';
 import { ReactComponent as Add } from './add.svg';
+import { ReactComponent as AddressBook } from './address-book.svg';
 import { ReactComponent as Apps } from './apps.svg';
 import { ReactComponent as ArrowDown } from './arrow-down.svg';
 import { ReactComponent as ArrowLeft } from './arrow-left.svg';
@@ -17,6 +18,7 @@ import { ReactComponent as ArrowRight } from './arrow-right.svg';
 import { ReactComponent as ArrowUpDown } from './arrow-up-down.svg';
 import { ReactComponent as ArrowUp } from './arrow-up.svg';
 import { ReactComponent as Bell } from './bell.svg';
+import { ReactComponent as Calendar } from './calendar.svg';
 import { ReactComponent as Bin } from './bin.svg';
 import { ReactComponent as CheckboxCircleFill } from './checkbox-circle-fill.svg';
 import { ReactComponent as CheckboxCircle } from './checkbox-circle.svg';
@@ -24,8 +26,11 @@ import { ReactComponent as CheckboxFill } from './checkbox-fill.svg';
 import { ReactComponent as Checkbox } from './checkbox.svg';
 import { ReactComponent as Checkmark } from './checkmark.svg';
 import { ReactComponent as ChevronDown } from './chevron-down.svg';
+import { ReactComponent as ChevronDownLucide } from './chevron-down-lucide.svg';
 import { ReactComponent as ChevronLeft } from './chevron-left.svg';
+import { ReactComponent as ChevronLeftLucide } from './chevron-left-lucide.svg';
 import { ReactComponent as ChevronRight } from './chevron-right.svg';
+import { ReactComponent as ChevronRightLucide } from './chevron-right-lucide.svg';
 import { ReactComponent as ChevronUp } from './chevron-up.svg';
 import { ReactComponent as Circle } from './circle.svg';
 import { ReactComponent as CloseCircleFill } from './close-circle-fill.svg';
@@ -37,6 +42,7 @@ import { ReactComponent as Coins } from './coins.svg';
 import { ReactComponent as ContactsBook } from './contacts-book.svg';
 import { ReactComponent as Convert } from './convert.svg';
 import { ReactComponent as Copy } from './copy.svg';
+import { ReactComponent as DelegateProving } from './delegate-proving.svg';
 import { ReactComponent as Download1 } from './download-1.svg';
 import { ReactComponent as Download } from './download.svg';
 import { ReactComponent as EmotionSad } from './emotion-sad.svg';
@@ -81,6 +87,7 @@ import { ReactComponent as QrScan } from './qr-scan.svg';
 import { ReactComponent as RadioFill } from './radio-fill.svg';
 import { ReactComponent as Refresh } from './refresh.svg';
 import { ReactComponent as Rocket } from './rocket.svg';
+import { ReactComponent as ScanFrame } from './scan-frame.svg';
 import { ReactComponent as Search } from './search.svg';
 import { ReactComponent as Settings2 } from './settings-2.svg';
 import { ReactComponent as SettingsFill } from './settings-fill.svg';
@@ -103,6 +110,7 @@ import { ReactComponent as Warning } from './warning.svg';
 export enum IconName {
   AddCircle = 'add-circle',
   Add = 'add',
+  AddressBook = 'address-book',
   Apps = 'apps',
   ArrowDown = 'arrow-down',
   ArrowLeft = 'arrow-left',
@@ -115,6 +123,7 @@ export enum IconName {
   ArrowUpDown = 'arrow-up-down',
   ArrowUp = 'arrow-up',
   Bell = 'bell',
+  Calendar = 'calendar',
   Bin = 'bin',
   CheckboxCircleFill = 'checkbox-circle-fill',
   CheckboxCircle = 'checkbox-circle',
@@ -122,8 +131,11 @@ export enum IconName {
   Checkbox = 'checkbox',
   Checkmark = 'checkmark',
   ChevronDown = 'chevron-down',
+  ChevronDownLucide = 'chevron-down-lucide',
   ChevronLeft = 'chevron-left',
+  ChevronLeftLucide = 'chevron-left-lucide',
   ChevronRight = 'chevron-right',
+  ChevronRightLucide = 'chevron-right-lucide',
   ChevronUp = 'chevron-up',
   Circle = 'circle',
   CloseCircleFill = 'close-circle-fill',
@@ -135,6 +147,7 @@ export enum IconName {
   ContactsBook = 'contacts-book',
   Convert = 'convert',
   Copy = 'copy',
+  DelegateProving = 'delegate-proving',
   Download1 = 'download-1',
   Download = 'download',
   EmotionSad = 'emotion-sad',
@@ -174,6 +187,7 @@ export enum IconName {
   RadioFill = 'radio-fill',
   Refresh = 'refresh',
   Rocket = 'rocket',
+  ScanFrame = 'scan-frame',
   Search = 'search',
   Settings2 = 'settings-2',
   SettingsFill = 'settings-fill',
@@ -213,6 +227,8 @@ const IconSwitch = (props: IconProps) => {
       return <AddCircle {...props} />;
     case IconName.Add:
       return <Add {...props} />;
+    case IconName.AddressBook:
+      return <AddressBook {...props} />;
     case IconName.Apps:
       return <Apps {...props} />;
     case IconName.ArrowDown:
@@ -235,6 +251,8 @@ const IconSwitch = (props: IconProps) => {
       return <ArrowUp {...props} />;
     case IconName.Bell:
       return <Bell {...props} />;
+    case IconName.Calendar:
+      return <Calendar {...props} />;
     case IconName.Bin:
       return <Bin {...props} />;
     case IconName.CheckboxCircleFill:
@@ -249,10 +267,16 @@ const IconSwitch = (props: IconProps) => {
       return <Checkmark {...props} />;
     case IconName.ChevronDown:
       return <ChevronDown {...props} />;
+    case IconName.ChevronDownLucide:
+      return <ChevronDownLucide {...props} />;
     case IconName.ChevronLeft:
       return <ChevronLeft {...props} />;
+    case IconName.ChevronLeftLucide:
+      return <ChevronLeftLucide {...props} />;
     case IconName.ChevronRight:
       return <ChevronRight {...props} />;
+    case IconName.ChevronRightLucide:
+      return <ChevronRightLucide {...props} />;
     case IconName.ChevronUp:
       return <ChevronUp {...props} />;
     case IconName.Circle:
@@ -275,6 +299,8 @@ const IconSwitch = (props: IconProps) => {
       return <Convert {...props} />;
     case IconName.Copy:
       return <Copy {...props} />;
+    case IconName.DelegateProving:
+      return <DelegateProving {...props} />;
     case IconName.Download1:
       return <Download1 {...props} />;
     case IconName.Download:
@@ -353,6 +379,8 @@ const IconSwitch = (props: IconProps) => {
       return <Refresh {...props} />;
     case IconName.Rocket:
       return <Rocket {...props} />;
+    case IconName.ScanFrame:
+      return <ScanFrame {...props} />;
     case IconName.Search:
       return <Search {...props} />;
     case IconName.Settings2:
