@@ -31,18 +31,9 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger
-} from 'lib/ui/drawer';
+import { Drawer, DrawerContent, DrawerTrigger } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
+import { goBack, HistoryAction, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 export interface ReceiveProps {}
@@ -60,20 +51,17 @@ interface AssetNoteGroup {
 
 export const Receive: React.FC<ReceiveProps> = () => {
   const { t } = useTranslation();
-  const { search } = useLocation();
   const account = useAccount();
   const address = account.publicKey;
 
   // Check if opened from notification (should go back instead of home on close)
-  const fromNotification = new URLSearchParams(search).get('fromNotification') === 'true';
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
-  const { popup, fullPage } = useAppEnv();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { fullPage } = useAppEnv();
   const safeClaimableNotes = (claimableNotes ?? []).filter((n): n is NonNullable<typeof n> => n != null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isQRSheetOpen, setIsQRSheetOpen] = useState(false);
+  const [, setIsDragging] = useState(false);
+  const [, setIsQRSheetOpen] = useState(false);
   const [claimingNoteIds, setClaimingNoteIds] = useState<Set<string>>(new Set());
   // Track individual note claiming states reported by child components
   const [individualClaimingIds, setIndividualClaimingIds] = useState<Set<string>>(new Set());
@@ -264,7 +252,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     setClaimingNoteIds(new Set(noteIds));
 
     // Track results
-    let succeeded = 0;
     let failed = 0;
     let queueFailed = 0;
 
@@ -306,26 +293,21 @@ export const Receive: React.FC<ReceiveProps> = () => {
           if (signal.aborted) break;
           try {
             await waitForConsumeTx(txId, signal);
-            succeeded++;
           } catch (err) {
             if (err instanceof DOMException && err.name === 'AbortError') {
               break;
             }
             console.error('Error waiting for transaction:', txId, err);
-            failed++;
             // Mark this note as failed
             setFailedNoteIds(prev => new Set(prev).add(noteId));
           }
-          // Note: Don't remove from claimingNoteIds here - keep spinner visible
-          // until mutateClaimableNotes() refreshes the list and removes the note
         }
 
         // Refresh the list - this will remove successfully claimed notes
         await mutateClaimableNotes();
 
-        // Navigate to home on mobile after claiming all notes (only if all succeeded)
-        failed += queueFailed;
-        if (isMobile() && failed === 0) {
+        // Navigate to home on mobile after claiming all notes
+        if (isMobile()) {
           navigate('/', HistoryAction.Replace);
         }
       }
@@ -473,7 +455,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
         data-testid="receive-page"
       >
         <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-        <div className={classNames('w-full mx-auto py-4 flex flex-col', isMobile() ? 'px-8' : 'px-4')}>
+        <div className={classNames('w-full mx-auto py-4 flex flex-col flex-1 min-h-0', isMobile() ? 'px-8' : 'px-4')}>
           {safeClaimableNotes.length === 0 ? (
             <div className="flex flex-col items-center pt-20">
               <Icon name={IconName.Coins} size="xl" className="mb-3 text-gray-600" />
@@ -507,7 +489,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
           {unclaimedNotes.length > 0 && (
             <div className="flex justify-center mt-4 pb-4 shrink-0">
               <Button
-                className="w-[120px] h-[40px] text-md"
+                className="w-30 h-10 text-md"
                 variant={ButtonVariant.Primary}
                 onClick={handleClaimAll}
                 title={t('claimAll')}
@@ -631,7 +613,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
             </div>
 
             {/* Table Rows */}
-            <div className="divide-y divide-grey-100">
+            <div className="divide-y divide-grey-100 overflow-y-auto max-h-[240px]">
               {notes.map(note => (
                 <NoteTableRow
                   key={note.id}

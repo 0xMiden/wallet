@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import Modal from 'react-modal';
 
 import {
@@ -17,6 +18,7 @@ import { useRetryableSWR } from 'lib/swr';
 import { GeneratingTransaction } from 'screens/generating-transaction/GeneratingTransaction';
 
 export const TransactionProgressModal: FC = () => {
+  const { t } = useTranslation();
   // Use Zustand store for modal state
   const isOpen = useWalletStore(state => state.isTransactionModalOpen);
   const openModal = useWalletStore(state => state.openTransactionModal);
@@ -191,22 +193,30 @@ export const TransactionProgressModal: FC = () => {
       isOpen={isOpen}
       onRequestClose={handleClose}
       shouldCloseOnOverlayClick={transactionComplete || error}
-      className={classNames('bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 outline-none overflow-hidden')}
-      overlayClassName="fixed inset-0 bg-white/10 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center p-6"
+      className={classNames('w-full max-w-lg outline-none flex flex-col items-stretch gap-6')}
+      overlayClassName="fixed inset-0 bg-white/10 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4"
       style={{
         overlay: { zIndex: 9999 },
-        content: { zIndex: 9999 }
+        content: { position: 'relative', inset: 'unset', zIndex: 9999 }
       }}
       appElement={modalRoot}
       parentSelector={() => modalRoot!}
       ariaHideApp={false}
     >
-      <GeneratingTransaction
-        progress={progress}
-        onDoneClick={handleClose}
-        transactionComplete={transactionComplete}
-        hasErrors={error}
-      />
+      <div className="bg-white rounded-10 overflow-hidden">
+        <GeneratingTransaction
+          progress={progress}
+          onDoneClick={handleClose}
+          transactionComplete={transactionComplete}
+          hasErrors={error}
+        />
+      </div>
+      <button
+        className="w-full rounded-2xl bg-primary-500 text-white font-semibold text-base h-12"
+        onClick={handleClose}
+      >
+        {transactionComplete ? t('done') : t('hide')}
+      </button>
     </Modal>,
     modalRoot
   );

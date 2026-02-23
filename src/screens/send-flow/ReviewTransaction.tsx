@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 
-import { format, addSeconds } from 'date-fns';
+import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -10,8 +10,6 @@ import { useAccount } from 'lib/miden/front';
 import { truncateAddress } from 'utils/string';
 
 import { SendFlowAction } from './types';
-
-const SECONDS_PER_BLOCK = 3;
 
 export interface ReviewTransactionProps {
   amount: string;
@@ -66,9 +64,8 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
 
           <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
           <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
-          <DetailRow label={t('network')} badge="Testnet" />
+          <DetailRow label={t('network')} badge="Testnet" isLast={!hasRecall} />
           {hasRecall && <DetailRow label={t('recallBy')} value={displayRecalLabel || recallBlocks!} isLast />}
-          {!hasRecall && <div className="h-2" />}
         </div>
 
         {/* Options Card */}
@@ -77,15 +74,19 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
             {t('options')}
           </div>
           <OptionRow icon={IconName.Lock} label={t('privatePayment')} enabled={sharePrivately} />
-          <OptionRow icon={IconName.DelegateProving} label={t('delegateProving')} enabled={delegateTransaction} />
+          <OptionRow
+            icon={IconName.DelegateProving}
+            label={t('delegateProving')}
+            enabled={delegateTransaction}
+            isLast={!hasRecall}
+          />
           {hasRecall && <OptionRow icon={IconName.RecallClock} label={t('recallEnabled')} enabled={true} isLast />}
-          {!hasRecall && <div className="h-2" />}
         </div>
 
         <div className="flex-1" />
 
         {/* Buttons */}
-        <div className="pt-12 pb-4">
+        <div className="pt-12 pb-4 flex flex-col gap-y-4">
           <Button
             type="submit"
             title={t('confirm')}

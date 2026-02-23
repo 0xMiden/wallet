@@ -84,6 +84,7 @@
   "speedUpTransaction": "Speed Up Transaction.",
   "fastTransaction": "Transaction Speed",
   "generatingTransaction": "Generating Transaction",
+  "generatingTransactionDescription": "This may take a moment depending on the level network traffic",
   "status": "Status",
   "balancePending": "Balance Pending Sync",
   "keepTabOpenForSync": "Keep this tab open for faster sync.",
