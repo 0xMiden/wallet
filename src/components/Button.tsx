@@ -34,10 +34,10 @@ const propsPerButtonVariant = {
     border: ''
   },
   [ButtonVariant.Secondary]: {
-    color: 'text-black',
+    color: 'text-heading-gray',
     disabledColor: 'text-grey-400',
-    backgroundColor: 'bg-grey-50',
-    hoverBackgroundColor: 'hover:bg-grey-100',
+    backgroundColor: 'bg-grey-25',
+    hoverBackgroundColor: 'hover:bg-grey-50',
     disabledBackgroundColor: 'bg-grey-200',
     iconColor: 'black',
     border: ''
@@ -117,7 +117,7 @@ export const Button: React.FC<ButtonProps> = ({
         border,
         isLoading ? 'pointer-events-none' : '',
         'flex justify-center items-center gap-x-2',
-        'py-3 px-4 rounded-[10px]',
+        'py-3 px-4 rounded-10',
         'transition duration-300 ease-in-out text-base',
         className
       )}

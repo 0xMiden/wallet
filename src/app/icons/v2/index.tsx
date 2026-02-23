@@ -85,6 +85,7 @@ import { ReactComponent as OnboardingLogo } from './onboarding-logo.svg';
 import { ReactComponent as Pencil } from './pencil.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
 import { ReactComponent as RadioFill } from './radio-fill.svg';
+import { ReactComponent as RecallClock } from './recall-clock.svg';
 import { ReactComponent as Refresh } from './refresh.svg';
 import { ReactComponent as Rocket } from './rocket.svg';
 import { ReactComponent as ScanFrame } from './scan-frame.svg';
@@ -185,6 +186,7 @@ export enum IconName {
   Pencil = 'pencil',
   QrScan = 'qr-scan',
   RadioFill = 'radio-fill',
+  RecallClock = 'recall-clock',
   Refresh = 'refresh',
   Rocket = 'rocket',
   ScanFrame = 'scan-frame',
@@ -375,6 +377,8 @@ const IconSwitch = (props: IconProps) => {
       return <QrScan {...props} />;
     case IconName.RadioFill:
       return <RadioFill {...props} />;
+    case IconName.RecallClock:
+      return <RecallClock {...props} />;
     case IconName.Refresh:
       return <Refresh {...props} />;
     case IconName.Rocket:

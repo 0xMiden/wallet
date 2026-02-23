@@ -31,13 +31,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   const hasError = biometricError && biometricAttempts > 0;
 
   return (
-    <div className="w-full h-full">
-      <div className="flex w-full justify-center items-center px-6 py-4 border-b-[0.5px] border-[#00000033] ">
-        <div className="flex gap-1 items-center justify-center">
-          <Icon name={IconName.OnboardingLogo} className=" w-7 h-6" />
-          <p className="text-heading-gray text-[19px] font-semibold">Miden Wallet</p>
-        </div>
-      </div>
+    <div className="w-full h-full pt-11.5">
       <div {...props} className="flex-1 flex flex-col h-full justify-between bg-white gap-y-8 w-full px-6">
         <div className="flex flex-col items-center justify-center grow">
           <Message

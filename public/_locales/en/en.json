@@ -494,6 +494,10 @@
   "in3Days": "In 3 days",
   "inAWeek": "In a week",
   "in2Weeks": "In 2 weeks",
+  "30mins": "30 mins",
+  "1hour": "1 hour",
+  "5hours": "5 hours",
+  "time": "Time",
   "clearText": "Clear text",
   "avatar": "avatar",
   "byProceeding": "By proceeding, you agree to the",
@@ -563,5 +567,9 @@
   "permissions": "Permissions",
   "permissionUponRequest": "Upon Request",
   "permissionAutomatic": "Automatic",
-  "dAppsToggleDescription": "Toggle to enable or disable DApp connections and balance visibility."
+  "dAppsToggleDescription": "Toggle to enable or disable DApp connections and balance visibility.",
+  "transferDetails": "Transfer Details",
+  "recallBy": "Recall by",
+  "options": "Options",
+  "recallEnabled": "Recall enabled"
 }

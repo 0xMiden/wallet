@@ -1,7 +1,7 @@
-import React, { ChangeEvent, useCallback, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
 
 import clsx from 'clsx';
-import { addDays, format } from 'date-fns';
+import { addDays, addHours, addMinutes, format, differenceInSeconds } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -9,16 +9,31 @@ import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { TextArea } from 'components/TextArea';
-import { useAccount } from 'lib/miden/front';
+import { AutoSync } from 'lib/miden/front/autoSync';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { hapticError, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { Calendar } from 'lib/ui/calendar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-import { ReviewSheet } from './ReviewSheet';
-import { SendFlowAction, SendFlowActionId, UIToken } from './types';
+import { SendFlowAction, SendFlowActionId, SendFlowStep, UIToken } from './types';
 
+const SECONDS_PER_BLOCK = 3;
+
+function dateTimeToRecallBlocks(targetDate: Date, currentBlockNum: number): number {
+  const secondsUntilTarget = differenceInSeconds(targetDate, new Date());
+  if (secondsUntilTarget <= 0) return currentBlockNum;
+  return Math.floor(currentBlockNum + secondsUntilTarget / SECONDS_PER_BLOCK);
+}
+const RECALL_PRESETS = (t: any) => [
+  { label: t('30mins'), fn: (d: Date) => addMinutes(d, 30) },
+  { label: t('1hour'), fn: (d: Date) => addHours(d, 1) },
+  { label: t('5hours'), fn: (d: Date) => addHours(d, 5) },
+  { label: t('tomorrow'), fn: (d: Date) => addDays(d, 1) },
+  { label: t('inAWeek'), fn: (d: Date) => addDays(d, 7) },
+  { label: t('in2Weeks'), fn: (d: Date) => addDays(d, 14) }
+];
 export interface SendDetailsProps {
   token: UIToken;
   amount: string;
@@ -28,6 +43,8 @@ export interface SendDetailsProps {
   recallBlocks?: string;
   isValidAmount: boolean;
   isValidAddress: boolean;
+  recallDate?: Date;
+  recallTime: string;
   amountError?: string;
   addressError?: string;
   onAction: (action: SendFlowAction) => void;
@@ -38,6 +55,8 @@ export interface SendDetailsProps {
   onClearAddress: () => void;
   onYourAccounts: () => void;
   onSubmit: () => void;
+  onRecallDateChange: (date: Date | undefined) => void;
+  onRecallTimeChange: (time: string) => void;
 }
 
 export const SendDetails: React.FC<SendDetailsProps> = ({
@@ -46,30 +65,66 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   recipientAddress,
   sharePrivately,
   delegateTransaction,
-  recallBlocks,
   isValidAmount,
   isValidAddress,
   amountError,
   addressError,
+  recallDate,
+  recallTime,
   onAction,
   onGoBack,
   onAmountChange,
   onAddressChange,
   onScannedAddress,
-  onClearAddress,
   onYourAccounts,
-  onSubmit
+  onRecallDateChange,
+  onRecallTimeChange
 }) => {
   const { t } = useTranslation();
-  const { publicKey } = useAccount();
-  const [showReview, setShowReview] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
-  const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
+
   const [calendarMonth, setCalendarMonth] = useState<Date>(
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
   const showScanButton = isScanAvailable();
+
+  const computeAndSetRecallBlocks = useCallback(
+    (targetDate: Date) => {
+      const currentBlockNum = AutoSync.lastHeight;
+      const blocks = dateTimeToRecallBlocks(targetDate, currentBlockNum);
+      onAction({
+        id: SendFlowActionId.SetFormValues,
+        payload: { recallBlocks: String(blocks) }
+      });
+    },
+    [onAction]
+  );
+
+  const applyDateTimeSelection = useCallback(
+    (date: Date, time: string) => {
+      const [hours, minutes] = time.split(':').map(Number);
+      const dateWithTime = new Date(date);
+      dateWithTime.setHours(hours, minutes, 0, 0);
+      onRecallDateChange(date);
+      onRecallTimeChange(time);
+      computeAndSetRecallBlocks(dateWithTime);
+      setShowCalendar(false);
+    },
+    [computeAndSetRecallBlocks, onRecallDateChange, onRecallTimeChange]
+  );
+
+  const applyDurationPreset = useCallback(
+    (durationFn: (date: Date) => Date) => {
+      const target = durationFn(new Date());
+      onRecallDateChange(target);
+      onRecallTimeChange(format(target, 'HH:mm'));
+      setCalendarMonth(new Date(target.getFullYear(), target.getMonth(), 1));
+      computeAndSetRecallBlocks(target);
+      setShowCalendar(false);
+    },
+    [computeAndSetRecallBlocks, onRecallDateChange, onRecallTimeChange]
+  );
 
   const handleScan = useCallback(async () => {
     setScanError(null);
@@ -86,20 +141,13 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
   const handleReviewOpen = useCallback(() => {
     if (isValidAmount && isValidAddress) {
-      setShowReview(true);
+      onAction({ id: SendFlowActionId.Navigate, step: SendFlowStep.ReviewTransaction });
     }
-  }, [isValidAmount, isValidAddress]);
-
-  const handleReviewClose = useCallback(() => {
-    setShowReview(false);
-  }, []);
-
-  const handleConfirmSend = useCallback(() => {
-    setShowReview(false);
-    onSubmit();
-  }, [onSubmit]);
+  }, [isValidAmount, isValidAddress, onAction]);
 
   const canProceed = isValidAmount && isValidAddress;
+
+  const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
   return (
     <div className="flex flex-col h-full">
@@ -183,7 +231,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 <span
                   className={clsx('text-sm font-medium', recallDate ? 'text-heading-gray' : 'text-heading-gray/60')}
                 >
-                  {recallDate ? format(recallDate, 'MMM d, yyyy') : t('selectRecallDate')}
+                  {displayRecallLabel}
                 </span>
               </div>
               <Icon name={IconName.ChevronDown} size="xs" fill="#484848" />
@@ -196,36 +244,54 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               <DrawerHeader className="pb-0">
                 <DrawerTitle className="text-center text-heading-gray">{t('recallHeight')}</DrawerTitle>
               </DrawerHeader>
-              <div className="px-4 pb-6 flex flex-col items-center">
+              <div className="px-4 pb-6 flex flex-col items-center overflow-y-auto no-scrollbar" data-vaul-no-drag>
                 <Calendar
                   mode="single"
                   selected={recallDate}
                   onSelect={date => {
-                    setRecallDate(date);
-                    setShowCalendar(false);
+                    if (date) {
+                      onRecallDateChange(date);
+                      setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+                    }
                   }}
                   month={calendarMonth}
                   onMonthChange={setCalendarMonth}
-                  disabled={{ before: addDays(new Date(), 1) }}
+                  disabled={{ before: new Date() }}
                   className="p-0 [--cell-size:--spacing(8)]"
                 />
-                <div className="flex flex-wrap gap-2 border-t border-[#00000015] pt-3 mt-2 w-full">
-                  {[
-                    { label: t('tomorrow'), value: 1 },
-                    { label: t('in3Days'), value: 3 },
-                    { label: t('inAWeek'), value: 7 },
-                    { label: t('in2Weeks'), value: 14 }
-                  ].map(preset => (
+
+                {/* Time Input */}
+                <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-[#00000015]">
+                  <Icon name={IconName.Calendar} size="xs" className="text-[#808080]" />
+                  <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
+                  <input
+                    type="time"
+                    value={recallTime}
+                    onChange={e => onRecallTimeChange(e.target.value)}
+                    data-vaul-no-drag
+                    className="ml-auto bg-[#F2F2F2] rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
+                  />
+                </div>
+
+                {/* Confirm button */}
+                {recallDate && (
+                  <button
+                    type="button"
+                    className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-white text-sm font-medium"
+                    onClick={() => applyDateTimeSelection(recallDate, recallTime)}
+                  >
+                    {t('confirm')}
+                  </button>
+                )}
+
+                {/* Presets */}
+                <div className="flex flex-wrap gap-2 border-t border-[#00000015] pt-3 mt-3 w-full">
+                  {RECALL_PRESETS(t).map((preset, i) => (
                     <button
-                      key={preset.value}
+                      key={i}
                       type="button"
-                      className="flex-1 text-xs py-2 px-2 rounded-[10px] border border-[#00000033] text-heading-gray hover:bg-[#F2F2F2] transition-colors"
-                      onClick={() => {
-                        const newDate = addDays(new Date(), preset.value);
-                        setRecallDate(newDate);
-                        setCalendarMonth(new Date(newDate.getFullYear(), newDate.getMonth(), 1));
-                        setShowCalendar(false);
-                      }}
+                      className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-[#00000033] text-heading-gray hover:bg-[#F2F2F2] transition-colors"
+                      onClick={() => applyDurationPreset(preset.fn)}
                     >
                       {preset.label}
                     </button>
@@ -285,20 +351,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
             className="w-full rounded-[10px] text-base font-semibold"
           />
         </div>
-
-        {/* Review Sheet */}
-        <ReviewSheet
-          isOpen={showReview}
-          amount={amount}
-          tokenName={token.name}
-          fromAddress={publicKey}
-          toAddress={recipientAddress}
-          recallBlocks={recallBlocks}
-          sharePrivately={sharePrivately}
-          delegateTransaction={delegateTransaction}
-          onCancel={handleReviewClose}
-          onConfirm={handleConfirmSend}
-        />
       </div>
     </div>
   );

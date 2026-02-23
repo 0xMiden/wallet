@@ -3,8 +3,6 @@ import React, { FC, useCallback, useState } from 'react';
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { CircleButton } from 'components/CircleButton';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
 
@@ -39,12 +37,6 @@ const Header: React.FC<{
   step: OnboardingStep;
   onboardingType?: 'import' | 'create' | null;
 }> = ({ step, onBack }) => {
-  // Hide header on full-screen steps
-  if (step === OnboardingStep.Confirmation || step === OnboardingStep.SelectTransactionType) {
-    return null;
-  }
-
-  const shouldRenderBackButton = step !== OnboardingStep.Welcome;
   let currentStep: number | null = step === OnboardingStep.Welcome ? null : 3;
 
   if (step === OnboardingStep.BackupSeedPhrase) {
@@ -57,20 +49,11 @@ const Header: React.FC<{
     currentStep = 3;
   } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
     currentStep = 2;
+  } else if (step === OnboardingStep.Confirmation) {
+    currentStep = 4;
   }
-
   return (
-    <div className="flex justify-between items-center px-6 py-4 border-[0.5px] border-[#00000033] ">
-      <CircleButton
-        icon={IconName.ArrowLeft}
-        onClick={onBack}
-        className={shouldRenderBackButton ? '' : 'opacity-0 pointer-events-none'}
-      />
-
-      <div className="flex gap-1 items-center justify-center">
-        <Icon name={IconName.OnboardingLogo} className=" w-7 h-6" />
-        <p className="text-heading-gray text-[19px] font-semibold">Miden Wallet</p>
-      </div>
+    <div className="w-full flex items-center justify-center pt-8">
       <ProgressIndicator currentStep={currentStep || 1} steps={3} className={currentStep ? '' : 'opacity-0'} />
     </div>
   );
@@ -220,24 +203,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onAction?.({ id: 'back' });
   };
 
-  const mobile = isMobile();
-
+  console.log('Rendering step:', step);
   return (
-    <div
-      className={classNames(
-        'flex flex-col',
-        'bg-white',
-        'overflow-hidden',
-        mobile ? 'w-full h-full' : 'w-full h-full mx-auto border border-gray-100 rounded-3xl'
-      )}
-    >
+    <div className={classNames('flex flex-col', 'bg-white', 'overflow-hidden', 'w-full h-full mx-auto')}>
       <div className="flex flex-col">
         <AnimatePresence mode={'wait'} initial={false}>
-          {step !== OnboardingStep.Confirmation &&
-            step !== OnboardingStep.SelectTransactionType &&
-            step !== OnboardingStep.Welcome && (
-              <Header onBack={onBack} step={step} onboardingType={onboardingType} key={'header'} />
-            )}
+          {step !== OnboardingStep.Welcome && (
+            <Header onBack={onBack} step={step} onboardingType={onboardingType} key={'header'} />
+          )}
         </AnimatePresence>
         <AnimatePresence mode={'wait'} initial={false}>
           <motion.div
