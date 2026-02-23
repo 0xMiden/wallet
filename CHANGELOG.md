@@ -1,19 +1,10 @@
 # Changelog
 
-## 1.13.3
+## 1.13.2 (TBD)
 
 ### Features
 
-* [FEATURE][extension] Desktop notifications for new notes. When the popup is closed and a new note arrives, the service worker shows a Web Notification (with chrome.notifications fallback). Clicking the notification opens a fullscreen tab with instant note display from cached data. (#162)
-* [FEATURE][extension] Service worker as single backend for extension reads. The SW now broadcasts notes and vault assets via `SyncCompleted` after each sync cycle — the frontend reads from Zustand only, eliminating WASM client usage for reads. Removes ~10s WASM init delay on popup open, fixes stale notes when popup is open, and adds cross-tab claim coordination via `NoteClaimStarted`. (#163)
-
----
-
-## 1.13.2
-
-### Fixes
-
-* [FIX][all] Fixed transaction recovery after network outages. Private accounts could enter a permanently broken state where all transactions fail with "initial state commitment does not match". Root causes: AutoSync loop died on the generating-transaction page, transactions were built against stale local state, and the transaction modal blocked on stale tx failures. Now syncs state before executing transactions, keeps AutoSync alive during transaction generation, cancels crashed/stale transactions properly, and shows correct "Failed" status instead of misleading "Executing". (#150)
+* [FEATURE][all] Complete UI revamp across the wallet.
 
 ---
 
