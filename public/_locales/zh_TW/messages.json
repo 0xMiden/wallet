@@ -390,6 +390,10 @@
     "message": "生成交易",
     "englishSource": "Generating Transaction"
   },
+  "generatingTransactionDescription": {
+    "message": "This may take a moment depending on the level network traffic",
+    "englishSource": "This may take a moment depending on the level network traffic"
+  },
   "status": {
     "message": "地位",
     "englishSource": "Status"

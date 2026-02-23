@@ -390,6 +390,10 @@
     "message": "Gerando Transação",
     "englishSource": "Generating Transaction"
   },
+  "generatingTransactionDescription": {
+    "message": "This may take a moment depending on the level network traffic",
+    "englishSource": "This may take a moment depending on the level network traffic"
+  },
   "status": {
     "message": "Status",
     "englishSource": "Status"
