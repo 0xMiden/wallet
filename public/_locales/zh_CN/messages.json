@@ -8,8 +8,8 @@
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
-    "message": "创建或恢复帐户",
-    "englishSource": "Create or Restore account"
+    "message": "Create Account",
+    "englishSource": "Create Account"
   },
   "importAccount": {
     "message": "导入账户",
@@ -354,6 +354,10 @@
     "message": "发送",
     "englishSource": "Send"
   },
+  "searchByNameOrSymbol": {
+    "message": "Search by name or symbol",
+    "englishSource": "Search by name or symbol"
+  },
   "transactionInitiated": {
     "message": "交易发起",
     "englishSource": "Transaction initiated"
@@ -479,16 +483,16 @@
     "englishSource": "Reveal Seed Phrase"
   },
   "revealSeedPhraseDescription": {
-    "message": "也称为“导出钱包”，您可能需要此Seed Phrase来访问您的钱包和其他设备上的帐户。",
-    "englishSource": "Also known as \"Export Wallet\", you may need this seed phrase to access your wallet and accounts on other devices."
+    "message": "View your recovery phrase",
+    "englishSource": "View your recovery phrase"
   },
   "exportWalletFile": {
     "message": "导出钱包文件",
     "englishSource": "Export Wallet File"
   },
   "dAppsDescription": {
-    "message": "在此部分中，您可以启用与支持 Miden Wallet 的去中心化应用程序交互的能力。",
-    "englishSource": "In this section you can enable ability to interact with decentralized applications that support Miden Wallet."
+    "message": "Manage Connected Apps",
+    "englishSource": "Manage Connected Apps"
   },
   "removeAccount": {
     "message": "移除账户",
@@ -503,24 +507,40 @@
     "englishSource": "Advanced Settings"
   },
   "advancedSettingsDescription": {
-    "message": "可帮助您调试和诊断 Miden 钱包问题的工具。",
-    "englishSource": "Tools to help you debug and diagnose issues with Miden Wallet."
+    "message": "Faucet ID, Authorized DApps",
+    "englishSource": "Faucet ID, Authorized DApps"
   },
   "resync": {
     "message": "重新同步",
     "englishSource": "Resync"
   },
   "about": {
-    "message": "关于这个应用程序",
-    "englishSource": "About This App"
+    "message": "ABOUT",
+    "englishSource": "ABOUT"
+  },
+  "aboutMidenWallet": {
+    "message": "About Miden Wallet",
+    "englishSource": "About Miden Wallet"
+  },
+  "preferences": {
+    "message": "PREFERENCES",
+    "englishSource": "PREFERENCES"
+  },
+  "security": {
+    "message": "SECURITY",
+    "englishSource": "SECURITY"
+  },
+  "developer": {
+    "message": "DEVELOPER",
+    "englishSource": "DEVELOPER"
   },
   "info": {
     "message": "信息",
     "englishSource": "Info"
   },
   "aboutDescription": {
-    "message": "使用此部分查看有关 Miden 钱包的元信息。",
-    "englishSource": "Use this section to view meta info about Miden Wallet."
+    "message": "Version and links",
+    "englishSource": "Version and links"
   },
   "unlockPasswordErrorDelay": {
     "message": "您已经输入了 3 次错误的密码。你的钱包被冻结了",
@@ -560,9 +580,8 @@
     }
   },
   "dAppsInteraction": {
-    "message": "DApp互动",
-    "description": "DApps = Decentralized Applications",
-    "englishSource": "DApps interaction"
+    "message": "DApps Interaction",
+    "englishSource": "DApps Interaction"
   },
   "none": {
     "message": "没有任何",
@@ -670,6 +689,18 @@
   "youWillNeedThisSeedPhrase": {
     "message": "请写下您的秘密恢复短语并将其保存在安全的地方。此短语是恢复您帐户的唯一方法。不要与任何人分享。任何拥有这句话的人都可以永远拿走你的资产。",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account. Do not share it with anyone. Anyone with this phrase can take your assets forever."
+  },
+  "seedPhraseDescription": {
+    "message": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
+  },
+  "doNotShareWithAnyone": {
+    "message": "Do not share it with anyone.",
+    "englishSource": "Do not share it with anyone."
+  },
+  "anyoneCanTakeAssets": {
+    "message": "Anyone with this phrase can take your assets forever.",
+    "englishSource": "Anyone with this phrase can take your assets forever."
   },
   "continue": {
     "message": "继续",
@@ -801,16 +832,16 @@
     "englishSource": "General"
   },
   "generalSettingsDescription": {
-    "message": "在此处您可以管理语言偏好和显示模式。",
-    "englishSource": "Here you can manage languages preferences and display mode."
+    "message": "Proof generation, transactions",
+    "englishSource": "Proof generation, transactions"
   },
   "language": {
     "message": "语言",
     "englishSource": "Language"
   },
   "languageDescription": {
-    "message": "更改显示语言",
-    "englishSource": "Change the display language"
+    "message": "Change display language",
+    "englishSource": "Change display language"
   },
   "add": {
     "message": "添加",
@@ -999,16 +1030,16 @@
     "englishSource": "Address Book"
   },
   "addressBookDescription": {
-    "message": "添加、删除和管理您的联系人。",
-    "englishSource": "Add, remove and manage your contacts."
+    "message": "Manage your contacts here",
+    "englishSource": "Manage your contacts here"
   },
   "addNewContact": {
     "message": "新联系人",
     "englishSource": "New contact"
   },
   "addContact": {
-    "message": "增加联系人",
-    "englishSource": "Add contact"
+    "message": "Add Contact",
+    "englishSource": "Add Contact"
   },
   "newContactPlaceholder": {
     "message": "例如爱丽丝鲍勃",
@@ -1019,8 +1050,12 @@
     "englishSource": "Contact with the same address already exists"
   },
   "currentContacts": {
-    "message": "当前联系人",
-    "englishSource": "Current contacts"
+    "message": "Current Contacts",
+    "englishSource": "Current Contacts"
+  },
+  "searchContacts": {
+    "message": "Search",
+    "englishSource": "Search"
   },
   "deleteContactConfirm": {
     "message": "您确定要删除此联系人吗？",
@@ -1118,6 +1153,10 @@
   "private": {
     "message": "私人",
     "englishSource": "Private"
+  },
+  "external": {
+    "message": "External",
+    "englishSource": "External"
   },
   "customizeFee": {
     "message": "定制费用",
@@ -1451,16 +1490,16 @@
     "englishSource": "Encrypted Wallet File"
   },
   "encryptedWalletFileDescription": {
-    "message": "输入您的密码以访问您的加密钱包文件。关闭屏幕共享。不要与任何人分享。",
-    "englishSource": "Enter your password to access your Encrypted Wallet File. Turn off screen sharing. Don't share it with anyone."
+    "message": "Enter your password to access your Encrypted Wallet File.",
+    "englishSource": "Enter your password to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "我不会与任何人分享我的加密钱包文件，包括 Miden Wallet。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
   },
   "enterPasswordToEncrypt": {
-    "message": "输入密码以加密您的钱包文件。您稍后将需要此密码来恢复您的钱包。",
-    "englishSource": "Enter a password to encrypt your wallet file. You'll need this password to restore your wallet later."
+    "message": "Enter a password to encrypt your wallet file.",
+    "englishSource": "Enter a password to encrypt your wallet file."
   },
   "recipientAccountId": {
     "message": "收件人帐户 ID",
@@ -1469,6 +1508,10 @@
   "yourAccounts": {
     "message": "您的账户",
     "englishSource": "Your Accounts"
+  },
+  "contacts": {
+    "message": "Contacts",
+    "englishSource": "Contacts"
   },
   "noOtherAccounts": {
     "message": "没有其他账户",
@@ -1509,6 +1552,26 @@
   "encryptedWalletFileExported": {
     "message": "导出加密钱包文件",
     "englishSource": "Encrypted Wallet File Exported"
+  },
+  "encryptedWalletFileExportedTitle1": {
+    "message": "Encrypted Wallet File",
+    "englishSource": "Encrypted Wallet File"
+  },
+  "encryptedWalletFileExportedTitle2": {
+    "message": "Exported!",
+    "englishSource": "Exported!"
+  },
+  "encryptedWalletFileExportedDesc1": {
+    "message": "Your encrypted wallet file has been downloaded.",
+    "englishSource": "Your encrypted wallet file has been downloaded."
+  },
+  "encryptedWalletFileExportedDesc2": {
+    "message": "Keep it and your password safe.",
+    "englishSource": "Keep it and your password safe."
+  },
+  "encryptedWalletFileExportedDesc3": {
+    "message": "If you lose them you risk losing access to your wallet",
+    "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "encryptedWalletFileExportedDescription": {
     "message": "您的加密钱包文件已下载。确保它和您的密码安全，因为丢失它们意味着无法访问您的钱包。",
@@ -2050,6 +2113,66 @@
     "message": "如果收款人在此时间内未接受交易，资金将退还给您。",
     "englishSource": "If the recipient does not accept the transaction within this time, the funds will be returned to you."
   },
+  "recallHeight": {
+    "message": "Recall Height",
+    "englishSource": "Recall Height"
+  },
+  "recallHeightDescription": {
+    "message": "If the note is not consumed by this date, the funds will be returned to you.",
+    "englishSource": "If the note is not consumed by this date, the funds will be returned to you."
+  },
+  "selectRecallDate": {
+    "message": "Select recall date (optional)",
+    "englishSource": "Select recall date (optional)"
+  },
+  "privacyOptions": {
+    "message": "Privacy Options",
+    "englishSource": "Privacy Options"
+  },
+  "privacyOptionsDescription": {
+    "message": "Adjust the level of transparency & type of payment",
+    "englishSource": "Adjust the level of transparency & type of payment"
+  },
+  "enterWalletAddress": {
+    "message": "Enter wallet address...",
+    "englishSource": "Enter wallet address..."
+  },
+  "balance": {
+    "message": "Balance",
+    "englishSource": "Balance"
+  },
+  "tomorrow": {
+    "message": "Tomorrow",
+    "englishSource": "Tomorrow"
+  },
+  "in3Days": {
+    "message": "In 3 days",
+    "englishSource": "In 3 days"
+  },
+  "inAWeek": {
+    "message": "In a week",
+    "englishSource": "In a week"
+  },
+  "in2Weeks": {
+    "message": "In 2 weeks",
+    "englishSource": "In 2 weeks"
+  },
+  "30mins": {
+    "message": "30 mins",
+    "englishSource": "30 mins"
+  },
+  "1hour": {
+    "message": "1 hour",
+    "englishSource": "1 hour"
+  },
+  "5hours": {
+    "message": "5 hours",
+    "englishSource": "5 hours"
+  },
+  "time": {
+    "message": "Time",
+    "englishSource": "Time"
+  },
   "clearText": {
     "message": "清晰的文字",
     "englishSource": "Clear text"
@@ -2307,5 +2430,45 @@
   "faucetMessage": {
     "message": "You can get tokens from the faucet or transfer them from another wallet or account",
     "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account"
+  },
+  "accountCreationSucess": {
+    "message": "Account created successfully!",
+    "englishSource": "Account created successfully!"
+  },
+  "activity": {
+    "message": "Activity",
+    "englishSource": "Activity"
+  },
+  "permissions": {
+    "message": "Permissions",
+    "englishSource": "Permissions"
+  },
+  "permissionUponRequest": {
+    "message": "Upon Request",
+    "englishSource": "Upon Request"
+  },
+  "permissionAutomatic": {
+    "message": "Automatic",
+    "englishSource": "Automatic"
+  },
+  "dAppsToggleDescription": {
+    "message": "Toggle to enable or disable DApp connections and balance visibility.",
+    "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
+  },
+  "transferDetails": {
+    "message": "Transfer Details",
+    "englishSource": "Transfer Details"
+  },
+  "recallBy": {
+    "message": "Recall by",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Options",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Recall enabled",
+    "englishSource": "Recall enabled"
   }
 }
