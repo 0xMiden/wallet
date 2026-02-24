@@ -38,7 +38,7 @@ const TokenHistory: FC<TokenHistoryProps> = ({ tokenId }) => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-white')}>
-      <NavigationHeader mode="close" title={t('tokenHistory', { tokenName })} onClose={handleClose} showBorder />
+      <NavigationHeader title={t('tokenHistory', { tokenName })} onBack={handleClose} showBorder />
       <div className="flex flex-col flex-1 p-4 justify-between md:w-[460px] md:mx-auto min-h-0">
         <div className={classNames('flex-1 min-h-0 overflow-y-auto', 'bg-white z-30 relative')} ref={scrollParentRef}>
           <History address={account.publicKey} tokenId={tokenId} fullHistory={true} scrollParentRef={scrollParentRef} />

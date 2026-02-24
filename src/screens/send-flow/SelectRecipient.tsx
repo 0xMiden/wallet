@@ -53,7 +53,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
   return (
     <div className="flex-1 flex flex-col">
-      <NavigationHeader title={t('recipient')} onClose={onClose} showBorder />
+      <NavigationHeader title={t('recipient')} onBack={onClose} showBorder />
       <div className="flex flex-col flex-1 p-4 md:w-[460px] md:mx-auto">
         <div className="flex-1 flex flex-col justify-stretch gap-y-2">
           <div className="relative">
