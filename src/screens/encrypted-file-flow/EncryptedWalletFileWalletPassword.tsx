@@ -10,6 +10,7 @@ import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
 import { Vault } from 'lib/miden/back/vault';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const LOCK_TIME = 60_000;
@@ -50,7 +51,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     formState: { errors, isSubmitting }
   } = useForm<FormData>();
   const [confirmed, setConfirmed] = useState(false);
-  const [hasHardwareProtector, setHasHardwareProtector] = useState(false);
+  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useLocalStorage<number>('TridentSharedStorageKey.PasswordAttempts', 1);
   const [timelock, setTimeLock] = useLocalStorage<number>('TridentSharedStorageKey.TimeLock', 0);
   const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
@@ -114,10 +115,14 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     [onSubmit, confirmed]
   );
 
+  if (hasHardwareProtector === null) {
+    return null;
+  }
+
   return (
-    <div className="flex-1 flex flex-col text-heading-gray">
-      <div className="flex flex-col flex-1 p-4 pt-8">
-        <div className="flex-1 flex flex-col justify-stretch gap-y-4">
+    <div className="flex flex-col text-heading-gray">
+      <div className="flex flex-col p-4 pt-8">
+        <div className="flex flex-col justify-stretch gap-y-4">
           <p className="text-base font-normal">
             {t(hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription')}
           </p>
@@ -136,7 +141,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
                 }
                 onChange={onPasswordChange}
                 onKeyDown={handleEnterKey}
-                autoFocus
+                autoFocus={!isMobile()}
                 labelClassName="text-[20px] font-medium leading-[20px]"
               />
               {errors.password && <p className="h-4 text-red-500 text-xs">{errors.password.message}</p>}

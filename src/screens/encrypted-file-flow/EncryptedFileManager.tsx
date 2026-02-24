@@ -213,7 +213,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
       {}
       <NavigationHeader showBorder title={t('encryptedWalletFile')} onBack={onClose} />
       <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
-        <Navigator renderRoute={renderStep} initialRouteName={EncryptedFileStep.WalletPassword} />
+        <Navigator renderRoute={renderStep} />
       </form>
     </div>
   );
@@ -221,7 +221,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
 
 const NavigatorWrapper: React.FC<EncryptedFileManagerProps> = props => {
   return (
-    <NavigatorProvider routes={ROUTES}>
+    <NavigatorProvider routes={ROUTES} initialRouteName={EncryptedFileStep.WalletPassword}>
       <EncryptedFileManager />
     </NavigatorProvider>
   );

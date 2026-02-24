@@ -451,7 +451,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
       data-testid="send-flow"
     >
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 h-full min-h-0">
-        <Navigator renderRoute={renderStep} initialRouteName={SendFlowStep.SelectToken} />
+        <Navigator renderRoute={renderStep} />
       </form>
     </div>
   );
@@ -459,7 +459,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
 
 const NavigatorWrapper: React.FC<SendManagerProps> = props => {
   return (
-    <NavigatorProvider routes={ROUTES}>
+    <NavigatorProvider routes={ROUTES} initialRouteName={SendFlowStep.SelectToken}>
       <SendManager {...props} />
     </NavigatorProvider>
   );

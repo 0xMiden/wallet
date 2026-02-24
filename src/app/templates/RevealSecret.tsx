@@ -6,11 +6,12 @@ import { useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { useAccountBadgeTitle } from 'app/defaults';
 import AccountBanner from 'app/templates/AccountBanner';
+import { Button, ButtonVariant } from 'components/Button';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -39,8 +40,9 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     formState: { errors, isSubmitting }
   } = useForm<FormData>();
 
+  const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
-  const [hasHardwareProtector, setHasHardwareProtector] = useState(false);
+  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
 
   useEffect(() => {
     Vault.hasHardwareProtector().then(setHasHardwareProtector);
@@ -54,7 +56,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   }, [account.publicKey, setSecret]);
 
   useEffect(() => {
-    if (secret) {
+    if (secret && !isMobile()) {
       secretFieldRef.current?.focus();
       secretFieldRef.current?.select();
     }
@@ -67,7 +69,9 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   }, []);
 
   useLayoutEffect(() => {
-    focusPasswordField();
+    if (!isMobile()) {
+      focusPasswordField();
+    }
   }, [focusPasswordField]);
 
   const onSubmit = useCallback<SubmitHandler<FormData>>(
@@ -221,36 +225,51 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             placeholder="********"
             errorCaption={errors.password?.message}
             containerClassName="mb-4 pt-8"
-            onChange={() => clearErrors()}
+            onChange={e => {
+              register('password').onChange(e);
+              clearErrors();
+            }}
           />
         )}
-
-        <FormSubmitButton className="capitalize w-full justify-center mt-8" loading={isSubmitting}>
-          {t(hasHardwareProtector ? 'unlock' : 'reveal')}
-        </FormSubmitButton>
       </form>
     );
   }, [
     forbidPrivateKeyRevealing,
     errors,
-    handleSubmit,
     onSubmit,
     register,
     secret,
     texts,
-    isSubmitting,
     clearErrors,
     secretFieldRef,
     t,
     accountBadgeTitle,
-    hasHardwareProtector
+    hasHardwareProtector,
+    handleSubmit
   ]);
 
+  const showButton = !forbidPrivateKeyRevealing && !secret;
+
+  if (hasHardwareProtector === null) {
+    return null;
+  }
+
   return (
-    <div className="w-full max-w-sm p-2 mx-auto">
+    <div className="w-full max-w-sm mx-auto">
       {texts.accountBanner}
 
       {mainContent}
+
+      {showButton && (
+        <Button
+          className="w-full justify-center mt-6"
+          variant={ButtonVariant.Primary}
+          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+          disabled={isSubmitting || (hasHardwareProtector ? false : !passwordValue)}
+          isLoading={isSubmitting}
+          onClick={hasHardwareProtector ? () => onSubmit({ password: '' }) : handleSubmit(onSubmit)}
+        />
+      )}
     </div>
   );
 };

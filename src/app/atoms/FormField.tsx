@@ -257,20 +257,18 @@ const SecretBanner: React.FC<SecretBannerProps> = ({ secretBannerDisplayed, hand
 
   return (
     <div
-      className={classNames('absolute', 'bg-gray-800 rounded-5', 'flex items-center justify-center', 'cursor-text')}
-      style={{
-        top: 2,
-        right: 2,
-        bottom: 2,
-        left: 2
-      }}
+      className={classNames(
+        'absolute inset-0.5 rounded-5',
+        'flex items-center justify-center',
+        'cursor-text',
+        'bg-white/60 backdrop-blur-sm'
+      )}
       onClick={handleSecretBannerClick}
     >
-      <div className="rounded-lg">
-        <EyeClosedIcon className={classNames('m-auto')} style={{ height: '20px', width: '20px' }} />
-        <p className={classNames('mb-1', 'flex items-center', 'text-md font-semibold', 'uppercase')}></p>
+      <div className="rounded-lg flex flex-col items-center">
+        <EyeClosedIcon className="m-auto h-5 w-5 opacity-60" />
 
-        <p className={classNames('mb-1', 'flex items-center', 'text-sm')}>
+        <p className="mt-1 flex items-center text-sm text-gray-600">
           <span>{t('clickToRevealField')}</span>
         </p>
       </div>
