@@ -2370,7 +2370,7 @@
     "message": "You can get tokens from the faucet or transfer them from another wallet or account",
     "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account"
   },
-  "accountCreationSucess": {
+  "accountCreationSuccess": {
     "message": "Account created successfully!",
     "englishSource": "Account created successfully!"
   },
@@ -2409,5 +2409,41 @@
   "recallEnabled": {
     "message": "Recall enabled",
     "englishSource": "Recall enabled"
+  },
+  "on": {
+    "message": "On",
+    "englishSource": "On"
+  },
+  "off": {
+    "message": "Off",
+    "englishSource": "Off"
+  },
+  "enterUsername": {
+    "message": "Enter username",
+    "englishSource": "Enter username"
+  },
+  "enterAddress": {
+    "message": "Enter Address",
+    "englishSource": "Enter Address"
+  },
+  "failedToClaimNote": {
+    "message": "Failed to claim note",
+    "englishSource": "Failed to claim note"
+  },
+  "testnet": {
+    "message": "Testnet",
+    "englishSource": "Testnet"
+  },
+  "browser": {
+    "message": "Browser",
+    "englishSource": "Browser"
+  },
+  "invalidAmount": {
+    "message": "Invalid amount",
+    "englishSource": "Invalid amount"
+  },
+  "showQrCode": {
+    "message": "Show QR Code",
+    "englishSource": "Show QR Code"
   }
 }
