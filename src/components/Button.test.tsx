@@ -61,7 +61,7 @@ describe('Button', () => {
     it('applies Secondary variant styles', () => {
       render(<Button variant={ButtonVariant.Secondary} />);
 
-      expect(screen.getByRole('button')).toHaveClass('bg-grey-50');
+      expect(screen.getByRole('button')).toHaveClass('bg-grey-25');
     });
 
     it('applies Ghost variant styles', () => {
@@ -111,7 +111,7 @@ describe('Button', () => {
       render(<Button disabled />);
 
       expect(screen.getByRole('button')).toBeDisabled();
-      expect(screen.getByRole('button')).toHaveClass('bg-grey-200');
+      expect(screen.getByRole('button')).toHaveClass('bg-[#FF550099]');
     });
 
     it('does not call onClick when disabled', () => {

@@ -39,12 +39,14 @@ jest.mock('lib/miden/repo', () => {
   };
 });
 
+const mockGetInputNote = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue({ blockNum: () => 1 });
-const mockGetMidenClient = jest.fn().mockResolvedValue({ syncState: mockSyncState });
-
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: (...args: any[]) => mockGetMidenClient(...args),
-  withWasmClientLock: jest.fn((callback: () => any) => callback())
+  getMidenClient: jest.fn(() => ({
+    syncState: mockSyncState,
+    webClient: { getInputNote: mockGetInputNote }
+  })),
+  withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
 jest.mock('./notes', () => ({
@@ -350,6 +352,9 @@ describe('transactions utilities', () => {
 
   describe('initiateConsumeTransactionFromId', () => {
     it('creates consume transaction from note id', async () => {
+      mockGetInputNote.mockReturnValueOnce({
+        metadata: () => ({ noteType: () => 'public' })
+      });
       mockTransactionsFilter.mockReturnValueOnce({
         toArray: jest.fn().mockResolvedValueOnce([])
       });
