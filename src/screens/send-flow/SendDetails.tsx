@@ -371,7 +371,7 @@ export const OptionItem = ({
     <div className="flex items-center justify-between font-geist">
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0">
-          <Icon name={icon} size="sm" />
+          <Icon name={icon} size="sm" className="text-primary-500" />
         </div>
         <div className="space-y-0.5">
           <div className={clsx('font-medium text-heading-gray leading-none', isMobile() ? 'text-sm' : 'text-base')}>

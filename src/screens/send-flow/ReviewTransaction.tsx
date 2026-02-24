@@ -143,7 +143,7 @@ const OptionRow = ({
   return (
     <div className={`flex items-center justify-between px-4 py-3 ${!isLast ? 'border-b border-[#E6E6E6]' : ''}`}>
       <div className="flex items-center gap-3">
-        <Icon name={icon} size="xs" />
+        <Icon name={icon} size="xs" className="text-primary-500" />
         <span className="text-sm text-heading-gray">{label}</span>
       </div>
       <span
