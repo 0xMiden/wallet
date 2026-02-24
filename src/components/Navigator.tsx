@@ -171,8 +171,8 @@ const PushHiddenPosition: AnimationConfig = {
 const PushModalBackgroundPosition: AnimationConfig = {
   x: '0vw',
   y: '0vw',
-  opacity: 0.0,
-  scale: 0.95,
+  opacity: 1,
+  scale: 1,
   backgroundColor: '#ffffff'
 };
 
