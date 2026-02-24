@@ -5,7 +5,12 @@ import { NoteTypeEnum } from './types';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
   NoteType: { Public: 'public', Private: 'private' },
-  Address: { fromBech32: jest.fn((addr: string) => { if (addr === 'valid-bech32') return {}; throw new Error('Invalid'); }) }
+  Address: {
+    fromBech32: jest.fn((addr: string) => {
+      if (addr === 'valid-bech32') return {};
+      throw new Error('Invalid');
+    })
+  }
 }));
 
 describe('miden helpers', () => {
