@@ -117,7 +117,7 @@ const HistoryView = memo<HistoryViewProps>(
           useWindow={false}
           getScrollParent={() => scrollParentRef.current}
         >
-          <div className={classNames(isMobile() ? 'px-8' : 'px-2')}>
+          <div className={classNames(isMobile() ? 'px-4' : 'px-2')}>
             {dateGroups.map(([dateKey, dateEntries], groupIndex) => (
               <div key={dateKey}>
                 <DateSeparator date={dateKey} isFirst={groupIndex === 0} />
