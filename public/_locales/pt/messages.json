@@ -775,6 +775,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "Desbloqueie com sua senha para revelar o $secretName$ .",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "Revelar",
     "englishSource": "Reveal"
@@ -1466,6 +1475,10 @@
   "encryptedWalletFileDescription": {
     "message": "Digite sua senha para acessar seu arquivo criptografado da carteira.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "Desbloqueie com sua senha para acessar seu arquivo criptografado da carteira.",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "Não compartilharei meu arquivo criptografado da carteira com ninguém, incluindo a Miden Wallet.",

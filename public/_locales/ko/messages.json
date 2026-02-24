@@ -775,6 +775,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "비밀번호로 잠금을 해제하여 정보를 확인하세요. $secretName$ .",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "공개",
     "englishSource": "Reveal"
@@ -1468,6 +1477,10 @@
   "encryptedWalletFileDescription": {
     "message": "암호화된 지갑 파일에 접근하려면 비밀번호를 입력하세요.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "암호화된 지갑 파일에 액세스하려면 비밀번호로 잠금을 해제하세요.",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "나는 암호화된 지갑 파일을 Miden Wallet을 포함한 누구와도 공유하지 않을 것입니다.",

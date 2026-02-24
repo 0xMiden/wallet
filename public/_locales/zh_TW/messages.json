@@ -775,6 +775,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "使用您的密码解锁以显示 $secretName$ .",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "顯示",
     "englishSource": "Reveal"
@@ -1468,6 +1477,10 @@
   "encryptedWalletFileDescription": {
     "message": "输入您的密码以访问您的加密钱包文件。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "使用您的密码解锁以访问您的加密钱包文件。",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "我不会与任何人分享我的加密钱包文件，包括 Miden Wallet。",

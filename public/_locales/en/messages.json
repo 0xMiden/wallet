@@ -759,6 +759,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "Unlock with your passcode to reveal the $secretName$.",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "Reveal",
     "englishSource": "Reveal"
@@ -1436,6 +1445,10 @@
   "encryptedWalletFileDescription": {
     "message": "Enter your password to access your Encrypted Wallet File.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "Unlock with your passcode to access your Encrypted Wallet File.",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet.",

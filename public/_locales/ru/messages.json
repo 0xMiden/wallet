@@ -775,6 +775,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "Разблокируйте с помощью пароля, чтобы открыть $secretName$ .",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "Показывать",
     "englishSource": "Reveal"
@@ -1469,6 +1478,10 @@
   "encryptedWalletFileDescription": {
     "message": "Введите свой пароль для доступа к вашему зашифрованному файлу кошелька.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "Разблокируйте с помощью пароля, чтобы получить доступ к зашифрованному файлу кошелька.",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "Я никому не передам свой зашифрованный файл кошелька, включая Miden Wallet.",

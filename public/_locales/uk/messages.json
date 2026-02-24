@@ -775,6 +775,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "Розблокуйте за допомогою пароля, щоб відкрити $secretName$ .",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "Розкрити",
     "englishSource": "Reveal"
@@ -1469,6 +1478,10 @@
   "encryptedWalletFileDescription": {
     "message": "Введіть свій пароль, щоб отримати доступ до зашифрованого файлу гаманця.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "Розблокуйте за допомогою пароля, щоб отримати доступ до зашифрованого файлу гаманця.",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "Я нікому не надаватиму доступу до свого зашифрованого файлу гаманця, зокрема до гаманця Miden.",

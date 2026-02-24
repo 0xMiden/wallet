@@ -775,6 +775,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "パスコードでロックを解除すると、 $secretName$ .",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "表示",
     "englishSource": "Reveal"
@@ -1468,6 +1477,10 @@
   "encryptedWalletFileDescription": {
     "message": "パスワードを入力して、暗号化されたウォレット ファイルにアクセスします。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "パスコードでロックを解除して、暗号化されたウォレット ファイルにアクセスします。",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "私は、暗号化されたウォレット ファイルを、Miden Wallet を含め、誰とも共有しません。",
