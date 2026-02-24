@@ -36,7 +36,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
       <div
         className={classNames('flex flex-row items-center gap-x-4 w-full text-xl text-heading-gray', innerDivClassName)}
       >
-        {onBack ? <CircleButton icon={IconName.ChevronLeft} onClick={onBack} className="flex-0" size="sm" /> : null}
+        {onBack ? <CircleButton icon={IconName.ChevronLeft} onClick={onBack} className="shrink-0" size="sm" /> : null}
         <h1 className={classNames('flex-1 font-medium text-center', onBack ? 'pr-10' : '')}>{props.title}</h1>
       </div>
       {onClose ? <CircleButton icon={IconName.Close} onClick={onClose} /> : null}

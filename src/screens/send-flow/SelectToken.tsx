@@ -67,7 +67,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
 
   return (
     <div {...props} className={classNames('flex-1 flex flex-col', className)}>
-      <NavigationHeader mode="back" title={t('send')} onBack={onCancel} onClose={onCancel} />
+      <NavigationHeader mode="back" title={t('send')} onBack={onCancel} showBorder />
       <div className="flex flex-col flex-1 px-4 pt-4">
         <input
           type="text"
