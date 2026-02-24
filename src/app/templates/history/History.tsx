@@ -27,13 +27,14 @@ const History = memo<HistoryProps>(({ address, className, numItems, scrollParent
   const [hasMore, setHasMore] = useState(true);
   const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
 
-  const { data: latestTransactions, isValidating: transactionsFetching } = useRetryableSWR(
+  const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
     [`latest-transactions`, address, tokenId],
     async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
     {
       revalidateOnMount: true,
       refreshInterval: 10_000,
-      dedupingInterval: 3_000
+      dedupingInterval: 3_000,
+      keepPreviousData: true
     }
   );
 
@@ -43,7 +44,8 @@ const History = memo<HistoryProps>(({ address, className, numItems, scrollParent
     {
       revalidateOnMount: true,
       refreshInterval: 5_000,
-      dedupingInterval: 3_000
+      dedupingInterval: 3_000,
+      keepPreviousData: true
     }
   );
   const pendingTransactions = useMemo(
@@ -93,7 +95,7 @@ const History = memo<HistoryProps>(({ address, className, numItems, scrollParent
   return (
     <HistoryView
       entries={entries ?? []}
-      initialLoading={transactionsFetching}
+      initialLoading={transactionsLoading}
       loadMore={loadMore}
       hasMore={hasMore}
       scrollParentRef={scrollParentRef}
