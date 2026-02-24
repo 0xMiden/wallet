@@ -428,9 +428,36 @@ export const Receive: React.FC<ReceiveProps> = () => {
         <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
         <div className={classNames('w-full mx-auto py-4 flex flex-col flex-1 min-h-0', isMobile() ? 'px-8' : 'px-4')}>
           {safeClaimableNotes.length === 0 ? (
-            <div className="flex flex-col items-center pt-20">
-              <Icon name={IconName.Coins} size="xl" className="mb-3 text-gray-600" />
-              <p className="text-sm text-center text-gray-600">{t('noNotesToClaim')}</p>
+            <div className="flex flex-col items-center justify-center flex-1">
+              <svg
+                width="52"
+                height="52"
+                viewBox="0 0 52 52"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="mb-4 text-grey-400"
+              >
+                {/* Banknote outline */}
+                <rect
+                  x="6"
+                  y="14"
+                  width="40"
+                  height="24"
+                  rx="3"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                {/* Center circle (coin symbol) */}
+                <circle cx="26" cy="26" r="6" stroke="currentColor" strokeWidth="1.5" />
+                {/* Corner circles */}
+                <circle cx="13" cy="20" r="1.5" fill="currentColor" opacity="0.4" />
+                <circle cx="39" cy="20" r="1.5" fill="currentColor" opacity="0.4" />
+                <circle cx="13" cy="32" r="1.5" fill="currentColor" opacity="0.4" />
+                <circle cx="39" cy="32" r="1.5" fill="currentColor" opacity="0.4" />
+              </svg>
+              <p className="text-sm text-center text-heading-gray">{t('noNotesToClaim')}</p>
             </div>
           ) : (
             <>
