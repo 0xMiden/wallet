@@ -7,6 +7,10 @@
     "message": "Uma carteira de navegador para o blockchain Miden",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
+  "createAccount": {
+    "message": "Criar uma conta",
+    "englishSource": "Create Account"
+  },
   "importAccount": {
     "message": "Importar conta",
     "englishSource": "Import account"
@@ -140,6 +144,10 @@
   "save": {
     "message": "Guardar",
     "englishSource": "Save"
+  },
+  "faucet": {
+    "message": "<xid=\"0\"/>",
+    "englishSource": "Faucet"
   },
   "addToken": {
     "message": "Adicionar Ativo",
@@ -346,6 +354,10 @@
     "message": "Enviar",
     "englishSource": "Send"
   },
+  "searchByNameOrSymbol": {
+    "message": "Pesquise por nome ou símbolo",
+    "englishSource": "Search by name or symbol"
+  },
   "transactionInitiated": {
     "message": "Transação iniciada",
     "englishSource": "Transaction initiated"
@@ -377,6 +389,14 @@
   "generatingTransaction": {
     "message": "Gerando Transação",
     "englishSource": "Generating Transaction"
+  },
+  "generatingTransactionDescription": {
+    "message": "Isso pode demorar um pouco dependendo do nível de tráfego da rede",
+    "englishSource": "This may take a moment depending on the level network traffic"
+  },
+  "status": {
+    "message": "Status",
+    "englishSource": "Status"
   },
   "balancePending": {
     "message": "Saldo Pendente de Sincronização",
@@ -466,9 +486,17 @@
     "message": "Revelar frase-semente",
     "englishSource": "Reveal Seed Phrase"
   },
+  "revealSeedPhraseDescription": {
+    "message": "Veja sua frase de recuperação",
+    "englishSource": "View your recovery phrase"
+  },
   "exportWalletFile": {
     "message": "Exportar arquivo de carteira",
     "englishSource": "Export Wallet File"
+  },
+  "dAppsDescription": {
+    "message": "Gerenciar aplicativos conectados",
+    "englishSource": "Manage Connected Apps"
   },
   "removeAccount": {
     "message": "Remover conta",
@@ -482,13 +510,41 @@
     "message": "Configurações avançadas",
     "englishSource": "Advanced Settings"
   },
+  "advancedSettingsDescription": {
+    "message": "Faucet ID, DApps autorizados",
+    "englishSource": "Faucet ID, Authorized DApps"
+  },
   "resync": {
     "message": "Ressincronizar",
     "englishSource": "Resync"
   },
+  "about": {
+    "message": "SOBRE",
+    "englishSource": "ABOUT"
+  },
+  "aboutMidenWallet": {
+    "message": "Sobre a carteira Miden",
+    "englishSource": "About Miden Wallet"
+  },
+  "preferences": {
+    "message": "PREFERÊNCIAS",
+    "englishSource": "PREFERENCES"
+  },
+  "security": {
+    "message": "SEGURANÇA",
+    "englishSource": "SECURITY"
+  },
+  "developer": {
+    "message": "DESENVOLVEDOR",
+    "englishSource": "DEVELOPER"
+  },
   "info": {
     "message": "Informações",
     "englishSource": "Info"
+  },
+  "aboutDescription": {
+    "message": "Versão e links",
+    "englishSource": "Version and links"
   },
   "unlockPasswordErrorDelay": {
     "message": "Você digitou a senha errada três vezes. Sua carteira está sendo bloqueada por",
@@ -497,6 +553,10 @@
   "unlock": {
     "message": "Desbloquear",
     "englishSource": "Unlock"
+  },
+  "website": {
+    "message": "Site",
+    "englishSource": "Website"
   },
   "privacyPolicy": {
     "message": "Política de privacidade",
@@ -522,6 +582,10 @@
         "content": "$1"
       }
     }
+  },
+  "dAppsInteraction": {
+    "message": "Interação DApps",
+    "englishSource": "DApps Interaction"
   },
   "none": {
     "message": "Nenhum",
@@ -630,6 +694,18 @@
     "message": "Anote sua frase secreta de recuperação e guarde-a em um local seguro. Esta frase é a única maneira de recuperar sua conta. Não compartilhe com ninguém. Qualquer pessoa com esta frase pode ficar com seus bens para sempre.",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account. Do not share it with anyone. Anyone with this phrase can take your assets forever."
   },
+  "seedPhraseDescription": {
+    "message": "Anote sua frase secreta de recuperação e guarde-a em um local seguro. Esta frase é a única maneira de recuperar sua conta.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
+  },
+  "doNotShareWithAnyone": {
+    "message": "Não compartilhe com ninguém.",
+    "englishSource": "Do not share it with anyone."
+  },
+  "anyoneCanTakeAssets": {
+    "message": "Qualquer pessoa com esta frase pode ficar com seus bens para sempre.",
+    "englishSource": "Anyone with this phrase can take your assets forever."
+  },
   "continue": {
     "message": "Continuar",
     "englishSource": "Continue"
@@ -674,9 +750,17 @@
     "message": "Caminho de derivação",
     "englishSource": "Derivation path"
   },
+  "seedPhrase": {
+    "message": "<xid=\"0\"/>",
+    "englishSource": "Seed Phrase"
+  },
   "pathForHDAccounts": {
     "message": "para contas HD. Isso é o que você usa para recuperar todas as suas contas de sua frase-semente.",
     "englishSource": "for HD acccounts. This is the thing you use to recover all your accounts from your seed phrase."
+  },
+  "derivationPathExample": {
+    "message": "m/44'/0'/<índice_da_conta>'/0'",
+    "englishSource": "m/44'/0'/<account_index>'/0'"
   },
   "keepSeedPhraseSecret": {
     "message": "Mantenha isso em segredo.",
@@ -751,9 +835,17 @@
     "message": "Geral",
     "englishSource": "General"
   },
+  "generalSettingsDescription": {
+    "message": "Geração de provas, transações",
+    "englishSource": "Proof generation, transactions"
+  },
   "language": {
     "message": "Linguagem",
     "englishSource": "Language"
+  },
+  "languageDescription": {
+    "message": "Alterar idioma de exibição",
+    "englishSource": "Change display language"
   },
   "add": {
     "message": "Acrescentar",
@@ -762,6 +854,10 @@
   "assets": {
     "message": "Ativos",
     "englishSource": "Assets"
+  },
+  "tokens": {
+    "message": "Fichas",
+    "englishSource": "Tokens"
   },
   "history": {
     "message": "História",
@@ -853,6 +949,10 @@
     "message": "Limpar",
     "englishSource": "Clean"
   },
+  "ok": {
+    "message": "OK",
+    "englishSource": "OK"
+  },
   "yes": {
     "message": "Sim",
     "englishSource": "Yes"
@@ -893,6 +993,10 @@
     "message": "Subir arquivo",
     "englishSource": "Upload File"
   },
+  "download": {
+    "message": "Download",
+    "englishSource": "Download"
+  },
   "more": {
     "message": "mais",
     "description": "Show more",
@@ -902,9 +1006,17 @@
     "message": "Livro de endereços",
     "englishSource": "Address Book"
   },
+  "addressBookDescription": {
+    "message": "Gerencie seus contatos aqui",
+    "englishSource": "Manage your contacts here"
+  },
   "addNewContact": {
     "message": "Novo contacto",
     "englishSource": "New contact"
+  },
+  "addContact": {
+    "message": "Adicionar contato",
+    "englishSource": "Add Contact"
   },
   "newContactPlaceholder": {
     "message": "por exemplo, Alice Bob",
@@ -913,6 +1025,14 @@
   "contactWithTheSameAddressAlreadyExists": {
     "message": "O contacto com o mesmo endereço já existe",
     "englishSource": "Contact with the same address already exists"
+  },
+  "currentContacts": {
+    "message": "Contatos atuais",
+    "englishSource": "Current Contacts"
+  },
+  "searchContacts": {
+    "message": "Procurar",
+    "englishSource": "Search"
   },
   "deleteContactConfirm": {
     "message": "Tem a ceraleo creditsa de que pretende eliminar este contacto?",
@@ -987,6 +1107,10 @@
     "message": "Colecionáveis",
     "englishSource": "Collectibles"
   },
+  "id": {
+    "message": "EU IA",
+    "englishSource": "ID"
+  },
   "addCollectible": {
     "message": "Adicionar colecionável",
     "englishSource": "Add Collectible"
@@ -1007,6 +1131,10 @@
     "message": "Privado",
     "englishSource": "Private"
   },
+  "external": {
+    "message": "Externo",
+    "englishSource": "External"
+  },
   "customizeFee": {
     "message": "Personalizar taxa",
     "englishSource": "Customize fee"
@@ -1023,6 +1151,22 @@
     "message": "Transações privadas a qualquer hora, em qualquer lugar.",
     "note": "Onboarding",
     "englishSource": "Private transactions anytime, anywhere."
+  },
+  "midenWallet": {
+    "message": "Carteira Miden",
+    "englishSource": "Miden Wallet"
+  },
+  "privateTransactions": {
+    "message": "Transações privadas.",
+    "englishSource": "Private transactions."
+  },
+  "anytime": {
+    "message": "A qualquer momento.",
+    "englishSource": "Anytime."
+  },
+  "anywhere": {
+    "message": "Em qualquer lugar.",
+    "englishSource": "Anywhere."
   },
   "createANewWallet": {
     "message": "Criar uma nova carteira",
@@ -1054,6 +1198,10 @@
     "note": "Onboarding",
     "englishSource": "Copied"
   },
+  "copyToClipboard": {
+    "message": "Cópia",
+    "englishSource": "Copy"
+  },
   "createsProofsOnYourComputer": {
     "message": "Cria provas no seu computador",
     "note": "Onboarding",
@@ -1068,6 +1216,10 @@
     "message": "Selecione o tipo de transação padrão",
     "note": "Onboarding",
     "englishSource": "Select the Default Transaction Type"
+  },
+  "popular": {
+    "message": "Popular",
+    "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
     "message": "Confirme que você salvou sua frase secreta de recuperação. Selecione a primeira e a última palavra da sua frase.",
@@ -1150,6 +1302,14 @@
     "note": "Onboarding",
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
+  "backUpWalletInstructions": {
+    "message": "Salve essas 12 palavras em um gerenciador de senhas ou anote e guarde em um local seguro.",
+    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+  },
+  "doNotShareWithAnywone": {
+    "message": "Não compartilhe com ninguém.",
+    "englishSource": "Do not share with anyone."
+  },
   "select": {
     "message": "Selecione",
     "note": "Onboarding",
@@ -1164,6 +1324,10 @@
     "message": "Downloads adicionais",
     "note": "Onboarding",
     "englishSource": "Additional Downloads"
+  },
+  "600megabytes": {
+    "message": "Mais de 600 megabytes",
+    "englishSource": "600+ megabytes"
   },
   "transactionSpeed": {
     "message": "Velocidade da transação",
@@ -1189,6 +1353,10 @@
     "message": "2 segundos",
     "note": "Onboarding",
     "englishSource": "2 seconds"
+  },
+  "additionalDownloads0mb": {
+    "message": "0MB",
+    "englishSource": "0 MB"
   },
   "delegateProofsToSecureServers": {
     "message": "Delegar provas para servidores seguros",
@@ -1287,13 +1455,25 @@
     "note": "Onboarding",
     "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
   },
+  "twitter": {
+    "message": "X (Twitter)",
+    "englishSource": "X (Twitter)"
+  },
   "encryptedWalletFile": {
     "message": "Arquivo de carteira criptografado",
     "englishSource": "Encrypted Wallet File"
   },
+  "encryptedWalletFileDescription": {
+    "message": "Digite sua senha para acessar seu arquivo criptografado da carteira.",
+    "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
   "encryptedWalletFileConfirmation": {
     "message": "Não compartilharei meu arquivo criptografado da carteira com ninguém, incluindo a Miden Wallet.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+  },
+  "enterPasswordToEncrypt": {
+    "message": "Digite uma senha para criptografar seu arquivo de carteira.",
+    "englishSource": "Enter a password to encrypt your wallet file."
   },
   "recipientAccountId": {
     "message": "ID da conta do destinatário",
@@ -1302,6 +1482,10 @@
   "yourAccounts": {
     "message": "Suas contas",
     "englishSource": "Your Accounts"
+  },
+  "contacts": {
+    "message": "Contatos",
+    "englishSource": "Contacts"
   },
   "noOtherAccounts": {
     "message": "Nenhuma outra conta",
@@ -1342,6 +1526,26 @@
   "encryptedWalletFileExported": {
     "message": "Arquivo de carteira criptografado exportado",
     "englishSource": "Encrypted Wallet File Exported"
+  },
+  "encryptedWalletFileExportedTitle1": {
+    "message": "Arquivo de carteira criptografado",
+    "englishSource": "Encrypted Wallet File"
+  },
+  "encryptedWalletFileExportedTitle2": {
+    "message": "Exportado!",
+    "englishSource": "Exported!"
+  },
+  "encryptedWalletFileExportedDesc1": {
+    "message": "O arquivo criptografado da sua carteira foi baixado.",
+    "englishSource": "Your encrypted wallet file has been downloaded."
+  },
+  "encryptedWalletFileExportedDesc2": {
+    "message": "Mantenha-o e sua senha seguros.",
+    "englishSource": "Keep it and your password safe."
+  },
+  "encryptedWalletFileExportedDesc3": {
+    "message": "Se você perdê-los, você corre o risco de perder o acesso à sua carteira",
+    "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "encryptedWalletFileExportedDescription": {
     "message": "O arquivo criptografado da sua carteira foi baixado. Mantenha-a e à sua senha seguras, pois perdê-las significa perder o acesso à sua carteira.",
@@ -1714,6 +1918,46 @@
     "message": "Compartilhe a transação de forma privada",
     "englishSource": "Share transaction privately"
   },
+  "privatePayment": {
+    "message": "Pagamento Privado",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "Mantenha os detalhes da transação privados",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Use Prova de Delegado",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Prova de Delegado",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Terceirizar a geração de provas",
+    "englishSource": "Outsource proof generation"
+  },
+  "oneToManyPayment": {
+    "message": "Pagamento um para muitos",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Envie para vários destinatários",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "Recuperar transação",
+    "englishSource": "Recall Transaction"
+  },
+  "sendPayment": {
+    "message": "Enviar pagamento",
+    "englishSource": "Send Payment"
+  },
+  "reviewTransaction": {
+    "message": "Revisar transação",
+    "englishSource": "Review Transaction"
+  },
   "alreadyHaveTransactionFile": {
     "message": "Já possui um arquivo de transação?",
     "englishSource": "Already have a transaction file?"
@@ -1721,6 +1965,15 @@
   "claimAll": {
     "message": "Reivindique tudo",
     "englishSource": "Claim All"
+  },
+  "readyToClaim": {
+    "message": "Pendente notes: $count$ ",
+    "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "addTokens": {
     "message": "Adicionar tokens",
@@ -1810,6 +2063,10 @@
     "message": "Arraste e solte o arquivo ou",
     "englishSource": "Drag and drop file or"
   },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
   "blocksUntilRecall": {
     "message": "Bloqueia até recall",
     "englishSource": "Blocks until recall"
@@ -1818,9 +2075,73 @@
     "message": "Se o destinatário não aceitar a transação dentro desse prazo, os fundos serão devolvidos a você.",
     "englishSource": "If the recipient does not accept the transaction within this time, the funds will be returned to you."
   },
+  "recallHeight": {
+    "message": "Altura de recuperação",
+    "englishSource": "Recall Height"
+  },
+  "recallHeightDescription": {
+    "message": "Se o note não for consumido até esta data, os fundos serão devolvidos a você.",
+    "englishSource": "If the note is not consumed by this date, the funds will be returned to you."
+  },
+  "selectRecallDate": {
+    "message": "Selecione a data de recall (opcional)",
+    "englishSource": "Select recall date (optional)"
+  },
+  "privacyOptions": {
+    "message": "Opções de privacidade",
+    "englishSource": "Privacy Options"
+  },
+  "privacyOptionsDescription": {
+    "message": "Ajuste o nível de transparência e tipo de pagamento",
+    "englishSource": "Adjust the level of transparency & type of payment"
+  },
+  "enterWalletAddress": {
+    "message": "Insira o endereço da carteira...",
+    "englishSource": "Enter wallet address..."
+  },
+  "balance": {
+    "message": "Equilíbrio",
+    "englishSource": "Balance"
+  },
+  "tomorrow": {
+    "message": "Amanhã",
+    "englishSource": "Tomorrow"
+  },
+  "in3Days": {
+    "message": "Em 3 dias",
+    "englishSource": "In 3 days"
+  },
+  "inAWeek": {
+    "message": "Em uma semana",
+    "englishSource": "In a week"
+  },
+  "in2Weeks": {
+    "message": "Em 2 semanas",
+    "englishSource": "In 2 weeks"
+  },
+  "30mins": {
+    "message": "30 minutos",
+    "englishSource": "30 mins"
+  },
+  "1hour": {
+    "message": "1 hora",
+    "englishSource": "1 hour"
+  },
+  "5hours": {
+    "message": "5 horas",
+    "englishSource": "5 hours"
+  },
+  "time": {
+    "message": "Tempo",
+    "englishSource": "Time"
+  },
   "clearText": {
     "message": "Limpar texto",
     "englishSource": "Clear text"
+  },
+  "avatar": {
+    "message": "avatar",
+    "englishSource": "avatar"
   },
   "byProceeding": {
     "message": "Ao prosseguir, você concorda com os",
@@ -2051,5 +2372,101 @@
   "unlockWalletDescription": {
     "message": "Com o seed phrase, você sempre pode restaurar sua conta pública. Escolha abaixo como desbloquear rapidamente sua carteira.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+  },
+  "activities": {
+    "message": "Atividades",
+    "englishSource": "Activities"
+  },
+  "sortBy": {
+    "message": "Ordenar por",
+    "englishSource": "Sort by"
+  },
+  "recent": {
+    "message": "Recente",
+    "englishSource": "Recent"
+  },
+  "faucetRequest": {
+    "message": "Faucet Solicitação",
+    "englishSource": "Faucet Request"
+  },
+  "faucetMessage": {
+    "message": "Você pode obter tokens de faucet ou transferi-los de outra carteira ou conta",
+    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account"
+  },
+  "accountCreationSuccess": {
+    "message": "Conta criada com sucesso!",
+    "englishSource": "Account created successfully!"
+  },
+  "activity": {
+    "message": "Atividade",
+    "englishSource": "Activity"
+  },
+  "permissions": {
+    "message": "Permissões",
+    "englishSource": "Permissions"
+  },
+  "permissionUponRequest": {
+    "message": "A pedido",
+    "englishSource": "Upon Request"
+  },
+  "permissionAutomatic": {
+    "message": "Automático",
+    "englishSource": "Automatic"
+  },
+  "dAppsToggleDescription": {
+    "message": "Alterne para ativar ou desativar conexões DApp e equilibrar a visibilidade.",
+    "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
+  },
+  "transferDetails": {
+    "message": "Detalhes da transferência",
+    "englishSource": "Transfer Details"
+  },
+  "recallBy": {
+    "message": "Lembrar por",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Opções",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Rechamada ativada",
+    "englishSource": "Recall enabled"
+  },
+  "on": {
+    "message": "Sobre",
+    "englishSource": "On"
+  },
+  "off": {
+    "message": "Desligado",
+    "englishSource": "Off"
+  },
+  "enterUsername": {
+    "message": "Digite o nome de usuário",
+    "englishSource": "Enter username"
+  },
+  "enterAddress": {
+    "message": "Insira o endereço",
+    "englishSource": "Enter Address"
+  },
+  "failedToClaimNote": {
+    "message": "Falha ao reivindicar note",
+    "englishSource": "Failed to claim note"
+  },
+  "testnet": {
+    "message": "Rede de teste",
+    "englishSource": "Testnet"
+  },
+  "browser": {
+    "message": "Navegador",
+    "englishSource": "Browser"
+  },
+  "invalidAmount": {
+    "message": "Valor inválido",
+    "englishSource": "Invalid amount"
+  },
+  "showQrCode": {
+    "message": "Mostrar código QR",
+    "englishSource": "Show QR Code"
   }
 }

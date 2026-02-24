@@ -7,6 +7,10 @@
     "message": "Браузерний гаманець для блокчейну Miden",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
+  "createAccount": {
+    "message": "Створити акаунт",
+    "englishSource": "Create Account"
+  },
   "importAccount": {
     "message": "Імпортувати аккаунт",
     "englishSource": "Import account"
@@ -140,6 +144,10 @@
   "save": {
     "message": "Зберегти",
     "englishSource": "Save"
+  },
+  "faucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
   },
   "addToken": {
     "message": "Додати Токен",
@@ -346,6 +354,10 @@
     "message": "Відправили",
     "englishSource": "Send"
   },
+  "searchByNameOrSymbol": {
+    "message": "Пошук за назвою або символом",
+    "englishSource": "Search by name or symbol"
+  },
   "transactionInitiated": {
     "message": "Трансакцію ініційовано",
     "englishSource": "Transaction initiated"
@@ -377,6 +389,10 @@
   "generatingTransaction": {
     "message": "Створення транзакції",
     "englishSource": "Generating Transaction"
+  },
+  "generatingTransactionDescription": {
+    "message": "Це може зайняти деякий час залежно від рівня мережевого трафіку",
+    "englishSource": "This may take a moment depending on the level network traffic"
   },
   "status": {
     "message": "Статус",
@@ -470,9 +486,17 @@
     "message": "Розкрити насіннєву фразу",
     "englishSource": "Reveal Seed Phrase"
   },
+  "revealSeedPhraseDescription": {
+    "message": "Перегляньте свою фразу відновлення",
+    "englishSource": "View your recovery phrase"
+  },
   "exportWalletFile": {
     "message": "Експортувати файл гаманця",
     "englishSource": "Export Wallet File"
+  },
+  "dAppsDescription": {
+    "message": "Керування підключеними програмами",
+    "englishSource": "Manage Connected Apps"
   },
   "removeAccount": {
     "message": "Видалити Аккаунт",
@@ -486,13 +510,41 @@
     "message": "Розширені налаштування",
     "englishSource": "Advanced Settings"
   },
+  "advancedSettingsDescription": {
+    "message": "Faucet ID, авторизовані DApps",
+    "englishSource": "Faucet ID, Authorized DApps"
+  },
   "resync": {
     "message": "Повторна синхронізація",
     "englishSource": "Resync"
   },
+  "about": {
+    "message": "ПРО",
+    "englishSource": "ABOUT"
+  },
+  "aboutMidenWallet": {
+    "message": "Про Miden Wallet",
+    "englishSource": "About Miden Wallet"
+  },
+  "preferences": {
+    "message": "ПРЕФЕРЕНЦІЇ",
+    "englishSource": "PREFERENCES"
+  },
+  "security": {
+    "message": "БЕЗПЕКА",
+    "englishSource": "SECURITY"
+  },
+  "developer": {
+    "message": "РОЗРОБНИК",
+    "englishSource": "DEVELOPER"
+  },
   "info": {
     "message": "Інформація",
     "englishSource": "Info"
+  },
+  "aboutDescription": {
+    "message": "Версія та посилання",
+    "englishSource": "Version and links"
   },
   "unlockPasswordErrorDelay": {
     "message": "Ви тричі ввели неправильний пароль. Ваш гаманець заблоковано для",
@@ -530,6 +582,10 @@
         "content": "$1"
       }
     }
+  },
+  "dAppsInteraction": {
+    "message": "Взаємодія DApps",
+    "englishSource": "DApps Interaction"
   },
   "none": {
     "message": "Жодного",
@@ -638,6 +694,18 @@
     "message": "Будь ласка, запишіть свою секретну фразу відновлення та зберігайте її в безпечному місці. Ця фраза є єдиним способом відновити обліковий запис. Не діліться ним ні з ким. Будь-хто з цією фразою може назавжди забрати ваші активи.",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account. Do not share it with anyone. Anyone with this phrase can take your assets forever."
   },
+  "seedPhraseDescription": {
+    "message": "Будь ласка, запишіть свою секретну фразу відновлення та зберігайте її в безпечному місці. Ця фраза є єдиним способом відновити обліковий запис.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
+  },
+  "doNotShareWithAnyone": {
+    "message": "Не діліться ним ні з ким.",
+    "englishSource": "Do not share it with anyone."
+  },
+  "anyoneCanTakeAssets": {
+    "message": "Будь-хто з цією фразою може назавжди забрати ваші активи.",
+    "englishSource": "Anyone with this phrase can take your assets forever."
+  },
   "continue": {
     "message": "Продовжити",
     "englishSource": "Continue"
@@ -690,6 +758,10 @@
     "message": "для облікових записів HD. Це те, що ви використовуєте, щоб відновити всі свої облікові записи з початкової фрази.",
     "englishSource": "for HD acccounts. This is the thing you use to recover all your accounts from your seed phrase."
   },
+  "derivationPathExample": {
+    "message": "m/44'/0'/<індекс_облікового запису>'/0'",
+    "englishSource": "m/44'/0'/<account_index>'/0'"
+  },
   "keepSeedPhraseSecret": {
     "message": "Тримайте це в секреті.",
     "englishSource": "Keep it in secret."
@@ -715,6 +787,10 @@
     "message": "Отримувач",
     "englishSource": "Recipient"
   },
+  "recipientInputPlaceholder": {
+    "message": "напр. 0xb3d1df68...",
+    "englishSource": "e.g. 0xb3d1df68..."
+  },
   "viewKeyInputPlaceholder": {
     "message": "напр. AViewKey1iHE...",
     "englishSource": "e.g. AViewKey1iHE..."
@@ -734,6 +810,10 @@
   "unableToEstimateTransactionAction": {
     "message": "Неможливо оцінити транзакцію для наданого Одержувача.",
     "englishSource": "Unable to estimate transaction to provided Recipient."
+  },
+  "raw": {
+    "message": "Сирий",
+    "englishSource": "Raw"
   },
   "fetchingConfirmationDetails": {
     "message": "отримання деталей підтвердження",
@@ -755,9 +835,17 @@
     "message": "Загальне",
     "englishSource": "General"
   },
+  "generalSettingsDescription": {
+    "message": "Генерація доказів, транзакції",
+    "englishSource": "Proof generation, transactions"
+  },
   "language": {
     "message": "Мова",
     "englishSource": "Language"
+  },
+  "languageDescription": {
+    "message": "Змінити мову відображення",
+    "englishSource": "Change display language"
   },
   "add": {
     "message": "Додати",
@@ -861,6 +949,10 @@
     "message": "Очистити",
     "englishSource": "Clean"
   },
+  "ok": {
+    "message": "добре",
+    "englishSource": "OK"
+  },
   "yes": {
     "message": "Так",
     "englishSource": "Yes"
@@ -914,9 +1006,17 @@
     "message": "Адресна книга",
     "englishSource": "Address Book"
   },
+  "addressBookDescription": {
+    "message": "Керуйте своїми контактами тут",
+    "englishSource": "Manage your contacts here"
+  },
   "addNewContact": {
     "message": "Новий контакт",
     "englishSource": "New contact"
+  },
+  "addContact": {
+    "message": "Додати контакт",
+    "englishSource": "Add Contact"
   },
   "newContactPlaceholder": {
     "message": "напр. Аліса Боб",
@@ -925,6 +1025,14 @@
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Контакт із такою ж адресою вже існує",
     "englishSource": "Contact with the same address already exists"
+  },
+  "currentContacts": {
+    "message": "Актуальні контакти",
+    "englishSource": "Current Contacts"
+  },
+  "searchContacts": {
+    "message": "Пошук",
+    "englishSource": "Search"
   },
   "deleteContactConfirm": {
     "message": "Ви впевнені, що хочете видалити цей контакт?",
@@ -999,6 +1107,10 @@
     "message": "Предмети колекціонування",
     "englishSource": "Collectibles"
   },
+  "id": {
+    "message": "ID",
+    "englishSource": "ID"
+  },
   "addCollectible": {
     "message": "Додати предмети колекціонування",
     "englishSource": "Add Collectible"
@@ -1019,6 +1131,10 @@
     "message": "Перший",
     "englishSource": "Private"
   },
+  "external": {
+    "message": "зовнішній",
+    "englishSource": "External"
+  },
   "customizeFee": {
     "message": "Налаштувати плату",
     "englishSource": "Customize fee"
@@ -1035,6 +1151,22 @@
     "message": "Приватні транзакції будь-коли і будь-де.",
     "note": "Onboarding",
     "englishSource": "Private transactions anytime, anywhere."
+  },
+  "midenWallet": {
+    "message": "Гаманець Miden",
+    "englishSource": "Miden Wallet"
+  },
+  "privateTransactions": {
+    "message": "Приватні операції.",
+    "englishSource": "Private transactions."
+  },
+  "anytime": {
+    "message": "Будь-коли.",
+    "englishSource": "Anytime."
+  },
+  "anywhere": {
+    "message": "Де завгодно.",
+    "englishSource": "Anywhere."
   },
   "createANewWallet": {
     "message": "Створити новий гаманець",
@@ -1065,6 +1197,10 @@
     "message": "Скопійовано",
     "note": "Onboarding",
     "englishSource": "Copied"
+  },
+  "copyToClipboard": {
+    "message": "Копіювати",
+    "englishSource": "Copy"
   },
   "createsProofsOnYourComputer": {
     "message": "Створює докази на вашому комп'ютері",
@@ -1166,6 +1302,14 @@
     "message": "Мінімум 8 символів з принаймні 1 числом",
     "note": "Onboarding",
     "englishSource": "Minimum 8 characters with at least 1 number"
+  },
+  "backUpWalletInstructions": {
+    "message": "Збережіть ці 12 слів у менеджері паролів або запишіть і зберігайте в безпечному місці.",
+    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+  },
+  "doNotShareWithAnywone": {
+    "message": "Ні з ким не діліться.",
+    "englishSource": "Do not share with anyone."
   },
   "select": {
     "message": "Вибрати",
@@ -1322,9 +1466,17 @@
     "message": "Зашифрований файл гаманця",
     "englishSource": "Encrypted Wallet File"
   },
+  "encryptedWalletFileDescription": {
+    "message": "Введіть свій пароль, щоб отримати доступ до зашифрованого файлу гаманця.",
+    "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
   "encryptedWalletFileConfirmation": {
     "message": "Я нікому не надаватиму доступу до свого зашифрованого файлу гаманця, зокрема до гаманця Miden.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+  },
+  "enterPasswordToEncrypt": {
+    "message": "Введіть пароль, щоб зашифрувати файл гаманця.",
+    "englishSource": "Enter a password to encrypt your wallet file."
   },
   "recipientAccountId": {
     "message": "Ідентифікатор облікового запису отримувача",
@@ -1333,6 +1485,10 @@
   "yourAccounts": {
     "message": "Ваші облікові записи",
     "englishSource": "Your Accounts"
+  },
+  "contacts": {
+    "message": "Контакти",
+    "englishSource": "Contacts"
   },
   "noOtherAccounts": {
     "message": "Немає інших облікових записів",
@@ -1373,6 +1529,26 @@
   "encryptedWalletFileExported": {
     "message": "Зашифрований файл гаманця експортовано",
     "englishSource": "Encrypted Wallet File Exported"
+  },
+  "encryptedWalletFileExportedTitle1": {
+    "message": "Зашифрований файл гаманця",
+    "englishSource": "Encrypted Wallet File"
+  },
+  "encryptedWalletFileExportedTitle2": {
+    "message": "Експортовано!",
+    "englishSource": "Exported!"
+  },
+  "encryptedWalletFileExportedDesc1": {
+    "message": "Ваш зашифрований файл гаманця завантажено.",
+    "englishSource": "Your encrypted wallet file has been downloaded."
+  },
+  "encryptedWalletFileExportedDesc2": {
+    "message": "Зберігайте його та свій пароль у безпеці.",
+    "englishSource": "Keep it and your password safe."
+  },
+  "encryptedWalletFileExportedDesc3": {
+    "message": "Якщо ви їх втратите, ви ризикуєте втратити доступ до свого гаманця",
+    "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "encryptedWalletFileExportedDescription": {
     "message": "Ваш зашифрований файл гаманця завантажено. Зберігайте його та свій пароль у безпеці, оскільки їх втрата означає втрату доступу до вашого гаманця.",
@@ -1745,6 +1921,46 @@
     "message": "Поділитися транзакцією приватно",
     "englishSource": "Share transaction privately"
   },
+  "privatePayment": {
+    "message": "Приватний платіж",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "Тримайте деталі транзакції в таємниці",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Використовуйте перевірку делегатів",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Доведення делегата",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Генерація доказів аутсорсингом",
+    "englishSource": "Outsource proof generation"
+  },
+  "oneToManyPayment": {
+    "message": "Оплата один до багатьох",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Надіслати кільком одержувачам",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "Відкликати транзакцію",
+    "englishSource": "Recall Transaction"
+  },
+  "sendPayment": {
+    "message": "Надіслати платіж",
+    "englishSource": "Send Payment"
+  },
+  "reviewTransaction": {
+    "message": "Перегляд транзакції",
+    "englishSource": "Review Transaction"
+  },
   "alreadyHaveTransactionFile": {
     "message": "Уже маєте файл транзакцій?",
     "englishSource": "Already have a transaction file?"
@@ -1762,6 +1978,15 @@
       },
       "failed": {
         "content": "$2"
+      }
+    }
+  },
+  "readyToClaim": {
+    "message": "Очікує notes: $count$ ",
+    "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
       }
     }
   },
@@ -1853,6 +2078,10 @@
     "message": "Перетягніть файл або",
     "englishSource": "Drag and drop file or"
   },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
   "blocksUntilRecall": {
     "message": "Блокується до відкликання",
     "englishSource": "Blocks until recall"
@@ -1860,6 +2089,66 @@
   "recallBlocksDescription": {
     "message": "Якщо одержувач не прийме транзакцію протягом цього часу, кошти будуть повернуті вам.",
     "englishSource": "If the recipient does not accept the transaction within this time, the funds will be returned to you."
+  },
+  "recallHeight": {
+    "message": "Згадайте висоту",
+    "englishSource": "Recall Height"
+  },
+  "recallHeightDescription": {
+    "message": "Якщо note не буде використано до цієї дати, кошти буде повернено вам.",
+    "englishSource": "If the note is not consumed by this date, the funds will be returned to you."
+  },
+  "selectRecallDate": {
+    "message": "Виберіть дату відкликання (необов'язково)",
+    "englishSource": "Select recall date (optional)"
+  },
+  "privacyOptions": {
+    "message": "Параметри конфіденційності",
+    "englishSource": "Privacy Options"
+  },
+  "privacyOptionsDescription": {
+    "message": "Налаштуйте рівень прозорості та тип платежу",
+    "englishSource": "Adjust the level of transparency & type of payment"
+  },
+  "enterWalletAddress": {
+    "message": "Введіть адресу гаманця...",
+    "englishSource": "Enter wallet address..."
+  },
+  "balance": {
+    "message": "Баланс",
+    "englishSource": "Balance"
+  },
+  "tomorrow": {
+    "message": "завтра",
+    "englishSource": "Tomorrow"
+  },
+  "in3Days": {
+    "message": "Через 3 дні",
+    "englishSource": "In 3 days"
+  },
+  "inAWeek": {
+    "message": "Через тиждень",
+    "englishSource": "In a week"
+  },
+  "in2Weeks": {
+    "message": "Через 2 тижні",
+    "englishSource": "In 2 weeks"
+  },
+  "30mins": {
+    "message": "30 хв",
+    "englishSource": "30 mins"
+  },
+  "1hour": {
+    "message": "1 година",
+    "englishSource": "1 hour"
+  },
+  "5hours": {
+    "message": "5 годин",
+    "englishSource": "5 hours"
+  },
+  "time": {
+    "message": "час",
+    "englishSource": "Time"
   },
   "clearText": {
     "message": "Чистий текст",
@@ -2014,6 +2303,14 @@
     "message": "Введіть свій пароль, щоб увімкнути біометричне розблокування",
     "englishSource": "Enter your password to enable biometric unlock"
   },
+  "faceId": {
+    "message": "Face ID",
+    "englishSource": "Face ID"
+  },
+  "touchId": {
+    "message": "Touch ID",
+    "englishSource": "Touch ID"
+  },
   "fingerprint": {
     "message": "Відбиток пальця",
     "englishSource": "Fingerprint"
@@ -2090,5 +2387,101 @@
   "unlockWalletDescription": {
     "message": "За допомогою seed phrase ви завжди можете відновити свій публічний обліковий запис. Виберіть нижче, як швидко розблокувати свій гаманець.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+  },
+  "activities": {
+    "message": "Діяльність",
+    "englishSource": "Activities"
+  },
+  "sortBy": {
+    "message": "Сортувати за",
+    "englishSource": "Sort by"
+  },
+  "recent": {
+    "message": "Останні",
+    "englishSource": "Recent"
+  },
+  "faucetRequest": {
+    "message": "Faucet Запит",
+    "englishSource": "Faucet Request"
+  },
+  "faucetMessage": {
+    "message": "Ви можете отримати токени з faucet або перенести їх з іншого гаманця чи облікового запису",
+    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account"
+  },
+  "accountCreationSuccess": {
+    "message": "Обліковий запис успішно створено!",
+    "englishSource": "Account created successfully!"
+  },
+  "activity": {
+    "message": "діяльність",
+    "englishSource": "Activity"
+  },
+  "permissions": {
+    "message": "Дозволи",
+    "englishSource": "Permissions"
+  },
+  "permissionUponRequest": {
+    "message": "За запитом",
+    "englishSource": "Upon Request"
+  },
+  "permissionAutomatic": {
+    "message": "Автоматичний",
+    "englishSource": "Automatic"
+  },
+  "dAppsToggleDescription": {
+    "message": "Перемикайте, щоб увімкнути або вимкнути з’єднання DApp і збалансувати видимість.",
+    "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
+  },
+  "transferDetails": {
+    "message": "Деталі переказу",
+    "englishSource": "Transfer Details"
+  },
+  "recallBy": {
+    "message": "Відкликати за",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Опції",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Відкликання ввімкнено",
+    "englishSource": "Recall enabled"
+  },
+  "on": {
+    "message": "Увімкнено",
+    "englishSource": "On"
+  },
+  "off": {
+    "message": "Вимкнено",
+    "englishSource": "Off"
+  },
+  "enterUsername": {
+    "message": "Введіть ім'я користувача",
+    "englishSource": "Enter username"
+  },
+  "enterAddress": {
+    "message": "Введіть адресу",
+    "englishSource": "Enter Address"
+  },
+  "failedToClaimNote": {
+    "message": "Не вдалося вимагати note",
+    "englishSource": "Failed to claim note"
+  },
+  "testnet": {
+    "message": "Testnet",
+    "englishSource": "Testnet"
+  },
+  "browser": {
+    "message": "Браузер",
+    "englishSource": "Browser"
+  },
+  "invalidAmount": {
+    "message": "Недійсна сума",
+    "englishSource": "Invalid amount"
+  },
+  "showQrCode": {
+    "message": "Показати QR-код",
+    "englishSource": "Show QR Code"
   }
 }

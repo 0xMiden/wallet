@@ -7,6 +7,10 @@
     "message": "Miden ブロックチェーン用のブラウザ ウォレット",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
+  "createAccount": {
+    "message": "アカウントを作成する",
+    "englishSource": "Create Account"
+  },
   "importAccount": {
     "message": "アカウントをインポート",
     "englishSource": "Import account"
@@ -140,6 +144,10 @@
   "save": {
     "message": "保存",
     "englishSource": "Save"
+  },
+  "faucet": {
+    "message": "Faucet",
+    "englishSource": "Faucet"
   },
   "addToken": {
     "message": "トークンを追加",
@@ -346,6 +354,10 @@
     "message": "送る",
     "englishSource": "Send"
   },
+  "searchByNameOrSymbol": {
+    "message": "名前または記号で検索",
+    "englishSource": "Search by name or symbol"
+  },
   "transactionInitiated": {
     "message": "取引開始",
     "englishSource": "Transaction initiated"
@@ -377,6 +389,10 @@
   "generatingTransaction": {
     "message": "トランザクションの生成",
     "englishSource": "Generating Transaction"
+  },
+  "generatingTransactionDescription": {
+    "message": "ネットワークトラフィックのレベルに応じて、これには少し時間がかかる場合があります",
+    "englishSource": "This may take a moment depending on the level network traffic"
   },
   "status": {
     "message": "スターテス",
@@ -470,9 +486,17 @@
     "message": "Seed Phraseを明らかにする",
     "englishSource": "Reveal Seed Phrase"
   },
+  "revealSeedPhraseDescription": {
+    "message": "リカバリフレーズを表示する",
+    "englishSource": "View your recovery phrase"
+  },
   "exportWalletFile": {
     "message": "ウォレットファイルのエクスポート",
     "englishSource": "Export Wallet File"
+  },
+  "dAppsDescription": {
+    "message": "接続されたアプリの管理",
+    "englishSource": "Manage Connected Apps"
   },
   "removeAccount": {
     "message": "アカウントを削除",
@@ -486,13 +510,41 @@
     "message": "高度な設定",
     "englishSource": "Advanced Settings"
   },
+  "advancedSettingsDescription": {
+    "message": "Faucet ID、承認済み DApps",
+    "englishSource": "Faucet ID, Authorized DApps"
+  },
   "resync": {
     "message": "再同期",
     "englishSource": "Resync"
   },
+  "about": {
+    "message": "について",
+    "englishSource": "ABOUT"
+  },
+  "aboutMidenWallet": {
+    "message": "ミデンウォレットについて",
+    "englishSource": "About Miden Wallet"
+  },
+  "preferences": {
+    "message": "設定",
+    "englishSource": "PREFERENCES"
+  },
+  "security": {
+    "message": "安全",
+    "englishSource": "SECURITY"
+  },
+  "developer": {
+    "message": "開発者",
+    "englishSource": "DEVELOPER"
+  },
   "info": {
     "message": "情報",
     "englishSource": "Info"
+  },
+  "aboutDescription": {
+    "message": "バージョンとリンク",
+    "englishSource": "Version and links"
   },
   "unlockPasswordErrorDelay": {
     "message": "間違ったパスワードを 3 回入力しました。あなたのウォレットはブロックされています",
@@ -530,6 +582,10 @@
         "content": "$1"
       }
     }
+  },
+  "dAppsInteraction": {
+    "message": "DApps インタラクション",
+    "englishSource": "DApps Interaction"
   },
   "none": {
     "message": "なし",
@@ -638,6 +694,18 @@
     "message": "秘密の回復フレーズを書き留めて、安全な場所に保管してください。このフレーズがアカウントを回復する唯一の方法です。誰とも共有しないでください。このフレーズを口にした人はあなたの資産を永久に奪われる可能性があります。",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account. Do not share it with anyone. Anyone with this phrase can take your assets forever."
   },
+  "seedPhraseDescription": {
+    "message": "秘密の回復フレーズを書き留めて、安全な場所に保管してください。このフレーズがアカウントを回復する唯一の方法です。",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
+  },
+  "doNotShareWithAnyone": {
+    "message": "誰とも共有しないでください。",
+    "englishSource": "Do not share it with anyone."
+  },
+  "anyoneCanTakeAssets": {
+    "message": "このフレーズを口にした人はあなたの資産を永久に奪われる可能性があります。",
+    "englishSource": "Anyone with this phrase can take your assets forever."
+  },
   "continue": {
     "message": "続行",
     "englishSource": "Continue"
@@ -682,9 +750,17 @@
     "message": "導出パス",
     "englishSource": "Derivation path"
   },
+  "seedPhrase": {
+    "message": "Seed Phrase",
+    "englishSource": "Seed Phrase"
+  },
   "pathForHDAccounts": {
     "message": "HD アカウントの場合。これは、Seed Phraseからすべてのアカウントを回復するために使用するものです。",
     "englishSource": "for HD acccounts. This is the thing you use to recover all your accounts from your seed phrase."
+  },
+  "derivationPathExample": {
+    "message": "m/44'/0'/<アカウントインデックス>'/0'",
+    "englishSource": "m/44'/0'/<account_index>'/0'"
   },
   "keepSeedPhraseSecret": {
     "message": "それは秘密にしておいてください。",
@@ -759,9 +835,17 @@
     "message": "一般",
     "englishSource": "General"
   },
+  "generalSettingsDescription": {
+    "message": "証拠の生成、トランザクション",
+    "englishSource": "Proof generation, transactions"
+  },
   "language": {
     "message": "言語",
     "englishSource": "Language"
+  },
+  "languageDescription": {
+    "message": "表示言語を変更する",
+    "englishSource": "Change display language"
   },
   "add": {
     "message": "追加",
@@ -865,6 +949,10 @@
     "message": "クリーン",
     "englishSource": "Clean"
   },
+  "ok": {
+    "message": "わかりました",
+    "englishSource": "OK"
+  },
   "yes": {
     "message": "はい",
     "englishSource": "Yes"
@@ -918,9 +1006,17 @@
     "message": "住所録",
     "englishSource": "Address Book"
   },
+  "addressBookDescription": {
+    "message": "ここで連絡先を管理します",
+    "englishSource": "Manage your contacts here"
+  },
   "addNewContact": {
     "message": "新しい連絡先",
     "englishSource": "New contact"
+  },
+  "addContact": {
+    "message": "連絡先を追加",
+    "englishSource": "Add Contact"
   },
   "newContactPlaceholder": {
     "message": "例えばアリス・ボブ",
@@ -929,6 +1025,14 @@
   "contactWithTheSameAddressAlreadyExists": {
     "message": "同じアドレスの連絡先が既に存在します",
     "englishSource": "Contact with the same address already exists"
+  },
+  "currentContacts": {
+    "message": "現在の連絡先",
+    "englishSource": "Current Contacts"
+  },
+  "searchContacts": {
+    "message": "検索",
+    "englishSource": "Search"
   },
   "deleteContactConfirm": {
     "message": "この連絡先を削除してもよろしいですか?",
@@ -1003,6 +1107,10 @@
     "message": "グッズ",
     "englishSource": "Collectibles"
   },
+  "id": {
+    "message": "ID",
+    "englishSource": "ID"
+  },
   "addCollectible": {
     "message": "収集品を追加",
     "englishSource": "Add Collectible"
@@ -1023,6 +1131,10 @@
     "message": "プライベート",
     "englishSource": "Private"
   },
+  "external": {
+    "message": "外部の",
+    "englishSource": "External"
+  },
   "customizeFee": {
     "message": "カスタマイズ料金",
     "englishSource": "Customize fee"
@@ -1039,6 +1151,22 @@
     "message": "いつでもどこでもプライベートな取引。",
     "note": "Onboarding",
     "englishSource": "Private transactions anytime, anywhere."
+  },
+  "midenWallet": {
+    "message": "ミデンウォレット",
+    "englishSource": "Miden Wallet"
+  },
+  "privateTransactions": {
+    "message": "プライベートな取引。",
+    "englishSource": "Private transactions."
+  },
+  "anytime": {
+    "message": "いつでも。",
+    "englishSource": "Anytime."
+  },
+  "anywhere": {
+    "message": "どこでも。",
+    "englishSource": "Anywhere."
   },
   "createANewWallet": {
     "message": "新しいウォレットを作成する",
@@ -1069,6 +1197,10 @@
     "message": "コピーしました",
     "note": "Onboarding",
     "englishSource": "Copied"
+  },
+  "copyToClipboard": {
+    "message": "コピー",
+    "englishSource": "Copy"
   },
   "createsProofsOnYourComputer": {
     "message": "あなたのコンピュータ上で証明を作成します",
@@ -1171,6 +1303,14 @@
     "note": "Onboarding",
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
+  "backUpWalletInstructions": {
+    "message": "これらの 12 単語をパスワード マネージャーに保存するか、書き留めて安全な場所に保管してください。",
+    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+  },
+  "doNotShareWithAnywone": {
+    "message": "誰とも共有しないでください。",
+    "englishSource": "Do not share with anyone."
+  },
   "select": {
     "message": "選択する",
     "note": "Onboarding",
@@ -1215,6 +1355,10 @@
     "message": "2秒",
     "note": "Onboarding",
     "englishSource": "2 seconds"
+  },
+  "additionalDownloads0mb": {
+    "message": "0MB",
+    "englishSource": "0 MB"
   },
   "delegateProofsToSecureServers": {
     "message": "証明をセキュアサーバーに委任する",
@@ -1321,9 +1465,17 @@
     "message": "暗号化されたウォレットファイル",
     "englishSource": "Encrypted Wallet File"
   },
+  "encryptedWalletFileDescription": {
+    "message": "パスワードを入力して、暗号化されたウォレット ファイルにアクセスします。",
+    "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
   "encryptedWalletFileConfirmation": {
     "message": "私は、暗号化されたウォレット ファイルを、Miden Wallet を含め、誰とも共有しません。",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+  },
+  "enterPasswordToEncrypt": {
+    "message": "ウォレットファイルを暗号化するためのパスワードを入力します。",
+    "englishSource": "Enter a password to encrypt your wallet file."
   },
   "recipientAccountId": {
     "message": "受信者のアカウントID",
@@ -1332,6 +1484,10 @@
   "yourAccounts": {
     "message": "あなたのアカウント",
     "englishSource": "Your Accounts"
+  },
+  "contacts": {
+    "message": "連絡先",
+    "englishSource": "Contacts"
   },
   "noOtherAccounts": {
     "message": "他のアカウントはありません",
@@ -1372,6 +1528,26 @@
   "encryptedWalletFileExported": {
     "message": "暗号化されたウォレット ファイルがエクスポートされました",
     "englishSource": "Encrypted Wallet File Exported"
+  },
+  "encryptedWalletFileExportedTitle1": {
+    "message": "暗号化されたウォレットファイル",
+    "englishSource": "Encrypted Wallet File"
+  },
+  "encryptedWalletFileExportedTitle2": {
+    "message": "輸出されました！",
+    "englishSource": "Exported!"
+  },
+  "encryptedWalletFileExportedDesc1": {
+    "message": "暗号化されたウォレット ファイルがダウンロードされました。",
+    "englishSource": "Your encrypted wallet file has been downloaded."
+  },
+  "encryptedWalletFileExportedDesc2": {
+    "message": "それとパスワードを安全に保管してください。",
+    "englishSource": "Keep it and your password safe."
+  },
+  "encryptedWalletFileExportedDesc3": {
+    "message": "紛失するとウォレットにアクセスできなくなる危険があります",
+    "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "encryptedWalletFileExportedDescription": {
     "message": "暗号化されたウォレット ファイルがダウンロードされました。パスワードとパスワードを紛失するとウォレットにアクセスできなくなるため、安全に保管してください。",
@@ -1744,6 +1920,46 @@
     "message": "トランザクションを非公開で共有する",
     "englishSource": "Share transaction privately"
   },
+  "privatePayment": {
+    "message": "プライベート支払い",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "取引の詳細を非公開にしておきます",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "代理証明を使用する",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "代理人による証明",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "プルーフ生成のアウトソーシング",
+    "englishSource": "Outsource proof generation"
+  },
+  "oneToManyPayment": {
+    "message": "1対多の支払い",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "複数の受信者に送信する",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "トランザクションの取り消し",
+    "englishSource": "Recall Transaction"
+  },
+  "sendPayment": {
+    "message": "支払いの送信",
+    "englishSource": "Send Payment"
+  },
+  "reviewTransaction": {
+    "message": "取引の確認",
+    "englishSource": "Review Transaction"
+  },
   "alreadyHaveTransactionFile": {
     "message": "すでにトランザクション ファイルをお持ちですか?",
     "englishSource": "Already have a transaction file?"
@@ -1761,6 +1977,15 @@
       },
       "failed": {
         "content": "$2"
+      }
+    }
+  },
+  "readyToClaim": {
+    "message": "保留中 notes: $count$ ",
+    "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
       }
     }
   },
@@ -1852,6 +2077,10 @@
     "message": "ファイルをドラッグ アンド ドロップするか、",
     "englishSource": "Drag and drop file or"
   },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
   "blocksUntilRecall": {
     "message": "リコールまでブロック",
     "englishSource": "Blocks until recall"
@@ -1859,6 +2088,66 @@
   "recallBlocksDescription": {
     "message": "受取人がこの期間内に取引を受け入れない場合、資金は返金されます。",
     "englishSource": "If the recipient does not accept the transaction within this time, the funds will be returned to you."
+  },
+  "recallHeight": {
+    "message": "リコール高さ",
+    "englishSource": "Recall Height"
+  },
+  "recallHeightDescription": {
+    "message": "note がこの日付までに消費されない場合、資金は返金されます。",
+    "englishSource": "If the note is not consumed by this date, the funds will be returned to you."
+  },
+  "selectRecallDate": {
+    "message": "リコール日の選択 (オプション)",
+    "englishSource": "Select recall date (optional)"
+  },
+  "privacyOptions": {
+    "message": "プライバシーオプション",
+    "englishSource": "Privacy Options"
+  },
+  "privacyOptionsDescription": {
+    "message": "透明性のレベルと支払いの種類を調整する",
+    "englishSource": "Adjust the level of transparency & type of payment"
+  },
+  "enterWalletAddress": {
+    "message": "ウォレットアドレスを入力してください...",
+    "englishSource": "Enter wallet address..."
+  },
+  "balance": {
+    "message": "バランス",
+    "englishSource": "Balance"
+  },
+  "tomorrow": {
+    "message": "明日",
+    "englishSource": "Tomorrow"
+  },
+  "in3Days": {
+    "message": "3日以内",
+    "englishSource": "In 3 days"
+  },
+  "inAWeek": {
+    "message": "一週間以内に",
+    "englishSource": "In a week"
+  },
+  "in2Weeks": {
+    "message": "2週間後",
+    "englishSource": "In 2 weeks"
+  },
+  "30mins": {
+    "message": "30分",
+    "englishSource": "30 mins"
+  },
+  "1hour": {
+    "message": "1時間",
+    "englishSource": "1 hour"
+  },
+  "5hours": {
+    "message": "5時間",
+    "englishSource": "5 hours"
+  },
+  "time": {
+    "message": "時間",
+    "englishSource": "Time"
   },
   "clearText": {
     "message": "クリアテキスト",
@@ -2097,5 +2386,101 @@
   "unlockWalletDescription": {
     "message": "seed phrase を使用すると、いつでも公開アカウントを復元できます。ウォレットのロックを素早く解除する方法を以下から選択してください。",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+  },
+  "activities": {
+    "message": "活動内容",
+    "englishSource": "Activities"
+  },
+  "sortBy": {
+    "message": "並べ替え",
+    "englishSource": "Sort by"
+  },
+  "recent": {
+    "message": "最近の",
+    "englishSource": "Recent"
+  },
+  "faucetRequest": {
+    "message": "Faucet リクエスト",
+    "englishSource": "Faucet Request"
+  },
+  "faucetMessage": {
+    "message": "faucet からトークンを取得したり、別のウォレットやアカウントから転送したりできます。",
+    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account"
+  },
+  "accountCreationSuccess": {
+    "message": "アカウントが正常に作成されました。",
+    "englishSource": "Account created successfully!"
+  },
+  "activity": {
+    "message": "活動",
+    "englishSource": "Activity"
+  },
+  "permissions": {
+    "message": "権限",
+    "englishSource": "Permissions"
+  },
+  "permissionUponRequest": {
+    "message": "ご要望に応じて",
+    "englishSource": "Upon Request"
+  },
+  "permissionAutomatic": {
+    "message": "自動",
+    "englishSource": "Automatic"
+  },
+  "dAppsToggleDescription": {
+    "message": "DApp 接続を有効または無効にして、可視性のバランスを切り替えます。",
+    "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
+  },
+  "transferDetails": {
+    "message": "転送の詳細",
+    "englishSource": "Transfer Details"
+  },
+  "recallBy": {
+    "message": "呼び出し元",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "オプション",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "リコール有効",
+    "englishSource": "Recall enabled"
+  },
+  "on": {
+    "message": "の上",
+    "englishSource": "On"
+  },
+  "off": {
+    "message": "オフ",
+    "englishSource": "Off"
+  },
+  "enterUsername": {
+    "message": "ユーザー名を入力してください",
+    "englishSource": "Enter username"
+  },
+  "enterAddress": {
+    "message": "住所を入力してください",
+    "englishSource": "Enter Address"
+  },
+  "failedToClaimNote": {
+    "message": "note を要求できませんでした",
+    "englishSource": "Failed to claim note"
+  },
+  "testnet": {
+    "message": "テストネット",
+    "englishSource": "Testnet"
+  },
+  "browser": {
+    "message": "ブラウザ",
+    "englishSource": "Browser"
+  },
+  "invalidAmount": {
+    "message": "無効な金額です",
+    "englishSource": "Invalid amount"
+  },
+  "showQrCode": {
+    "message": "QRコードを表示",
+    "englishSource": "Show QR Code"
   }
 }
