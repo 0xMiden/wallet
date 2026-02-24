@@ -9,7 +9,6 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
-import { TextArea } from 'components/TextArea';
 import { AutoSync } from 'lib/miden/front/autoSync';
 import { hapticError, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -154,7 +153,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col flex-1 pt-8 pb-4 overflow-y-auto min-h-0 no-scrollbar">
           {/* Amount Input - fixed height so content below never shifts */}
-          <div className="relative h-[100px] flex flex-col items-center justify-center shrink-0">
+          <div className="relative h-[110px] flex flex-col items-center justify-center shrink-0">
             <InputAmount
               className="self-stretch"
               value={amount}
@@ -203,11 +202,12 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               </div>
             </div>
             <div className="mt-3">
-              <TextArea
+              <input
+                type="text"
                 placeholder={t('enterWalletAddress')}
-                className="w-full bg-[#F2F2F2] border-none rounded-[10px] min-h-14 font-medium"
+                className="w-full bg-[#F2F2F2] border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
                 value={recipientAddress}
-                onChange={onAddressChange}
+                onChange={e => onAddressChange(e as any)}
               />
             </div>
             {(addressError || scanError) && (
@@ -274,17 +274,17 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               />
             </div>
           </div>
-        </div>
 
-        {/* Continue Button */}
-        <div className="py-4">
-          <Button
-            title={t('continue')}
-            variant={ButtonVariant.Primary}
-            onClick={handleReviewOpen}
-            disabled={!canProceed}
-            className="w-full rounded-[10px] text-base font-semibold"
-          />
+          {/* Continue Button */}
+          <div className="pt-8 pb-4 shrink-0">
+            <Button
+              title={t('continue')}
+              variant={ButtonVariant.Primary}
+              onClick={handleReviewOpen}
+              disabled={!canProceed}
+              className="w-full rounded-[10px] text-base font-semibold"
+            />
+          </div>
         </div>
 
         {/* Calendar Bottom Sheet */}
