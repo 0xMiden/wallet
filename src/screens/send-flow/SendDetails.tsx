@@ -2,6 +2,7 @@ import React, { ChangeEvent, useCallback, useState } from 'react';
 
 import clsx from 'clsx';
 import { addDays, addHours, addMinutes, format, differenceInSeconds } from 'date-fns';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -14,7 +15,6 @@ import { hapticError, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { Calendar } from 'lib/ui/calendar';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 import { SendFlowAction, SendFlowActionId, SendFlowStep, UIToken } from './types';
 
@@ -153,8 +153,8 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col flex-1 pt-8 pb-4 overflow-y-auto min-h-0 no-scrollbar">
-          {/* Amount Input */}
-          <div className="flex flex-col items-center justify-center">
+          {/* Amount Input - fixed height so content below never shifts */}
+          <div className="relative h-[100px] flex flex-col items-center justify-center shrink-0">
             <InputAmount
               className="self-stretch"
               value={amount}
@@ -162,19 +162,19 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               onValueChange={(value, name, values) => onAmountChange(values?.formatted || value || '')}
               autoFocus
             />
-            {amountError && (
-              <div className="flex items-center gap-2 mt-2">
-                <Icon name={IconName.InformationFill} size="xs" className="text-red-500" />
-                <span className="text-red-500 text-sm">{t(amountError)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Balance */}
-          <div className="flex items-center justify-center mt-2">
-            <span className="text-heading-gray/60 text-base">
-              {t('balance')}: {token.balance.toFixed(2)} {token.name}
-            </span>
+            {/* Balance line always visible, error replaces it */}
+            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center">
+              {amountError ? (
+                <div className="flex items-center gap-2">
+                  <Icon name={IconName.InformationFill} size="xs" className="text-red-500" />
+                  <span className="text-red-500 text-sm">{t(amountError)}</span>
+                </div>
+              ) : (
+                <span className="text-heading-gray/60 text-base">
+                  {t('balance')}: {token.balance.toFixed(2)} {token.name}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Recipient Address */}
@@ -236,69 +236,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
             </button>
           </div>
 
-          {/* Calendar Drawer */}
-          <Drawer open={showCalendar} onOpenChange={open => !open && setShowCalendar(false)}>
-            <DrawerContent className="bg-white !border-t-0 !rounded-t-2xl">
-              <DrawerHeader className="pb-0">
-                <DrawerTitle className="text-center text-heading-gray">{t('recallHeight')}</DrawerTitle>
-              </DrawerHeader>
-              <div className="px-4 pb-6 flex flex-col items-center overflow-y-auto no-scrollbar" data-vaul-no-drag>
-                <Calendar
-                  mode="single"
-                  selected={recallDate}
-                  onSelect={date => {
-                    if (date) {
-                      onRecallDateChange(date);
-                      setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-                    }
-                  }}
-                  month={calendarMonth}
-                  onMonthChange={setCalendarMonth}
-                  disabled={{ before: new Date() }}
-                  className="p-0 [--cell-size:--spacing(8)]"
-                />
-
-                {/* Time Input */}
-                <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-[#00000015]">
-                  <Icon name={IconName.Calendar} size="xs" className="text-[#808080]" />
-                  <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
-                  <input
-                    type="time"
-                    value={recallTime}
-                    onChange={e => onRecallTimeChange(e.target.value)}
-                    data-vaul-no-drag
-                    className="ml-auto bg-[#F2F2F2] rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
-                  />
-                </div>
-
-                {/* Confirm button */}
-                {recallDate && (
-                  <button
-                    type="button"
-                    className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-white text-sm font-medium"
-                    onClick={() => applyDateTimeSelection(recallDate, recallTime)}
-                  >
-                    {t('confirm')}
-                  </button>
-                )}
-
-                {/* Presets */}
-                <div className="flex flex-wrap gap-2 border-t border-[#00000015] pt-3 mt-3 w-full">
-                  {RECALL_PRESETS(t).map((preset, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-[#00000033] text-heading-gray hover:bg-[#F2F2F2] transition-colors"
-                      onClick={() => applyDurationPreset(preset.fn)}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </DrawerContent>
-          </Drawer>
-
           {/* Divider */}
           <div className="mt-4 border-t border-[#BABABA]" />
 
@@ -349,6 +286,87 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
             className="w-full rounded-[10px] text-base font-semibold"
           />
         </div>
+
+        {/* Calendar Bottom Sheet */}
+        <AnimatePresence>
+          {showCalendar && (
+            <>
+              <motion.div
+                className="absolute inset-0 bg-black/30 z-40"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowCalendar(false)}
+              />
+              <motion.div
+                className="absolute bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl"
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                style={{ paddingBottom: isMobile() ? 'max(1rem, env(safe-area-inset-bottom))' : '1rem' }}
+              >
+                <div className="flex justify-center pt-4 pb-2">
+                  <div className="w-12 h-1 bg-grey-200 rounded-full" />
+                </div>
+                <h3 className="text-center text-heading-gray font-medium text-base pb-2">{t('recallHeight')}</h3>
+                <div className="px-4 pb-4 flex flex-col items-center overflow-y-auto no-scrollbar max-h-[70vh]">
+                  <Calendar
+                    mode="single"
+                    selected={recallDate}
+                    onSelect={date => {
+                      if (date) {
+                        onRecallDateChange(date);
+                        setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+                      }
+                    }}
+                    month={calendarMonth}
+                    onMonthChange={setCalendarMonth}
+                    disabled={{ before: new Date() }}
+                    className="p-0 [--cell-size:--spacing(8)]"
+                  />
+
+                  {/* Time Input */}
+                  <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-[#00000015]">
+                    <Icon name={IconName.Calendar} size="xs" className="text-[#808080]" />
+                    <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
+                    <input
+                      type="time"
+                      value={recallTime}
+                      onChange={e => onRecallTimeChange(e.target.value)}
+                      className="ml-auto bg-[#F2F2F2] rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
+                    />
+                  </div>
+
+                  {/* Confirm button */}
+                  {recallDate && (
+                    <button
+                      type="button"
+                      className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-white text-sm font-medium"
+                      onClick={() => applyDateTimeSelection(recallDate, recallTime)}
+                    >
+                      {t('confirm')}
+                    </button>
+                  )}
+
+                  {/* Presets */}
+                  <div className="flex flex-wrap gap-2 border-t border-[#00000015] pt-3 mt-3 w-full">
+                    {RECALL_PRESETS(t).map((preset, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-[#00000033] text-heading-gray hover:bg-[#F2F2F2] transition-colors"
+                        onClick={() => applyDurationPreset(preset.fn)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

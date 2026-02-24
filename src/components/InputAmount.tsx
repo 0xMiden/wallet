@@ -40,19 +40,23 @@ export const InputAmount: React.FC<InputAmountProps> = ({
     const labelLen = label?.length || 4;
     const totalLen = valueLen + labelLen + 1; // +1 for the space between
 
-    if (totalLen >= 16) {
+    if (totalLen >= 20) {
       return 'text-lg';
     }
-    if (totalLen >= 12) {
+    if (totalLen >= 16) {
       return 'text-2xl';
     }
-    if (totalLen >= 8) {
+    if (totalLen >= 12) {
       return 'text-4xl';
     }
     return 'text-5xl';
   }, [value, label]);
 
-  const inputWidth = useMemo(() => (value?.length ? `${value?.length}ch` : '1ch'), [value]);
+  const inputWidth = useMemo(() => {
+    const len = value?.length || 1;
+    // Use character count + 1ch buffer, with a minimum of 2ch
+    return `${Math.max(len + 1, 2)}ch`;
+  }, [value]);
 
   const textColor = useMemo(() => (error ? 'text-red-500' : 'text-[#00000087]'), [error]);
 
@@ -60,18 +64,18 @@ export const InputAmount: React.FC<InputAmountProps> = ({
 
   return (
     <div {...props} className={classNames('flex flex-col items-center gap-y-2', className)}>
-      <div className="flex cursor-pointer items-end" onClick={() => inputRef.current?.focus()}>
+      <div className="flex cursor-pointer items-end max-w-full" onClick={() => inputRef.current?.focus()}>
         {displayFiat ? (
           <label className={classNames('text-left leading-none text-[#00000087]', textSize)}>$</label>
         ) : null}
         <CurrencyInput
           className={classNames(
-            'p-0 placeholder-[#00000087] outline-none leading-snug font-medium',
+            'p-0 placeholder-[#00000087] outline-none leading-snug font-medium min-w-0',
             textSize,
             textColor
           )}
           value={displayFiat ? fiatValue || value : value}
-          style={{ width: inputWidth }}
+          style={{ width: inputWidth, maxWidth: '70vw' }}
           onValueChange={onValueChange}
           placeholder="0"
           disableGroupSeparators

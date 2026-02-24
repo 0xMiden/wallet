@@ -41,8 +41,8 @@ const SelectAccount: FC = () => {
               const handleAccountClick = async () => {
                 if (!selected) {
                   await updateCurrentAccount(acc.publicKey);
-                  navigate('/');
                 }
+                navigate('/');
               };
 
               return (
