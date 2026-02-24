@@ -52,30 +52,19 @@ export const InputAmount: React.FC<InputAmountProps> = ({
     return 'text-5xl';
   }, [value, label]);
 
-  const inputWidth = useMemo(() => {
-    const len = value?.length || 1;
-    // Use character count + 1ch buffer, with a minimum of 2ch
-    return `${Math.max(len + 1, 2)}ch`;
-  }, [value]);
-
   const textColor = useMemo(() => (error ? 'text-red-500' : 'text-[#00000087]'), [error]);
 
   const currencyLabel = label || 'MIDEN';
 
   return (
     <div {...props} className={classNames('flex flex-col items-center gap-y-2', className)}>
-      <div className="flex cursor-pointer items-end max-w-full" onClick={() => inputRef.current?.focus()}>
+      <div className="flex cursor-pointer" onClick={() => inputRef.current?.focus()}>
         {displayFiat ? (
           <label className={classNames('text-left leading-none text-[#00000087]', textSize)}>$</label>
         ) : null}
         <CurrencyInput
-          className={classNames(
-            'p-0 placeholder-[#00000087] outline-none leading-snug font-medium min-w-0',
-            textSize,
-            textColor
-          )}
+          className={classNames('p-0 placeholder-[#00000087] outline-none leading-0 font-medium', textSize, textColor)}
           value={displayFiat ? fiatValue || value : value}
-          style={{ width: inputWidth, maxWidth: '70vw' }}
           onValueChange={onValueChange}
           placeholder="0"
           disableGroupSeparators
@@ -84,10 +73,11 @@ export const InputAmount: React.FC<InputAmountProps> = ({
           decimalsLimit={6}
           allowNegativeValue={false}
           maxLength={16}
+          size={value?.length || 1}
           autoFocus={autoFocus}
         />
         {!displayFiat ? (
-          <label className={classNames('ml-2 text-[#00000087] text-left leading-snug', textSize)}>
+          <label className={classNames('ml-2 text-[#00000087] text-left leading-snug shrink-0', textSize)}>
             {currencyLabel}
           </label>
         ) : null}

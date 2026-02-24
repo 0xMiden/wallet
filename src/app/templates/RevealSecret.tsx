@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { SubmitHandler, useForm } from 'react-hook-form';
@@ -9,6 +9,7 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { useAccountBadgeTitle } from 'app/defaults';
 import AccountBanner from 'app/templates/AccountBanner';
+import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
@@ -39,6 +40,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   } = useForm<FormData>();
 
   const [secret, setSecret] = useSecretState();
+  const [hasHardwareProtector, setHasHardwareProtector] = useState(false);
+
+  useEffect(() => {
+    Vault.hasHardwareProtector().then(setHasHardwareProtector);
+  }, []);
 
   useEffect(() => {
     if (account.publicKey) {
@@ -70,7 +76,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
       clearErrors('password');
       try {
-        const secret = await revealMnemonic(password);
+        const secret = await revealMnemonic(hasHardwareProtector ? undefined : password);
         setSecret(secret);
       } catch (err: any) {
         console.error(err);
@@ -78,10 +84,10 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
         setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
-        focusPasswordField();
+        if (!hasHardwareProtector) focusPasswordField();
       }
     },
-    [isSubmitting, clearErrors, setError, revealMnemonic, setSecret, focusPasswordField]
+    [isSubmitting, clearErrors, setError, revealMnemonic, setSecret, focusPasswordField, hasHardwareProtector]
   );
 
   const texts = useMemo(() => {
@@ -190,21 +196,37 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
     return (
       <form ref={formRef} onSubmit={handleSubmit(onSubmit)}>
-        <FormField
-          {...register('password', { required: t('required') })}
-          label={t('password')}
-          labelDescription={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
-          id="reveal-secret-password"
-          type="password"
-          name="password"
-          placeholder="********"
-          errorCaption={errors.password?.message}
-          containerClassName="mb-4 pt-8"
-          onChange={() => clearErrors()}
-        />
+        {hasHardwareProtector ? (
+          <>
+            <p className="text-sm text-heading-gray pt-8 mb-4">
+              {t('revealSecretUnlockDescription', { secretName: texts.name })}
+            </p>
+            {errors.password && (
+              <Alert
+                type="error"
+                title={t('error')}
+                description={errors.password.message || ''}
+                className="mb-4 rounded-lg text-black"
+              />
+            )}
+          </>
+        ) : (
+          <FormField
+            {...register('password', { required: t('required') })}
+            label={t('password')}
+            labelDescription={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
+            id="reveal-secret-password"
+            type="password"
+            name="password"
+            placeholder="********"
+            errorCaption={errors.password?.message}
+            containerClassName="mb-4 pt-8"
+            onChange={() => clearErrors()}
+          />
+        )}
 
         <FormSubmitButton className="capitalize w-full justify-center mt-8" loading={isSubmitting}>
-          {t('reveal')}
+          {t(hasHardwareProtector ? 'unlock' : 'reveal')}
         </FormSubmitButton>
       </form>
     );
@@ -220,7 +242,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     clearErrors,
     secretFieldRef,
     t,
-    accountBadgeTitle
+    accountBadgeTitle,
+    hasHardwareProtector
   ]);
 
   return (

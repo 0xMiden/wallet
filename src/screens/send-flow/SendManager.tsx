@@ -437,7 +437,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
   const containerClass = isMobileDevice
     ? 'h-full w-full'
     : fullPage
-      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl'
+      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
       : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   return (

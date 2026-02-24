@@ -363,7 +363,7 @@ export interface RevealPrivateKeyResponse extends WalletMessageBase {
 
 export interface RevealMnemonicRequest extends WalletMessageBase {
   type: WalletMessageType.RevealMnemonicRequest;
-  password: string;
+  password?: string;
 }
 
 export interface RevealMnemonicResponse extends WalletMessageBase {

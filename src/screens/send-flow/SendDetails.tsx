@@ -111,18 +111,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
     [computeAndSetRecallBlocks, onRecallDateChange, onRecallTimeChange]
   );
 
-  const applyDurationPreset = useCallback(
-    (durationFn: (date: Date) => Date) => {
-      const target = durationFn(new Date());
-      onRecallDateChange(target);
-      onRecallTimeChange(format(target, 'HH:mm'));
-      setCalendarMonth(new Date(target.getFullYear(), target.getMonth(), 1));
-      computeAndSetRecallBlocks(target);
-      setShowCalendar(false);
-    },
-    [computeAndSetRecallBlocks, onRecallDateChange, onRecallTimeChange]
-  );
-
   const handleScan = useCallback(async () => {
     setScanError(null);
     const result = await scanQRCode();
@@ -152,8 +140,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col flex-1 pt-8 pb-4 overflow-y-auto min-h-0 no-scrollbar">
-          {/* Amount Input - fixed height so content below never shifts */}
-          <div className="relative h-[110px] flex flex-col items-center justify-center shrink-0">
+          <div className="relative flex flex-col items-center justify-center shrink-0">
             <InputAmount
               className="self-stretch"
               value={amount}
@@ -161,8 +148,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               onValueChange={(value, name, values) => onAmountChange(values?.formatted || value || '')}
               autoFocus
             />
-            {/* Balance line always visible, error replaces it */}
-            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center">
+            <div className="flex items-center justify-center">
               {amountError ? (
                 <div className="flex items-center gap-2">
                   <Icon name={IconName.InformationFill} size="xs" className="text-red-500" />
@@ -356,7 +342,10 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                         key={i}
                         type="button"
                         className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-[#00000033] text-heading-gray hover:bg-[#F2F2F2] transition-colors"
-                        onClick={() => applyDurationPreset(preset.fn)}
+                        onClick={() => {
+                          const date = preset.fn(new Date());
+                          applyDateTimeSelection(date, format(date, 'HH:mm'));
+                        }}
                       >
                         {preset.label}
                       </button>

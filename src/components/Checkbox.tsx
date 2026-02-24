@@ -36,12 +36,12 @@ export const Checkbox: React.FC<CheckboxProps> = ({ value, onChange, ...props })
         borderWidth,
         'transition duration-300 ease-in-out',
         'flex items-center justify-center p-1',
-        'w-5 h-5 relative border-grey-100 rounded-xs'
+        'w-5 h-5 shrink-0 relative border-grey-100 rounded-xs'
       )}
     >
       <input
         type="checkbox"
-        className="appearance-none cursor-pointer"
+        className="appearance-none absolute w-0 h-0 cursor-pointer"
         {...props}
         // onChange={e => {
         //   onChange?.(!e.target.checked);
