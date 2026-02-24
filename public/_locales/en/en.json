@@ -563,7 +563,7 @@
   "recent": "Recent",
   "faucetRequest": "Faucet Request",
   "faucetMessage": "You can get tokens from the faucet or transfer them from another wallet or account",
-  "accountCreationSucess": "Account created successfully!",
+  "accountCreationSuccess": "Account created successfully!",
   "activity": "Activity",
   "permissions": "Permissions",
   "permissionUponRequest": "Upon Request",
@@ -572,5 +572,14 @@
   "transferDetails": "Transfer Details",
   "recallBy": "Recall by",
   "options": "Options",
-  "recallEnabled": "Recall enabled"
+  "recallEnabled": "Recall enabled",
+  "on": "On",
+  "off": "Off",
+  "enterUsername": "Enter username",
+  "enterAddress": "Enter Address",
+  "failedToClaimNote": "Failed to claim note",
+  "testnet": "Testnet",
+  "browser": "Browser",
+  "invalidAmount": "Invalid amount",
+  "showQrCode": "Show QR Code"
 }

@@ -35,10 +35,10 @@ export const Message: React.FC<MessageProps> = ({
         </div>
         <div className="flex flex-col items-center">
           <h1 className="font-semibold text-2xl lh-title">{title}</h1>
-          {/* <p className="text-base text-center lh-title">{description}</p>
+          <p className="text-base text-center lh-title">{description}</p>
           {secondDescription && (
             <p className={`mt-2 text-base text-center ${descriptionClasses}`}>{secondDescription}</p>
-          )} */}
+          )}
         </div>
       </div>
     </div>

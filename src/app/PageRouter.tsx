@@ -75,7 +75,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '*',
     (_p, ctx) => {
-      console.log('LOCKED STATUS', ctx);
       switch (true) {
         case ctx.locked:
           return <Unlock />;

@@ -32,7 +32,7 @@ const EditableTitle: FC = () => {
             'rounded overflow-hidden',
             'text-black text-sm',
             'transition ease-in-out duration-200',
-            'hover:bg-black hover:bg-opacity/5',
+            'hover:bg-black/5',
             'opacity-75 hover:opacity-100 focus:opacity-100'
           )}
           onClick={handleEditClick}

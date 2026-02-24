@@ -6,8 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
 import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
 import { ReactComponent as SettingsIcon } from 'app/icons/settings-new.svg';
-import { IconName } from 'app/icons/v2';
-import { FooterIconWrapper } from 'components/FooterIconWrapper';
+import { ReactComponent as GlobeIcon } from 'app/icons/v2/globe.svg';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isDesktop, isMobile } from 'lib/platform';
@@ -104,12 +103,7 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
         />
         <FooterNavButton Icon={SettingsIcon} linkTo={'/settings'} onClick={onSettingsClick} name={t('settings')} />
         {(isMobile() || isDesktop()) && (
-          <FooterIconWrapper
-            icon={IconName.Globe}
-            iconFill={IconName.GlobalFill}
-            linkTo={'/browser'}
-            onClick={onBrowserClick}
-          />
+          <FooterNavButton Icon={GlobeIcon} linkTo={'/browser'} onClick={onBrowserClick} name={t('browser')} />
         )}
       </div>
     </footer>

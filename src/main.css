@@ -113,6 +113,13 @@
 @import 'tw-animate-css';
 
 /**
+ * CSS custom properties for shadcn/ui primitives
+ */
+:root {
+  --radius-md: 0.375rem;
+}
+
+/**
  * Appearance for iOS and Safari
  */
 button,
@@ -153,29 +160,6 @@ button,
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
-}
-
-/* scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 100px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.5);
-}
-
-::-webkit-scrollbar-thumb:window-inactive {
-  background: rgba(255, 255, 255, 0.2);
 }
 
 /**

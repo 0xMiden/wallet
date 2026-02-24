@@ -270,7 +270,6 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
         }
       });
     }
-    console.log(parsedNotes);
     // 4) Return notes with available metadata immediately
     const result = attachMetadataToNotes(parsedNotes, metadataByFaucetId);
 

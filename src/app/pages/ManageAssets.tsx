@@ -126,7 +126,7 @@ const ListItem = memo<ListItemProps>(({ assetSlug, assetId, last, checked, onUpd
           'mr-2 p-1',
           'rounded-full',
           'text-gray-400 hover:text-black',
-          'hover:bg-black hover:bg-opacity/5',
+          'hover:bg-black/5',
           'transition ease-in-out duration-200'
         )}
         onClick={evt => {

@@ -21,8 +21,7 @@ import {
   MIDEN_NETWORK_ENDPOINTS,
   MIDEN_NETWORK_NAME,
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
-  MIDEN_PROVING_ENDPOINTS,
-  MIDEN_TRANSPORT_LAYER_NAME
+  MIDEN_PROVING_ENDPOINTS
 } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
@@ -83,7 +82,6 @@ export class MidenClientInterface {
       const mockWebClient = await sdk.MockWebClient.createClient(undefined, undefined, options.seed);
       return new MidenClientInterface(mockWebClient as unknown as WebClient, 'mock', options.onConnectivityIssue);
     }
-    console.log(MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network)!);
     const webClient = await WebClient.createClientWithExternalKeystore(
       MIDEN_NETWORK_ENDPOINTS.get(network)!,
       MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network)!,

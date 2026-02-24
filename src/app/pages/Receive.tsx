@@ -59,9 +59,10 @@ export const Receive: React.FC<ReceiveProps> = () => {
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
   const { fullPage } = useAppEnv();
-  const safeClaimableNotes = (claimableNotes ?? []).filter((n): n is NonNullable<typeof n> => n != null);
-  const [, setIsDragging] = useState(false);
-  const [, setIsQRSheetOpen] = useState(false);
+  const safeClaimableNotes = useMemo(
+    () => (claimableNotes ?? []).filter((n): n is NonNullable<typeof n> => n != null),
+    [claimableNotes]
+  );
   const [claimingNoteIds, setClaimingNoteIds] = useState<Set<string>>(new Set());
   // Track individual note claiming states reported by child components
   const [individualClaimingIds, setIndividualClaimingIds] = useState<Set<string>>(new Set());
@@ -370,7 +371,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
       const file = e.dataTransfer.files[0];
       if (file) {
         handleFileChange(file);
-        setIsDragging(false);
       }
     },
     [handleFileChange]
@@ -378,13 +378,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
 
   const onDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const onDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return; // Ignore if the drag is over a childelement
-    setIsDragging(false);
   }, []);
 
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
@@ -416,16 +409,13 @@ export const Receive: React.FC<ReceiveProps> = () => {
             <button
               type="button"
               className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
-              aria-label="Show QR Code"
+              aria-label={t('showQrCode')}
             >
               <QRIcon className="text-[#484848]" style={{ width: '25px', height: '25px' }} />
             </button>
           </DrawerTrigger>
           <DrawerContent>
-            <div
-              className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
-              onClick={() => setIsQRSheetOpen(false)}
-            >
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50">
               <div
                 className="w-full max-w-md bg-white rounded-t-2xl p-6 pb-8 animate-slide-up"
                 onClick={e => e.stopPropagation()}
@@ -451,7 +441,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
         onDrop={onDropFile}
         onDragOver={e => e.preventDefault()}
         onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
         data-testid="receive-page"
       >
         <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
@@ -713,7 +702,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError('Failed to claim note');
+      setError(t('failedToClaimNote'));
       console.error('Error claiming note:', err);
     } finally {
       if (!isExtension()) {
@@ -838,7 +827,7 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError('Failed to claim note');
+      setError(t('failedToClaimNote'));
       console.error('Error claiming note:', err);
     } finally {
       if (!isExtension()) {

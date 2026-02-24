@@ -203,7 +203,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onAction?.({ id: 'back' });
   };
 
-  console.log('Rendering step:', step);
   return (
     <div className={classNames('flex flex-col', 'bg-white', 'overflow-hidden', 'w-full h-full mx-auto')}>
       <div className="flex flex-col">

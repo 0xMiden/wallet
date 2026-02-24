@@ -307,8 +307,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
 
       const amount = parseFloat(amountString || '0');
       if (!validations.amount.isValidSync(amountString)) {
-        setError('amount', { type: 'manual', message: 'Invalid amount' });
-      } else if (amount > token!.balance) {
+        setError('amount', { type: 'manual', message: 'invalidAmount' });
+      } else if (token && amount > token.balance) {
         setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
       } else {
         clearErrors('amount');
@@ -374,7 +374,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
               onScannedAddress={onScannedAddress}
               onClearAddress={onClearAddress}
               onYourAccounts={() => goToStep(SendFlowStep.AccountsList)}
-              onSubmit={handleSubmit(onSubmit)}
               onRecallDateChange={setRecallDate}
               onRecallTimeChange={setRecallTime}
             />

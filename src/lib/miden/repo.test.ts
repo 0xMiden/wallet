@@ -15,7 +15,7 @@ describe('miden repo export/import', () => {
         accountId: 'acc1',
         transactionId: 'tx1',
         initiatedAt: Math.floor(Date.now() / 1000),
-        completedAt: Date.now(),
+        completedAt: Math.floor(Date.now() / 1000),
         amount: BigInt(42),
         requestBytes: new Uint8Array([1, 2, 3]),
         displayIcon: 'SEND'

@@ -64,7 +64,7 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
 
           <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
           <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
-          <DetailRow label={t('network')} badge="Testnet" isLast={!hasRecall} />
+          <DetailRow label={t('network')} badge={t('testnet')} isLast={!hasRecall} />
           {hasRecall && <DetailRow label={t('recallBy')} value={displayRecalLabel || recallBlocks!} isLast />}
         </div>
 
@@ -138,18 +138,21 @@ const OptionRow = ({
   label: string;
   enabled: boolean;
   isLast?: boolean;
-}) => (
-  <div className={`flex items-center justify-between px-4 py-3 ${!isLast ? 'border-b border-[#E6E6E6]' : ''}`}>
-    <div className="flex items-center gap-3">
-      <Icon name={icon} size="xs" />
-      <span className="text-sm text-heading-gray">{label}</span>
+}) => {
+  const { t } = useTranslation();
+  return (
+    <div className={`flex items-center justify-between px-4 py-3 ${!isLast ? 'border-b border-[#E6E6E6]' : ''}`}>
+      <div className="flex items-center gap-3">
+        <Icon name={icon} size="xs" />
+        <span className="text-sm text-heading-gray">{label}</span>
+      </div>
+      <span
+        className={`text-xs font-medium px-3 py-1 rounded-full ${
+          enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
+        }`}
+      >
+        {enabled ? t('on') : t('off')}
+      </span>
     </div>
-    <span
-      className={`text-xs font-medium px-3 py-1 rounded-full ${
-        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
-      }`}
-    >
-      {enabled ? 'On' : 'Off'}
-    </span>
-  </div>
-);
+  );
+};

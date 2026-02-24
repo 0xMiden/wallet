@@ -140,7 +140,6 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 };
 
 const HistoryItem = memo<HistoryItemProps>(({ className, fullHistory, entry, lastEntry }) => {
-  console.log('Rendering HistoryItem with entry:', entry, 'and fullHistory:', fullHistory, 'and lastEntry:', lastEntry);
   return (
     <div className={classNames('w-full text-black', className)}>
       {entry.explorerLink ? (

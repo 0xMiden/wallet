@@ -25,9 +25,7 @@ function groupEntriesByDate(entries: IHistoryEntry[]): Map<string, IHistoryEntry
   const groups = new Map<string, IHistoryEntry[]>();
 
   for (const entry of entries) {
-    console.log('Processing entry:', entry.timestamp);
     const date = new Date(entry.timestamp * 1000); // Convert seconds to milliseconds
-    console.log('Processing entry with timestamp:', entry.timestamp, 'Parsed date:', date);
     const dateKey = `${date.getDate().toString().padStart(2, '0')}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear()}`;
 
     const existing = groups.get(dateKey);
@@ -70,10 +68,8 @@ const HistoryView = memo<HistoryViewProps>(
     const noOperationsClass = fullHistory
       ? 'mt-8 items-center text-left text-black'
       : 'm-4 items-start text-left text-black';
-    console.log('Rendering HistoryView with entries:', entries);
     // Group entries by date
     const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
-    console.log('Grouped entries:', groupedEntries);
     if (noEntries) {
       return initialLoading ? (
         <ActivitySpinner />
@@ -106,7 +102,6 @@ const HistoryView = memo<HistoryViewProps>(
 
     // Handle full page view from AllHistory - with date grouping
     const dateGroups = Array.from(groupedEntries.entries());
-    console.log('Grouped entries by date:', dateGroups);
     return (
       <div className={classNames('w-full pb-6 flex flex-col', className)}>
         {/* Sort by header */}

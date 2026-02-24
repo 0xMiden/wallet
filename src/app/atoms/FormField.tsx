@@ -46,7 +46,7 @@ interface FormFieldProps extends FormFieldAttrs {
   dropdownInner?: ReactNode;
   copyable?: boolean;
   labelClassName?: string;
-  labelDiscriptionClassName?: string;
+  labelDescriptionClassName?: string;
 }
 
 const FormField = forwardRef<FormFieldRef, FormFieldProps>(
@@ -81,7 +81,7 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
       labelPaddingClassName = '',
       copyable,
       labelClassName,
-      labelDiscriptionClassName,
+      labelDescriptionClassName,
       ...rest
     },
     ref
@@ -163,7 +163,7 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
           description={labelDescription}
           className={classNames(labelPaddingClassName, labelClassName)}
           id={id}
-          descriptionClassName={labelDiscriptionClassName}
+          descriptionClassName={labelDescriptionClassName}
         />
 
         {extraSection}

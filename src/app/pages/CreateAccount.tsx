@@ -52,7 +52,7 @@ const CreateAccount: FC = () => {
       const accLength = allAccounts.length;
       if (prevAccLengthRef.current < accLength) {
         await updateCurrentAccount(allAccounts[accLength - 1].publicKey);
-        // Add ?created=1 to show AccountCreatedSucess
+        // Navigate with query param to show AccountCreatedSuccess banner
         navigate('/select-account?fromCreateAccount=true');
       }
       prevAccLengthRef.current = accLength;

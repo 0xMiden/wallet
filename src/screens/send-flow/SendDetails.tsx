@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import React, { ChangeEvent, useCallback, useState } from 'react';
 
 import clsx from 'clsx';
 import { addDays, addHours, addMinutes, format, differenceInSeconds } from 'date-fns';
@@ -10,7 +10,6 @@ import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { TextArea } from 'components/TextArea';
 import { AutoSync } from 'lib/miden/front/autoSync';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { hapticError, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
@@ -54,7 +53,6 @@ export interface SendDetailsProps {
   onScannedAddress?: (address: string) => void;
   onClearAddress: () => void;
   onYourAccounts: () => void;
-  onSubmit: () => void;
   onRecallDateChange: (date: Date | undefined) => void;
   onRecallTimeChange: (time: string) => void;
 }
@@ -175,7 +173,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {/* Balance */}
           <div className="flex items-center justify-center mt-2">
             <span className="text-heading-gray/60 text-base">
-              Balance: {token.balance.toFixed(2)} {token.name}
+              {t('balance')}: {token.balance.toFixed(2)} {token.name}
             </span>
           </div>
 
@@ -388,6 +386,7 @@ export const OptionItem = ({
 };
 
 const ToggleSwitch = ({ value, onToggle }: { value: boolean; onToggle: (val: boolean) => void }) => {
+  const { t } = useTranslation();
   return (
     <div className="flex rounded-[10px] border border-[#00000033] overflow-hidden">
       <button
@@ -398,7 +397,7 @@ const ToggleSwitch = ({ value, onToggle }: { value: boolean; onToggle: (val: boo
         )}
         onClick={() => onToggle(true)}
       >
-        On
+        {t('on')}
       </button>
       <button
         type="button"
@@ -408,7 +407,7 @@ const ToggleSwitch = ({ value, onToggle }: { value: boolean; onToggle: (val: boo
         )}
         onClick={() => onToggle(false)}
       >
-        Off
+        {t('off')}
       </button>
     </div>
   );

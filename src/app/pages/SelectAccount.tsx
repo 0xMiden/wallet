@@ -29,10 +29,10 @@ const SelectAccount: FC = () => {
 
   return (
     <>
-      <NavigationHeader title={t('Accounts')} showBorder className="bg-gray-25" onBack={() => navigate('/')} />
-      {showAccountCreated && <AccountCreatedSucess />}
+      <NavigationHeader title={t('accounts')} showBorder className="bg-gray-25" onBack={() => navigate('/')} />
+      {showAccountCreated && <AccountCreatedSuccess />}
       <div
-        className={classNames('flex flex-1 justify-between w-full verflow-y-auto pt-6', isMobile() ? 'px-6' : 'px-3')}
+        className={classNames('flex flex-1 justify-between w-full overflow-y-auto pt-6', isMobile() ? 'px-6' : 'px-3')}
       >
         <div className={classNames('my-2', 'w-full')}>
           <div className="flex flex-col gap-3">
@@ -88,14 +88,14 @@ const SelectAccount: FC = () => {
   );
 };
 
-export const AccountCreatedSucess = () => {
+export const AccountCreatedSuccess = () => {
   const { t } = useTranslation();
   return (
     <div className={classNames('pt-6', isMobile() ? 'px-6' : 'px-3')}>
       <div className="w-full border-[#00802680] border rounded-[10px] h-12 flex items-center justify-center">
         <div className="w-full flex items-center justify-center gap-2 text-[#008026] font-semibold text-base">
           <CheckMark />
-          {t('accountCreationSucess')}
+          {t('accountCreationSuccess')}
         </div>
       </div>
     </div>
@@ -110,8 +110,8 @@ export const CheckMark = () => {
         fill="#008026"
       />
       <path
-        fill-rule="evenodd"
-        clip-rule="evenodd"
+        fillRule="evenodd"
+        clipRule="evenodd"
         d="M10 0C4.475 0 0 4.475 0 10C0 15.525 4.475 20 10 20C15.525 20 20 15.525 20 10C20 4.475 15.525 0 10 0ZM1.25 10C1.25 5.1625 5.1625 1.25 10 1.25C14.8375 1.25 18.75 5.1625 18.75 10C18.75 14.8375 14.8375 18.75 10 18.75C5.1625 18.75 1.25 14.8375 1.25 10Z"
         fill="#008026"
       />
