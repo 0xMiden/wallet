@@ -31,7 +31,6 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
-import { Drawer, DrawerContent, DrawerTrigger } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { goBack, HistoryAction, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -387,8 +386,10 @@ export const Receive: React.FC<ReceiveProps> = () => {
       ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl'
       : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
+  const [isQRSheetOpen, setIsQRSheetOpen] = useState(false);
+
   return (
-    <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-white')}>
+    <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-white relative')}>
       {/* Custom Header with back button, title, and QR icon */}
       <div
         className="flex flex-row px-4 items-center justify-between border-b border-grey-100"
@@ -404,36 +405,17 @@ export const Receive: React.FC<ReceiveProps> = () => {
         </button>
         <h1 className="text-[20px] font-medium">{t('receive')}</h1>
 
-        <Drawer>
-          <DrawerTrigger asChild>
-            <button
-              type="button"
-              className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
-              aria-label={t('showQrCode')}
-            >
-              <QRIcon className="text-[#484848]" style={{ width: '25px', height: '25px' }} />
-            </button>
-          </DrawerTrigger>
-          <DrawerContent>
-            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50">
-              <div
-                className="w-full max-w-md bg-white rounded-t-2xl p-6 pb-8 animate-slide-up"
-                onClick={e => e.stopPropagation()}
-                style={{ paddingBottom: isMobile() ? 'max(2rem, env(safe-area-inset-bottom))' : '2rem' }}
-              >
-                <div className="flex justify-center mb-4">
-                  <div className="w-12 h-1 bg-grey-200 rounded-full" />
-                </div>
-                <div className="flex flex-col items-center">
-                  <QRCode address={address} size={200} onCopy={copy} className="w-full" />
-                  {copied && (
-                    <p className="text-xs text-primary-500 mt-2 transition-opacity duration-200">{t('copied')}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </DrawerContent>
-        </Drawer>
+        <button
+          type="button"
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
+          aria-label={t('showQrCode')}
+          onClick={() => {
+            hapticLight();
+            setIsQRSheetOpen(true);
+          }}
+        >
+          <QRIcon className="text-[#484848]" style={{ width: '25px', height: '25px' }} />
+        </button>
       </div>
 
       <div
@@ -487,6 +469,39 @@ export const Receive: React.FC<ReceiveProps> = () => {
           )}
         </div>
       </div>
+
+      {/* QR Code Bottom Sheet */}
+      <AnimatePresence>
+        {isQRSheetOpen && (
+          <>
+            <motion.div
+              className="absolute inset-0 bg-black/30 z-40"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsQRSheetOpen(false)}
+            />
+            <motion.div
+              className="absolute bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl"
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              style={{ paddingBottom: isMobile() ? 'max(2rem, env(safe-area-inset-bottom))' : '2rem' }}
+            >
+              <div className="flex justify-center pt-4 pb-2">
+                <div className="w-12 h-1 bg-grey-200 rounded-full" />
+              </div>
+              <div className="flex flex-col items-center p-6 pt-2">
+                <QRCode address={address} size={200} onCopy={copy} className="w-full" />
+                {copied && (
+                  <p className="text-xs text-primary-500 mt-2 transition-opacity duration-200">{t('copied')}</p>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
