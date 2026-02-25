@@ -79,13 +79,15 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       </div>
       {isError && <p className="text-red-500 text-xs mt-4">{t('importSeedPhraseError')}</p>}
 
-      <Button
-        id={'submit-button'}
-        title={t('continue')}
-        onClick={handleSubmit}
-        disabled={!isValid}
-        className="w-[360px] mt-8"
-      />
+      <div className="mt-auto pb-8 w-full">
+        <Button
+          id={'submit-button'}
+          title={t('continue')}
+          onClick={handleSubmit}
+          disabled={!isValid}
+          className="w-full"
+        />
+      </div>
     </div>
   );
 };

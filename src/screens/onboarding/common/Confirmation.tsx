@@ -52,7 +52,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
             </div>
           )}
         </div>
-        <div className="flex flex-col mt-auto items-center gap-y-3 w-full">
+        <div className="flex flex-col mt-auto items-center gap-y-3 w-full pb-8">
           {showPasswordFallback ? (
             <>
               <Button

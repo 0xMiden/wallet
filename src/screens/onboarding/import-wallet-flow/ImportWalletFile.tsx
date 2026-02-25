@@ -237,14 +237,16 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         </div>
       )}
 
-      <FormSubmitButton
-        loading={isSubmitting}
-        className="w-[360px] text-base pt-4 mx-auto"
-        style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
-        disabled={!isValid || !walletFile}
-      >
-        {t('import')}
-      </FormSubmitButton>
+      <div className="mt-auto pb-8 w-full">
+        <FormSubmitButton
+          loading={isSubmitting}
+          className="w-full text-base"
+          style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
+          disabled={!isValid || !walletFile}
+        >
+          {t('import')}
+        </FormSubmitButton>
+      </div>
     </form>
   );
 };

@@ -153,7 +153,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
   );
 
   return (
-    <div className={classNames('flex flex-col', 'bg-white gap-y-6 p-6 text-heading-gray', className)} {...props}>
+    <div className={classNames('flex flex-col flex-1', 'bg-white gap-y-6 p-6 text-heading-gray', className)} {...props}>
       <div className="flex flex-col items-center text-heading-gray">
         <header className="text-xl font-semibold">{t('createPassword')}</header>
         <p className="text-sm text-center font-normal mt-2">{t('createPasswordDescription')}</p>
@@ -210,7 +210,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
           </p>
         </div>
       </article>
-      <div className="flex flex-col gap-2 self-center">
+      <div className="flex flex-col gap-2 self-center w-full mt-auto pb-8">
         <Button title={t('continue')} disabled={!isValidPassword} onClick={onPasswordSubmit} />
         {/* eslint-disable-next-line i18next/no-literal-string */}
         <p className="text-grey-600 text-xs text-center px-4">

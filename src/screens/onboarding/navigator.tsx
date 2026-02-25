@@ -3,6 +3,8 @@ import React, { FC, useCallback, useState } from 'react';
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 
+import { IconName } from 'app/icons/v2';
+import { CircleButton } from 'components/CircleButton';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
 
@@ -52,9 +54,17 @@ const Header: React.FC<{
   } else if (step === OnboardingStep.Confirmation) {
     currentStep = 4;
   }
+  const showBack = step !== OnboardingStep.Confirmation;
+
   return (
-    <div className="w-full flex items-center justify-center pt-8">
-      <ProgressIndicator currentStep={currentStep || 1} steps={3} className={currentStep ? '' : 'opacity-0'} />
+    <div className="w-full flex items-center pt-8 px-4">
+      <div className="w-10 flex items-center justify-start">
+        {showBack && <CircleButton icon={IconName.ChevronLeft} onClick={onBack} size="sm" />}
+      </div>
+      <div className="flex-1 flex justify-center">
+        <ProgressIndicator currentStep={currentStep || 1} steps={3} className={currentStep ? '' : 'opacity-0'} />
+      </div>
+      <div className="w-10" />
     </div>
   );
 };
@@ -205,7 +215,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
   return (
     <div className={classNames('flex flex-col', 'bg-white', 'overflow-hidden', 'w-full h-full mx-auto')}>
-      <div className="flex flex-col">
+      <div className="flex flex-col flex-1 min-h-0">
         <AnimatePresence mode={'wait'} initial={false}>
           {step !== OnboardingStep.Welcome && (
             <Header onBack={onBack} step={step} onboardingType={onboardingType} key={'header'} />
@@ -213,7 +223,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         </AnimatePresence>
         <AnimatePresence mode={'wait'} initial={false}>
           <motion.div
-            className="flex flex-col"
+            className="flex flex-col flex-1 min-h-0"
             key={step}
             initial="initialState"
             animate="animateState"
