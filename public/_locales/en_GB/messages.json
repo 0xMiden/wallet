@@ -2058,9 +2058,17 @@
     "message": "Account Public Key",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "Your account's public key commitment",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Edit Miden Faucet ID",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "Change the faucet used for token requests",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "Faucet ID",

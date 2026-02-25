@@ -2030,9 +2030,17 @@
     "message": "アカウントの公開鍵",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "アカウントの公開鍵のコミットメント",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "ミデン Faucet ID の編集",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "トークンリクエストに使用される faucet を変更します",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "FaucetID",

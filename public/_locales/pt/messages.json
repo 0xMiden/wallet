@@ -2016,9 +2016,17 @@
     "message": "Chave pública da conta",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "O compromisso da chave pública da sua conta",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Editar ID da Faucet Miden",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "Altere o faucet usado para solicitações de token",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "ID da Faucet",

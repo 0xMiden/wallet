@@ -2030,9 +2030,17 @@
     "message": "账户公钥",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "您账户的公钥承诺",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "编辑 Miden Faucet ID",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "更改用于令牌请求的 faucet",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "FaucetID",

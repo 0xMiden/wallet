@@ -1954,9 +1954,17 @@
     "message": "Clave pública de cuenta",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "El compromiso de clave pública de su cuenta",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Editar ID de Faucet Miden",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "Cambiar el faucet utilizado para solicitudes de token",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "Identificación del Faucet",

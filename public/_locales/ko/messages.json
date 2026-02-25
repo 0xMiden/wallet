@@ -2030,9 +2030,17 @@
     "message": "계정 공개 키",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "귀하 계정의 공개 키 약정",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Miden Faucet ID 편집",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "토큰 요청에 사용되는 faucet 변경",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "Faucet 아이디",

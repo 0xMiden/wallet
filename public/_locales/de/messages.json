@@ -2030,9 +2030,17 @@
     "message": "Öffentlicher Kontoschlüssel",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "Die öffentliche Schlüsselverpflichtung Ihres Kontos",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Bearbeiten Sie die Miden Faucet-ID",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "Ändern Sie die faucet, die für Token-Anfragen verwendet wird",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "Faucet-ID",

@@ -2018,9 +2018,17 @@
     "message": "Hesap Genel Anahtarı",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "Hesabınızın ortak anahtar taahhüdü",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Miden Faucet Kimliğini Düzenle",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "Belirteç istekleri için kullanılan faucet değerini değiştirin",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "Faucet Kimliği",

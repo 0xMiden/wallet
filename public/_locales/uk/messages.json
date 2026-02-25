@@ -2031,9 +2031,17 @@
     "message": "Відкритий ключ облікового запису",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "Зобов’язання щодо відкритого ключа вашого облікового запису",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Редагувати ідентифікатор Faucet Miden",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "Змініть faucet, що використовується для запитів маркерів",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "ID Faucet",
