@@ -45,7 +45,7 @@ const GeneralSettings: FC = () => {
   }, []);
 
   return (
-    <div className="w-full max-w-sm mx-auto my-8 text-heading-gray">
+    <div className="w-full max-w-sm mx-auto my-8 flex flex-col gap-3">
       {mobile && (
         <SettingToggle
           checked={hapticEnabled}
@@ -54,7 +54,6 @@ const GeneralSettings: FC = () => {
           testID={GeneralSettingsSelectors.HapticFeedbackToggle}
           title={t('hapticFeedback')}
           description={t('hapticFeedbackDescription')}
-          className="py-8 border-b border-[#EAE6E6]"
         />
       )}
 
@@ -66,7 +65,6 @@ const GeneralSettings: FC = () => {
           testID={GeneralSettingsSelectors.DelegateToggle}
           title={t('delegateProofSettings')}
           description={t('delegateProofSettingsDescription')}
-          className="pb-8 border-b border-[#EAE6E6]"
         />
       )}
 
@@ -77,7 +75,6 @@ const GeneralSettings: FC = () => {
         testID={GeneralSettingsSelectors.AutoConsumeToggle}
         title={t('autoConsumeSettings')}
         description={t('autoConsumeSettingsDescription')}
-        className="pt-8"
       />
     </div>
   );

@@ -46,7 +46,7 @@ type Tab = {
   descriptionI18nKey: string;
   testID?: SettingsSelectors;
   iconStyle?: React.CSSProperties;
-  fullDialog?: boolean;
+  hasOwnLayout?: boolean;
 };
 
 type TabGroup = {
@@ -105,7 +105,7 @@ const TAB_GROUPS: TabGroup[] = [
         descriptionI18nKey: 'encryptedWalletFileDescription',
         testID: SettingsSelectors.EncryptedWalletFile,
         iconStyle: { stroke: '#000', strokeWidth: '2px' },
-        fullDialog: true
+        hasOwnLayout: true
       }
     ]
   },
@@ -181,14 +181,18 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       {!activeTab && <NavigationHeader showBorder title={t('settings')} />}
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-white">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-white flex flex-col">
         {activeTab ? (
-          <>
-            <NavigationHeader showBorder title={t(activeTab.titleI18nKey)} onBack={goBack} />
-            <div className="px-4">
-              <activeTab.Component />
-            </div>
-          </>
+          activeTab.hasOwnLayout ? (
+            <activeTab.Component />
+          ) : (
+            <>
+              <NavigationHeader showBorder title={t(activeTab.titleI18nKey)} onBack={goBack} />
+              <div className="px-4 flex-1 flex flex-col min-h-0">
+                <activeTab.Component />
+              </div>
+            </>
+          )
         ) : (
           <div className="flex flex-col w-full py-4 gap-4 text-heading-gray px-4">
             {TAB_GROUPS.map(group => (
@@ -196,7 +200,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                 <h3 className="font-semibold pb-4">{t(group.titleI18nKey)}</h3>
                 <div className="overflow-hidden rounded-10">
                   {group.tabs.map((tab, idx) => {
-                    const linkTo = tab.fullDialog ? tab.slug : `/settings/${tab.slug}`;
+                    const linkTo = `/settings/${tab.slug}`;
                     return (
                       <React.Fragment key={tab.slug}>
                         <MenuItem

@@ -255,20 +255,22 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   }
 
   return (
-    <div className="w-full max-w-sm mx-auto">
+    <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
       {texts.accountBanner}
 
       {mainContent}
 
       {showButton && (
-        <Button
-          className="w-full justify-center mt-6"
-          variant={ButtonVariant.Primary}
-          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-          disabled={isSubmitting || (hasHardwareProtector ? false : !passwordValue)}
-          isLoading={isSubmitting}
-          onClick={hasHardwareProtector ? () => onSubmit({ password: '' }) : handleSubmit(onSubmit)}
-        />
+        <div className="mt-auto pb-8">
+          <Button
+            className="w-full justify-center"
+            variant={ButtonVariant.Primary}
+            title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+            disabled={isSubmitting || (hasHardwareProtector ? false : !passwordValue)}
+            isLoading={isSubmitting}
+            onClick={hasHardwareProtector ? () => onSubmit({ password: '' }) : handleSubmit(onSubmit)}
+          />
+        </div>
       )}
     </div>
   );

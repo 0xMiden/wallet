@@ -107,7 +107,6 @@ const localeIsDisabled = ({ disabled }: LocaleOption) => !!disabled;
 const getLocaleCode = ({ code }: LocaleOption) => code;
 
 const LocaleSelect: FC<LocaleSelectProps> = ({ className }) => {
-  const { t } = useTranslation();
   const selectedLocale = getCurrentLocale();
   const { trackEvent } = useAnalytics();
 
@@ -119,13 +118,6 @@ const LocaleSelect: FC<LocaleSelectProps> = ({ className }) => {
     const base = selectedLocale.split(/[-_]/)[0];
     return localeOptions.find(({ code }) => code === base) || localeOptions[0];
   }, [selectedLocale]);
-
-  const title = useMemo(
-    () => (
-      <p className={classNames('mb-4', 'leading-normal', 'text-heading-gray text-sm')}>{t('languageAndCountry')}</p>
-    ),
-    [t]
-  );
 
   const handleLocaleChange = useCallback(
     ({ code }: LocaleOption) => {
@@ -146,7 +138,7 @@ const LocaleSelect: FC<LocaleSelectProps> = ({ className }) => {
       options={localeOptions}
       value={value}
       onChange={handleLocaleChange}
-      title={title}
+      title={null}
       className={className}
     />
   );

@@ -34,7 +34,7 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {Icon && (
-            <div className="p-2 bg-gray-25 rounded-5">
+            <div className="p-2 bg-gray-25 rounded-5 shrink-0">
               <Icon className="w-5 h-4" style={iconStyle} />
             </div>
           )}

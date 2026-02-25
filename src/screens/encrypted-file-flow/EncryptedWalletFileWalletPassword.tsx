@@ -120,7 +120,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   }
 
   return (
-    <div className="flex flex-col text-heading-gray">
+    <div className="flex flex-col flex-1 min-h-0 text-heading-gray">
       <div className="flex flex-col p-4 pt-8">
         <div className="flex flex-col justify-stretch gap-y-4">
           <p className="text-base font-normal">
@@ -172,8 +172,10 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
             />
           )}
         </div>
+      </div>
+      <div className="mt-auto px-4 pb-8">
         <Button
-          className="w-full justify-center mt-6"
+          className="w-full justify-center"
           variant={ButtonVariant.Primary}
           title={t(hasHardwareProtector ? 'unlock' : 'continue')}
           disabled={hasHardwareProtector ? !confirmed : isDisabled || !confirmed || !walletPassword}
