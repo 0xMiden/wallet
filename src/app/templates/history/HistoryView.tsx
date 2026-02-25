@@ -104,12 +104,12 @@ const HistoryView = memo<HistoryViewProps>(
     const dateGroups = Array.from(groupedEntries.entries());
     return (
       <div className={classNames('w-full pb-6 flex flex-col', className)}>
-        {/* Sort by header */}
-        <div className="flex justify-center py-3 border-grey-100">
+        {/* Sort by header - hidden until sort functionality is wired up */}
+        {/* <div className="flex justify-center py-3 border-grey-100">
           <span className="text-sm text-grey-600">
             {t('sortBy')}: <span className="text-black font-medium">{t('recent')}</span>
           </span>
-        </div>
+        </div> */}
 
         <InfiniteScroll
           loadMore={loadMore}
