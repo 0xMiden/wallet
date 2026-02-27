@@ -47,10 +47,10 @@ const PageLayout: FC<PageLayoutProps> = ({
 
   return (
     <>
-      <DocBg bgClassName="bg-white" />
+      <DocBg bgClassName="bg-app-bg" />
 
       <div
-        className={classNames('bg-white m-auto rounded-3xl relative flex flex-col flex-1 min-h-0 overflow-hidden')}
+        className={classNames('bg-app-bg m-auto rounded-3xl relative flex flex-col flex-1 min-h-0 overflow-hidden')}
         style={{ ...containerStyles }}
       >
         <ContentPaper>
@@ -79,7 +79,7 @@ const ContentPaper: FC<ContentPaparProps> = ({ className, style = {}, children, 
   return appEnv.fullPage ? (
     <ContentContainer>
       <div
-        className={classNames('bg-white', 'rounded-3xl', 'flex flex-col flex-1 min-h-0 overflow-hidden', className)}
+        className={classNames('bg-app-bg', 'rounded-3xl', 'flex flex-col flex-1 min-h-0 overflow-hidden', className)}
         style={{ minHeight: '20rem', ...style }}
         {...rest}
       >
@@ -89,7 +89,7 @@ const ContentPaper: FC<ContentPaparProps> = ({ className, style = {}, children, 
   ) : (
     <ContentContainer
       padding={false}
-      className={classNames('bg-white flex flex-col flex-1 min-h-0 overflow-hidden', className)}
+      className={classNames('bg-app-bg flex flex-col flex-1 min-h-0 overflow-hidden', className)}
       style={style}
       {...rest}
     >
@@ -186,7 +186,7 @@ const Toolbar: FC<ToolbarProps> = ({
       className={classNames(
         'sticky z-20',
         titleContainerClassName || 'mx-4',
-        'bg-white',
+        'bg-app-bg',
         'rounded-t-lg',
         'flex flex-col items-center',
         'transition ease-in-out duration-300'

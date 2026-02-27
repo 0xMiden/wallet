@@ -59,7 +59,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         : { height: '600px', width: '360px' };
 
   return (
-    <div className={classNames('flex flex-col m-auto bg-white', fullPage && 'rounded-3xl')} style={containerStyles}>
+    <div className={classNames('flex flex-col m-auto bg-app-bg', fullPage && 'rounded-3xl')} style={containerStyles}>
       {/* Animated content area */}
       <div
         ref={contentRef}

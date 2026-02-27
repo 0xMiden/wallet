@@ -103,6 +103,7 @@ export default {
         'border-card': '#D6DAE0',
         'chip-bg': '#EEEFF2',
         'accent-orange': '#EE622F',
+        'app-bg': '#F6F4F2',
         ...customColors
       };
       return baseColors;
