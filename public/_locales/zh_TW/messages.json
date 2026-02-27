@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "先进的",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "Miden - Miden 錢包",
     "englishSource": "Miden Wallet"

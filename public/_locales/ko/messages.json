@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "고급의",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "타노스 - 테조스 지갑",
     "englishSource": "Miden Wallet"

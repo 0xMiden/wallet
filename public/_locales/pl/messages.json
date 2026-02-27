@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "Zaawansowany",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "Portfel Miden",
     "englishSource": "Miden Wallet"

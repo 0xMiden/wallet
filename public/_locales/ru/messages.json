@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "Передовой",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "Лео - Кошелек Алео",
     "englishSource": "Miden Wallet"

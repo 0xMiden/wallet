@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "高度な",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "テンプル - テゾスウォレット",
     "englishSource": "Miden Wallet"
