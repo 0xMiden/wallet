@@ -1,4 +1,5 @@
 {
+  "advanced": "Advanced",
   "appName": "Miden Wallet",
   "appDesc": "A browser wallet for the Miden blockchain",
   "createAccount": "Create Account",

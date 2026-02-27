@@ -153,7 +153,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
   } = useForm<SendFlowForm>({
     defaultValues: {
       amount: undefined,
-      sharePrivately: false,
+      sharePrivately: true,
       recipientAddress: undefined,
       recallBlocks: undefined,
       delegateTransaction: delegateEnabled,

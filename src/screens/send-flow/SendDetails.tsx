@@ -10,7 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { AutoSync } from 'lib/miden/front/autoSync';
-import { hapticError, hapticSuccess } from 'lib/mobile/haptics';
+import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { Calendar } from 'lib/ui/calendar';
@@ -80,6 +80,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   const { t } = useTranslation();
   const [scanError, setScanError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -201,63 +202,85 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
             )}
           </div>
 
-          {/* Recall Height */}
-          <div className="mt-5">
-            <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('recallHeight')}</h3>
-            <p className="text-xs text-heading-gray mt-1">{t('recallHeightDescription')}</p>
-            <button
-              type="button"
-              className="w-full h-14 flex items-center justify-between bg-[#F2F2F2] rounded-[10px] px-4 mt-3"
-              onClick={() => setShowCalendar(true)}
-            >
-              <div className="flex items-center gap-2">
-                <Icon name={IconName.Calendar} size="xs" className="text-[#808080]" />
-                <span
-                  className={clsx('text-sm font-medium', recallDate ? 'text-heading-gray' : 'text-heading-gray/60')}
-                >
-                  {displayRecallLabel}
-                </span>
-              </div>
+          {/* Advanced Toggle */}
+          <button
+            type="button"
+            className="mt-5 flex items-center gap-2 self-start rounded-[10px] bg-[#F2F2F2] px-4 py-2.5 transition-colors active:bg-[#E5E5E5]"
+            onClick={() => {
+              hapticLight();
+              setShowAdvanced(prev => !prev);
+            }}
+          >
+            <span className="text-sm font-semibold text-heading-gray">{t('advanced')}</span>
+            <motion.div animate={{ rotate: showAdvanced ? 180 : 0 }} transition={{ duration: 0.2 }}>
               <Icon name={IconName.ChevronDown} size="xs" fill="#484848" />
-            </button>
-          </div>
+            </motion.div>
+          </button>
 
-          {/* Divider */}
-          <div className="mt-4 border-t border-[#BABABA]" />
+          <div
+            className={clsx(
+              'overflow-hidden transition-all duration-200 ease-in-out',
+              showAdvanced ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'
+            )}
+          >
+            {/* Recall Height */}
+            <div className="mt-4">
+              <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('recallHeight')}</h3>
+              <p className="text-xs text-heading-gray mt-1">{t('recallHeightDescription')}</p>
+              <button
+                type="button"
+                className="w-full h-14 flex items-center justify-between bg-[#F2F2F2] rounded-[10px] px-4 mt-3"
+                onClick={() => setShowCalendar(true)}
+              >
+                <div className="flex items-center gap-2">
+                  <Icon name={IconName.Calendar} size="xs" className="text-[#808080]" />
+                  <span
+                    className={clsx('text-sm font-medium', recallDate ? 'text-heading-gray' : 'text-heading-gray/60')}
+                  >
+                    {displayRecallLabel}
+                  </span>
+                </div>
+                <Icon name={IconName.ChevronDown} size="xs" fill="#484848" />
+              </button>
+            </div>
 
-          {/* Privacy Options */}
-          <div className="mt-4">
-            <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('privacyOptions')}</h3>
-            <p className="text-xs text-heading-gray mt-1">{t('privacyOptionsDescription')}</p>
+            {/* Divider */}
+            <div className="mt-4 border-t border-[#BABABA]" />
 
-            <div className="flex flex-col gap-6 mt-6">
-              {/* Private Payment */}
-              <OptionItem
-                icon={IconName.Lock}
-                title={t('privatePayment')}
-                subTitle={t('privatePaymentDescription')}
-                value={sharePrivately}
-                onToggle={(val: boolean) => {
-                  onAction({
-                    id: SendFlowActionId.SetFormValues,
-                    payload: { sharePrivately: val }
-                  });
-                }}
-              />
+            {/* Privacy Options */}
+            <div className="mt-4">
+              <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('privacyOptions')}</h3>
+              <p className="text-xs text-heading-gray mt-1">{t('privacyOptionsDescription')}</p>
 
-              {/* Delegate Proving */}
-              <OptionItem
-                icon={IconName.DelegateProving}
-                title={t('delegateProving')}
-                subTitle={t('delegateProvingDescription')}
-                value={delegateTransaction}
-                onToggle={(val: boolean) => {
-                  onAction({
-                    id: SendFlowActionId.SetFormValues,
-                    payload: { delegateTransaction: val }
-                  });
-                }}
-              />
+              <div className="flex flex-col gap-6 mt-6">
+                {/* Private Payment */}
+                <OptionItem
+                  icon={IconName.Lock}
+                  title={t('privatePayment')}
+                  subTitle={t('privatePaymentDescription')}
+                  value={sharePrivately}
+                  onToggle={(val: boolean) => {
+                    onAction({
+                      id: SendFlowActionId.SetFormValues,
+                      payload: { sharePrivately: val }
+                    });
+                  }}
+                />
+
+                {/* Delegate Proving */}
+                <OptionItem
+                  icon={IconName.DelegateProving}
+                  title={t('delegateProving')}
+                  subTitle={t('delegateProvingDescription')}
+                  value={delegateTransaction}
+                  onToggle={(val: boolean) => {
+                    onAction({
+                      id: SendFlowActionId.SetFormValues,
+                      payload: { delegateTransaction: val }
+                    });
+                  }}
+                />
+              </div>
             </div>
           </div>
 
