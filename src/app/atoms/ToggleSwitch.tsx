@@ -47,15 +47,15 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
     return (
       <div
         className={classNames('relative inline-flex shrink-0 align-middle select-none', containerClassName)}
-        style={{ width: '46px', height: '26px', minWidth: '46px' }}
+        style={{ width: '34px', height: '21px', minWidth: '34px' }}
       >
         {/* Track - visual only, no pointer events */}
         <div
-          className="rounded-full transition-colors duration-200 ease-in-out"
+          className="rounded-5 transition-colors duration-200 ease-in-out"
           style={{
-            width: '46px',
-            height: '26px',
-            backgroundColor: localChecked ? '#FF5500' : '#FFFFFF',
+            width: '34px',
+            height: '21px',
+            backgroundColor: localChecked ? '#EE622F' : '#FFFFFF',
             border: localChecked ? 'none' : '2px solid #E5E7EB',
             pointerEvents: 'none'
           }}
@@ -66,9 +66,9 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
             style={{
               width: '16px',
               height: '16px',
-              top: '5px',
-              left: localChecked ? '26px' : '4px',
-              backgroundColor: localChecked ? '#FFFFFF' : '#FF5500',
+              top: '2.5px',
+              left: localChecked ? '15.5px' : '2.5px',
+              backgroundColor: localChecked ? '#FFFFFF' : '#EE622F',
               pointerEvents: 'none'
             }}
           />
@@ -78,7 +78,7 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
           ref={ref}
           type="checkbox"
           className={classNames('absolute appearance-none cursor-pointer opacity-0', className)}
-          style={{ width: '48px', height: '24px', top: 0, left: 0, zIndex: 10 }}
+          style={{ width: '34px', height: '21px', top: 0, left: 0, zIndex: 10 }}
           checked={localChecked}
           onChange={handleChange}
           {...rest}

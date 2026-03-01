@@ -355,7 +355,7 @@
   "goToFaucet": "Go to Faucet",
   "explorePrivateAssets": "Explore the world of private assets.",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Auto Consume will automatically consume notes from the official Miden Faucet.",
+  "autoConsumeSettingsDescription": "Automatically consume notes from Miden Faucet",
   "encryptedWalletFileExported": "Encrypted Wallet File Exported",
   "encryptedWalletFileExportedTitle1": "Encrypted Wallet File",
   "encryptedWalletFileExportedTitle2": "Exported!",

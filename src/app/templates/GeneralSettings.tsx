@@ -45,7 +45,7 @@ const GeneralSettings: FC = () => {
   }, []);
 
   return (
-    <div className="w-full flex flex-col">
+    <div className="w-full flex flex-col gap-y-6">
       {mobile && (
         <SettingToggle
           checked={hapticEnabled}
@@ -53,7 +53,6 @@ const GeneralSettings: FC = () => {
           name="hapticFeedbackEnabled"
           testID={GeneralSettingsSelectors.HapticFeedbackToggle}
           title={t('hapticFeedback')}
-          description={t('hapticFeedbackDescription')}
         />
       )}
 
@@ -64,7 +63,6 @@ const GeneralSettings: FC = () => {
           name="delegateEnabled"
           testID={GeneralSettingsSelectors.DelegateToggle}
           title={t('delegateProofSettings')}
-          description={t('delegateProofSettingsDescription')}
         />
       )}
 

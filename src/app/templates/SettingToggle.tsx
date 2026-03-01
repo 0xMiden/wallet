@@ -8,17 +8,17 @@ interface SettingToggleProps {
   name: string;
   testID: string;
   title: string;
-  description: string;
+  description?: string;
 }
 
 const SettingToggle: FC<SettingToggleProps> = ({ checked, onChange, name, testID, title, description }) => {
   return (
-    <div className="flex items-center justify-between py-4 border-b border-[#E8E8E8] last:border-b-0">
-      <label htmlFor={name} className="flex flex-col pr-4">
-        <span className="font-medium text-sm text-[#0F131A]">{title}</span>
-        <span className="text-xs text-[#555D6D] mt-1">{description}</span>
+    <div className="flex flex-col gap-y-2">
+      <label htmlFor={name} className="flex items-center justify-between w-full">
+        <span className="font-medium text-base leading-[130%] text-[#0F131A]">{title}</span>
+        <ToggleSwitch checked={checked} onChange={onChange} name={name} testID={testID} />
       </label>
-      <ToggleSwitch checked={checked} onChange={onChange} name={name} testID={testID} />
+      {description && <span className="text-xs text-gray-400">{description}</span>}
     </div>
   );
 };
