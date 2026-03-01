@@ -46,10 +46,10 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   }, []);
 
   return (
-    <div className={classNames('flex flex-col flex-1', 'bg-app-bg gap-8 px-4 pt-2', className)} {...props}>
-      <div className="flex flex-col items-center text-heading-gray">
-        <header className="text-xl font-semibold">{t('backUpYourWallet')}</header>
-        <div className="text-sm text-center font-medium">
+    <div className={classNames('flex flex-col flex-1', 'bg-app-bg gap-6 px-4 pt-4', className)} {...props}>
+      <div className="flex flex-col items-center text-heading-gray gap-2">
+        <header className="text-[28px] font-medium">{t('backUpYourWallet')}</header>
+        <div className="text-[10px] text-center font-regular">
           <p>{t('backUpWalletInstructions')}</p>
           <p>{t('doNotShareWithAnywone')}</p>
         </div>
@@ -58,7 +58,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       <article className="grid grid-cols-3 gap-2 w-full">
         {seedPhrase.map((word, index) => (
           <Chip
-            className="w-[104px] h-8"
+            className="w-26 h-8"
             key={`seed-word-${index}`}
             label={
               <label

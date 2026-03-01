@@ -29,7 +29,7 @@ export const Message: React.FC<MessageProps> = ({
 }) => {
   return (
     <div className="w-full h-full">
-      <div {...props} className="flex flex-col justify-center items-center h-full text-heading-gray">
+      <div {...props} className="flex flex-col items-center h-full text-heading-gray">
         <div className={classNames('w-40 aspect-square flex items-center justify-center', iconBackgroundClassName)}>
           <Icon name={icon} size={iconSize} className={iconClassName} />
         </div>

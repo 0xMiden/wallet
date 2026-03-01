@@ -8,14 +8,15 @@ export interface ProgressIndicatorProps extends React.HTMLAttributes<HTMLDivElem
 }
 export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ className, steps, currentStep, ...props }) => {
   return (
-    <div {...props} className={classNames('flex justify-center items-center gap-2 w-10', className)}>
+    <div {...props} className={classNames('flex items-center gap-1 w-full', className)}>
       {Array.from({ length: steps }).map((_, index) => (
         <div
           key={index}
           className={classNames(
-            'w-2 h-2 rounded-full',
-            index < currentStep - 1 ? 'bg-primary-500' : 'bg-grey-200',
-            index === currentStep - 1 ? 'bg-primary-500/50' : ''
+            'h-1.5 flex-1',
+            index <= currentStep - 1 ? 'bg-primary-500' : 'bg-grey-200',
+            index === 0 ? 'rounded-l-10' : '',
+            index === steps - 1 ? 'rounded-r-10' : ''
           )}
         />
       ))}

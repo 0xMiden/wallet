@@ -33,13 +33,13 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   return (
     <div className="w-full h-full pt-11.5">
       <div {...props} className="flex-1 flex flex-col h-full justify-between bg-app-bg gap-y-8 w-full px-6">
-        <div className="flex flex-col items-center justify-center grow">
+        <div className="flex flex-col items-center grow">
           <Message
             icon={IconName.Success}
             iconSize="3xl"
             iconClassName="mb-8"
             title={t('yourWalletIsReady')}
-            description={t('explorePrivateAssets')}
+            description=""
           />
           {hasError && (
             <div className="mt-4 text-center">

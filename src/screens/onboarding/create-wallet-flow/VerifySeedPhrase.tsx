@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { shuffle } from 'lodash';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
 import { Chip } from 'components/Chip';
@@ -65,13 +65,18 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
   return (
     <div
-      className={classNames('flex flex-col flex-1', 'bg-app-bg gap-8 px-4 pt-23', className)}
+      className={classNames('flex flex-col flex-1', 'bg-app-bg gap-6 px-4 pt-4', className)}
       data-testid="verify-seed-phrase"
       {...props}
     >
-      <div className="flex flex-col items-center">
-        <header className="text-lg font-semibold text-heading-gray">{t('verifySeedPhrase')}</header>
-        <p className="text-sm font-normal mt-2 text-center">{t('verifyMessagePrefix')}</p>
+      <div className="flex flex-col items-center gap-2 text-heading-gray">
+        <header className="text-[28px] font-medium ">{t('verifySeedPhrase')}</header>
+        <div className="text-[10px] font-normal text-center">
+          <p>{t('verifyMessagePrefix')}</p>
+          <p>
+            <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold" /> }} />
+          </p>
+        </div>
       </div>
 
       <article className="grid grid-cols-3 gap-2 w-full">
