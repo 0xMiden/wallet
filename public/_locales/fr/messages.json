@@ -523,24 +523,24 @@
     "englishSource": "Resync"
   },
   "about": {
-    "message": "À PROPOS",
-    "englishSource": "ABOUT"
+    "message": "À propos",
+    "englishSource": "About"
   },
   "aboutMidenWallet": {
     "message": "À propos du portefeuille Miden",
     "englishSource": "About Miden Wallet"
   },
   "preferences": {
-    "message": "PRÉFÉRENCES",
-    "englishSource": "PREFERENCES"
+    "message": "Préférences",
+    "englishSource": "Preferences"
   },
   "security": {
-    "message": "SÉCURITÉ",
-    "englishSource": "SECURITY"
+    "message": "Sécurité",
+    "englishSource": "Security"
   },
   "developer": {
-    "message": "PROMOTEUR",
-    "englishSource": "DEVELOPER"
+    "message": "Promoteur",
+    "englishSource": "Developer"
   },
   "info": {
     "message": "Informations",
@@ -566,9 +566,17 @@
     "message": "Politique de confidentialité",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "Conditions d'utilisation",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "Conditions d'utilisation",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "Seed Phrase",
+    "englishSource": "Recovery Phrase"
   },
   "disable": {
     "message": "désactiver",

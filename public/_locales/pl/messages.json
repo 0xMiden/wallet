@@ -508,23 +508,23 @@
   },
   "about": {
     "message": "O",
-    "englishSource": "ABOUT"
+    "englishSource": "About"
   },
   "aboutMidenWallet": {
     "message": "O portfelu Miden",
     "englishSource": "About Miden Wallet"
   },
   "preferences": {
-    "message": "PREFERENCJE",
-    "englishSource": "PREFERENCES"
+    "message": "Preferencje",
+    "englishSource": "Preferences"
   },
   "security": {
-    "message": "BEZPIECZEŃSTWO",
-    "englishSource": "SECURITY"
+    "message": "Bezpieczeństwo",
+    "englishSource": "Security"
   },
   "developer": {
-    "message": "WYWOŁYWACZ",
-    "englishSource": "DEVELOPER"
+    "message": "Wywoływacz",
+    "englishSource": "Developer"
   },
   "info": {
     "message": "Informacje",
@@ -550,9 +550,17 @@
     "message": "Polityka prywatności",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "Warunki świadczenia usług",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "Warunki użytkowania",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "Seed Phrase",
+    "englishSource": "Recovery Phrase"
   },
   "disable": {
     "message": "wyłączyć",

@@ -523,24 +523,24 @@
     "englishSource": "Resync"
   },
   "about": {
-    "message": "ПРО",
-    "englishSource": "ABOUT"
+    "message": "про",
+    "englishSource": "About"
   },
   "aboutMidenWallet": {
     "message": "Про Miden Wallet",
     "englishSource": "About Miden Wallet"
   },
   "preferences": {
-    "message": "ПРЕФЕРЕНЦІЇ",
-    "englishSource": "PREFERENCES"
+    "message": "Уподобання",
+    "englishSource": "Preferences"
   },
   "security": {
-    "message": "БЕЗПЕКА",
-    "englishSource": "SECURITY"
+    "message": "Безпека",
+    "englishSource": "Security"
   },
   "developer": {
-    "message": "РОЗРОБНИК",
-    "englishSource": "DEVELOPER"
+    "message": "Розробник",
+    "englishSource": "Developer"
   },
   "info": {
     "message": "Інформація",
@@ -566,9 +566,17 @@
     "message": "Політика конфіденційності",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "Умови обслуговування",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "Умови використання",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "Фраза відновлення",
+    "englishSource": "Recovery Phrase"
   },
   "disable": {
     "message": "вимкнути",

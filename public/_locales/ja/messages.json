@@ -524,7 +524,7 @@
   },
   "about": {
     "message": "について",
-    "englishSource": "ABOUT"
+    "englishSource": "About"
   },
   "aboutMidenWallet": {
     "message": "ミデンウォレットについて",
@@ -532,15 +532,15 @@
   },
   "preferences": {
     "message": "設定",
-    "englishSource": "PREFERENCES"
+    "englishSource": "Preferences"
   },
   "security": {
     "message": "安全",
-    "englishSource": "SECURITY"
+    "englishSource": "Security"
   },
   "developer": {
     "message": "開発者",
-    "englishSource": "DEVELOPER"
+    "englishSource": "Developer"
   },
   "info": {
     "message": "情報",
@@ -566,9 +566,17 @@
     "message": "プライバシーポリシー",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "利用規約",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "利用規約",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "リカバリーフレーズ",
+    "englishSource": "Recovery Phrase"
   },
   "disable": {
     "message": "無効にする",

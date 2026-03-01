@@ -524,23 +524,23 @@
   },
   "about": {
     "message": "О",
-    "englishSource": "ABOUT"
+    "englishSource": "About"
   },
   "aboutMidenWallet": {
     "message": "О кошельке Miden",
     "englishSource": "About Miden Wallet"
   },
   "preferences": {
-    "message": "ПРЕДПОЧТЕНИЯ",
-    "englishSource": "PREFERENCES"
+    "message": "Предпочтения",
+    "englishSource": "Preferences"
   },
   "security": {
-    "message": "БЕЗОПАСНОСТЬ",
-    "englishSource": "SECURITY"
+    "message": "Безопасность",
+    "englishSource": "Security"
   },
   "developer": {
-    "message": "РАЗРАБОТЧИК",
-    "englishSource": "DEVELOPER"
+    "message": "Разработчик",
+    "englishSource": "Developer"
   },
   "info": {
     "message": "Информация",
@@ -566,9 +566,17 @@
     "message": "Политика конфиденциальности",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "Условия использования",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "Условия эксплуатации",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "Фраза восстановления",
+    "englishSource": "Recovery Phrase"
   },
   "disable": {
     "message": "запрещать",

@@ -524,23 +524,23 @@
   },
   "about": {
     "message": "关于",
-    "englishSource": "ABOUT"
+    "englishSource": "About"
   },
   "aboutMidenWallet": {
     "message": "关于米登钱包",
     "englishSource": "About Miden Wallet"
   },
   "preferences": {
-    "message": "偏好",
-    "englishSource": "PREFERENCES"
+    "message": "偏好设置",
+    "englishSource": "Preferences"
   },
   "security": {
     "message": "安全",
-    "englishSource": "SECURITY"
+    "englishSource": "Security"
   },
   "developer": {
     "message": "开发商",
-    "englishSource": "DEVELOPER"
+    "englishSource": "Developer"
   },
   "info": {
     "message": "信息",
@@ -566,9 +566,17 @@
     "message": "隐私政策",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "服务条款",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "使用条款",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "恢复短语",
+    "englishSource": "Recovery Phrase"
   },
   "disable": {
     "message": "禁用",

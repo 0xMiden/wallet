@@ -524,7 +524,7 @@
   },
   "about": {
     "message": "에 대한",
-    "englishSource": "ABOUT"
+    "englishSource": "About"
   },
   "aboutMidenWallet": {
     "message": "Miden 지갑 소개",
@@ -532,15 +532,15 @@
   },
   "preferences": {
     "message": "환경설정",
-    "englishSource": "PREFERENCES"
+    "englishSource": "Preferences"
   },
   "security": {
     "message": "보안",
-    "englishSource": "SECURITY"
+    "englishSource": "Security"
   },
   "developer": {
     "message": "개발자",
-    "englishSource": "DEVELOPER"
+    "englishSource": "Developer"
   },
   "info": {
     "message": "정보",
@@ -566,9 +566,17 @@
     "message": "개인정보 보호정책",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "서비스 약관",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "사용약관",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "회복 문구",
+    "englishSource": "Recovery Phrase"
   },
   "disable": {
     "message": "비활성화",
