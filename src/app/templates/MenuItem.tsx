@@ -4,51 +4,40 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ArrowIcon } from 'app/icons/arrow-right-top-alt.svg';
-import { ReactComponent as ChevronRightIcon } from 'app/icons/chevron-right.svg';
+import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
 type MenuItemProps = {
-  slug: string;
+  slug?: string;
   titleI18nKey: string;
-  descriptionI18nKey?: string;
   Icon?: ImportedSVGComponent;
   iconStyle?: React.CSSProperties;
   onClick?: () => void;
   testID: string;
   linksOutsideOfWallet: boolean;
+  rightText?: string;
 };
 
 const ClickableContent: FC<Partial<MenuItemProps>> = ({
   titleI18nKey,
-  descriptionI18nKey,
   Icon,
   iconStyle,
-  linksOutsideOfWallet
+  linksOutsideOfWallet,
+  rightText
 }) => {
   const { t } = useTranslation();
 
   return (
-    <div className={clsx('w-full hover:bg-gray-50 transition-colors duration-200 cursor-pointer py-4 px-4')}>
+    <div className={clsx('w-full cursor-pointer')}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {Icon && (
-            <div className="p-2 bg-gray-25 rounded-5 shrink-0">
-              <Icon className="w-5 h-4" style={iconStyle} />
-            </div>
-          )}
-          <div>
-            <div className="text-sm font-medium">{t(titleI18nKey || '')}</div>
-            {descriptionI18nKey && <div className="text-xs text-gray-400">{t(descriptionI18nKey)}</div>}
-          </div>
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="w-5 h-5 shrink-0" style={iconStyle} />}
+          <div className="text-base font-medium text-black">{t(titleI18nKey || '')}</div>
         </div>
-        <div className="shrink-0 ml-2">
-          {linksOutsideOfWallet ? (
-            <ArrowIcon className="h-5 w-5" />
-          ) : (
-            <ChevronRightIcon className="h-4 w-4 text-gray-400" aria-hidden="true" />
-          )}
+        <div className="flex items-center gap-3 shrink-0 ml-2">
+          {rightText && <span className="text-xs text-black font-normal ">{rightText}</span>}
+          <ChevronRightIcon className="h-4 w-4" style={{ stroke: '#737373' }} aria-hidden="true" />
         </div>
       </div>
     </div>
@@ -58,12 +47,12 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({
 const MenuItem: FC<MenuItemProps> = ({
   slug,
   titleI18nKey,
-  descriptionI18nKey,
   Icon,
   iconStyle,
   onClick,
   testID,
-  linksOutsideOfWallet
+  linksOutsideOfWallet,
+  rightText
 }) => {
   const handleExternalClick = () => {
     hapticLight();
@@ -75,20 +64,38 @@ const MenuItem: FC<MenuItemProps> = ({
         <a href={slug} target="_blank" rel="noreferrer" onClick={handleExternalClick}>
           <ClickableContent
             titleI18nKey={titleI18nKey}
-            descriptionI18nKey={descriptionI18nKey}
             Icon={Icon}
             iconStyle={iconStyle}
             linksOutsideOfWallet={linksOutsideOfWallet}
+            rightText={rightText}
           />
         </a>
-      ) : (
-        <Link to={slug} onClick={onClick} testID={testID}>
+      ) : onClick && !slug ? (
+        <button
+          type="button"
+          onClick={() => {
+            hapticLight();
+            onClick();
+          }}
+          data-testid={testID}
+          className="w-full text-left"
+        >
           <ClickableContent
             titleI18nKey={titleI18nKey}
-            descriptionI18nKey={descriptionI18nKey}
             Icon={Icon}
             iconStyle={iconStyle}
             linksOutsideOfWallet={linksOutsideOfWallet}
+            rightText={rightText}
+          />
+        </button>
+      ) : (
+        <Link to={slug || '#'} onClick={onClick} testID={testID}>
+          <ClickableContent
+            titleI18nKey={titleI18nKey}
+            Icon={Icon}
+            iconStyle={iconStyle}
+            linksOutsideOfWallet={linksOutsideOfWallet}
+            rightText={rightText}
           />
         </Link>
       )}

@@ -111,9 +111,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (
-      <TabLayout>
+      <FullScreenPage>
         <Settings tabSlug={tabSlug} />
-      </TabLayout>
+      </FullScreenPage>
     ))
   ],
   [

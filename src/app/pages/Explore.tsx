@@ -185,7 +185,6 @@ const Explore: FC = () => {
 
   const sendLink = allTokenBalances.length > 0 ? '/send' : '/get-tokens';
 
-  // Content only - container and footer provided by TabLayout
   return (
     <div className="text-heading-gray font-geist">
       <ConnectivityIssueBanner />

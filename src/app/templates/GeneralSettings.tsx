@@ -45,7 +45,7 @@ const GeneralSettings: FC = () => {
   }, []);
 
   return (
-    <div className="w-full max-w-sm mx-auto my-8 flex flex-col gap-3">
+    <div className="w-full flex flex-col">
       {mobile && (
         <SettingToggle
           checked={hapticEnabled}

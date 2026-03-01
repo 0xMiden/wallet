@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
 import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
-import { ReactComponent as SettingsIcon } from 'app/icons/settings-new.svg';
 import { ReactComponent as GlobeIcon } from 'app/icons/globe-new.svg';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -69,10 +68,6 @@ const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badg
 const Footer: FC<FooterProps> = ({ historyBadge }) => {
   const { trackEvent } = useAnalytics();
   const { t } = useTranslation();
-  const onSettingsClick = () => {
-    trackEvent('Footer/Settings', AnalyticsEventCategory.ButtonPress, { type: 'settings' });
-  };
-
   const onBrowserClick = () => {
     trackEvent('Footer/Browser', AnalyticsEventCategory.ButtonPress, { type: 'browser' });
   };
@@ -101,7 +96,6 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
           badge={historyBadge}
           name={t('activity')}
         />
-        <FooterNavButton Icon={SettingsIcon} linkTo={'/settings'} onClick={onSettingsClick} name={t('settings')} />
         {(isMobile() || isDesktop()) && (
           <FooterNavButton Icon={GlobeIcon} linkTo={'/browser'} onClick={onBrowserClick} name={t('browser')} />
         )}

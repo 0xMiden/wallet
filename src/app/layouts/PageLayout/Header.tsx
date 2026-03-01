@@ -8,10 +8,12 @@ import Name from 'app/atoms/Name';
 import { openInFullPage, useAppEnv } from 'app/env';
 import { ReactComponent as ChevronDownIcon } from 'app/icons/chevron-down.svg';
 import { ReactComponent as MaximiseIcon } from 'app/icons/maximise.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
-import { Link } from 'lib/woozie';
+import { Link, navigate } from 'lib/woozie';
 
 import { HeaderSelectors } from './Header.selectors';
 import NetworkSelect from './Header/NetworkSelect';
@@ -96,9 +98,8 @@ const Control: FC = () => {
             </Button>
           </Link>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           {showSpinner && <SyncSpinner visible={isSyncing} />}
-          <NetworkSelect className="self-end" />
           {popup && (
             <Button
               className={classNames(
@@ -107,13 +108,22 @@ const Control: FC = () => {
                 'transition ease-in-out duration-200',
                 'cursor-pointer',
                 'opacity-90 hover:opacity-100',
-                'h-8 w-8'
+                'h-6 w-6'
               )}
               onClick={handleMaximiseViewClick}
             >
-              <MaximiseIcon className="h-5 w-6" style={{ stroke: '#000', strokeWidth: '2px' }} />
+              <MaximiseIcon className="w-4 h-4" style={{ stroke: '#000', strokeWidth: '2px' }} />
             </Button>
           )}
+          <Button
+            className="flex items-center justify-center cursor-pointer h-5 w-5"
+            onClick={() => {
+              hapticLight();
+              navigate('/settings');
+            }}
+          >
+            <Icon name={IconName.SettingsNew} className="w-5 h-5" />
+          </Button>
         </div>
       </div>
     </>

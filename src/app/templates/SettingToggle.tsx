@@ -13,7 +13,7 @@ interface SettingToggleProps {
 
 const SettingToggle: FC<SettingToggleProps> = ({ checked, onChange, name, testID, title, description }) => {
   return (
-    <div className="flex items-center justify-between border border-border-card rounded-5 p-4">
+    <div className="flex items-center justify-between py-4 border-b border-[#E8E8E8] last:border-b-0">
       <label htmlFor={name} className="flex flex-col pr-4">
         <span className="font-medium text-sm text-[#0F131A]">{title}</span>
         <span className="text-xs text-[#555D6D] mt-1">{description}</span>

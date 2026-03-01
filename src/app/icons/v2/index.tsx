@@ -93,6 +93,7 @@ import { ReactComponent as Search } from './search.svg';
 import { ReactComponent as Settings2 } from './settings-2.svg';
 import { ReactComponent as SettingsFill } from './settings-fill.svg';
 import { ReactComponent as Settings } from './settings.svg';
+import { ReactComponent as SettingsNew } from './settings-new.svg';
 import { ReactComponent as Share } from './share.svg';
 import { ReactComponent as SmileSad } from './smile-sad.svg';
 import { ReactComponent as Success } from './success.svg';
@@ -194,6 +195,7 @@ export enum IconName {
   Settings2 = 'settings-2',
   SettingsFill = 'settings-fill',
   Settings = 'settings',
+  SettingsNew = 'settings-new',
   Share = 'share',
   SmileSad = 'smile-sad',
   Time = 'time',
@@ -393,6 +395,8 @@ const IconSwitch = (props: IconProps) => {
       return <SettingsFill {...props} />;
     case IconName.Settings:
       return <Settings {...props} />;
+    case IconName.SettingsNew:
+      return <SettingsNew {...props} />;
     case IconName.Share:
       return <Share {...props} />;
     case IconName.SmileSad:

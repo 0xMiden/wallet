@@ -27,7 +27,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   return (
     <div
       className={classNames(
-        'flex flex-row px-4 items-center w-full bg-gray-25',
+        'flex flex-row px-4 items-center w-full bg-app-bg',
         showBorder && 'border-b-[0.5px] border-[#48484833]',
         isMobile() ? 'py-6' : 'py-4',
         className
