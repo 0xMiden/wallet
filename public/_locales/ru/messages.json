@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Подтвердите, что вы сохранили секретную фразу восстановления. Выберите первое и последнее слова из вашей фразы.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "Подтвердите, что вы сохранили фразу восстановления.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "Выберите <b>первое</b> и <b>последнее</b> слово фразы.",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "Введите Seed-фразу из 12 слов вашего кошелька.",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Установите пароль для разблокировки вашего кошелька каждый раз, когда вы используете свой компьютер. Он не может быть использован для восстановления вашего кошелька.",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "Установите пароль, чтобы разблокировать свой кошелек",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "Очень сильный!",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Сохраните эти 12 слов в менеджере паролей или запишите и сохраните в надежном месте.",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "Сохраните эти 12 слов и храните в надежном месте.",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "Не делитесь ни с кем.",

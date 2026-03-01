@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Підтвердьте, що ви зберегли секретну фразу відновлення. Виберіть перше й останнє слова вашої фрази.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "Підтвердьте, що ви зберегли фразу відновлення.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "Виберіть <b>перше</b> та <b>останнє</b> слова з фрази",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "Введіть Seed Phrase свого гаманця з 12 слів.",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Встановіть пароль для розблокування вашого гаманця кожного разу, коли ви використовуєте свій комп'ютер. Це не може бути використано для відновлення вашого гаманця.",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "Встановіть пароль, щоб розблокувати свій гаманець",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "Дуже сильний!",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Збережіть ці 12 слів у менеджері паролів або запишіть і зберігайте в безпечному місці.",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "Збережіть ці 12 слів у надійному місці.",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "Ні з ким не діліться.",

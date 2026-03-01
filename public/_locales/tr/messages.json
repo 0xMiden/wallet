@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Gizli kurtarma ifadenizi kaydettiğinizi doğrulayın. İfadenizin ilk ve son kelimelerini seçin.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "Kurtarma ifadenizi kaydettiğinizi onaylayın.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "İfadenizden <b>ilk</b> ve <b>son</b> kelimeleri seçin",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "Cüzdanınızın 12 kelimelik Seed ifadesini girin.",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Bilgisayarınızı her kullanışınızda cüzdanınızın kilidini açmak için bir şifre belirleyin. Cüzdanınızı kurtarmak için kullanılamaz.",
-    "noteeee": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "Cüzdanınızın kilidini açmak için bir şifre belirleyin",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "Çok güçlü!",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Bu 12 kelimeyi bir şifre yöneticisine kaydedin veya yazıp güvenli bir yerde saklayın.",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "Bu 12 kelimeyi saklayın ve güvenli bir yerde saklayın.",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "Kimseyle paylaşmayın.",

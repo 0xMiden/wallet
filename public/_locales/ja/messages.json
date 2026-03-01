@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "秘密の回復フレーズを保存したことを確認します。フレーズの最初と最後の単語を選択します。",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "リカバリフレーズを保存したことを確認します。",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "フレーズの<b>最初</b>と<b>最後の</b>単語を選択してください",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "ウォレットの 12 単語のSeed Phraseを入力します。",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "コンピュータを使用するたびにウォレットをロック解除するためのパスワードを設定します。ウォレットの回復には使用できません。",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "パスワードを設定してウォレットのロックを解除する",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "非常に強い！",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "これらの 12 単語をパスワード マネージャーに保存するか、書き留めて安全な場所に保管してください。",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "これら 12 個の単語を安全な場所に保存してください。",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "誰とも共有しないでください。",

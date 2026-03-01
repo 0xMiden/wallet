@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Confirmez que vous avez enregistré votre Seed Seed Phrase. Sélectionnez le premier et le dernier mot de votre phrase.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "Confirmez que vous avez enregistré votre Seed Phrase.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "Sélectionnez le <b>premier</b> et le <b>dernier</b> mots de votre phrase",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "Entrez la Seed Phrase de 12 mots de votre portefeuille.",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Définissez un mot de passe pour déverrouiller votre portefeuille chaque fois que vous utilisez votre ordinateur. Il ne peut pas être utilisé pour récupérer votre portefeuille.",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "Définir un mot de passe pour déverrouiller votre portefeuille",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "Très fort!",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Enregistrez ces 12 mots dans un gestionnaire de mots de passe, ou notez-les et stockez-les dans un endroit sécurisé.",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "Enregistrez ces 12 mots et conservez-les dans un endroit sécurisé.",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "Ne partagez avec personne.",

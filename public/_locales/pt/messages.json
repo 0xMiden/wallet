@@ -1235,8 +1235,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Confirme que você salvou sua frase secreta de recuperação. Selecione a primeira e a última palavra da sua frase.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "Confirme que você salvou sua frase de recuperação.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "Selecione a <b>primeira</b> e a <b>última</b> palavra da sua frase",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "Insira a frase-semente de 12 palavras da sua carteira.",
@@ -1286,9 +1290,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Defina uma senha para desbloquear sua carteira cada vez que usar seu computador. Ela não pode ser usada para recuperar sua carteira.",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "Defina uma senha para desbloquear sua carteira",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "Muito forte!",
@@ -1316,8 +1319,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Salve essas 12 palavras em um gerenciador de senhas ou anote e guarde em um local seguro.",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "Salve essas 12 palavras e guarde em local seguro.",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "Não compartilhe com ninguém.",

@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "确认您已保存秘密恢复短语。从短语中选择第一个和最后一个单词。",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "确认您已保存恢复短语。",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "从短语中选择<b>第一个</b>和<b>最后一个</b>单词",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "输入您钱包的 12 字Seed Phrase。",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "設置密碼，每次使用電腦時解鎖您的錢包。它不能用於恢復您的錢包。",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "设置密码以解锁您的钱包",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "非常強！",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "将这 12 个单词保存到密码管理器中，或写下来并存储在安全的地方。",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "保存这 12 个单词并存放在安全的地方。",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "不要与任何人分享。",

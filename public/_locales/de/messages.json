@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Bestätigen Sie, dass Sie Ihre geheime Seed Phrase gespeichert haben. Wählen Sie das erste und das letzte Wort Ihrer Phrase aus.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "Bestätigen Sie, dass Sie Ihre Wiederherstellungsphrase gespeichert haben.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "Wählen Sie das <b>erste</b> und <b>letzte</b> Wort Ihrer Phrase aus",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "Geben Sie die 12-Wörter-Seed Phrase Ihrer Brieftasche ein.",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Legen Sie ein Passwort fest, um Ihre Brieftasche jedes Mal zu entsperren, wenn Sie Ihren Computer verwenden. Es kann nicht verwendet werden, um Ihre Brieftasche wiederherzustellen.",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "Legen Sie ein Passwort fest, um Ihr Wallet zu entsperren",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "Sehr stark!",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Speichern Sie diese 12 Wörter in einem Passwort-Manager oder schreiben Sie sie auf und bewahren Sie sie an einem sicheren Ort auf.",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "Speichern Sie diese 12 Wörter und bewahren Sie sie an einem sicheren Ort auf.",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "Teilen Sie es nicht mit anderen.",

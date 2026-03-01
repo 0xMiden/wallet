@@ -1236,8 +1236,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "비밀 Seed Phrase를 저장했는지 확인하세요. 문구에서 첫 번째 단어와 마지막 단어를 선택하세요.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "복구 문구를 저장했는지 확인하세요.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "구문에서 <b>첫 번째</b> 및 <b>마지막</b> 단어를 선택하세요.",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "지갑의 12단어 Seed Phrase를 입력하세요.",
@@ -1287,9 +1291,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "컴퓨터를 사용할 때마다 지갑을 잠금 해제하기 위한 비밀번호를 설정합니다. 지갑을 복구하는 데 사용할 수 없습니다.",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "지갑을 잠금 해제하려면 비밀번호를 설정하세요",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "매우 강력!",
@@ -1317,8 +1320,8 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "이 12단어를 비밀번호 관리자에 저장하거나 적어서 안전한 장소에 보관하세요.",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place."
+    "message": "이 12개 단어를 저장하고 안전한 곳에 보관하세요.",
+    "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
     "message": "누구와도 공유하지 마십시오.",
