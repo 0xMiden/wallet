@@ -46,7 +46,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   }, []);
 
   return (
-    <div className={classNames('flex flex-col flex-1', 'bg-white gap-8 p-6', className)} {...props}>
+    <div className={classNames('flex flex-col flex-1', 'bg-app-bg gap-8 px-4 pt-2', className)} {...props}>
       <div className="flex flex-col items-center text-heading-gray">
         <header className="text-xl font-semibold">{t('backUpYourWallet')}</header>
         <div className="text-sm text-center font-medium">
@@ -93,7 +93,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
         />
       </div>
 
-      <div className="flex flex-col gap-2 self-center w-full mt-auto pb-8">
+      <div className="flex flex-col gap-2 self-center w-full mt-auto pb-2">
         <Button title={t('continue')} onClick={onSubmit} className="text-base" />
       </div>
     </div>

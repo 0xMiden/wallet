@@ -207,7 +207,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
 
   return (
     <div
-      className={classNames('mx-auto overflow-hidden', 'flex flex-1', 'flex-col bg-white', 'overflow-hidden relative')}
+      className={classNames('mx-auto overflow-hidden', 'flex flex-1', 'flex-col bg-app-bg', 'overflow-hidden relative')}
       data-testid="encrypted-file-manager-flow"
     >
       {}

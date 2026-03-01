@@ -308,7 +308,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 onClick={() => setShowCalendar(false)}
               />
               <motion.div
-                className="absolute bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl"
+                className="absolute bottom-0 left-0 right-0 z-50 bg-app-bg rounded-t-2xl"
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
@@ -423,7 +423,7 @@ const ToggleSwitch = ({ value, onToggle }: { value: boolean; onToggle: (val: boo
         type="button"
         className={clsx(
           'w-14 h-9 text-xs font-medium flex items-center justify-center transition-colors cursor-pointer',
-          value ? 'bg-white text-primary-500' : 'bg-[#F2F2F2] text-heading-gray/40'
+          value ? 'bg-app-bg text-primary-500' : 'bg-[#F2F2F2] text-heading-gray/40'
         )}
         onClick={() => onToggle(true)}
       >
@@ -433,7 +433,7 @@ const ToggleSwitch = ({ value, onToggle }: { value: boolean; onToggle: (val: boo
         type="button"
         className={clsx(
           'w-14 h-9 text-xs font-medium flex items-center justify-center transition-colors border-l border-[#00000033] cursor-pointer',
-          !value ? 'bg-white text-primary-500' : 'bg-[#F2F2F2] text-heading-gray/40'
+          !value ? 'bg-app-bg text-primary-500' : 'bg-[#F2F2F2] text-heading-gray/40'
         )}
         onClick={() => onToggle(false)}
       >

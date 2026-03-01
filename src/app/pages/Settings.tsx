@@ -181,7 +181,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       {!activeTab && <NavigationHeader showBorder title={t('settings')} />}
 
       {/* Content */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-white flex flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
         {activeTab ? (
           activeTab.hasOwnLayout ? (
             <activeTab.Component />

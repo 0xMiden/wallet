@@ -65,7 +65,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
   return (
     <div
-      className={classNames('flex flex-col flex-1', 'bg-white gap-8 p-6', className)}
+      className={classNames('flex flex-col flex-1', 'bg-app-bg gap-8 px-4 pt-23', className)}
       data-testid="verify-seed-phrase"
       {...props}
     >
@@ -100,7 +100,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
       <div className="flex-1" />
 
-      <div className="flex flex-col gap-4 self-center pb-8 w-full">
+      <div className="flex flex-col gap-4 self-center pb-2 w-full">
         {isHardwareSecurityAvailable && (
           <>
             <div className="flex flex-col gap-1 px-2">

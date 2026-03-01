@@ -92,7 +92,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
   };
 
   return (
-    <div className={classNames('flex-1', 'flex flex-col items-center', 'bg-white gap-8 p-6', className)} {...props}>
+    <div className={classNames('flex-1', 'flex flex-col items-center', 'bg-app-bg gap-8 p-6', className)} {...props}>
       <h1 className="text-2xl font-semibold">{t('selectTheDefaultTransactionType')}</h1>
 
       <div className="flex gap-x-2">

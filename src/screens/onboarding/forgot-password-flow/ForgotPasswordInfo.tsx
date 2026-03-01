@@ -22,7 +22,7 @@ const ForgotPasswordInfoScreen: FC<ForgotPasswordInfoScreenProps> = ({ onClose, 
         'w-[22.5rem] h-[37.5rem] md:w-[37.5rem] md:h-[46.875rem]',
         'border border-gray-100',
         'mx-auto md:rounded-3xl',
-        'flex flex-1 flex-col bg-white',
+        'flex flex-1 flex-col bg-app-bg',
         'overflow-hidden relative'
       )}
     >

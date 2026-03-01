@@ -273,7 +273,7 @@ const ActionButton: FC<ActionButtonProps> = ({
       <div
         className={classNames(
           'flex items-center justify-center',
-          isActive ? 'bg-primary-500' : 'bg-white',
+          isActive ? 'bg-primary-500' : 'bg-app-bg',
           !isMobile() && isActive && 'hover:bg-primary-600',
           'border border-[#00000033] rounded-10'
         )}

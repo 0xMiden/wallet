@@ -16,7 +16,7 @@ export type Actions = 'select-wallet-type' | 'select-import-type';
 export const WelcomeScreen = ({ onSubmit, ...props }: WelcomeScreenProps) => {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col items-center bg-white max-w-full h-full" data-testid="onboarding-welcome">
+    <div className="flex flex-col items-center bg-app-bg max-w-full h-full" data-testid="onboarding-welcome">
       <div className="flex flex-col items-center justify-center pt-[120px]">
         <div className="flex flex-col items-center">
           <OnboardingLogo style={{ width: 120, height: 100 }} />

@@ -389,7 +389,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
   const [isQRSheetOpen, setIsQRSheetOpen] = useState(false);
 
   return (
-    <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-white relative')}>
+    <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
       {/* Custom Header with back button, title, and QR icon */}
       <div
         className="flex flex-row px-4 items-center justify-between border-b border-grey-100"
@@ -509,7 +509,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
               onClick={() => setIsQRSheetOpen(false)}
             />
             <motion.div
-              className="absolute bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl"
+              className="absolute bottom-0 left-0 right-0 z-50 bg-app-bg rounded-t-2xl"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
@@ -596,7 +596,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
         type="button"
         onClick={onToggleExpand}
         className={classNames(
-          'w-full flex items-center justify-between bg-white hover:bg-grey-50 transition-colors',
+          'w-full flex items-center justify-between bg-app-bg hover:bg-grey-50 transition-colors',
           isMobile() ? 'pt-[14px] pb-[10px] pl-[8px] pr-[25px]' : 'pt-[10px] pb-[7px] pl-[6px] pr-[17.5px]'
         )}
       >
@@ -884,7 +884,7 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
   const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
 
   return (
-    <div className="relative bg-white">
+    <div className="relative bg-app-bg">
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
       <div className="grid grid-cols-[minmax(80px,1fr)_minmax(60px,auto)_50px_70px] gap-x-3 px-3 py-4 items-center text-heading-gray relative z-10">
         <span className={isMobile() ? 'text-[10px]' : 'text-xs'}>{senderDisplay}</span>

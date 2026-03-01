@@ -445,7 +445,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
       className={classNames(
         containerClass,
         'mx-auto overflow-hidden',
-        'flex flex-col bg-white',
+        'flex flex-col bg-app-bg',
         'overflow-hidden relative'
       )}
       data-testid="send-flow"

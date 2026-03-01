@@ -45,7 +45,7 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   const hasRecall = !!recallBlocks && parseInt(recallBlocks) > 0;
 
   return (
-    <div className="flex flex-col bg-white h-full">
+    <div className="flex flex-col bg-app-bg h-full">
       <NavigationHeader mode="back" title={t('reviewTransaction')} onBack={onGoBack} showBorder />
 
       <div className="flex flex-col px-4 overflow-y-auto no-scrollbar">

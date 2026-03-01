@@ -60,7 +60,7 @@ const Faucet: FC = () => {
       <NavigationHeader mode="back" title={t('faucet')} onBack={goBack} showBorder />
       <div className={clsx('flex flex-col justify-between h-full w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col pt-16.25">
-          <div className="flex flex-col justify-center items-center bg-white">
+          <div className="flex flex-col justify-center items-center bg-app-bg">
             <div className="flex items-center justify-center mb-6 w-[156px] h-[156px]">
               <FaucetIcon className="text-primary-orange" style={{ width: 78, height: 78 }} />
             </div>

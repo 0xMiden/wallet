@@ -82,7 +82,7 @@ export const BiometricSetupScreen: React.FC<BiometricSetupScreenProps> = ({ pass
   // If biometric availability hasn't been checked yet, show loading
   if (!biometricAvailability) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-white">
+      <div className="flex-1 flex flex-col items-center justify-center bg-app-bg">
         <Icon name={IconName.Loader} size="xl" className="animate-spin text-primary-500" />
       </div>
     );
@@ -94,7 +94,7 @@ export const BiometricSetupScreen: React.FC<BiometricSetupScreenProps> = ({ pass
   }
 
   return (
-    <div className={classNames('flex-1', 'flex flex-col', 'bg-white gap-y-8 p-6')}>
+    <div className={classNames('flex-1', 'flex flex-col', 'bg-app-bg gap-y-8 p-6')}>
       <div className="flex flex-col items-center grow justify-center">
         {/* Biometric Icon */}
         <div className="w-32 h-32 rounded-full bg-grey-50 flex items-center justify-center mb-8">

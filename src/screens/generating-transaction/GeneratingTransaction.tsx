@@ -287,7 +287,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
       )}
 
       {/* Main white card area */}
-      <div className="flex-1 flex flex-col justify-center items-center bg-white rounded-3xl py-8">
+      <div className="flex-1 flex flex-col justify-center items-center bg-app-bg rounded-3xl py-8">
         <div className="flex flex-col items-center">
           {/* Icon / Spinner */}
           <div className="mb-6">{renderIcon()}</div>

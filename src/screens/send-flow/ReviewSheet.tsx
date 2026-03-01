@@ -35,7 +35,7 @@ export const ReviewSheet: React.FC<ReviewSheetProps> = ({
 
   return (
     <Drawer open={isOpen} onOpenChange={open => !open && onCancel()}>
-      <DrawerContent className="bg-white">
+      <DrawerContent className="bg-app-bg">
         <DrawerHeader>
           <DrawerTitle className="text-center">{t('reviewTransaction')}</DrawerTitle>
         </DrawerHeader>
