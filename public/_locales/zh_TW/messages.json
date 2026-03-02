@@ -897,8 +897,12 @@
     "englishSource": "Assets"
   },
   "tokens": {
-    "message": "代币",
-    "englishSource": "Tokens"
+    "message": "探索代币",
+    "englishSource": "Explore tokens"
+  },
+  "searchForToken": {
+    "message": "搜索代币",
+    "englishSource": "Search for token"
   },
   "history": {
     "message": "历史",

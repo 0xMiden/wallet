@@ -897,8 +897,12 @@
     "englishSource": "Assets"
   },
   "tokens": {
-    "message": "토큰",
-    "englishSource": "Tokens"
+    "message": "토큰 살펴보기",
+    "englishSource": "Explore tokens"
+  },
+  "searchForToken": {
+    "message": "토큰 검색",
+    "englishSource": "Search for token"
   },
   "history": {
     "message": "역사",
