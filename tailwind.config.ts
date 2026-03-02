@@ -100,7 +100,7 @@ export default {
         'primary-orange-lighter': '#FFF0E5',
         'primary-orange-darker': '#882200',
         'primary-gray': '#656565',
-        'border-card': '#D6DAE0',
+        'border-card': '#00000033',
         'chip-bg': '#EEEFF2',
         'accent-orange': '#EE622F',
         'app-bg': '#F6F4F2',

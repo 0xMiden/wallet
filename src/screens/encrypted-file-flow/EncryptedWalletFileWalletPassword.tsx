@@ -120,10 +120,10 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 text-heading-gray">
-      <div className="flex flex-col p-4 pt-8">
+    <div className="flex flex-col flex-1 min-h-0 text-heading-gray pb-6">
+      <div className="flex flex-col">
         <div className="flex flex-col justify-stretch gap-y-4">
-          <p className="text-base font-normal">
+          <p className="text-base font-medium leading-[130%]">
             {t(hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription')}
           </p>
           {!hasHardwareProtector && (
@@ -142,15 +142,17 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
                 onChange={onPasswordChange}
                 onKeyDown={handleEnterKey}
                 autoFocus={!isMobile()}
-                labelClassName="text-[20px] font-medium leading-[20px]"
+                labelClassName="text-base! font-medium leading-[20px]"
               />
               {errors.password && <p className="h-4 text-red-500 text-xs">{errors.password.message}</p>}
             </div>
           )}
-          <div className="flex gap-x-2 text-sm text-left">
+          <div className="flex gap-x-2 text-sm text-left pb-8">
             <button className="flex mt-3 gap-x-2 text-left" onClick={() => setConfirmed(!confirmed)}>
               <Checkbox id="help-us" value={confirmed} />
-              <span className="text-sm cursor-pointer text-left -mt-1">{t('encryptedWalletFileConfirmation')}</span>
+              <span className="text-sm leading-[130%] cursor-pointer text-left -mt-1">
+                {t('encryptedWalletFileConfirmation')}
+              </span>
             </button>
           </div>
           {!hasHardwareProtector && isDisabled && (
@@ -173,7 +175,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           )}
         </div>
       </div>
-      <div className="mt-auto px-4 pb-8">
+      <div className="mt-auto">
         <Button
           className="w-full justify-center"
           variant={ButtonVariant.Primary}

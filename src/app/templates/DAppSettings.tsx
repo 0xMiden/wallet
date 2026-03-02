@@ -1,20 +1,17 @@
-import React, { FC, useCallback, useRef } from 'react';
+import React, { FC, useCallback } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { useTranslation } from 'react-i18next';
 
 import AddressShortView from 'app/atoms/AddressShortView';
 import CopyButton from 'app/atoms/CopyButton';
-import ToggleSwitch from 'app/atoms/ToggleSwitch';
 import { ReactComponent as CloseIcon } from 'app/icons/close.svg';
 import { ReactComponent as CopySmallIcon } from 'app/icons/copy-small.svg';
 import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
-import { useStorage, useMidenContext, useAccount } from 'lib/miden/front';
-import { MidenDAppSession, MidenDAppSessions, MidenSharedStorageKey } from 'lib/miden/types';
+import { useMidenContext, useAccount } from 'lib/miden/front';
+import { MidenDAppSession, MidenDAppSessions } from 'lib/miden/types';
 import { useRetryableSWR } from 'lib/swr';
 import { useConfirm } from 'lib/ui/dialog';
-
-import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 
 const DAppSettings: FC = () => {
   const { t } = useTranslation();
@@ -36,22 +33,6 @@ const DAppSettings: FC = () => {
     if (session) dAppSessions[origin] = session;
   });
 
-  const [dAppEnabled, setDAppEnabled] = useStorage(MidenSharedStorageKey.DAppEnabled, true);
-
-  const changingRef = useRef(false);
-
-  const handleChange = useCallback(
-    async (evt: React.ChangeEvent<HTMLInputElement>) => {
-      if (changingRef.current) return;
-      changingRef.current = true;
-
-      setDAppEnabled(evt.target.checked).catch((err: any) => {});
-
-      changingRef.current = false;
-    },
-    [setDAppEnabled]
-  );
-
   const handleRemoveClick = useCallback(
     async (origin: string) => {
       if (
@@ -71,34 +52,9 @@ const DAppSettings: FC = () => {
 
   return (
     <div className="w-full max-w-sm mx-auto my-8">
-      {/* Toggle Card */}
-      <div className="border border-border-card rounded-5 p-4 flex justify-between items-center">
-        <div className="flex flex-col">
-          <span className="font-medium text-sm text-[#0F131A]">{t('dAppsInteraction')}</span>
-          <span className="text-xs text-[#555D6D] mt-1">{t('dAppsToggleDescription')}</span>
-        </div>
-        <ToggleSwitch
-          checked={dAppEnabled}
-          onChange={handleChange}
-          name="dAppEnabled"
-          testID={GeneralSettingsSelectors.DAppToggle}
-        />
-      </div>
-
-      {dAppEntries.length > 0 && (
-        <>
-          {/* Dashed Separator */}
-          <div className="my-6" style={{ borderTop: '1px dashed #818898' }} />
-
-          {/* Heading */}
-          <h2 className="text-[20px] leading-5 font-medium text-heading-gray mb-4">{t('authorizedDApps')}</h2>
-
-          {/* DApp Cards */}
-          {dAppEntries.map(([origin, session]) => (
-            <DAppCard key={origin} origin={origin} session={session} onRemove={handleRemoveClick} />
-          ))}
-        </>
-      )}
+      {dAppEntries.map(([origin, session]) => (
+        <DAppCard key={origin} origin={origin} session={session} onRemove={handleRemoveClick} />
+      ))}
     </div>
   );
 };
@@ -135,7 +91,7 @@ const DAppCard: FC<{
   const explorerHash = accountId.split('_')[0] || accountId;
 
   return (
-    <div className="border border-border-card rounded-5 mb-4">
+    <div className="border border-border-card rounded-10 mb-4 bg-white">
       {/* Header */}
       <div className="flex justify-between items-center border-b border-border-card px-4 py-3">
         <span className="text-[14px] font-medium text-[#0F131A]">{hostname}</span>
