@@ -158,7 +158,6 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
           name="address"
           placeholder={t('enterAddress')}
           errorCaption={errors.address?.message}
-          autoFocus
           className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-gray-600 rounded-10"
           fieldWrapperBottomMargin={false}
           containerClassName="bg-gray-25 border-gray-100 border rounded-10"

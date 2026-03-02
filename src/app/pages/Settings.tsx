@@ -219,7 +219,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
 
   return (
     <>
-      {!activeTab && <NavigationHeader title={t('settings')} onBack={goBack} />}
+      {!activeTab && <NavigationHeader title={t('settings')} onBack={() => navigate('/')} />}
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
         {activeTab ? (
