@@ -10,13 +10,13 @@ import { ReactComponent as ChevronDownIcon } from 'app/icons/chevron-down.svg';
 import { ReactComponent as MaximiseIcon } from 'app/icons/maximise.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
+import AddressChip from 'app/templates/AddressChip';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { Link, navigate } from 'lib/woozie';
 
 import { HeaderSelectors } from './Header.selectors';
-import NetworkSelect from './Header/NetworkSelect';
 
 const Header: FC = () => {
   const appEnv = useAppEnv();
@@ -25,7 +25,7 @@ const Header: FC = () => {
 
   return (
     <header className={classNames('px-4', appEnv.fullPage && '')}>
-      <ContentContainer className="py-3.75">
+      <ContentContainer className="pt-4">
         <div>
           <div className="flex w-full">{!isGeneratingUrl && <Control />}</div>
         </div>
@@ -81,7 +81,7 @@ const Control: FC = () => {
     <>
       <div className={classNames('flex', 'justify-between', 'w-full')}>
         <div className={classNames('flex', 'justify-start')}>
-          <Link to={'/select-account'} testID={HeaderSelectors.AccountDropdown} className="flex">
+          <div className="flex">
             <Button
               className={classNames(
                 'flex',
@@ -89,14 +89,15 @@ const Control: FC = () => {
                 'transition ease-in-out duration-200',
                 'cursor-pointer'
               )}
+              onClick={() => navigate('/select-account')}
             >
               <ColorIdenticon publicKey={account.publicKey} />
-              <div className="flex overflow-x-hidden ml-2 leading-9 items-center gap-1">
-                <Name className={classNames('text-sm', 'text-black')}>{account.name}</Name>
-                <ChevronDownIcon style={{ height: 16, width: 'auto' }} />
-              </div>
             </Button>
-          </Link>
+            <div className="flex flex-col pl-2 gap-y-0.5">
+              <Name className={classNames('text-sm leading-[100%]', 'text-heading-gray')}>{account.name}</Name>
+              <AddressChip address={account.publicKey} className="p-[2.25px]" />
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           {showSpinner && <SyncSpinner visible={isSyncing} />}

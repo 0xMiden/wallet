@@ -1,11 +1,12 @@
 import React, { FC, FunctionComponent, SVGProps } from 'react';
 
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
-import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
 import { ReactComponent as GlobeIcon } from 'app/icons/globe-new.svg';
+import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isDesktop, isMobile } from 'lib/platform';
@@ -23,6 +24,8 @@ interface FooterNavButtonProps {
   badge?: boolean;
 }
 
+const PILL_LAYOUT_ID = 'footer-pill';
+
 const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badge, name }) => {
   const location = useLocation();
   const currentPath = location.pathname;
@@ -39,22 +42,30 @@ const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badg
   };
 
   return (
-    <Link to={linkTo} onClick={handleClick}>
-      <div className={classNames('flex relative flex-col items-center rounded-full hover:bg-grey-25')}>
+    <Link to={linkTo} onClick={handleClick} className="flex-1">
+      <div className="relative flex flex-col items-center gap-2 rounded-[28px] py-2 px-4">
+        {active && (
+          <motion.div
+            layoutId={PILL_LAYOUT_ID}
+            className="absolute inset-0 rounded-full bg-pill-active/18"
+            transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
+          />
+        )}
         <Icon
-          className={active ? 'text-primary-500' : 'text-black'}
-          style={{
-            height: '34.21px',
-            width: '34.21px'
-          }}
+          className={classNames('relative z-10 h-[22px] w-[22px]', active ? 'text-pill-active' : 'text-heading-gray')}
         />
-        <p className={classNames('text-[10px] font-medium', active ? 'text-primary-500' : 'text-heading-gray')}>
+        <p
+          className={classNames(
+            'relative z-10 text-[10px] font-semibold uppercase',
+            active ? 'text-pill-active' : 'text-heading-gray'
+          )}
+        >
           {name}
         </p>
         {badge && (
           <div
             className={classNames(
-              'absolute top-[30%] left-[70%] -translate-x-1/2 -translate-y-1/2',
+              'absolute top-[30%] left-[70%] -translate-x-1/2 -translate-y-1/2 z-10',
               'flex items-center justify-center',
               'w-4 h-4 bg-red-500 rounded-full'
             )}
@@ -80,14 +91,11 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
     trackEvent('Footer/History', AnalyticsEventCategory.ButtonPress, { type: 'history' });
   };
 
-  // Remove rounded corners on mobile so footer extends edge-to-edge
-  // On mobile, use safe area for bottom padding (replaces py-3 bottom portion)
-  const paddingClass = isMobile() ? 'pt-3 md:py-4' : 'py-3 md:py-4';
   const mobileBottomPadding = isMobile() ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : {};
 
   return (
-    <footer className={`w-full relative bg-gray-25 h-18 px-8 md:px-16 ${paddingClass}`} style={mobileBottomPadding}>
-      <div className="flex justify-center gap-12">
+    <footer className="w-full px-4 pb-3 pt-2 md:px-6" style={mobileBottomPadding}>
+      <div className="flex items-center bg-gray-25 rounded-full px-2 py-2 shadow-[0px_8px_32px_0px_rgba(0,0,0,0.40)] backdrop-blur-xl">
         <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
         <FooterNavButton
           Icon={ActivityIcon}

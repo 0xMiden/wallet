@@ -102,6 +102,7 @@ export default {
         'primary-gray': '#656565',
         'border-card': '#00000033',
         'chip-bg': '#EEEFF2',
+        'pill-active': '#E87040',
         'accent-orange': '#EE622F',
         'app-bg': '#F6F4F2',
         ...customColors

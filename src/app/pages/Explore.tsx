@@ -190,10 +190,9 @@ const Explore: FC = () => {
       <ConnectivityIssueBanner />
       <ChainInstabilityBanner />
       <Header />
-      <div className={classNames('flex flex-col justify-start', 'pt-5')}>
+      <div className={classNames('flex flex-col justify-start', 'pt-6')}>
         <div className="flex flex-col justify-center items-center">
           <MainBanner />
-          <AddressChip address={account.publicKey} className="flex items-center" />
         </div>
         <div
           className={classNames('flex justify-center items-center w-full', isMobile() ? 'pt-6 gap-8' : 'pt-3 gap-6')}
