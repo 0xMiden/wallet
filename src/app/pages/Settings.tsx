@@ -15,6 +15,7 @@ import { ReactComponent as SeedPhraseIcon } from 'app/icons/settings/seed-phrase
 import { ReactComponent as TosIcon } from 'app/icons/settings/tos.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
+import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
 import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
@@ -134,14 +135,16 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'advancedSettings',
         Icon: ToolIcon,
         Component: AdvancedSettings,
-        testID: SettingsSelectors.AdvancedSettingsButton
+        testID: SettingsSelectors.AdvancedSettingsButton,
+        isDrawer: true
       },
       {
         slug: 'dapps',
         titleI18nKey: 'authorizedDApps',
         Icon: AppsIcon,
-        Component: DAppSettings,
-        testID: SettingsSelectors.DAppsButton
+        Component: DAppDrawerSettings,
+        testID: SettingsSelectors.DAppsButton,
+        isDrawer: true
       }
     ]
   },
@@ -181,6 +184,12 @@ const HIDDEN_TABS: Tab[] = [
     Icon: ExtensionIcon,
     Component: NetworksSettings,
     testID: SettingsSelectors.NetworksButton
+  },
+  {
+    slug: 'dapps',
+    titleI18nKey: 'authorizedDApps',
+    Icon: AppsIcon,
+    Component: DAppSettings
   }
 ];
 
@@ -274,7 +283,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             <DrawerHeader>
               <DrawerTitle>{t(tab.titleI18nKey)}</DrawerTitle>
             </DrawerHeader>
-            <div className="px-4 pb-10 overflow-y-auto min-h-0">
+            <div className="px-4 pb-6 overflow-y-auto min-h-0">
               <tab.Component onClose={() => setOpenDrawer(null)} />
             </div>
           </DrawerContent>
@@ -313,7 +322,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                 </div>
               </div>
 
-              <div className="mt-auto pt-6 pb-10 flex flex-col items-center text-center bg-white rounded-t-2xl">
+              <div className="mt-auto pt-6 pb-6 flex flex-col items-center text-center bg-white rounded-t-2xl">
                 <div className="flex flex-col px-6 items-center">
                   <div className="w-10 h-10 rounded-sm bg-primary-500 flex items-center justify-center mb-4">
                     <Icon name={IconName.EyeOff} size="md" fill="white" />

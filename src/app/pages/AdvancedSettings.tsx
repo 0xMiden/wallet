@@ -8,9 +8,9 @@ import { useAccount } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { hapticLight } from 'lib/mobile/haptics';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { Link } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 
-const AdvancedSettings: FC = () => {
+const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
   const { t } = useTranslation();
   const walletAccount = useAccount();
   const [publicKey, setPublicKey] = useState<string | null>(null);
@@ -44,34 +44,35 @@ const AdvancedSettings: FC = () => {
   }, [publicKey, copy]);
 
   return (
-    <div className="w-full max-w-sm mx-auto my-8 flex flex-col gap-3">
-      <div className="border border-border-card rounded-5 p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col pr-4">
-            <span className="font-medium text-sm text-[#0F131A]">{t('accountPublicKey')}</span>
-            <span className="text-xs text-[#555D6D] mt-1">{t('accountPublicKeyDescription')}</span>
-          </div>
-          <button type="button" onClick={handleCopy} className="flex items-center cursor-pointer hover:bg-gray-25">
-            <Icon
-              name={copied ? IconName.Checkmark : IconName.Copy}
-              fill={copied ? 'green' : 'black'}
-              className={clsx('w-5 h-5', 'p-1')}
-            />
-          </button>
+    <div className="w-full flex flex-col gap-6 pb-6">
+      <div className="flex items-center justify-between text-heading-gray">
+        <div className="flex flex-col">
+          <span className="font-medium text-base">{t('accountPublicKey')}</span>
         </div>
+        <button type="button" onClick={handleCopy} className="flex items-center cursor-pointer hover:bg-gray-25">
+          <Icon
+            name={copied ? IconName.Checkmark : IconName.Copy}
+            fill={copied ? 'green' : 'none'}
+            className={clsx('w-5 h-5 p-1')}
+          />
+        </button>
       </div>
 
-      <Link to={'settings/edit-miden-faucet-id'}>
-        <div className="border border-border-card rounded-5 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col pr-4">
-              <span className="font-medium text-sm text-[#0F131A]">{t('editMidenFaucetId')}</span>
-              <span className="text-xs text-[#555D6D] mt-1">{t('editMidenFaucetIdDescription')}</span>
-            </div>
-            <Icon name={IconName.ChevronRight} className="w-5 h-5 text-[#555D6D]" />
+      <button
+        type="button"
+        onClick={() => {
+          onClose?.();
+          navigate('/settings/edit-miden-faucet-id');
+        }}
+        className="w-full"
+      >
+        <div className="flex items-center justify-between text-heading-gray">
+          <div className="flex flex-col">
+            <span className="font-medium text-base">{t('editMidenFaucetId')}</span>
           </div>
+          <Icon name={IconName.ChevronRightLucide} className="w-5 h-5" fill="none" />
         </div>
-      </Link>
+      </button>
 
       <input ref={fieldRef} value={publicKey ?? ''} readOnly className="sr-only" />
     </div>

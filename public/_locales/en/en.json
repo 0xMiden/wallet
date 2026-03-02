@@ -582,6 +582,7 @@
   "permissionUponRequest": "Upon Request",
   "permissionAutomatic": "Automatic",
   "dAppsToggleDescription": "Toggle to enable or disable DApp connections and balance visibility.",
+  "seeConnected": "See connected",
   "transferDetails": "Transfer Details",
   "recallBy": "Recall by",
   "options": "Options",

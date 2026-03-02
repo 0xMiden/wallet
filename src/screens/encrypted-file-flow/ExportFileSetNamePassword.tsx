@@ -94,8 +94,8 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
   const EXTENSION = '.json';
 
   return (
-    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto">
-      <div className="flex flex-col justify-stretch p-4 pt-8 overflow-y-auto">
+    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-app-bg">
+      <div className="flex flex-col justify-stretch px-4 pt-6 overflow-y-auto">
         <Input
           placeholder={DEFAULT_FILE_NAME}
           value={fileName}
@@ -105,13 +105,15 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           onKeyDown={handleNameInputTab}
           tabIndex={0}
           autoFocus
-          labelClassName="text-[20px] font-semibold leading-[20px]"
-          inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-bold h-14"
-          containerClassName="gap-4"
+          labelClassName="text-base font-medium leading-[20px]"
+          inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
+          containerClassName="gap-2"
         />
 
-        <div className="w-full items-center flex flex-col gap-y-4 flex-1 pt-6">
-          <p className="text-base text-left font-bold mt-2">{t('enterPasswordToEncrypt')}</p>
+        <div className="w-full items-center flex flex-col gap-y-4 flex-1 pt-4">
+          <p className="text-sm leading-[130%] text-center bg-gray-25 rounded-10 px-8 py-2">
+            {t('enterPasswordToEncrypt')}
+          </p>
           <div className="w-full flex flex-col gap-y-4">
             <Input
               ref={passwordRef}
@@ -127,9 +129,9 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
               onChange={handlePasswordChange}
               onKeyDown={handlePasswordInputTab}
               tabIndex={1}
-              labelClassName="text-[20px] font-semibold leading-[20px]"
-              containerClassName="gap-4"
-              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-bold h-14"
+              labelClassName="text-base font-medium leading-[20px]"
+              containerClassName="gap-2"
+              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
             />
             <PasswordStrengthIndicator password={passwordValue} validation={passwordValidation} />
           </div>
@@ -148,9 +150,9 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
               onChange={e => setVerifyPassword(e.target.value)}
               onKeyDown={handleEnterKey}
               tabIndex={2}
-              labelClassName="text-[20px] font-semibold leading-[20px]"
-              containerClassName="gap-4"
-              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-bold h-14"
+              labelClassName="text-base font-medium leading-[20px]"
+              containerClassName="gap-2"
+              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
             />
             <p
               className={classNames(

@@ -105,7 +105,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
   }, [getExportFile]);
 
   return (
-    <div className="flex flex-col flex-1 items-center px-4">
+    <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
       <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
         <div className="w-49 aspect-square flex items-center justify-center">
           <Icon name={IconName.Success} size="4xl" />

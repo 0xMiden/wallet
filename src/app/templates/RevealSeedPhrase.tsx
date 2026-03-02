@@ -141,7 +141,7 @@ const RevealSeedPhrase: FC = () => {
           </div>
 
           {/* Word grid */}
-          <div className="p-6">
+          <div className="p-6 bg-white rounded-10">
             <div className="grid grid-cols-4 gap-x-4 gap-y-6">
               {words.map((word, idx) => (
                 <span key={idx} className="text-base font-medium text-heading-gray text-center">
@@ -187,7 +187,7 @@ const RevealSeedPhrase: FC = () => {
           <DrawerHeader>
             <DrawerTitle>{t('password')}</DrawerTitle>
           </DrawerHeader>
-          <form className="px-4 pb-10" onSubmit={handleSubmit(onPasswordSubmit)}>
+          <form className="px-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
             <FormField
               {...register('password', { required: t('required') })}
               label={t('password')}

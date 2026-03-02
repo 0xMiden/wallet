@@ -3,7 +3,6 @@ import React, { FC } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as ArrowIcon } from 'app/icons/arrow-right-top-alt.svg';
 import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
 import { hapticLight } from 'lib/mobile/haptics';
 import { Link } from 'lib/woozie';

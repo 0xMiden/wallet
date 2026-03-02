@@ -10,7 +10,6 @@ import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
 import { useContacts, isAddressValid } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { isMobile } from 'lib/platform';
 import { useConfirm } from 'lib/ui/dialog';
 import { withErrorHumanDelay } from 'lib/ui/humanDelay';
 import { truncateAddress } from 'utils/string';
