@@ -578,6 +578,26 @@
     "message": "リカバリーフレーズ",
     "englishSource": "Recovery Phrase"
   },
+  "viewThisInPrivatePlace": {
+    "message": "これをプライベートな場所で見る",
+    "englishSource": "View this in a private place"
+  },
+  "anyoneWithRecoveryPhrase": {
+    "message": "あなたの回復フレーズを知っている人は誰でもあなたのウォレットと資金にアクセスできます。",
+    "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
+  },
+  "pleaseWriteDownRecoveryPhrase": {
+    "message": "秘密の回復フレーズを書き留めて、安全な場所に保管してください。",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
+  },
+  "view": {
+    "message": "ビュー",
+    "englishSource": "View"
+  },
+  "hideRecoveryPhrase": {
+    "message": "リカバリーフレーズを隠す",
+    "englishSource": "Hide Recovery Phrase"
+  },
   "disable": {
     "message": "無効にする",
     "englishSource": "disable"
@@ -1550,8 +1570,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "自動消費は、公式 Miden Faucet からのノートを自動的に消費します。",
-    "englishSource": "Auto Consume will automatically consume notes from the official Miden Faucet."
+    "message": "ミデン Faucet から notes を自​​動的に消費します",
+    "englishSource": "Automatically consume notes from Miden Faucet"
   },
   "encryptedWalletFileExported": {
     "message": "暗号化されたウォレット ファイルがエクスポートされました",

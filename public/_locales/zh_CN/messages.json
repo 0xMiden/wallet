@@ -578,6 +578,26 @@
     "message": "恢复短语",
     "englishSource": "Recovery Phrase"
   },
+  "viewThisInPrivatePlace": {
+    "message": "在私人地方查看此内容",
+    "englishSource": "View this in a private place"
+  },
+  "anyoneWithRecoveryPhrase": {
+    "message": "任何知道您的恢复短语的人都可以访问您的钱包和资金。",
+    "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
+  },
+  "pleaseWriteDownRecoveryPhrase": {
+    "message": "请写下您的秘密恢复短语并将其保存在安全的地方。",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
+  },
+  "view": {
+    "message": "看法",
+    "englishSource": "View"
+  },
+  "hideRecoveryPhrase": {
+    "message": "隐藏恢复短语",
+    "englishSource": "Hide Recovery Phrase"
+  },
   "disable": {
     "message": "禁用",
     "englishSource": "disable"
@@ -1550,8 +1570,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "自动消耗将自动消耗来自官方Miden Faucet的笔记。",
-    "englishSource": "Auto Consume will automatically consume notes from the official Miden Faucet."
+    "message": "自动消耗来自 Miden Faucet 的 notes",
+    "englishSource": "Automatically consume notes from Miden Faucet"
   },
   "encryptedWalletFileExported": {
     "message": "导出加密钱包文件",

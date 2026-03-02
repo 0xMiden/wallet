@@ -562,6 +562,26 @@
     "message": "Frase de recuperación",
     "englishSource": "Recovery Phrase"
   },
+  "viewThisInPrivatePlace": {
+    "message": "Ver esto en un lugar privado",
+    "englishSource": "View this in a private place"
+  },
+  "anyoneWithRecoveryPhrase": {
+    "message": "Cualquiera que conozca su frase de recuperación puede acceder a su billetera y a sus fondos.",
+    "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
+  },
+  "pleaseWriteDownRecoveryPhrase": {
+    "message": "Anota tu frase secreta de recuperación y guárdala en un lugar seguro.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
+  },
+  "view": {
+    "message": "Vista",
+    "englishSource": "View"
+  },
+  "hideRecoveryPhrase": {
+    "message": "Ocultar frase de recuperación",
+    "englishSource": "Hide Recovery Phrase"
+  },
   "disable": {
     "message": "desactivar",
     "englishSource": "disable"
@@ -1492,8 +1512,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Auto Consume consumirá automáticamente Notes del Miden Faucet oficial.",
-    "englishSource": "Auto Consume will automatically consume notes from the official Miden Faucet."
+    "message": "Consumir automáticamente notes de Miden Faucet",
+    "englishSource": "Automatically consume notes from Miden Faucet"
   },
   "encryptedWalletFileExported": {
     "message": "Archivo de billetera cifrado exportado",

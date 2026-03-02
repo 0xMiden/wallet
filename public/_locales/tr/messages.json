@@ -578,6 +578,26 @@
     "message": "Kurtarma İfadesi",
     "englishSource": "Recovery Phrase"
   },
+  "viewThisInPrivatePlace": {
+    "message": "Bunu özel bir yerde görüntüle",
+    "englishSource": "View this in a private place"
+  },
+  "anyoneWithRecoveryPhrase": {
+    "message": "Kurtarma ifadenizi bilen herkes cüzdanınıza ve paranıza erişebilir.",
+    "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
+  },
+  "pleaseWriteDownRecoveryPhrase": {
+    "message": "Lütfen gizli kurtarma ifadenizi yazın ve güvenli bir yerde saklayın.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
+  },
+  "view": {
+    "message": "Görüş",
+    "englishSource": "View"
+  },
+  "hideRecoveryPhrase": {
+    "message": "Kurtarma İfadesini Gizle",
+    "englishSource": "Hide Recovery Phrase"
+  },
   "disable": {
     "message": "devre dışı bırak",
     "englishSource": "disable"
@@ -1550,8 +1570,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Otomatik Tüketim, resmi Miden Musluğundan gelen notları otomatik olarak tüketecektir.",
-    "englishSource": "Auto Consume will automatically consume notes from the official Miden Faucet."
+    "message": "notes'yi Miden Faucet'den otomatik olarak tüket",
+    "englishSource": "Automatically consume notes from Miden Faucet"
   },
   "encryptedWalletFileExported": {
     "message": "Şifrelenmiş Cüzdan Dosyası Dışa Aktarıldı",

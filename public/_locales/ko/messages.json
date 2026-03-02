@@ -578,6 +578,26 @@
     "message": "회복 문구",
     "englishSource": "Recovery Phrase"
   },
+  "viewThisInPrivatePlace": {
+    "message": "비공개 장소에서 시청하세요.",
+    "englishSource": "View this in a private place"
+  },
+  "anyoneWithRecoveryPhrase": {
+    "message": "귀하의 복구 문구를 아는 사람은 누구나 귀하의 지갑과 자금에 접근할 수 있습니다.",
+    "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
+  },
+  "pleaseWriteDownRecoveryPhrase": {
+    "message": "비밀 복구 문구를 적어서 안전한 곳에 보관해주세요.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
+  },
+  "view": {
+    "message": "보다",
+    "englishSource": "View"
+  },
+  "hideRecoveryPhrase": {
+    "message": "복구 문구 숨기기",
+    "englishSource": "Hide Recovery Phrase"
+  },
   "disable": {
     "message": "비활성화",
     "englishSource": "disable"
@@ -1550,8 +1570,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "자동 소비는 공식 Miden Faucet의 노트를 자동으로 소비합니다.",
-    "englishSource": "Auto Consume will automatically consume notes from the official Miden Faucet."
+    "message": "Miden Faucet에서 자동으로 notes 소비",
+    "englishSource": "Automatically consume notes from Miden Faucet"
   },
   "encryptedWalletFileExported": {
     "message": "암호화된 지갑 파일을 내보냈습니다.",
