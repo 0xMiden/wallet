@@ -897,8 +897,12 @@
     "englishSource": "Assets"
   },
   "tokens": {
-    "message": "Токены",
-    "englishSource": "Tokens"
+    "message": "Исследуйте токены",
+    "englishSource": "Explore tokens"
+  },
+  "searchForToken": {
+    "message": "Поиск токена",
+    "englishSource": "Search for token"
   },
   "history": {
     "message": "История",
