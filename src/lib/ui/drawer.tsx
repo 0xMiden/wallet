@@ -1,92 +1,133 @@
 import * as React from 'react';
+import { createContext, useCallback, useContext, useEffect } from 'react';
 
-import { Drawer as DrawerPrimitive } from 'vaul';
+import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 
+import Portal from './Portal';
 import { cn } from './util';
 
-function Drawer({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Root>) {
-  return <DrawerPrimitive.Root data-slot="drawer" {...props} />;
+interface DrawerContextValue {
+  open: boolean;
+  onClose: () => void;
 }
 
-function DrawerTrigger({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Trigger>) {
-  return <DrawerPrimitive.Trigger data-slot="drawer-trigger" {...props} />;
+const DrawerContext = createContext<DrawerContextValue>({ open: false, onClose: () => {} });
+
+interface DrawerProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children: React.ReactNode;
 }
 
-function DrawerPortal({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Portal>) {
-  return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />;
+function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
+  const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
+  return <DrawerContext.Provider value={{ open, onClose }}>{children}</DrawerContext.Provider>;
 }
 
-function DrawerClose({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Close>) {
-  return <DrawerPrimitive.Close data-slot="drawer-close" {...props} />;
+interface DrawerContentProps {
+  className?: string;
+  children: React.ReactNode;
 }
 
-function DrawerOverlay({ className, ...props }: React.ComponentProps<typeof DrawerPrimitive.Overlay>) {
-  return (
-    <DrawerPrimitive.Overlay
-      data-slot="drawer-overlay"
-      className={cn(
-        'data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-[#E3E3E399] fixed inset-0 z-50',
-        className
-      )}
-      {...props}
-    />
+function DrawerContent({ className, children }: DrawerContentProps) {
+  const { open, onClose } = useContext(DrawerContext);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open, onClose]);
+
+  const handleDragEnd = useCallback(
+    (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+      if (info.offset.y > 80 || info.velocity.y > 300) {
+        onClose();
+      }
+    },
+    [onClose]
   );
-}
 
-function DrawerContent({ className, children, ...props }: React.ComponentProps<typeof DrawerPrimitive.Content>) {
   return (
-    <DrawerPortal data-slot="drawer-portal">
-      <DrawerOverlay />
-      <DrawerPrimitive.Content
-        data-slot="drawer-content"
-        className={cn(
-          'bg-white flex h-auto flex-col text-sm data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=bottom]:rounded-t-[20px] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=left]:rounded-r-xl data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=right]:rounded-l-xl data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=top]:rounded-b-xl data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm group/drawer-content fixed z-50',
-          className
+    <Portal>
+      <AnimatePresence>
+        {open && (
+          <>
+            <motion.div
+              key="drawer-backdrop"
+              className="fixed inset-0 z-50 bg-[#E3E3E399]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3, ease: 'easeInOut' }}
+              onClick={onClose}
+            />
+            <motion.div
+              key="drawer-sheet"
+              data-slot="drawer-content"
+              className={cn(
+                'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-white text-sm',
+                className
+              )}
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+            >
+              <motion.div
+                className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing"
+                drag="y"
+                dragConstraints={{ top: 0, bottom: 0 }}
+                dragElastic={0.2}
+                onDragEnd={handleDragEnd}
+              >
+                <div className="bg-primary-500 h-0.5 w-10 shrink-0 rounded-full" />
+              </motion.div>
+              {children}
+            </motion.div>
+          </>
         )}
-        {...props}
-      >
-        <div className="bg-primary-500 mt-6 mb-2 h-0.5 w-10 rounded-full mx-auto hidden shrink-0 group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
-        {children}
-      </DrawerPrimitive.Content>
-    </DrawerPortal>
+      </AnimatePresence>
+    </Portal>
   );
 }
 
-function DrawerHeader({ className, ...props }: React.ComponentProps<'div'>) {
+function DrawerHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       data-slot="drawer-header"
-      className={cn(
-        'gap-0.5 px-4 pb-6 group-data-[vaul-drawer-direction=bottom]/drawer-content:text-center group-data-[vaul-drawer-direction=top]/drawer-content:text-center md:gap-0.5 md:text-left flex flex-col',
-        className
-      )}
+      className={cn('flex flex-col gap-0.5 px-4 pb-6 text-center', className)}
       {...props}
     />
   );
 }
 
-function DrawerFooter({ className, ...props }: React.ComponentProps<'div'>) {
-  return <div data-slot="drawer-footer" className={cn('gap-2 p-4 mt-auto flex flex-col', className)} {...props} />;
+function DrawerFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div data-slot="drawer-footer" className={cn('mt-auto flex flex-col gap-2 p-4', className)} {...props} />;
 }
 
-function DrawerTitle({ className, ...props }: React.ComponentProps<typeof DrawerPrimitive.Title>) {
-  return (
-    <DrawerPrimitive.Title
-      data-slot="drawer-title"
-      className={cn('text-black text-base font-medium', className)}
-      {...props}
-    />
-  );
+function DrawerTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+  return <h2 data-slot="drawer-title" className={cn('text-base font-medium text-black', className)} {...props} />;
 }
 
-function DrawerDescription({ className, ...props }: React.ComponentProps<typeof DrawerPrimitive.Description>) {
-  return (
-    <DrawerPrimitive.Description
-      data-slot="drawer-description"
-      className={cn('text-grey-500 text-sm', className)}
-      {...props}
-    />
-  );
+function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
+  return <p data-slot="drawer-description" className={cn('text-sm text-grey-500', className)} {...props} />;
+}
+
+// Stub exports for API compatibility (unused by consumers)
+function DrawerTrigger({ children }: { children?: React.ReactNode }) {
+  return <>{children}</>;
+}
+function DrawerClose({ children }: { children?: React.ReactNode }) {
+  return <>{children}</>;
+}
+function DrawerPortal({ children }: { children?: React.ReactNode }) {
+  return <>{children}</>;
+}
+function DrawerOverlay({ children }: { children?: React.ReactNode }) {
+  return <>{children}</>;
 }
 
 export {
