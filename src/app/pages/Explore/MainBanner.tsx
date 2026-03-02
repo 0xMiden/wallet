@@ -18,12 +18,10 @@ export default MainBanner;
 const BalanceBanner: FC<{ balance: BigNumber; assetSlug?: string | null }> = ({ balance, assetSlug }) => {
   if (assetSlug) {
     return (
-      <div className="mt-3 text-heading-gray flex text-[56px] leading-none">
+      <div className="mt-3 text-heading-gray flex text-[64px] leading-none font-bold">
         {balance.toString()}
-        <div className="flex flex-col justify-end ml-2" style={{ fontSize: `22px`, lineHeight: '32px' }}>
-          <span className="text-gray-4 font-normal uppercase" style={{ color: '#9E9E9E' }}>
-            {assetSlug}
-          </span>
+        <div className="flex flex-col justify-end ml-2">
+          <span className="text-gray-4 font-normal uppercase">{assetSlug}</span>
         </div>
       </div>
     );
@@ -31,7 +29,7 @@ const BalanceBanner: FC<{ balance: BigNumber; assetSlug?: string | null }> = ({ 
   return (
     <InFiat assetSlug={assetSlug || 'aleo'} volume={balance} smallFractionFont={false}>
       {({ balance, symbol }) => (
-        <div className="mt-1 text-heading-gray flex text-[56px] leading-none">
+        <div className="mt-1 text-heading-gray flex text-[64px] leading-none font-bold">
           <span>{symbol}</span>
           {balance}
         </div>
