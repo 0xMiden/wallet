@@ -1,5 +1,6 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useCallback, useMemo, useState } from 'react';
 
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
@@ -12,17 +13,20 @@ import { ReactComponent as LanguageIcon } from 'app/icons/settings/language.svg'
 import { ReactComponent as PrivacyPolicyIcon } from 'app/icons/settings/privacy-policy.svg';
 import { ReactComponent as SeedPhraseIcon } from 'app/icons/settings/seed-phrase.svg';
 import { ReactComponent as TosIcon } from 'app/icons/settings/tos.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppSettings from 'app/templates/DAppSettings';
 import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
-import RevealSecret from 'app/templates/RevealSecret';
+import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
+import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
+import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
-import { goBack } from 'lib/woozie';
+import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 
 import pkg from '../../../package.json';
@@ -33,8 +37,6 @@ import { SettingsSelectors } from './Settings.selectors';
 type SettingsProps = {
   tabSlug?: string | null;
 };
-
-const RevealSeedPhrase: FC = () => <RevealSecret reveal="seed-phrase" />;
 
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English',
@@ -58,13 +60,14 @@ type Tab = {
   slug: string;
   titleI18nKey: string;
   Icon: React.FC<{ style?: React.CSSProperties }>;
-  Component: React.FC;
+  Component: React.FC<{ onClose?: () => void }>;
   testID?: SettingsSelectors;
   iconStyle?: React.CSSProperties;
   hasOwnLayout?: boolean;
   rightText?: string;
   linksOutsideOfWallet?: boolean;
   isDrawer?: boolean;
+  onClick?: () => void;
 };
 
 type TabGroup = {
@@ -89,6 +92,7 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'addressBook',
         Icon: AddressBookIcon,
         Component: AddressBook,
+        isDrawer: true,
         testID: SettingsSelectors.AddressBookButton
       },
       {
@@ -96,7 +100,8 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'language',
         Icon: LanguageIcon,
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton
+        testID: SettingsSelectors.LanguageButton,
+        isDrawer: true
       }
     ]
   },
@@ -107,8 +112,9 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'reveal-seed-phrase',
         titleI18nKey: 'recoveryPhrase',
         Icon: SeedPhraseIcon,
-        Component: RevealSeedPhrase,
-        testID: SettingsSelectors.RevealSeedPhraseButton
+        Component: RevealSeedPhraseFlow,
+        testID: SettingsSelectors.RevealSeedPhraseButton,
+        hasOwnLayout: true
       },
       {
         slug: 'encrypted-wallet-file',
@@ -189,6 +195,18 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const activeTab = useMemo(() => ALL_TABS.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null, [tabSlug]);
   const languageLabel = getCurrentLanguageLabel();
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
+  const [showSeedWarning, setShowSeedWarning] = useState(false);
+
+  const handleSeedWarningClose = useCallback(() => {
+    hapticLight();
+    setShowSeedWarning(false);
+  }, []);
+
+  const handleSeedWarningView = useCallback(() => {
+    hapticMedium();
+    setShowSeedWarning(false);
+    navigate('/settings/reveal-seed-phrase');
+  }, []);
 
   return (
     <>
@@ -215,7 +233,17 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
                     const isDrawerTab = tab.isDrawer;
-                    const linkTo = isExternal ? tab.slug : isDrawerTab ? undefined : `/settings/${tab.slug}`;
+                    const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
+                    const hasCustomClick = isDrawerTab || isSeedPhrase;
+                    const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
+                    const handleClick = isDrawerTab
+                      ? () => setOpenDrawer(tab.slug)
+                      : isSeedPhrase
+                        ? () => {
+                            hapticLight();
+                            setShowSeedWarning(true);
+                          }
+                        : undefined;
                     return (
                       <div key={tab.slug + tab.titleI18nKey} className="px-2">
                         <MenuItem
@@ -226,7 +254,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                           testID={tab.testID?.toString() || ''}
                           linksOutsideOfWallet={!!isExternal}
                           rightText={tab.slug === 'language' ? languageLabel : undefined}
-                          onClick={isDrawerTab ? () => setOpenDrawer(tab.slug) : undefined}
+                          onClick={handleClick}
                         />
                       </div>
                     );
@@ -246,12 +274,73 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             <DrawerHeader>
               <DrawerTitle>{t(tab.titleI18nKey)}</DrawerTitle>
             </DrawerHeader>
-            <div className="px-6 pb-6">
-              <tab.Component />
+            <div className="px-4 pb-10 overflow-y-auto min-h-0">
+              <tab.Component onClose={() => setOpenDrawer(null)} />
             </div>
           </DrawerContent>
         </Drawer>
       ))}
+
+      {/* Seed phrase warning overlay */}
+      <AnimatePresence>
+        {showSeedWarning && (
+          <motion.div
+            key="seed-warning"
+            className="absolute inset-0 z-50 flex flex-col backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+          >
+            <motion.div
+              className="flex-1 flex flex-col"
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+            >
+              <div className="mt-6 px-4">
+                <div className="bg-gray-25 rounded-2xl px-6 py-8">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <div key={i} className="h-1.5 rounded-full bg-[#BABABA]" style={{ width: 144 }} />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4 bg-white rounded-xl p-4 text-center">
+                  <p className="text-sm text-heading-gray">{t('pleaseWriteDownRecoveryPhrase')}</p>
+                </div>
+              </div>
+
+              <div className="mt-auto pt-6 pb-10 flex flex-col items-center text-center bg-white rounded-t-2xl">
+                <div className="flex flex-col px-6 items-center">
+                  <div className="w-10 h-10 rounded-sm bg-primary-500 flex items-center justify-center mb-4">
+                    <Icon name={IconName.EyeOff} size="md" fill="white" />
+                  </div>
+
+                  <h3 className="text-base font-medium text-black mb-1">{t('viewThisInPrivatePlace')}</h3>
+                  <p className="text-sm text-[#898989] mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
+                </div>
+                <div className="flex gap-4 w-full px-4">
+                  <Button
+                    className="flex-1 justify-center"
+                    variant={ButtonVariant.Secondary}
+                    title={t('close')}
+                    onClick={handleSeedWarningClose}
+                  />
+                  <Button
+                    className="flex-1 justify-center"
+                    variant={ButtonVariant.Primary}
+                    title={t('view')}
+                    onClick={handleSeedWarningView}
+                  />
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

@@ -50,7 +50,7 @@ const AddressBook: React.FC = () => {
       <hr className="border-gray-300 my-8" />
 
       <div className="flex flex-col gap-4">
-        <span className="text-heading-gray font-medium text-xl">{t('currentContacts')}</span>
+        <span className="text-heading-gray font-medium text-base">{t('currentContacts')}</span>
         <input
           type="text"
           placeholder={t('searchContacts')}
@@ -133,12 +133,9 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
   );
 
   return (
-    <form
-      className={classNames('flex flex-col', isMobile() ? 'pt-8' : 'pt-4', className)}
-      onSubmit={handleSubmit(onAddContactSubmit)}
-    >
+    <form className={classNames('flex flex-col', className)} onSubmit={handleSubmit(onAddContactSubmit)}>
       <div className="flex flex-col gap-4">
-        <span className="text-heading-gray font-medium text-xl">{t('addContact')}</span>
+        <span className="text-heading-gray font-medium text-base">{t('addContact')}</span>
         <FormField
           {...register('name', {
             required: t('required'),

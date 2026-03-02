@@ -36,7 +36,7 @@ const propsPerButtonVariant = {
   [ButtonVariant.Secondary]: {
     color: 'text-heading-gray',
     disabledColor: 'text-grey-400',
-    backgroundColor: 'bg-grey-25',
+    backgroundColor: 'bg-[#E9E4E4]',
     hoverBackgroundColor: 'hover:bg-grey-50',
     disabledBackgroundColor: 'bg-grey-200',
     iconColor: 'black',
