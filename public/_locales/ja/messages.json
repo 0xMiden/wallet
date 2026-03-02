@@ -2487,6 +2487,10 @@
     "message": "DApp 接続を有効または無効にして、可視性のバランスを切り替えます。",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "「接続されている」を参照",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "転送の詳細",
     "englishSource": "Transfer Details"

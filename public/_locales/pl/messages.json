@@ -2412,6 +2412,10 @@
     "message": "Przełącz, aby włączyć lub wyłączyć połączenia DApp i widoczność salda.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "Zobacz połączone",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "Szczegóły przelewu",
     "englishSource": "Transfer Details"

@@ -2474,6 +2474,10 @@
     "message": "Basculez pour activer ou désactiver les connexions DApp et équilibrer la visibilité.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "Voir connecté",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "Détails du transfert",
     "englishSource": "Transfer Details"

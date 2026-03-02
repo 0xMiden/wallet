@@ -2487,6 +2487,10 @@
     "message": "切换以启用或禁用 DApp 连接并平衡可见性。",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "查看已连接",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "转账详情",
     "englishSource": "Transfer Details"
