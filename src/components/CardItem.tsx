@@ -70,7 +70,7 @@ export const CardItem: React.FC<CardItemProps> = ({
   const cardItemClasses = classNames(
     'flex items-center justify-evenly', // Layout classes
     'h-[56px] p-2', // Size and padding classes
-    'gap-x-2 bg-white', // Gap and background classes
+    'gap-x-2 bg-app-bg', // Gap and background classes
     'rounded-lg transition', // Shape and transition classes
     'duration-300 ease-in-out', // Transition duration and timing function classes
     hoverable && 'hover:bg-grey-50 cursor-pointer', // Hover and cursor classes
@@ -82,22 +82,32 @@ export const CardItem: React.FC<CardItemProps> = ({
     <div {...props} className={cardItemClasses} onClick={handleClick}>
       <div className="shrink-0">{iconLeft && <LeftIconOrComponent icon={iconLeft} color="black" />}</div>
       <div className="flex overflow-hidden w-full justify-between">
-        <div className="flex-col flex justify-center overflow-hidden">
+        <div className="flex-col flex justify-center overflow-hidden gap-1">
           {title && (
             <p
-              className={classNames('text-sm font-medium text-black truncate text-ellipsis text-left', titleClassName)}
+              className={classNames(
+                'text-base font-semidbold text-black truncate text-ellipsis text-left leading-[100%]',
+                titleClassName
+              )}
             >
               {title}
             </p>
           )}
           {subtitle && (
-            <p className={classNames('text-xs text-grey-600 truncate text-ellipsis', subtitleClassName)}>{subtitle}</p>
+            <p
+              className={classNames(
+                'text-sm text-black truncate text-ellipsis leading-[100%] opacity-50',
+                subtitleClassName
+              )}
+            >
+              {subtitle}
+            </p>
           )}
         </div>
         {(titleRight || subtitleRight) && (
-          <div className="text-sm text-grey-600 flex flex-col justify-center items-end">
-            {titleRight && <div className="text-lg leading-[100%] font-medium text-heading-gray">{titleRight}</div>}
-            {subtitleRight && <div className="text-xs text-[#4848489E]">{subtitleRight}</div>}
+          <div className="text-sm text-grey-600 flex flex-col justify-center items-end gap-1">
+            {titleRight && <div className="text-base leading-[100%] font-medium text-black">{titleRight}</div>}
+            {subtitleRight && <div className="text-sm leading-[100%] text-black opacity-50">{subtitleRight}</div>}
           </div>
         )}
       </div>

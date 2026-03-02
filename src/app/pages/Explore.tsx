@@ -7,6 +7,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/send-new.svg';
+import { ReactComponent as UpIcon } from 'app/icons/v2/up.svg';
 import Header from 'app/layouts/PageLayout/Header';
 import AddressChip from 'app/templates/AddressChip';
 import { ChainInstabilityBanner } from 'components/ChainInstabilityBanner';
@@ -186,17 +187,19 @@ const Explore: FC = () => {
   const sendLink = allTokenBalances.length > 0 ? '/send' : '/get-tokens';
 
   return (
-    <div className="text-heading-gray font-geist">
+    <div className="flex flex-col h-full text-heading-gray font-geist">
       <ConnectivityIssueBanner />
       <ChainInstabilityBanner />
       <Header />
       <div className={classNames('flex flex-col justify-start', 'pt-6')}>
         <div className="flex flex-col justify-center items-center">
           <MainBanner />
+          <div className="flex items-center gap-1 mt-2">
+            <UpIcon className="h-3.5 w-3.5" />
+            <span className="text-sm font-semibold text-heading-gray">0.00%</span>
+          </div>
         </div>
-        <div
-          className={classNames('flex justify-center items-center w-full', isMobile() ? 'pt-6 gap-8' : 'pt-3 gap-6')}
-        >
+        <div className={classNames('flex w-full pt-6 gap-3 items-center justify-evenly px-4')}>
           <ActionButton
             label={t('send')}
             Icon={SendIcon}
@@ -206,7 +209,7 @@ const Explore: FC = () => {
             testID={ExploreSelectors.SendButton}
             isActive={false}
           />
-          <div className="relative">
+          <div className="relative flex-1">
             <ActionButton
               label={t('receive')}
               Icon={ReceiveIcon}
@@ -230,8 +233,8 @@ const Explore: FC = () => {
           />
         </div>
       </div>
-
-      <div className="overflow-y-auto relative">
+      <hr className="bg-grey-300 h-px m-4 opacity-20" />
+      <div className="flex-1 min-h-0 overflow-y-auto relative">
         <div className={classNames('bg-transparent')}>
           <Tokens />
         </div>
@@ -267,42 +270,20 @@ const ActionButton: FC<ActionButtonProps> = ({
 }) => {
   const spanRef = useTippy<HTMLSpanElement>(tippyProps);
   const buttonContent = (
-    <div className={classNames('mb-1 flex flex-col items-center', 'rounded-10', 'pt-1', 'text-heading-gray')}>
-      <div
-        className={classNames(
-          'flex items-center justify-center',
-          isActive ? 'bg-primary-500' : 'bg-app-bg',
-          !isMobile() && isActive && 'hover:bg-primary-600',
-          'border border-[#00000033] rounded-10'
-        )}
-        style={{
-          height: isMobile() ? '65px' : '51.32px',
-          width: isMobile() ? '65px' : '51.32px'
-        }}
-      >
-        <Icon
-          className={isActive ? 'text-white' : 'text-primary-500'}
-          style={{
-            height: isMobile() ? '30px' : '24px',
-            width: isMobile() ? '30px' : '24px'
-          }}
-        />
-      </div>
-      <span
-        className={classNames('text-sm text-center', disabled ? 'text-gray-400' : 'text-[#292929]', 'pt-2')}
-        style={{
-          fontSize: '12px',
-          lineHeight: '16px'
-        }}
-      >
-        {label}
-      </span>
+    <div
+      className={classNames(
+        'flex flex-col items-center justify-center gap-2 rounded-10 py-5 w-full',
+        isActive ? 'bg-primary-500 text-white' : 'bg-white text-heading-gray'
+      )}
+    >
+      <Icon className={isActive ? 'text-white' : 'text-heading-gray'} style={{ height: '24px', width: '24px' }} />
+      <span className={classNames('text-sm font-medium', disabled && !isActive && 'text-gray-400')}>{label}</span>
     </div>
   );
 
   if (disabled) {
     return (
-      <span className={classNames('flex flex-col items-center', className)} ref={spanRef}>
+      <span className={classNames('flex flex-col items-center flex-1', className)} ref={spanRef}>
         {buttonContent}
       </span>
     );
@@ -316,7 +297,7 @@ const ActionButton: FC<ActionButtonProps> = ({
     return (
       <button
         type="button"
-        className={classNames('flex flex-col items-center', className)}
+        className={classNames('flex flex-col items-center w-full flex-1', className)}
         onClick={handleClick}
         data-testid={testID}
       >
@@ -330,7 +311,7 @@ const ActionButton: FC<ActionButtonProps> = ({
       testID={testID}
       testIDProperties={testIDProperties}
       to={to!}
-      className={classNames('flex flex-col items-center', className)}
+      className={classNames('flex flex-col items-center w-full flex-1', className)}
     >
       {buttonContent}
     </Link>
