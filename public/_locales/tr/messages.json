@@ -2475,6 +2475,10 @@
     "message": "DApp bağlantılarını etkinleştirmek veya devre dışı bırakmak ve görünürlüğü dengelemek için geçiş yapın.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "Bağlantılı olanı görün",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "Transfer Detayları",
     "englishSource": "Transfer Details"

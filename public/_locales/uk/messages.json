@@ -2488,6 +2488,10 @@
     "message": "Перемикайте, щоб увімкнути або вимкнути з’єднання DApp і збалансувати видимість.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "Дивіться пов'язаний",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "Деталі переказу",
     "englishSource": "Transfer Details"

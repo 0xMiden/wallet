@@ -2473,6 +2473,10 @@
     "message": "Alterne para ativar ou desativar conexões DApp e equilibrar a visibilidade.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "Veja conectado",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "Detalhes da transferência",
     "englishSource": "Transfer Details"

@@ -2451,6 +2451,10 @@
     "message": "Toggle to enable or disable DApp connections and balance visibility.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "See connected",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "Transfer Details",
     "englishSource": "Transfer Details"

@@ -2488,6 +2488,10 @@
     "message": "Переключите, чтобы включить или отключить соединения DApp и сбалансировать видимость.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "См. подключенное",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "Детали трансфера",
     "englishSource": "Transfer Details"

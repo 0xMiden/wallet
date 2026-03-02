@@ -2487,6 +2487,10 @@
     "message": "DApp 연결을 활성화 또는 비활성화하고 가시성의 균형을 토글합니다.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
+  "seeConnected": {
+    "message": "연결된 모습 보기",
+    "englishSource": "See connected"
+  },
   "transferDetails": {
     "message": "송금 세부정보",
     "englishSource": "Transfer Details"
