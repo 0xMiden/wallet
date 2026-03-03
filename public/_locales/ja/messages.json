@@ -2447,10 +2447,6 @@
     "message": "seed phrase を使用すると、いつでも公開アカウントを復元できます。ウォレットのロックを素早く解除する方法を以下から選択してください。",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "活動内容",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "並べ替え",
     "englishSource": "Sort by"

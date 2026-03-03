@@ -2448,10 +2448,6 @@
     "message": "С помощью seed phrase вы всегда можете восстановить свою общедоступную учетную запись. Выберите ниже, как быстро разблокировать свой кошелек.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "Деятельность",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "Сортировать по",
     "englishSource": "Sort by"
