@@ -61,6 +61,21 @@ const Explore: FC = () => {
   // while claimable notes is slow (~500ms due to syncState). With the mutex
   // serializing operations, we want the fast one to run first.
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
+
+  const portfolioChange = useMemo(() => {
+    const totalValue = allTokenBalances.reduce((sum, t) => {
+      const p = tokenPrices[t.metadata.symbol]?.price ?? 1;
+      return sum + t.balance * p;
+    }, 0);
+    if (totalValue === 0) return 0;
+    return allTokenBalances.reduce((sum, t) => {
+      const p = tokenPrices[t.metadata.symbol]?.price ?? 1;
+      const c = tokenPrices[t.metadata.symbol]?.change24h ?? 0;
+      const weight = (t.balance * p) / totalValue;
+      return sum + c * weight;
+    }, 0);
+  }, [allTokenBalances, tokenPrices]);
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
@@ -195,8 +210,16 @@ const Explore: FC = () => {
         <div className="flex flex-col justify-center items-center">
           <MainBanner />
           <div className="flex items-center gap-1 mt-2">
-            <UpIcon className="h-3.5 w-3.5" />
-            <span className="text-sm font-semibold text-heading-gray">0.00%</span>
+            <UpIcon className={classNames('h-3.5 w-3.5', portfolioChange < 0 && 'rotate-180')} />
+            <span
+              className={classNames(
+                'text-sm font-semibold',
+                portfolioChange > 0 ? 'text-green-500' : portfolioChange < 0 ? 'text-red-500' : 'text-heading-gray'
+              )}
+            >
+              {portfolioChange >= 0 ? '+' : ''}
+              {portfolioChange.toFixed(2)}%
+            </span>
           </div>
         </div>
         <div className={classNames('flex w-full pt-6 gap-3 items-center justify-evenly px-4')}>
