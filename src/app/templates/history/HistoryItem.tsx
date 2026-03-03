@@ -43,14 +43,26 @@ const getTransactionIcon = (entry: IHistoryEntry) => {
   }
 
   if (isFaucetRequest(entry)) {
-    return <FaucetIcon className="w-6 h-6" />;
+    return (
+      <div className="w-8.5 h-8.5 flex items-center justify-center rounded-xl bg-[#777487]">
+        <FaucetIcon className="w-4.5 h-4.5" />
+      </div>
+    );
   }
 
   switch (entry.transactionIcon) {
     case 'SEND':
-      return <SendIcon className="w-6 h-6" />;
+      return (
+        <div className={classNames('w-8.5 h-8.5 flex items-center justify-center rounded-xl', 'bg-[#2E80C4]')}>
+          <SendIcon className="w-3.5 h-3.5" />
+        </div>
+      );
     case 'RECEIVE':
-      return <ReceiveIcon className="w-6 h-6" />;
+      return (
+        <div className={classNames('w-8.5 h-8.5 flex items-center justify-center rounded-xl', 'bg-[#1A9C52]')}>
+          <ReceiveIcon className="w-4.5 h-4.5" />
+        </div>
+      );
     default:
       return <ReceiveIcon className="w-6 h-6" />;
   }

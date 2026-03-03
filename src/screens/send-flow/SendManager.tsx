@@ -13,21 +13,21 @@ import {
   requestSWTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
-import { useAccount, useAllAccounts } from 'lib/miden/front';
+import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { AccountsList } from './AccountsList';
 import { ReviewTransaction } from './ReviewTransaction';
 import { SelectToken } from './SelectToken';
 import { SendDetails } from './SendDetails';
-import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep } from './types';
+import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
 
 const ROUTES: Route[] = [
   {
@@ -72,9 +72,10 @@ const validationSchema = yup.object().shape(validations).required();
 
 export interface SendManagerProps {
   isLoading: boolean;
+  preselectedTokenId?: string | null;
 }
 
-export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
+export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselectedTokenId }) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
@@ -177,6 +178,23 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
   const recallBlocks = watch('recallBlocks');
   const delegateTransaction = watch('delegateTransaction');
   const token = watch('token');
+
+  // Pre-select token when navigating from token detail page
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  useEffect(() => {
+    if (!preselectedTokenId || !balanceData) return;
+    const match = balanceData.find(t => t.tokenId === preselectedTokenId);
+    if (!match) return;
+    const uiToken: UIToken = {
+      id: match.tokenId,
+      name: match.metadata.symbol,
+      decimals: match.metadata.decimals,
+      balance: match.balance,
+      fiatPrice: match.fiatPrice
+    };
+    setValue('token', uiToken);
+  }, [preselectedTokenId, balanceData, setValue]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -353,9 +371,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
         case SendFlowStep.SelectToken:
           return <SelectToken onAction={onAction} />;
         case SendFlowStep.SendDetails:
+          if (!token) return null;
           return (
             <SendDetails
-              token={token!}
+              token={token}
               amount={amount || ''}
               recipientAddress={recipientAddress || ''}
               sharePrivately={sharePrivately}
@@ -368,7 +387,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
               recallTime={recallTime}
               recallDate={recallDate}
               onAction={onAction}
-              onGoBack={goBack}
+              onGoBack={preselectedTokenId ? onClose : goBack}
               onAmountChange={onAmountChange}
               onAddressChange={onAddressChange}
               onScannedAddress={onScannedAddress}
@@ -428,7 +447,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
       handleSubmit,
       onSubmit,
       recallDate,
-      recallTime
+      recallTime,
+      onClose,
+      preselectedTokenId
     ]
   );
 
@@ -457,10 +478,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
   );
 };
 
-const NavigatorWrapper: React.FC<SendManagerProps> = props => {
+const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
+  const { search } = useLocation();
+  const preselectedTokenId = new URLSearchParams(search).get('tokenId');
+  const initialRoute = preselectedTokenId ? SendFlowStep.SendDetails : SendFlowStep.SelectToken;
+
   return (
-    <NavigatorProvider routes={ROUTES} initialRouteName={SendFlowStep.SelectToken}>
-      <SendManager {...props} />
+    <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
+      <SendManager {...props} preselectedTokenId={preselectedTokenId} />
     </NavigatorProvider>
   );
 };

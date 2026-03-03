@@ -224,21 +224,21 @@ const Explore: FC = () => {
         </div>
         <div className={classNames('flex w-full pt-6 gap-3 items-center justify-evenly px-4')}>
           <ActionButton
+            type="send"
             label={t('send')}
             Icon={SendIcon}
             to={sendLink}
             disabled={false}
             tippyProps={tippyPropsMock}
             testID={ExploreSelectors.SendButton}
-            isActive={false}
           />
           <div className="relative flex-1">
             <ActionButton
+              type="receive"
               label={t('receive')}
               Icon={ReceiveIcon}
               to="/receive"
               testID={ExploreSelectors.ReceiveButton}
-              isActive={false}
             />
             {selfClaimableNotes.length > 0 && (
               <div className="absolute top-[25%] left-[95%] -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full border-2 border-white">
@@ -247,12 +247,12 @@ const Explore: FC = () => {
             )}
           </div>
           <ActionButton
+            type="faucet"
             label={t('faucet')}
             Icon={FaucetIcon}
             to={isMobile() ? undefined : '/faucet'}
             onClick={isMobile() ? handleFaucetClick : undefined}
             testID={ExploreSelectors.FaucetButton}
-            isActive={false}
           />
         </div>
       </div>
@@ -270,6 +270,7 @@ export default Explore;
 
 interface ActionButtonProps extends TestIDProps {
   label: React.ReactNode;
+  type: 'send' | 'receive' | 'faucet';
   Icon: FunctionComponent<SVGProps<SVGSVGElement>>;
   to?: To;
   onClick?: () => void;
@@ -279,9 +280,21 @@ interface ActionButtonProps extends TestIDProps {
   isActive?: boolean;
 }
 
+function getActionBgColor(type: 'send' | 'receive' | 'faucet') {
+  switch (type) {
+    case 'send':
+      return 'bg-[#2E80C4]';
+    case 'receive':
+      return 'bg-[#38824A]';
+    case 'faucet':
+      return 'bg-[#777487]';
+  }
+}
+
 const ActionButton: FC<ActionButtonProps> = ({
   label,
   Icon,
+  type,
   to,
   onClick,
   disabled,
@@ -293,13 +306,10 @@ const ActionButton: FC<ActionButtonProps> = ({
 }) => {
   const spanRef = useTippy<HTMLSpanElement>(tippyProps);
   const buttonContent = (
-    <div
-      className={classNames(
-        'flex flex-col items-center justify-center gap-2 rounded-10 py-5 w-full',
-        isActive ? 'bg-primary-500 text-white' : 'bg-white text-heading-gray'
-      )}
-    >
-      <Icon className={isActive ? 'text-white' : 'text-heading-gray'} style={{ height: '24px', width: '24px' }} />
+    <div className={classNames('flex flex-col items-center justify-center gap-1 w-full')}>
+      <div className={classNames('py-5 w-full flex items-center justify-center rounded-10', getActionBgColor(type))}>
+        <Icon style={{ height: '24px', width: '24px' }} fill="white" />
+      </div>
       <span className={classNames('text-sm font-medium', disabled && !isActive && 'text-gray-400')}>{label}</span>
     </div>
   );

@@ -5,8 +5,8 @@ import { useRetryableSWR } from 'lib/swr';
 
 import { fetchTokenPrices } from './binance';
 
-export { getTokenPrice } from './binance';
-export type { TokenPriceInfo, TokenPrices } from './binance';
+export { fetchKlineData, getTokenPrice } from './binance';
+export type { KlinePoint, Timeframe, TokenPriceInfo, TokenPrices } from './binance';
 
 /**
  * PriceProvider - Fetches token prices from Binance and syncs to Zustand store.

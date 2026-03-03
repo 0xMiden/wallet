@@ -51,7 +51,7 @@ export default {
         },
         green: {
           100: '#00802680',
-          200: '#c6f6d5',
+          200: '#1A9C52',
           300: '#9ae6b4',
           400: '#68d391',
           500: '#48bb78',
@@ -105,6 +105,8 @@ export default {
         'pill-active': '#E87040',
         'accent-orange': '#EE622F',
         'app-bg': '#F6F4F2',
+        'send-blue': '#2E80C4',
+        'receive-green': '#38A169',
         ...customColors
       };
       return baseColors;

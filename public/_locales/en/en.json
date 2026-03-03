@@ -595,5 +595,11 @@
   "testnet": "Testnet",
   "browser": "Browser",
   "invalidAmount": "Invalid amount",
-  "showQrCode": "Show QR Code"
+  "showQrCode": "Show QR Code",
+  "tokenPrice": "Token Price",
+  "tokenInfo": "Token Info",
+  "fungible": "Fungible",
+  "network": "Network",
+  "recentActivity": "Recent Activity",
+  "type": "Type"
 }

@@ -95,7 +95,7 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
 
   return (
     <footer className="w-full px-4 pb-3 pt-2 md:px-6" style={mobileBottomPadding}>
-      <div className="flex items-center bg-gray-25 rounded-full px-2 py-2 shadow-[0px_8px_32px_0px_rgba(0,0,0,0.40)] backdrop-blur-xl">
+      <div className="flex items-center bg-gray-25 rounded-[26px] px-2 py-2 shadow-[0px_8px_32px_0px_rgba(0,0,0,0.40)] backdrop-blur-xl">
         <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
         <FooterNavButton
           Icon={ActivityIcon}
