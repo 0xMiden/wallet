@@ -2530,5 +2530,29 @@
   "showQrCode": {
     "message": "QR Kodunu Göster",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "Jeton Fiyatı",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "Jeton Bilgisi",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "Değiştirilebilir",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "Ağ",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "Son Etkinlik",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "Tip",
+    "englishSource": "Type"
   }
 }

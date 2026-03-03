@@ -2543,5 +2543,29 @@
   "showQrCode": {
     "message": "Показать QR-код",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "Цена токена",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "Информация о токене",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "взаимозаменяемый",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "Сеть",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "Недавняя активность",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "Тип",
+    "englishSource": "Type"
   }
 }

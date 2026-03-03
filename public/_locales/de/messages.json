@@ -2542,5 +2542,29 @@
   "showQrCode": {
     "message": "QR-Code anzeigen",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "Token-Preis",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "Token-Info",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "Austauschbar",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "Netzwerk",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "Letzte Aktivität",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "Typ",
+    "englishSource": "Type"
   }
 }

@@ -2529,5 +2529,29 @@
   "showQrCode": {
     "message": "Afficher le code QR",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "Prix ​​du jeton",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "Informations sur le jeton",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "Fongible",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "Réseau",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "Activité récente",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "Taper",
+    "englishSource": "Type"
   }
 }

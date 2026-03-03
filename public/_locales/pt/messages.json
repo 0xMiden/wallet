@@ -2528,5 +2528,29 @@
   "showQrCode": {
     "message": "Mostrar código QR",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "Preço do token",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "Informações do token",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "Fungível",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "Rede",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "Atividade recente",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "Tipo",
+    "englishSource": "Type"
   }
 }

@@ -2542,5 +2542,29 @@
   "showQrCode": {
     "message": "显示二维码",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "代币价格",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "代币信息",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "可替代的",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "网络",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "最近的活动",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "类型",
+    "englishSource": "Type"
   }
 }

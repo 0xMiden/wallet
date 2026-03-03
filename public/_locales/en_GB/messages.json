@@ -2570,5 +2570,29 @@
   "showQrCode": {
     "message": "Show QR Code",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "Token Price",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "Token Info",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "Fungible",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "Network",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "Recent Activity",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "Type",
+    "englishSource": "Type"
   }
 }

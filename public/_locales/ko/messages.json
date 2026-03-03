@@ -2542,5 +2542,29 @@
   "showQrCode": {
     "message": "QR 코드 표시",
     "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "토큰 가격",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "토큰 정보",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "대체 가능",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "회로망",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "최근 활동",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "유형",
+    "englishSource": "Type"
   }
 }
