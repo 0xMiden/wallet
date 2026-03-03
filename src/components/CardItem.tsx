@@ -20,6 +20,8 @@ export interface CardItemProps extends React.ComponentProps<'div'> {
   hoverable?: boolean;
   titleClassName?: string;
   subtitleClassName?: string;
+  titleRightClassName?: string;
+  subtitleRightClassName?: string;
 }
 
 export const LeftIconOrComponent = ({
@@ -59,6 +61,8 @@ export const CardItem: React.FC<CardItemProps> = ({
   onClick,
   titleClassName,
   subtitleClassName,
+  titleRightClassName,
+  subtitleRightClassName,
   ...props
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -69,7 +73,7 @@ export const CardItem: React.FC<CardItemProps> = ({
   };
   const cardItemClasses = classNames(
     'flex items-center justify-evenly', // Layout classes
-    'h-[56px] p-2', // Size and padding classes
+    'p-2', // Size and padding classes
     'gap-x-2 bg-app-bg', // Gap and background classes
     'rounded-lg transition', // Shape and transition classes
     'duration-300 ease-in-out', // Transition duration and timing function classes
@@ -96,7 +100,7 @@ export const CardItem: React.FC<CardItemProps> = ({
           {subtitle && (
             <p
               className={classNames(
-                'text-sm text-black truncate text-ellipsis leading-[100%] opacity-50',
+                'text-sm text-black truncate text-ellipsis leading-[100%] opacity-50 font-medium',
                 subtitleClassName
               )}
             >
@@ -106,12 +110,24 @@ export const CardItem: React.FC<CardItemProps> = ({
         </div>
         {(titleRight || subtitleRight) && (
           <div className="text-sm text-grey-600 flex flex-col justify-center items-end gap-1">
-            {titleRight && <div className="text-base leading-[100%] font-medium text-black">{titleRight}</div>}
-            {subtitleRight && <div className="text-sm leading-[100%] text-black opacity-50">{subtitleRight}</div>}
+            {titleRight && (
+              <div className={classNames('text-base leading-[100%] font-medium text-black', titleRightClassName)}>
+                {titleRight}
+              </div>
+            )}
+            {subtitleRight && (
+              <div className={classNames('text-sm leading-[100%] text-black opacity-50', subtitleRightClassName)}>
+                {subtitleRight}
+              </div>
+            )}
           </div>
         )}
       </div>
-      <div className="shrink-0">{iconRight && <IconOrComponent icon={iconRight} color="black" />}</div>
+      {iconRight && (
+        <div className="shrink-0">
+          <IconOrComponent icon={iconRight} color="black" />
+        </div>
+      )}
     </div>
   );
 };

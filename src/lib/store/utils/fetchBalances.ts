@@ -2,12 +2,13 @@ import { FungibleAsset } from '@miden-sdk/miden-sdk';
 import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
-import { setTokensBaseMetadata } from '../../miden/front/assets';
+import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
 
 export interface FetchBalancesOptions {
   /** Callback to update asset metadata in the store */
@@ -30,12 +31,26 @@ export async function fetchBalances(
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
 ): Promise<TokenBalanceData[]> {
-  const { setAssetsMetadata, fetchMissingMetadata = true } = options;
+  const cachedMetadatas =
+    (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
+  console.log(
+    'fetchBalances - address:',
+    address,
+    'tokenMetadatas:',
+    tokenMetadatas,
+    'cachedMetadatas:',
+    cachedMetadatas
+  );
+  const { setAssetsMetadata } = options;
   const balances: TokenBalanceData[] = [];
 
   // Local copy of metadata that we can add to during this fetch
   const localMetadatas = { ...tokenMetadatas };
 
+  // see if missing metadata should be fetched
+  const fetchMissingMetadata = Object.keys(localMetadatas)
+    .map(faucetId => !cachedMetadatas[faucetId])
+    .some(isMissing => isMissing);
   // Get midenFaucetId early so we can use it inside the lock
   const midenFaucetId = await getFaucetIdSetting();
 
@@ -50,9 +65,9 @@ export async function fetchBalances(
 
     return { account: acc, assets: acc.vault().fungibleAssets() as FungibleAsset[] };
   });
-
+  console.log('Fetched account and assets from WASM client:', { account, assets });
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
-  const fetchedMetadatas: Record<string, AssetMetadata> = {};
+  const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
 
   if (fetchMissingMetadata) {
     const metadataFetchPromises = assets

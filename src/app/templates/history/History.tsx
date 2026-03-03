@@ -19,91 +19,103 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   tokenId?: string;
+  searchQuery?: string;
 };
 
-const History = memo<HistoryProps>(({ address, className, numItems, scrollParentRef, fullHistory, tokenId }) => {
-  const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
+const History = memo<HistoryProps>(
+  ({ address, className, numItems, scrollParentRef, fullHistory, tokenId, searchQuery }) => {
+    const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
+    const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
 
-  const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
-    [`latest-transactions`, address, tokenId],
-    async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
-    {
-      revalidateOnMount: true,
-      refreshInterval: 10_000,
-      dedupingInterval: 3_000,
-      keepPreviousData: true
+    const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
+      [`latest-transactions`, address, tokenId],
+      async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
+      {
+        revalidateOnMount: true,
+        refreshInterval: 10_000,
+        dedupingInterval: 3_000,
+        keepPreviousData: true
+      }
+    );
+
+    const { data: latestPendingTransactions, mutate: mutateTx } = useRetryableSWR(
+      [`latest-pending-transactions`, address, tokenId],
+      async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
+      {
+        revalidateOnMount: true,
+        refreshInterval: 5_000,
+        dedupingInterval: 3_000,
+        keepPreviousData: true
+      }
+    );
+    const pendingTransactions = useMemo(
+      () =>
+        latestPendingTransactions?.map(tx => {
+          tx.cancel = async () => {
+            if (tx.txId) {
+              await cancelTransactionById(tx.txId, 'Transaction was cancelled by user');
+              mutateTx();
+            }
+          };
+          return tx;
+        }) || [],
+      [latestPendingTransactions, mutateTx]
+    );
+
+    // Don't sort the pending transactions, earliest should come first as they are processed first
+    const allEntries = useMemo(
+      () => pendingTransactions.concat(mergeAndSort(latestTransactions ?? [], restEntries)),
+      [latestTransactions, restEntries, pendingTransactions]
+    );
+
+    const loadMore = async (page: number) => {
+      // already loading, don't make duplicate calls
+      if (isLoading) {
+        return;
+      }
+      setIsLoading(true);
+      const offset = HISTORY_PAGE_SIZE * page;
+      const limit = HISTORY_PAGE_SIZE;
+      const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
+      const allRestEntries = mergeAndSort(restEntries, olderTransactions);
+
+      if (allRestEntries.length === 0) {
+        setHasMore(false);
+      }
+      setRestEntries(allRestEntries);
+      setIsLoading(false);
+    };
+
+    let entries: IHistoryEntry[] = allEntries;
+    if (searchQuery?.trim()) {
+      const query = searchQuery.toLowerCase();
+      entries = entries.filter(
+        e =>
+          e.message?.toLowerCase().includes(query) ||
+          e.token?.toLowerCase().includes(query) ||
+          e.secondaryAddress?.toLowerCase().includes(query)
+      );
     }
-  );
-
-  const { data: latestPendingTransactions, mutate: mutateTx } = useRetryableSWR(
-    [`latest-pending-transactions`, address, tokenId],
-    async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
-    {
-      revalidateOnMount: true,
-      refreshInterval: 5_000,
-      dedupingInterval: 3_000,
-      keepPreviousData: true
+    if (numItems) {
+      const maxIndex = Math.min(numItems, entries.length);
+      entries = entries.slice(0, maxIndex);
     }
-  );
-  const pendingTransactions = useMemo(
-    () =>
-      latestPendingTransactions?.map(tx => {
-        tx.cancel = async () => {
-          if (tx.txId) {
-            await cancelTransactionById(tx.txId, 'Transaction was cancelled by user');
-            mutateTx();
-          }
-        };
-        return tx;
-      }) || [],
-    [latestPendingTransactions, mutateTx]
-  );
 
-  // Don't sort the pending transactions, earliest should come first as they are processed first
-  const allEntries = useMemo(
-    () => pendingTransactions.concat(mergeAndSort(latestTransactions ?? [], restEntries)),
-    [latestTransactions, restEntries, pendingTransactions]
-  );
-
-  const loadMore = async (page: number) => {
-    // already loading, don't make duplicate calls
-    if (isLoading) {
-      return;
-    }
-    setIsLoading(true);
-    const offset = HISTORY_PAGE_SIZE * page;
-    const limit = HISTORY_PAGE_SIZE;
-    const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
-    const allRestEntries = mergeAndSort(restEntries, olderTransactions);
-
-    if (allRestEntries.length === 0) {
-      setHasMore(false);
-    }
-    setRestEntries(allRestEntries);
-    setIsLoading(false);
-  };
-
-  let entries: IHistoryEntry[] = allEntries;
-  if (numItems) {
-    const maxIndex = Math.min(numItems, allEntries.length);
-    entries = entries.slice(0, maxIndex);
+    return (
+      <HistoryView
+        entries={entries ?? []}
+        initialLoading={transactionsLoading}
+        loadMore={loadMore}
+        hasMore={hasMore}
+        scrollParentRef={scrollParentRef}
+        fullHistory={fullHistory}
+        className={className}
+      />
+    );
   }
-
-  return (
-    <HistoryView
-      entries={entries ?? []}
-      initialLoading={transactionsLoading}
-      loadMore={loadMore}
-      hasMore={hasMore}
-      scrollParentRef={scrollParentRef}
-      fullHistory={fullHistory}
-      className={className}
-    />
-  );
-});
+);
 
 export default History;
 

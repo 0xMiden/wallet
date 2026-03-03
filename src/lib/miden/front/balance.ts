@@ -61,7 +61,6 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
 
   // Use refs for values that shouldn't trigger callback recreation
   const tokenMetadatasRef = useRef(tokenMetadatas);
-
   // Keep refs in sync
   useEffect(() => {
     tokenMetadatasRef.current = tokenMetadatas;
