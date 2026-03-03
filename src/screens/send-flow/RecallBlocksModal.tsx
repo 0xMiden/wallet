@@ -31,7 +31,7 @@ export const RecallBlocksModal: FC<RecallBlocksModalProps> = ({
       closeTimeoutMS={isExtension() ? 0 : 200}
       overlayClassName={classNames(
         'absolute inset-0 z-30',
-        'bg-white/10 backdrop-blur-xl backdrop-saturate-150',
+        'bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150',
         'flex items-end justify-center'
       )}
       onAfterOpen={() => {

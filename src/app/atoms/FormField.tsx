@@ -261,7 +261,7 @@ const SecretBanner: React.FC<SecretBannerProps> = ({ secretBannerDisplayed, hand
         'absolute inset-0.5 rounded-5',
         'flex items-center justify-center',
         'cursor-text',
-        'bg-white/60 backdrop-blur-sm'
+        'bg-pure-white/60 dark:bg-pure-black/60 backdrop-blur-sm'
       )}
       onClick={handleSecretBannerClick}
     >

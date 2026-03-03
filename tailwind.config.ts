@@ -3,6 +3,7 @@ import { Config } from 'tailwindcss';
 import customColors from './src/utils/colors';
 
 export default {
+  darkMode: 'class',
   content: ['./public/**/*.{html,js,mjs}', './src/**/*.{js,jsx,ts,tsx}'],
   theme: {
     // Custom colors (overrides Tailwind defaults)
@@ -10,13 +11,20 @@ export default {
       const baseColors = {
         transparent: 'transparent',
         current: 'currentColor',
-        black: '#000',
-        white: '#fff',
-        'heading-gray': '#484848',
+        black: 'var(--color-text-primary)',
+        white: 'var(--color-surface)',
+        'pure-black': '#000000',
+        'pure-white': '#FFFFFF',
+        'surface-solid': 'var(--color-surface-solid)',
+        'input-bg': 'var(--color-input-bg)',
+        'border-light': 'var(--color-border-light)',
+        'text-muted': 'var(--color-text-muted)',
+        'border-subtle': 'var(--color-border-subtle)',
+        'heading-gray': 'var(--color-text-secondary)',
         gray: {
-          25: '#F9F9F9',
-          50: '#F3F3F3',
-          100: '#E1DBDB',
+          25: 'var(--color-surface-secondary)',
+          50: 'var(--color-surface-tertiary)',
+          100: 'var(--color-hover-bg)',
           200: '#59657C',
           250: '#484848',
           300: '#E0D9D6',
@@ -26,17 +34,6 @@ export default {
           700: '#E9EBEF',
           800: '#818898',
           900: '#F8F9FA'
-        },
-        red: {
-          100: '#fff5f5',
-          200: '#fed7d7',
-          300: '#feb2b2',
-          400: '#fc8181',
-          500: '#f56565',
-          600: '#e53e3e',
-          700: '#c53030',
-          800: '#9b2c2c',
-          900: '#742a2a'
         },
         yellow: {
           100: '#fffff0',
@@ -48,17 +45,6 @@ export default {
           700: '#b7791f',
           800: '#975a16',
           900: '#744210'
-        },
-        green: {
-          100: '#00802680',
-          200: '#1A9C52',
-          300: '#9ae6b4',
-          400: '#68d391',
-          500: '#48bb78',
-          600: '#38a169',
-          700: '#2f855a',
-          800: '#276749',
-          900: '#22543d'
         },
         blue: {
           100: '#E2E7FD',
@@ -100,11 +86,11 @@ export default {
         'primary-orange-lighter': '#FFF0E5',
         'primary-orange-darker': '#882200',
         'primary-gray': '#656565',
-        'border-card': '#00000033',
-        'chip-bg': '#EEEFF2',
+        'border-card': 'var(--color-border)',
+        'chip-bg': 'var(--color-chip-bg)',
         'pill-active': '#E87040',
         'accent-orange': '#EE622F',
-        'app-bg': '#F6F4F2',
+        'app-bg': 'var(--color-app-bg)',
         'send-blue': '#2E80C4',
         'receive-green': '#38A169',
         ...customColors

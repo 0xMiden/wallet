@@ -378,7 +378,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                 }`}
               >
                 <div className="flex flex-row text-md text-center items-center gap-x-3">
-                  <Icon name={IconName.Globe} fill="black" size="md" />
+                  <Icon name={IconName.Globe} fill="currentColor" size="md" />
                   <span className="text-gray-600">{t('account')}</span>
                 </div>
                 <div>{`${truncateAddress(accountAddressAsBech32)}`}</div>
@@ -450,7 +450,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
               onClick={() => downloadBytes('transaction_summary.bin', bytes)}
             >
               <span className="flex flex-row items-center justify-center gap-x-2">
-                <Icon name={IconName.Download} fill="black" size="md" />
+                <Icon name={IconName.Download} fill="currentColor" size="md" />
                 <span className="text-lg text-black font-medium">{t('downloadFullSummary')}</span>
               </span>
             </Button>
@@ -639,7 +639,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsATransaction')}</span>
@@ -662,7 +662,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsToConsumeNote')}</span>
@@ -685,7 +685,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsPrivateNotes')}</span>
@@ -708,7 +708,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span className="text-gray-600">{t('requestsYourSignature')}</span>
@@ -731,7 +731,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsAssets')}</span>
@@ -754,7 +754,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('importPrivateNote')}</span>
@@ -777,7 +777,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsConsumableNotes')}</span>
@@ -791,7 +791,7 @@ const ConfirmDAppForm: FC = () => {
   return (
     <CustomRpsContext.Provider value={'TODO'}>
       <div
-        className={classNames('relative bg-white rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
+        className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
         style={{
           width: 380,
           height: 610
@@ -839,7 +839,7 @@ const ConfirmDAppForm: FC = () => {
         <div className="flex-1" />
 
         <div
-          className={classNames('sticky bottom-0 w-full', 'bg-white shadow-md', 'flex items-stretch', 'px-4 pt-2 pb-6')}
+          className={classNames('sticky bottom-0 w-full', 'bg-surface-solid shadow-md', 'flex items-stretch', 'px-4 pt-2 pb-6')}
         >
           <div className="w-1/2 pr-2">
             <Button

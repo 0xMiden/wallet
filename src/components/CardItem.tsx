@@ -76,8 +76,7 @@ export const CardItem: React.FC<CardItemProps> = ({
     'p-2', // Size and padding classes
     'gap-x-2 bg-app-bg', // Gap and background classes
     'rounded-lg transition', // Shape and transition classes
-    'duration-300 ease-in-out', // Transition duration and timing function classes
-    hoverable && 'hover:bg-grey-50 cursor-pointer', // Hover and cursor classes
+    'duration-300 ease-in-out cursor-pointer', // Transition duration and timing function classes
     'overflow-hidden w-full',
     className // User-defined classes
   );

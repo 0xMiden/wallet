@@ -136,18 +136,17 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-app-bg text-black">
       <NavigationHeader mode="back" title={t('send')} onBack={onGoBack} showBorder />
 
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col flex-1 pt-8 pb-4 overflow-y-auto min-h-0 no-scrollbar">
           <div className="relative flex flex-col items-center justify-center shrink-0">
             <InputAmount
-              className="self-stretch"
+              className="self-stretch text-black"
               value={amount}
               label={token.name}
               onValueChange={(value, name, values) => onAmountChange(values?.formatted || value || '')}
-              autoFocus
             />
             <div className="flex items-center justify-center">
               {amountError ? (
@@ -174,7 +173,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
                   aria-label={t('yourAccounts')}
                 >
-                  <Icon name={IconName.AddressBook} size="xs" className="text-[#808080]" />
+                  <Icon name={IconName.AddressBook} size="xs" className="text-text-muted" />
                 </button>
                 {showScanButton && (
                   <button
@@ -183,7 +182,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                     className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
                     aria-label={t('scanQr')}
                   >
-                    <Icon name={IconName.ScanFrame} size="xs" className="text-[#808080]" />
+                    <Icon name={IconName.ScanFrame} size="xs" className="text-text-muted" />
                   </button>
                 )}
               </div>
@@ -192,7 +191,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               <input
                 type="text"
                 placeholder={t('enterWalletAddress')}
-                className="w-full bg-[#F2F2F2] border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
+                className="w-full bg-input-bg border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
                 value={recipientAddress}
                 onChange={e => onAddressChange(e as any)}
               />
@@ -205,7 +204,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {/* Advanced Toggle */}
           <button
             type="button"
-            className="mt-5 flex items-center gap-2 self-start rounded-[10px] bg-[#F2F2F2] px-4 py-2.5 transition-colors active:bg-[#E5E5E5]"
+            className="mt-5 flex items-center gap-2 self-start rounded-[10px] bg-input-bg px-4 py-2.5 transition-colors active:bg-input-bg"
             onClick={() => {
               hapticLight();
               setShowAdvanced(prev => !prev);
@@ -213,7 +212,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           >
             <span className="text-sm font-semibold text-heading-gray">{t('advanced')}</span>
             <motion.div animate={{ rotate: showAdvanced ? 180 : 0 }} transition={{ duration: 0.2 }}>
-              <Icon name={IconName.ChevronDown} size="xs" fill="#484848" />
+              <Icon name={IconName.ChevronDown} size="xs" fill="currentColor" />
             </motion.div>
           </button>
 
@@ -229,23 +228,23 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               <p className="text-xs text-heading-gray mt-1">{t('recallHeightDescription')}</p>
               <button
                 type="button"
-                className="w-full h-14 flex items-center justify-between bg-[#F2F2F2] rounded-[10px] px-4 mt-3"
+                className="w-full h-14 flex items-center justify-between bg-input-bg rounded-[10px] px-4 mt-3"
                 onClick={() => setShowCalendar(true)}
               >
                 <div className="flex items-center gap-2">
-                  <Icon name={IconName.Calendar} size="xs" className="text-[#808080]" />
+                  <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
                   <span
                     className={clsx('text-sm font-medium', recallDate ? 'text-heading-gray' : 'text-heading-gray/60')}
                   >
                     {displayRecallLabel}
                   </span>
                 </div>
-                <Icon name={IconName.ChevronDown} size="xs" fill="#484848" />
+                <Icon name={IconName.ChevronDown} size="xs" fill="currentColor" />
               </button>
             </div>
 
             {/* Divider */}
-            <div className="mt-4 border-t border-[#BABABA]" />
+            <div className="mt-4 border-t border-border-light" />
 
             {/* Privacy Options */}
             <div className="mt-4">
@@ -301,7 +300,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {showCalendar && (
             <>
               <motion.div
-                className="absolute inset-0 bg-black/30 z-40"
+                className="absolute inset-0 bg-pure-black/30 z-40"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -336,14 +335,14 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   />
 
                   {/* Time Input */}
-                  <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-[#00000015]">
-                    <Icon name={IconName.Calendar} size="xs" className="text-[#808080]" />
+                  <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-border-subtle">
+                    <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
                     <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
                     <input
                       type="time"
                       value={recallTime}
                       onChange={e => onRecallTimeChange(e.target.value)}
-                      className="ml-auto bg-[#F2F2F2] rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
+                      className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
                     />
                   </div>
 
@@ -351,7 +350,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   {recallDate && (
                     <button
                       type="button"
-                      className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-white text-sm font-medium"
+                      className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium"
                       onClick={() => applyDateTimeSelection(recallDate, recallTime)}
                     >
                       {t('confirm')}
@@ -359,12 +358,12 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   )}
 
                   {/* Presets */}
-                  <div className="flex flex-wrap gap-2 border-t border-[#00000015] pt-3 mt-3 w-full">
+                  <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3 mt-3 w-full">
                     {RECALL_PRESETS(t).map((preset, i) => (
                       <button
                         key={i}
                         type="button"
-                        className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-[#00000033] text-heading-gray hover:bg-[#F2F2F2] transition-colors"
+                        className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors"
                         onClick={() => {
                           const date = preset.fn(new Date());
                           applyDateTimeSelection(date, format(date, 'HH:mm'));
@@ -418,12 +417,12 @@ export const OptionItem = ({
 const ToggleSwitch = ({ value, onToggle }: { value: boolean; onToggle: (val: boolean) => void }) => {
   const { t } = useTranslation();
   return (
-    <div className="flex rounded-[10px] border border-[#00000033] overflow-hidden">
+    <div className="flex rounded-[10px] border border-border-card overflow-hidden">
       <button
         type="button"
         className={clsx(
           'w-14 h-9 text-xs font-medium flex items-center justify-center transition-colors cursor-pointer',
-          value ? 'bg-app-bg text-primary-500' : 'bg-[#F2F2F2] text-heading-gray/40'
+          value ? 'bg-app-bg text-primary-500' : 'bg-input-bg text-heading-gray/40'
         )}
         onClick={() => onToggle(true)}
       >
@@ -432,8 +431,8 @@ const ToggleSwitch = ({ value, onToggle }: { value: boolean; onToggle: (val: boo
       <button
         type="button"
         className={clsx(
-          'w-14 h-9 text-xs font-medium flex items-center justify-center transition-colors border-l border-[#00000033] cursor-pointer',
-          !value ? 'bg-app-bg text-primary-500' : 'bg-[#F2F2F2] text-heading-gray/40'
+          'w-14 h-9 text-xs font-medium flex items-center justify-center transition-colors border-l border-border-card cursor-pointer',
+          !value ? 'bg-app-bg text-primary-500' : 'bg-input-bg text-heading-gray/40'
         )}
         onClick={() => onToggle(false)}
       >

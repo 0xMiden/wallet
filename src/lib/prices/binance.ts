@@ -13,15 +13,17 @@ const BINANCE_API_BASE = 'https://api.binance.com/api/v3';
 export interface TokenPriceInfo {
   price: number;
   change24h: number;
+  percentageChange24h: number;
 }
 
 export type TokenPrices = Record<string, TokenPriceInfo>;
 
-export const DEFAULT_PRICE: TokenPriceInfo = { price: 1, change24h: 0 };
+export const DEFAULT_PRICE: TokenPriceInfo = { price: 1, change24h: 0, percentageChange24h: 0 };
 
 interface BinanceTicker24hr {
   symbol: string;
   lastPrice: string;
+  priceChange: string;
   priceChangePercent: string;
 }
 
@@ -55,10 +57,11 @@ export async function fetchTokenPrices(): Promise<TokenPrices> {
       if (!walletSymbol) continue;
 
       const price = parseFloat(ticker.lastPrice);
-      const change24h = parseFloat(ticker.priceChangePercent);
+      const change24h = parseFloat(ticker.priceChange);
+      const percentageChange24h = parseFloat(ticker.priceChangePercent);
 
-      if (!isNaN(price) && !isNaN(change24h)) {
-        prices[walletSymbol] = { price, change24h };
+      if (!isNaN(price) && !isNaN(change24h) && !isNaN(percentageChange24h)) {
+        prices[walletSymbol] = { price, change24h, percentageChange24h };
       }
     }
 

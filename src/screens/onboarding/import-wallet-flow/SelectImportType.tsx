@@ -56,7 +56,7 @@ export const SelectImportTypeScreen = ({ onSubmit, ...props }: SelectImportTypeS
         >
           <div className="flex flex-row justify-between items-center">
             <h2 className="font-medium text-base">{option.title}</h2>
-            <ArrowRightIcon fill="black" height={'20px'} width={'20px'} />
+            <ArrowRightIcon fill="currentColor" height={'20px'} width={'20px'} />
           </div>
           <p className="text-grey-600">{option.description}</p>
         </div>

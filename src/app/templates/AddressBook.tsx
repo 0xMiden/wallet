@@ -76,7 +76,7 @@ const AddressBook: React.FC = () => {
               iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
               hoverable={!contact.accountInWallet}
               onClick={contact.accountInWallet ? undefined : () => handleRemoveContactClick(contact.address)}
-              className="bg-grey-25 rounded-xl h-auto py-3 px-3"
+              className="bg-app-bg rounded-xl h-auto py-3 px-3"
             />
           ))
         )}

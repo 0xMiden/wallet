@@ -175,7 +175,7 @@ const LocaleInMenuContent: FC<IconifiedSelectOptionRenderProps<LocaleOption>> = 
             className={classNames(
               'mr-2 px-1',
               'bg-orange-500 rounded-sm shadow-md',
-              'text-white',
+              'text-pure-white',
               'text-xs font-semibold uppercase'
             )}
           >

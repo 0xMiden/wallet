@@ -245,7 +245,7 @@ const Toolbar: FC<ToolbarProps> = ({
               'flex items-center',
               'text-black text-shadow-black',
               'text-sm font-semibold leading-none',
-              'hover:bg-black/5',
+              'hover:bg-pure-black/5',
               'transition duration-300 ease-in-out',
               'opacity-90 hover:opacity-100'
             )}

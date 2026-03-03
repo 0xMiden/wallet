@@ -35,7 +35,7 @@ const FormSubmitButton: FC<FormSubmitButtonProps> = ({
         'rounded-10',
         'bg-primary-500',
         'flex items-center',
-        loading ? 'text-transparent' : 'text-white',
+        loading ? 'text-transparent' : 'text-pure-white',
         'font-semibold',
         'transition duration-200 ease-in-out',
         loading || disabled ? 'opacity-60' : 'hover:opacity-90 focus:opacity-90',

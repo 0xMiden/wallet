@@ -41,7 +41,7 @@ export const ConnectivityIssueBanner: React.FC<ConnectivitiyIssueBannerProps> = 
       <Icon
         name={IconName.Close}
         size="sm"
-        fill="black"
+        fill="currentColor"
         className="cursor-pointer hover:opacity-100 opacity-50"
         onClick={onClose}
       />

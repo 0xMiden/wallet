@@ -398,12 +398,12 @@ export const Receive: React.FC<ReceiveProps> = () => {
         <button
           type="button"
           onClick={goBack}
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
+          className="flex items-center justify-center w-8 h-8 rounded-full "
           aria-label="Back"
         >
-          <Icon name={IconName.ChevronLeft} size="sm" fill="black" />
+          <Icon name={IconName.ChevronLeft} size="sm" fill="currentColor" className="stroke-black" />
         </button>
-        <h1 className="text-[20px] font-medium">{t('receive')}</h1>
+        <h1 className="text-[20px] font-medium text-black">{t('receive')}</h1>
 
         <button
           type="button"
@@ -414,7 +414,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
             setIsQRSheetOpen(true);
           }}
         >
-          <QRIcon className="text-[#484848]" style={{ width: '25px', height: '25px' }} />
+          <QRIcon className="stroke-black fill-black" style={{ width: '25px', height: '25px' }} />
         </button>
       </div>
 
@@ -502,7 +502,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
         {isQRSheetOpen && (
           <>
             <motion.div
-              className="absolute inset-0 bg-black/30 z-40"
+              className="absolute inset-0 bg-pure-black/30 z-40"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}

@@ -57,9 +57,7 @@ const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
             className="flex items-center justify-between py-3 w-full text-left"
             onClick={() => handleSelect(code)}
           >
-            <span
-              className={`text-sm ${isSelected ? 'text-primary-500 font-semibold' : 'text-[#0C0C0C8C] font-medium'}`}
-            >
+            <span className={`text-sm ${isSelected ? 'text-primary-500 font-semibold' : 'text-black font-medium'}`}>
               {label}
             </span>
             {isSelected && <Icon name={IconName.Checkmark} size="xs" fill="#FF5500" />}

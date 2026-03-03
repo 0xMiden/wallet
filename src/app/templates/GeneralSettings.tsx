@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { isMobile } from 'lib/platform';
 import {
+  getThemeSetting,
   isAutoConsumeEnabled,
   isDelegateProofEnabled,
   isHapticFeedbackEnabled,
@@ -11,6 +12,7 @@ import {
   setDelegateProofSetting,
   setHapticFeedbackSetting
 } from 'lib/settings/helpers';
+import { toggleTheme } from 'lib/settings/theme';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 import SettingToggle from './SettingToggle';
@@ -18,6 +20,12 @@ import SettingToggle from './SettingToggle';
 const GeneralSettings: FC = () => {
   const { t } = useTranslation();
   const mobile = isMobile();
+
+  const [isDark, setIsDark] = useState(() => getThemeSetting() === 'dark');
+  const handleThemeChange = useCallback(() => {
+    const newTheme = toggleTheme();
+    setIsDark(newTheme === 'dark');
+  }, []);
 
   const delegateEnabled = isDelegateProofEnabled();
   const delegateChangingRef = useRef(false);
@@ -46,6 +54,14 @@ const GeneralSettings: FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-y-6">
+      <SettingToggle
+        checked={isDark}
+        onChange={handleThemeChange}
+        name="darkMode"
+        testID={GeneralSettingsSelectors.DarkModeToggle}
+        title={t('darkMode')}
+      />
+
       {mobile && (
         <SettingToggle
           checked={hapticEnabled}

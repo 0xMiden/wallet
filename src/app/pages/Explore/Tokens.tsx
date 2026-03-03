@@ -54,12 +54,12 @@ const Tokens: FC = () => {
                   title={metadata.name || metadata.symbol}
                   subtitle={`${balance.toFixed(2)} ${metadata.symbol}`}
                   titleRight={`$${(balance * priceInfo.price).toFixed(2)}`}
-                  subtitleRight={`${priceInfo.change24h >= 0 ? '+' : ''}${priceInfo.change24h.toFixed(2)}%`}
+                  subtitleRight={`${priceInfo.percentageChange24h >= 0 ? '+' : ''}${priceInfo.percentageChange24h.toFixed(2)}%`}
                   subtitleRightClassName={classNames(
                     '!opacity-100',
-                    priceInfo.change24h > 0
+                    priceInfo.percentageChange24h > 0
                       ? '!text-green-500'
-                      : priceInfo.change24h < 0
+                      : priceInfo.percentageChange24h < 0
                         ? '!text-red-500'
                         : '!text-primary-500'
                   )}

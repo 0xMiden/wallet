@@ -15,7 +15,7 @@ const SettingToggle: FC<SettingToggleProps> = ({ checked, onChange, name, testID
   return (
     <div className="flex flex-col gap-y-2">
       <label htmlFor={name} className="flex items-center justify-between w-full">
-        <span className="font-medium text-base leading-[130%] text-[#0F131A]">{title}</span>
+        <span className="font-medium text-base leading-[130%] text-black">{title}</span>
         <ToggleSwitch checked={checked} onChange={onChange} name={name} testID={testID} />
       </label>
       {description && <span className="text-xs text-gray-400">{description}</span>}

@@ -213,7 +213,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             <div className="flex items-center pl-4">{walletFile.name}</div>
           </div>
           <button type="button" onClick={handleClear}>
-            <Icon name={IconName.Close} fill="black" size="md" />
+            <Icon name={IconName.Close} fill="currentColor" size="md" />
           </button>
         </div>
       )}

@@ -52,18 +52,16 @@ export const InputAmount: React.FC<InputAmountProps> = ({
     return 'text-5xl';
   }, [value, label]);
 
-  const textColor = useMemo(() => (error ? 'text-red-500' : 'text-[#00000087]'), [error]);
+  const textColor = useMemo(() => (error ? 'text-red-500' : 'text-black'), [error]);
 
   const currencyLabel = label || 'MIDEN';
 
   return (
     <div {...props} className={classNames('flex flex-col items-center gap-y-2', className)}>
       <div className="flex cursor-pointer" onClick={() => inputRef.current?.focus()}>
-        {displayFiat ? (
-          <label className={classNames('text-left leading-none text-[#00000087]', textSize)}>$</label>
-        ) : null}
+        {displayFiat ? <label className={classNames('text-left leading-none text-black', textSize)}>$</label> : null}
         <CurrencyInput
-          className={classNames('p-0 placeholder-[#00000087] outline-none leading-0 font-medium', textSize, textColor)}
+          className={classNames('p-0 placeholder-black outline-none leading-0 font-medium', textSize, textColor)}
           value={displayFiat ? fiatValue || value : value}
           onValueChange={onValueChange}
           placeholder="0"
@@ -77,7 +75,7 @@ export const InputAmount: React.FC<InputAmountProps> = ({
           autoFocus={autoFocus}
         />
         {!displayFiat ? (
-          <label className={classNames('ml-2 text-[#00000087] text-left leading-snug shrink-0', textSize)}>
+          <label className={classNames('ml-2 text-black text-left leading-snug shrink-0', textSize)}>
             {currencyLabel}
           </label>
         ) : null}
@@ -91,7 +89,7 @@ export const InputAmount: React.FC<InputAmountProps> = ({
               {fiatValue || value || 0} {currencyLabel}
             </p>
           )}
-          <Icon name={IconName.ArrowUpDown} size="xs" fill="black" />
+          <Icon name={IconName.ArrowUpDown} size="xs" fill="currentColor" />
         </button>
       )}
     </div>

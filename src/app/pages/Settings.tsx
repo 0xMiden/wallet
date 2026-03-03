@@ -329,7 +329,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                   </div>
 
                   <h3 className="text-base font-medium text-black mb-1">{t('viewThisInPrivatePlace')}</h3>
-                  <p className="text-sm text-[#898989] mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
+                  <p className="text-sm text-black mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
                 </div>
                 <div className="flex gap-4 w-full px-4">
                   <Button

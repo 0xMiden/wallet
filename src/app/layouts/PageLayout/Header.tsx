@@ -24,7 +24,7 @@ const Header: FC = () => {
   const isGeneratingUrl = window.location.href.search('generating-transaction') > -1;
 
   return (
-    <header className={classNames('px-4', appEnv.fullPage && '')}>
+    <header className={classNames('mx-4 pb-4 border-b border-grey-300/20', appEnv.fullPage && '')}>
       <ContentContainer className="pt-4">
         <div>
           <div className="flex w-full">{!isGeneratingUrl && <Control />}</div>
@@ -81,20 +81,22 @@ const Control: FC = () => {
     <>
       <div className={classNames('flex', 'justify-between', 'w-full')}>
         <div className={classNames('flex', 'justify-start')}>
-          <div className="flex">
+          <div className="flex items-center">
             <Button
               className={classNames(
                 'flex',
-                'rounded-md items-center justify-center',
+                'rounded-full items-center justify-center',
                 'transition ease-in-out duration-200',
                 'cursor-pointer'
               )}
               onClick={() => navigate('/select-account')}
             >
-              <ColorIdenticon publicKey={account.publicKey} />
+              <ColorIdenticon publicKey={account.publicKey} className="rounded-full h-8 w-8" />
             </Button>
-            <div className="flex flex-col pl-2 gap-y-0.5">
-              <Name className={classNames('text-sm leading-[100%]', 'text-heading-gray')}>{account.name}</Name>
+            <div className="flex flex-col pl-2">
+              <Name className={classNames('text-sm font-semibold leading-none', 'text-heading-gray')}>
+                {account.name}
+              </Name>
               <AddressChip address={account.publicKey} className="p-[2.25px]" />
             </div>
           </div>
@@ -113,7 +115,7 @@ const Control: FC = () => {
               )}
               onClick={handleMaximiseViewClick}
             >
-              <MaximiseIcon className="w-4 h-4" style={{ stroke: '#000', strokeWidth: '2px' }} />
+              <MaximiseIcon className="w-4 h-4 stroke-black" />
             </Button>
           )}
           <Button
@@ -123,7 +125,7 @@ const Control: FC = () => {
               navigate('/settings');
             }}
           >
-            <Icon name={IconName.SettingsNew} className="w-5 h-5" />
+            <Icon name={IconName.SettingsNew} className="w-5 h-5 stroke-black fill-black" fill="currentColor" />
           </Button>
         </div>
       </div>

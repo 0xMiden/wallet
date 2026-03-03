@@ -20,7 +20,7 @@ const baseClassNames = classNames(
   'transition duration-200 ease-in-out'
 );
 
-const primaryClassNames = classNames(baseClassNames, 'text-white bg-purple-950');
+const primaryClassNames = classNames(baseClassNames, 'text-pure-white bg-purple-950');
 const secondaryClassNames = classNames(baseClassNames, 'bg-gray-800');
 
 export const PrimaryButton = React.forwardRef<HTMLButtonElement, Props>(

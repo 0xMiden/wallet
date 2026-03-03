@@ -194,7 +194,7 @@ export const TransactionProgressModal: FC = () => {
       onRequestClose={handleClose}
       shouldCloseOnOverlayClick={transactionComplete || error}
       className={classNames('w-full max-w-lg outline-none flex flex-col items-stretch gap-6')}
-      overlayClassName="fixed inset-0 bg-white/10 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4"
+      overlayClassName="fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4"
       style={{
         overlay: { zIndex: 9999 },
         content: { position: 'relative', inset: 'unset', zIndex: 9999 }
@@ -203,7 +203,7 @@ export const TransactionProgressModal: FC = () => {
       parentSelector={() => modalRoot!}
       ariaHideApp={false}
     >
-      <div className="bg-white rounded-10 overflow-hidden">
+      <div className="bg-surface-solid rounded-10 overflow-hidden">
         <GeneratingTransaction
           progress={progress}
           onDoneClick={handleClose}
@@ -212,7 +212,7 @@ export const TransactionProgressModal: FC = () => {
         />
       </div>
       <button
-        className="w-full rounded-2xl bg-primary-500 text-white font-semibold text-base h-12"
+        className="w-full rounded-2xl bg-primary-500 text-pure-white font-semibold text-base h-12"
         onClick={handleClose}
       >
         {transactionComplete ? t('done') : t('hide')}

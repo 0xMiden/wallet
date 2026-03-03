@@ -72,12 +72,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                   className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
                   aria-label={t('scanQr')}
                 >
-                  <Icon name={IconName.QrScan} fill="black" size="md" />
+                  <Icon name={IconName.QrScan} fill="currentColor" size="md" />
                 </button>
               )}
               {address && (
                 <button type="button" onClick={onClear} className="p-1" aria-label={t('clearText')}>
-                  <Icon name={IconName.CloseCircle} fill="black" size="md" />
+                  <Icon name={IconName.CloseCircle} fill="currentColor" size="md" />
                 </button>
               )}
             </div>

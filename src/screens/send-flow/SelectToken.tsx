@@ -3,10 +3,9 @@ import React, { HTMLAttributes, useCallback, useMemo, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { TokenLogo } from 'components/TokenLogo';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 
 import { SendFlowAction, SendFlowActionId, SendFlowStep, UIToken } from './types';
@@ -20,7 +19,6 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
-  const midenFaucetId = useMidenFaucetId();
   const [searchQuery, setSearchQuery] = useState('');
 
   const tokens = useMemo(() => {
@@ -66,7 +64,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
   const fiatBalance = (token: UIToken): number => token.balance * token.fiatPrice;
 
   return (
-    <div {...props} className={classNames('flex-1 flex flex-col', className)}>
+    <div {...props} className={classNames('flex-1 flex flex-col bg-app-bg', className)}>
       <NavigationHeader mode="back" title={t('send')} onBack={onCancel} showBorder />
       <div className="flex flex-col flex-1 px-4 pt-4">
         <input
@@ -78,11 +76,10 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
         />
         <div className="flex flex-col py-4">
           {filteredTokens.map(token => {
-            const isMiden = token.id === midenFaucetId;
             return (
               <CardItem
                 key={token.id}
-                iconLeft={<Avatar size="lg" image={isMiden ? '/misc/miden.png' : '/misc/token-logos/default.svg'} />}
+                iconLeft={<TokenLogo symbol={token.name} />}
                 title={token.name}
                 subtitle={token.name.toUpperCase()}
                 titleRight={token.balance.toFixed(0)}

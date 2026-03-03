@@ -171,7 +171,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
             placeholder={t('enterPassword')}
             icon={
               <button className="flex-1" onClick={onPasswordVisibilityToggle}>
-                <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="black" />
+                <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
               </button>
             }
             onChange={onPasswordChange}
@@ -189,7 +189,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
             placeholder={t('enterPasswordAgain')}
             icon={
               <button className="flex-1" onClick={onVerifyPasswordVisibilityToggle}>
-                <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="black" />
+                <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
               </button>
             }
             onChange={e => setVerifyPassword(e.target.value)}

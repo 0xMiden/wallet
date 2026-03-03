@@ -560,6 +560,7 @@
   "emptyQrCode": "Empty QR code",
   "invalidMidenAddress": "Invalid Miden address",
   "scanCancelled": "Scan cancelled",
+  "darkMode": "Dark Mode",
   "hapticFeedback": "Haptic Feedback",
   "hapticFeedbackDescription": "Feel a vibration when tapping buttons and controls",
   "noNotesToClaim": "You don't currently have notes to claim, but when you do, they will appear here.",

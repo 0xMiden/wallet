@@ -330,7 +330,7 @@ const Browser: FC = () => {
             <button
               type="submit"
               disabled={isLoading || !url || url === DEFAULT_URL}
-              className="px-4 py-3 bg-primary-500 text-white rounded-xl font-medium disabled:bg-grey-200 disabled:text-grey-400 hover:bg-primary-600 transition-colors"
+              className="px-4 py-3 bg-primary-500 text-pure-white rounded-xl font-medium disabled:bg-grey-200 disabled:text-grey-400 hover:bg-primary-600 transition-colors"
             >
               {isLoading ? <Icon name={IconName.Loader} size="sm" className="animate-spin" /> : t('go')}
             </button>

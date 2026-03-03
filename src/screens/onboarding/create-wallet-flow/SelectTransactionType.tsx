@@ -116,7 +116,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               <div
                 className={classNames(
                   'absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2',
-                  'bg-black text-white text-xs font-medium',
+                  'bg-pure-black text-pure-white text-xs font-medium',
                   'px-2 py-1 rounded-full'
                 )}
               >

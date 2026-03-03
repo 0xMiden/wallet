@@ -10,6 +10,9 @@ import 'lib/lock-up/run-checks';
 import App from 'app/App';
 import { WindowType, openInFullPage } from 'app/env';
 import { isPopupModeEnabled } from 'lib/popup-mode';
+import { initTheme } from 'lib/settings/theme';
+
+initTheme();
 
 // Disable animations for extension
 // Animations enabled for extension

@@ -42,20 +42,9 @@ function groupEntriesByDate(entries: IHistoryEntry[]): Map<string, IHistoryEntry
 
 // Date separator component - dashed line with date in center
 const DateSeparator: React.FC<{ date: string; isFirst?: boolean }> = ({ date, isFirst }) => {
-  if (isFirst) {
-    // First date group - just show the date pill without a line above
-    return (
-      <div className="flex justify-start pt-4">
-        <span className="px-4 py-1.5 text-sm text-black border border-grey-200 rounded-5 bg-white">{date}</span>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center justify-start pt-4 gap-3">
-      <div className="flex-1 h-0" style={{ borderTop: '0.5px dashed #FF5500' }} />
-      <span className="px-4 py-1.5 text-sm text-black border border-grey-200 rounded-5 bg-white shrink-0">{date}</span>
-      <div className="flex-1 h-0" style={{ borderTop: '0.5px dashed #FF5500' }} />
+    <div className="flex justify-start pt-4">
+      <span className="px-4 py-2 text-xs text-black rounded-5 bg-white">{date}</span>
     </div>
   );
 };

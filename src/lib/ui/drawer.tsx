@@ -57,7 +57,7 @@ function DrawerContent({ className, children }: DrawerContentProps) {
           <>
             <motion.div
               key="drawer-backdrop"
-              className="fixed inset-0 z-50 bg-[#E3E3E399]"
+              className="fixed inset-0 z-50 bg-[#E3E3E399] dark:bg-[#00000099]"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -68,7 +68,7 @@ function DrawerContent({ className, children }: DrawerContentProps) {
               key="drawer-sheet"
               data-slot="drawer-content"
               className={cn(
-                'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-white text-sm',
+                'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm',
                 className
               )}
               initial={{ y: '100%' }}

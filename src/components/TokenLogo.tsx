@@ -10,7 +10,7 @@ import { Avatar } from 'components/Avatar';
 
 const TOKEN_LOGOS: Record<string, { Logo: FC<SVGProps<SVGSVGElement>>; bg: string }> = {
   MIDEN: { Logo: MidenLogo, bg: 'bg-white' },
-  ETH: { Logo: EthLogo, bg: 'bg-black' },
+  ETH: { Logo: EthLogo, bg: 'bg-pure-black' },
   USDC: { Logo: UsdcLogo, bg: 'bg-[#0278D2]' },
   BTC: { Logo: BtcLogo, bg: 'bg-[#F7931A]' }
 };

@@ -50,11 +50,7 @@ const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
           <span className="font-medium text-base">{t('accountPublicKey')}</span>
         </div>
         <button type="button" onClick={handleCopy} className="flex items-center cursor-pointer hover:bg-gray-25">
-          <Icon
-            name={copied ? IconName.Checkmark : IconName.Copy}
-            fill={copied ? 'green' : 'none'}
-            className={clsx('w-5 h-5 p-1')}
-          />
+          <Icon name={copied ? IconName.Checkmark : IconName.Copy} className={clsx('w-5 h-5 p-1 stroke-black')} />
         </button>
       </div>
 
@@ -70,7 +66,7 @@ const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
           <div className="flex flex-col">
             <span className="font-medium text-base">{t('editMidenFaucetId')}</span>
           </div>
-          <Icon name={IconName.ChevronRightLucide} className="w-5 h-5" fill="none" />
+          <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
         </div>
       </button>
 

@@ -82,14 +82,14 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <div className="flex gap-3">
             <button
               onClick={() => navigate({ pathname: '/send', search: `?tokenId=${tokenId}` })}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-send-blue text-white font-semibold text-sm"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-send-blue text-pure-white font-semibold text-sm"
             >
               <SendIcon className="w-4 h-4" />
               {t('send')}
             </button>
             <button
               onClick={() => navigate('/receive')}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-receive-green text-white font-semibold text-sm"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-receive-green text-pure-white font-semibold text-sm"
             >
               <ReceiveIcon className="w-4 h-4" />
               {t('receive')}
@@ -163,7 +163,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   if (!active || !payload?.[0]) return null;
                   const point = payload[0].payload;
                   return (
-                    <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-white shadow">
+                    <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
                       <div className="font-semibold">${Number(point.value).toFixed(2)}</div>
                       {point.time && <div className="opacity-75">{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>

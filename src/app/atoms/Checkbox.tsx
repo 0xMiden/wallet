@@ -66,7 +66,7 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           'disable-outline-for-click',
           localFocused && 'shadow-outline',
           'transition ease-in-out duration-200',
-          'text-white',
+          'text-pure-white',
           'flex justify-center items-center',
           containerClassName
         )}

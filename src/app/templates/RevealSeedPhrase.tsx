@@ -201,6 +201,7 @@ const RevealSeedPhrase: FC = () => {
                 register('password').onChange(e);
                 clearErrors();
               }}
+              labelClassName="text-black"
             />
             <Button
               className="w-full justify-center"

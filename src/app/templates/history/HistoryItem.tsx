@@ -98,7 +98,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   return (
     <div
       className={classNames(
-        'w-full flex items-center gap-3 py-4 cursor-pointer transition-colors duration-200 hover:bg-grey-50',
+        'w-full flex items-center gap-3 py-4 cursor-pointer transition-colors duration-200 hover:bg-gray-100',
         !lastEntry && 'border-b',
         fullHistory && !lastEntry ? 'border-b-[#00000033] border-b-[0.27px]' : ''
       )}
