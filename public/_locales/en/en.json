@@ -570,7 +570,6 @@
   "passwordsCanBeInsecure": "Passwords can be insecure. Use biometric authentication instead.",
   "unlockWallet": "Unlock Wallet",
   "unlockWalletDescription": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
-  "activities": "Activities",
   "sortBy": "Sort by",
   "recent": "Recent",
   "faucetRequest": "Faucet Request",

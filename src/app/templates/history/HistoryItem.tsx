@@ -86,7 +86,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   return (
     <div
       className={classNames(
-        'w-full flex items-center gap-3 py-5 cursor-pointer transition-colors duration-200 hover:bg-grey-50',
+        'w-full flex items-center gap-3 py-4 cursor-pointer transition-colors duration-200 hover:bg-grey-50',
         !lastEntry && 'border-b',
         fullHistory && !lastEntry ? 'border-b-[#00000033] border-b-[0.27px]' : ''
       )}
@@ -101,13 +101,13 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 
       {/* Content */}
       <div className="flex flex-col grow min-w-0">
-        <span className="text-heading-gray font-medium truncate text-[15.11px]">{title}</span>
+        <span className="text-black font-medium truncate text-sm leading-none">{title}</span>
         {subtitle ? (
           <span className="text-xs text-heading-gray opacity-50">{subtitle}</span>
         ) : (
           entry.secondaryAddress && (
-            <span className="text-xs text-grey-500 truncate">
-              {`${isReceive ? t('from') : t('to')}: `}
+            <span className="text-xs text-grey-500 truncate flex gap-0.5">
+              <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
               <AddressShortView address={entry.secondaryAddress} trim={isMobile() || popup} />
             </span>
           )
@@ -117,11 +117,13 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       {/* Amount */}
       {entry.amount && (
         <div className="flex flex-col items-end shrink-0">
-          <span className={classNames('text-sm font-medium', isReceive ? 'text-[#24D845]' : 'text-[#D83C24]')}>
+          <span
+            className={classNames('text-sm font-medium leading-none', isReceive ? 'text-[#1A9C52]' : 'text-[#DC2626]')}
+          >
             {isReceive ? '+' : '-'}
             {entry.amount.replace(/^[+-]/, '')}
           </span>
-          {entry.token && <span className="text-xs text-[#000000A3] font-medium">{entry.token}</span>}
+          {entry.token && <span className="text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>}
         </div>
       )}
 

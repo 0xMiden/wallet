@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { Icon, IconName } from 'app/icons/v2';
 import { isMobile } from 'lib/platform';
 
 import HistoryItem from './HistoryItem';
@@ -44,18 +45,16 @@ const DateSeparator: React.FC<{ date: string; isFirst?: boolean }> = ({ date, is
   if (isFirst) {
     // First date group - just show the date pill without a line above
     return (
-      <div className="flex justify-center py-3">
-        <span className="px-4 py-1.5 text-sm text-grey-600 border border-grey-200 rounded-full bg-white">{date}</span>
+      <div className="flex justify-start pt-4">
+        <span className="px-4 py-1.5 text-sm text-black border border-grey-200 rounded-5 bg-white">{date}</span>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center py-3 gap-3">
+    <div className="flex items-center justify-start pt-4 gap-3">
       <div className="flex-1 h-0" style={{ borderTop: '0.5px dashed #FF5500' }} />
-      <span className="px-4 py-1.5 text-sm text-grey-600 border border-grey-200 rounded-full bg-white shrink-0">
-        {date}
-      </span>
+      <span className="px-4 py-1.5 text-sm text-black border border-grey-200 rounded-5 bg-white shrink-0">{date}</span>
       <div className="flex-1 h-0" style={{ borderTop: '0.5px dashed #FF5500' }} />
     </div>
   );
@@ -104,12 +103,15 @@ const HistoryView = memo<HistoryViewProps>(
     const dateGroups = Array.from(groupedEntries.entries());
     return (
       <div className={classNames('w-full pb-6 flex flex-col', className)}>
-        {/* Sort by header - hidden until sort functionality is wired up */}
-        {/* <div className="flex justify-center py-3 border-grey-100">
-          <span className="text-sm text-grey-600">
-            {t('sortBy')}: <span className="text-black font-medium">{t('recent')}</span>
+        <div className="flex justify-center pt-2">
+          <span className="text-xs text-black/50  font-medium flex items-center gap-1">
+            {t('sortBy')}:{' '}
+            <span className="flex items-center gap-2 cursor-pointer">
+              <span className="text-black font-semibold">{t('recent')}</span>{' '}
+              <Icon name={IconName.ChevronDownLucide} className="w-[10px] h-[10px]" />
+            </span>
           </span>
-        </div> */}
+        </div>
 
         <InfiniteScroll
           loadMore={loadMore}
@@ -117,7 +119,7 @@ const HistoryView = memo<HistoryViewProps>(
           useWindow={false}
           getScrollParent={() => scrollParentRef.current}
         >
-          <div className={classNames(isMobile() ? 'px-4' : 'px-2')}>
+          <div className="px-1">
             {dateGroups.map(([dateKey, dateEntries], groupIndex) => (
               <div key={dateKey}>
                 <DateSeparator date={dateKey} isFirst={groupIndex === 0} />

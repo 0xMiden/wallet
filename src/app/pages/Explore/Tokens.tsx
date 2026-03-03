@@ -1,15 +1,24 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, SVGProps, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
+import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
+import { ReactComponent as UsdcLogo } from 'app/icons/logos/usdc.svg';
 import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
 import { useAccount, useAllTokensBaseMetadata, useAllBalances } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
+
+const TOKEN_LOGOS: Record<string, { Logo: FC<SVGProps<SVGSVGElement>>; bg: string }> = {
+  MIDEN: { Logo: MidenLogo, bg: 'bg-white' },
+  ETH: { Logo: EthLogo, bg: 'bg-black' },
+  USDC: { Logo: UsdcLogo, bg: 'bg-[#0278D2]' }
+};
 
 const Tokens: FC = () => {
   const midenFaucetId = useMidenFaucetId();
@@ -43,17 +52,28 @@ const Tokens: FC = () => {
       <div className="flex flex-col py-4 w-full px-4 gap-6">
         {filteredTokens.length > 0 &&
           filteredTokens.map(asset => {
-            const isMiden = asset.tokenId === midenFaucetId;
             const balance = asset.balance;
             const { tokenId, metadata } = asset;
+            const tokenLogo = TOKEN_LOGOS[metadata.symbol];
             return (
               <div key={tokenId} className="relative flex">
                 <CardItem
-                  iconLeft={<Avatar size="lg" image={isMiden ? '/misc/miden.png' : '/misc/token-logos/default.svg'} />}
-                  title={metadata.symbol}
-                  subtitle={metadata.symbol}
-                  titleRight={balance.toFixed(2)}
-                  subtitleRight={`${balance.toFixed(2)} USD`}
+                  iconLeft={
+                    tokenLogo ? (
+                      <div
+                        className={classNames('w-9 h-9 rounded-full flex items-center justify-center', tokenLogo.bg)}
+                      >
+                        <tokenLogo.Logo className="w-5 h-5" />
+                      </div>
+                    ) : (
+                      <Avatar size="lg" image="/misc/token-logos/default.svg" className="rounded-full" />
+                    )
+                  }
+                  title={metadata.name || metadata.symbol}
+                  subtitle={`${balance.toFixed(2)} ${metadata.symbol}`}
+                  titleRight={`$${balance.toFixed(2)}`}
+                  subtitleRight="0.00%"
+                  subtitleRightClassName="!text-primary-500 !opacity-100"
                   className="rounded-none justify-between p-0!"
                   hoverable={true}
                   onClick={() => navigate(`/token-history/${tokenId}`)}

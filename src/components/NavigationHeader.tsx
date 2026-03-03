@@ -28,14 +28,12 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
     <div
       className={classNames(
         'flex flex-row px-4 items-center w-full bg-app-bg',
-        showBorder && 'border-b-[0.5px] border-[#48484833]',
-        isMobile() ? 'py-6' : 'py-4',
+        showBorder && 'border-b-[0.5px] border-[#00000033]',
+        'py-4',
         className
       )}
     >
-      <div
-        className={classNames('flex flex-row items-center gap-x-4 w-full text-xl text-heading-gray', innerDivClassName)}
-      >
+      <div className={classNames('flex flex-row items-center gap-x-4 w-full text-xl text-black', innerDivClassName)}>
         {onBack ? <CircleButton icon={IconName.ChevronLeft} onClick={onBack} className="shrink-0" size="sm" /> : null}
         <h1 className={classNames('flex-1 font-medium text-center', onBack ? 'pr-10' : '')}>{props.title}</h1>
       </div>
