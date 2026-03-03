@@ -60,6 +60,7 @@ export const useWalletStore = create<WalletStore>()(
     selectedFiatCurrency: null,
     fiatRates: null,
     fiatRatesLoading: false,
+    tokenPrices: {},
 
     // Initial sync state
     isInitialized: false,
@@ -96,7 +97,7 @@ export const useWalletStore = create<WalletStore>()(
       // Immediately fetch balances when wallet becomes Ready (before any React effects)
       if (justBecameReady && state.currentAccount) {
         const address = state.currentAccount.publicKey;
-        fetchBalances(address, get().assetsMetadata)
+        fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
           .then(balances => {
             set(s => ({
               balances: { ...s.balances, [address]: balances },
@@ -384,7 +385,10 @@ export const useWalletStore = create<WalletStore>()(
       });
 
       try {
-        const balances = await fetchBalances(accountAddress, tokenMetadatas, { setAssetsMetadata });
+        const balances = await fetchBalances(accountAddress, tokenMetadatas, {
+          setAssetsMetadata,
+          tokenPrices: get().tokenPrices
+        });
         set(state => ({
           balances: { ...state.balances, [accountAddress]: balances },
           balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
@@ -444,6 +448,10 @@ export const useWalletStore = create<WalletStore>()(
       } catch {
         set({ fiatRatesLoading: false });
       }
+    },
+
+    setTokenPrices: prices => {
+      set({ tokenPrices: prices });
     },
 
     // Sync actions

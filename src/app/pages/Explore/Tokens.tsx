@@ -10,9 +10,9 @@ import { ReactComponent as UsdcLogo } from 'app/icons/logos/usdc.svg';
 import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
 import { useAccount, useAllTokensBaseMetadata, useAllBalances } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
+import { getTokenPrice } from 'lib/prices';
+import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
-import { truncateAddress } from 'utils/string';
 
 const TOKEN_LOGOS: Record<string, { Logo: FC<SVGProps<SVGSVGElement>>; bg: string }> = {
   MIDEN: { Logo: MidenLogo, bg: 'bg-white' },
@@ -26,6 +26,7 @@ const Tokens: FC = () => {
   const { t } = useTranslation();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [search, setSearch] = useState('');
 
   const filteredTokens = useMemo(() => {
@@ -55,6 +56,7 @@ const Tokens: FC = () => {
             const balance = asset.balance;
             const { tokenId, metadata } = asset;
             const tokenLogo = TOKEN_LOGOS[metadata.symbol];
+            const priceInfo = getTokenPrice(tokenPrices, metadata.symbol);
             return (
               <div key={tokenId} className="relative flex">
                 <CardItem
@@ -71,9 +73,16 @@ const Tokens: FC = () => {
                   }
                   title={metadata.name || metadata.symbol}
                   subtitle={`${balance.toFixed(2)} ${metadata.symbol}`}
-                  titleRight={`$${balance.toFixed(2)}`}
-                  subtitleRight="0.00%"
-                  subtitleRightClassName="!text-primary-500 !opacity-100"
+                  titleRight={`$${(balance * priceInfo.price).toFixed(2)}`}
+                  subtitleRight={`${priceInfo.change24h >= 0 ? '+' : ''}${priceInfo.change24h.toFixed(2)}%`}
+                  subtitleRightClassName={classNames(
+                    '!opacity-100',
+                    priceInfo.change24h > 0
+                      ? '!text-green-500'
+                      : priceInfo.change24h < 0
+                        ? '!text-red-500'
+                        : '!text-primary-500'
+                  )}
                   className="rounded-none justify-between p-0!"
                   hoverable={true}
                   onClick={() => navigate(`/token-history/${tokenId}`)}

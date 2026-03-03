@@ -12,6 +12,7 @@ export interface TokenBalanceData {
   metadata: AssetMetadata;
   balance: number;
   fiatPrice: number;
+  change24h: number;
 }
 
 const REFRESH_INTERVAL = 5_000;
@@ -27,6 +28,7 @@ const DEFAULT_ZERO_MIDEN_BALANCE: TokenBalanceData[] = [
     tokenSlug: 'MIDEN',
     metadata: MIDEN_METADATA,
     fiatPrice: 1,
+    change24h: 0,
     balance: 0
   }
 ];
@@ -83,8 +85,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     try {
       // Fetch balances using the consolidated utility
       // Metadata is fetched inline, so all tokens appear together
+      const tokenPrices = useWalletStore.getState().tokenPrices;
       const fetchedBalances = await fetchBalances(address, tokenMetadatasRef.current, {
-        setAssetsMetadata
+        setAssetsMetadata,
+        tokenPrices
       });
 
       // Update store if still mounted

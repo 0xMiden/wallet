@@ -4,6 +4,7 @@ import { NoteToastProvider } from 'components/NoteToastProvider';
 import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
@@ -76,6 +77,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
       ready ? (
         <TokensMetadataProvider>
           <FiatCurrencyProvider>
+            <PriceProvider />
             {children}
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />

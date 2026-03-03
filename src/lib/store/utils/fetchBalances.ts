@@ -7,6 +7,7 @@ import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
 
@@ -15,6 +16,8 @@ export interface FetchBalancesOptions {
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
   /** Whether to fetch missing metadata inline (default: true) */
   fetchMissingMetadata?: boolean;
+  /** Token prices from Binance API (symbol -> { price, change24h }) */
+  tokenPrices?: TokenPrices;
 }
 
 /**
@@ -41,7 +44,7 @@ export async function fetchBalances(
     'cachedMetadatas:',
     cachedMetadatas
   );
-  const { setAssetsMetadata } = options;
+  const { setAssetsMetadata, tokenPrices = {} } = options;
   const balances: TokenBalanceData[] = [];
 
   // Local copy of metadata that we can add to during this fetch
@@ -91,12 +94,14 @@ export async function fetchBalances(
   // Handle case where account doesn't exist (outside the lock)
   if (!account) {
     console.warn(`Account not found: ${address}`);
+    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     return [
       {
         tokenId: midenFaucetId,
         tokenSlug: 'MIDEN',
         metadata: MIDEN_METADATA,
-        fiatPrice: 1,
+        fiatPrice: midenPrice.price,
+        change24h: midenPrice.change24h,
         balance: 0
       }
     ];
@@ -126,23 +131,27 @@ export async function fetchBalances(
     }
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
+    const priceInfo = getTokenPrice(tokenPrices, tokenMetadata.symbol);
 
     balances.push({
       tokenId,
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
-      fiatPrice: 1,
+      fiatPrice: priceInfo.price,
+      change24h: priceInfo.change24h,
       balance: balance.toNumber()
     });
   }
 
   // Always include MIDEN token (even if balance is 0)
   if (!hasMiden) {
+    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: 1,
+      fiatPrice: midenPrice.price,
+      change24h: midenPrice.change24h,
       balance: 0
     });
   }
