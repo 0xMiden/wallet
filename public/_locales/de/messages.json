@@ -2447,10 +2447,6 @@
     "message": "Mit seed phrase können Sie Ihr öffentliches Konto jederzeit wiederherstellen. Wählen Sie unten aus, wie Sie Ihr Wallet schnell entsperren können.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "Aktivitäten",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "Sortieren nach",
     "englishSource": "Sort by"

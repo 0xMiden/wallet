@@ -2448,10 +2448,6 @@
     "message": "За допомогою seed phrase ви завжди можете відновити свій публічний обліковий запис. Виберіть нижче, як швидко розблокувати свій гаманець.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "Діяльність",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "Сортувати за",
     "englishSource": "Sort by"

@@ -2447,10 +2447,6 @@
     "message": "seed phrase을 사용하면 언제든지 공개 계정을 복원할 수 있습니다. 지갑을 빠르게 잠금 해제하는 방법을 아래에서 선택하세요.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "활동",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "정렬 기준",
     "englishSource": "Sort by"

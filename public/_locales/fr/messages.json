@@ -2434,10 +2434,6 @@
     "message": "Avec le seed phrase, vous pouvez toujours restaurer votre compte public. Choisissez ci-dessous comment déverrouiller rapidement votre portefeuille.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "Activités",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "Trier par",
     "englishSource": "Sort by"

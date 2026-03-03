@@ -2435,10 +2435,6 @@
     "message": "seed phrase ile herkese açık hesabınızı istediğiniz zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini nasıl hızlı bir şekilde açacağınızı aşağıdan seçin.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "Faaliyetler",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "Göre sırala",
     "englishSource": "Sort by"

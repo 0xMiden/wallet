@@ -2411,10 +2411,6 @@
     "message": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "Activities",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "Sort by",
     "englishSource": "Sort by"

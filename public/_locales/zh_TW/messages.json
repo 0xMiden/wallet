@@ -2447,10 +2447,6 @@
     "message": "通过seed phrase，您可以随时恢复您的公共帐户。下面选择如何快速解锁您的钱包。",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
-  "activities": {
-    "message": "活动",
-    "englishSource": "Activities"
-  },
   "sortBy": {
     "message": "排序方式",
     "englishSource": "Sort by"
