@@ -2388,6 +2388,10 @@
     "message": "Verificação cancelada",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Modo escuro",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Feedback tátil",
     "englishSource": "Haptic Feedback"

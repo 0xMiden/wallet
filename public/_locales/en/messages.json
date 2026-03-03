@@ -2366,6 +2366,10 @@
     "message": "Scan cancelled",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Dark Mode",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Haptic Feedback",
     "englishSource": "Haptic Feedback"

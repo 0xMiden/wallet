@@ -2389,6 +2389,10 @@
     "message": "Analyse annulée",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Mode sombre",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Retour haptique",
     "englishSource": "Haptic Feedback"

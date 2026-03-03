@@ -2402,6 +2402,10 @@
     "message": "扫描已取消",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "深色模式",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "触觉反馈",
     "englishSource": "Haptic Feedback"

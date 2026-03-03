@@ -2390,6 +2390,10 @@
     "message": "Tarama iptal edildi",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Karanlık Mod",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Dokunsal Geribildirim",
     "englishSource": "Haptic Feedback"

@@ -2402,6 +2402,10 @@
     "message": "スキャンがキャンセルされました",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "ダークモード",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "触覚フィードバック",
     "englishSource": "Haptic Feedback"

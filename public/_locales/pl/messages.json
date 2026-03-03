@@ -2327,6 +2327,10 @@
     "message": "Skanowanie anulowane",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Tryb ciemny",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Informacje zwrotne dotykowe",
     "englishSource": "Haptic Feedback"

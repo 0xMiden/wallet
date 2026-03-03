@@ -2402,6 +2402,10 @@
     "message": "스캔이 취소되었습니다.",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "다크 모드",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "햅틱 피드백",
     "englishSource": "Haptic Feedback"

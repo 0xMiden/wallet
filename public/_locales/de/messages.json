@@ -2402,6 +2402,10 @@
     "message": "Scan abgebrochen",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Dunkler Modus",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Haptisches Feedback",
     "englishSource": "Haptic Feedback"

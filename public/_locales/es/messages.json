@@ -2327,6 +2327,10 @@
     "message": "Escaneo cancelado",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Modo oscuro",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Retroalimentación háptica",
     "englishSource": "Haptic Feedback"
