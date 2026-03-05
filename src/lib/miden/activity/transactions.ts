@@ -570,12 +570,17 @@ export const generateTransaction = async (
   useWorker: boolean = true
 ) => {
   // Sync state first to ensure we have latest account state
-  // Done BEFORE marking as GeneratingTransaction so tx stays Queued if sync fails
   // Separate lock acquisition to avoid holding lock during network call
-  await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    await midenClient.syncState();
-  });
+  // If sync fails (e.g. network outage), proceed with cached state —
+  // the transaction itself will produce a more specific error if state is stale
+  try {
+    await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      await midenClient.syncState();
+    });
+  } catch (syncError) {
+    console.warn('[generateTransaction] syncState failed, proceeding with cached state:', syncError);
+  }
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
@@ -655,7 +660,7 @@ export const cancelTransaction = async (transaction: Transaction, error: any) =>
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     dbTx.completedAt = Date.now() / 1000; // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
-    dbTx.error = error instanceof Error ? error.message : String(error);
+    dbTx.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     dbTx.displayMessage = 'Failed';
     dbTx.displayIcon = 'FAILED';
   });

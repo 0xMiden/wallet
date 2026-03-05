@@ -480,7 +480,7 @@ describe('transactions utilities', () => {
       modifyFn(dbTx);
 
       expect(dbTx.status).toBe(ITransactionStatus.Failed);
-      expect(dbTx.error).toBe('Network failure');
+      expect(dbTx.error).toBe('Error: Network failure');
       expect(dbTx.displayMessage).toBe('Failed');
       expect(dbTx.displayIcon).toBe('FAILED');
     });
