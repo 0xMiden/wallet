@@ -28,6 +28,7 @@ export class Sync {
   getHeightFetchTimestamp: number = 0;
   state?: WalletState;
   ampCycles: number = 0;
+  private syncLoopRunning: boolean = false;
 
   // Exposed for testing
   getCurrentUrl(): string {
@@ -60,60 +61,64 @@ export class Sync {
   }
 
   async sync() {
-    const storeState = useWalletStore.getState();
+    if (this.syncLoopRunning) return;
+    this.syncLoopRunning = true;
 
-    // Don't sync when wallet isn't ready (locked/idle) - no account to sync
-    if (storeState.status !== WalletStatus.Ready) {
-      await sleep(3000);
-      await this.sync();
-      return;
-    }
+    while (true) {
+      const storeState = useWalletStore.getState();
 
-    // Don't sync on the generating transaction page
-    const isGeneratingUrl = this.getCurrentUrl().search('generating-transaction') > -1;
-    if (isGeneratingUrl) {
-      return;
-    }
-
-    // On mobile, don't sync while transaction modal is open to avoid lock contention
-    if (isMobile() && storeState.isTransactionModalOpen) {
-      console.log('[AutoSync] Skipping sync while transaction modal is open');
-      await sleep(3000);
-      await this.sync();
-      return;
-    }
-
-    // Set syncing status to true before sync
-    useWalletStore.getState().setSyncStatus(true);
-
-    try {
-      const blockNum = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client) {
-          syncDebugInfo.lastError = 'getMidenClient returned null';
-          return null;
-        }
-        const syncSummary = await client.syncState();
-        return syncSummary.blockNum();
-      });
-
-      if (blockNum !== null) {
-        this.lastHeight = blockNum;
-        syncDebugInfo.lastBlockNum = blockNum;
-        syncDebugInfo.lastError = undefined;
+      // Don't sync when wallet isn't ready (locked/idle) - no account to sync
+      if (storeState.status !== WalletStatus.Ready) {
+        await sleep(3000);
+        continue;
       }
-      syncDebugInfo.syncCount++;
-      syncDebugInfo.lastSyncTime = new Date().toLocaleTimeString();
-    } catch (error) {
-      console.error('[AutoSync] Error during sync:', error);
-      syncDebugInfo.lastError = String(error);
-      syncDebugInfo.lastSyncTime = new Date().toLocaleTimeString();
-    } finally {
-      useWalletStore.getState().setSyncStatus(false);
-    }
 
-    await sleep(3000);
-    await this.sync();
+      // Skip sync on the generating transaction page to avoid lock contention,
+      // but keep the loop alive so it resumes once the user navigates away
+      const isGeneratingUrl = this.getCurrentUrl().search('generating-transaction') > -1;
+      if (isGeneratingUrl) {
+        await sleep(3000);
+        continue;
+      }
+
+      // On mobile, don't sync while transaction modal is open to avoid lock contention
+      if (isMobile() && storeState.isTransactionModalOpen) {
+        console.log('[AutoSync] Skipping sync while transaction modal is open');
+        await sleep(3000);
+        continue;
+      }
+
+      // Set syncing status to true before sync
+      useWalletStore.getState().setSyncStatus(true);
+
+      try {
+        const blockNum = await withWasmClientLock(async () => {
+          const client = await getMidenClient();
+          if (!client) {
+            syncDebugInfo.lastError = 'getMidenClient returned null';
+            return null;
+          }
+          const syncSummary = await client.syncState();
+          return syncSummary.blockNum();
+        });
+
+        if (blockNum !== null) {
+          this.lastHeight = blockNum;
+          syncDebugInfo.lastBlockNum = blockNum;
+          syncDebugInfo.lastError = undefined;
+        }
+        syncDebugInfo.syncCount++;
+        syncDebugInfo.lastSyncTime = new Date().toLocaleTimeString();
+      } catch (error) {
+        console.error('[AutoSync] Error during sync:', error);
+        syncDebugInfo.lastError = String(error);
+        syncDebugInfo.lastSyncTime = new Date().toLocaleTimeString();
+      } finally {
+        useWalletStore.getState().setSyncStatus(false);
+      }
+
+      await sleep(3000);
+    }
   }
 }
 

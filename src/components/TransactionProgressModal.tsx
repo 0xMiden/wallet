@@ -55,15 +55,19 @@ export const TransactionProgressModal: FC = () => {
     try {
       const success = await dbTransactionsLoop(signTransaction);
       if (success === false) {
-        setError(true);
-        // Re-open modal to show error if it was hidden
-        openModal();
+        // A transaction failed, but check if there are more to process
+        const hasMore = await hasQueuedTransactions();
+        if (!hasMore) {
+          // No more transactions — the user's tx was the one that failed
+          setError(true);
+          openModal();
+        }
+        // If there are more queued txs, don't set error — let the loop continue
       }
       mutateTx();
     } catch (e) {
       console.error('[TransactionProgressModal] Error in generateTransaction:', e);
       setError(true);
-      // Re-open modal to show error if it was hidden
       openModal();
     }
   }, [mutateTx, signTransaction, openModal]);

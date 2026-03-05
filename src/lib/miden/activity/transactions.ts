@@ -38,6 +38,9 @@ import { compareAccountIds } from './utils';
 // On desktop extension, transactions can run in background tabs
 export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60_000 : 30 * 60_000; // 2 mins on mobile, 30 mins on desktop
 
+// Maximum age for a queued transaction before it's considered stale and cancelled
+export const MAX_QUEUED_AGE = 30 * 60_000; // 30 minutes
+
 export const requestCustomTransaction = async (
   accountId: string,
   transactionRequestBytes: string,
@@ -442,11 +445,23 @@ export const cancelStuckTransactions = async () => {
   const transactions = await getTransactionsInProgress();
   const cancelTransactionUpdates = transactions
     .filter(tx => {
-      return tx.processingStartedAt && Date.now() - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
+      // Crashed before processing started — processingStartedAt is set atomically
+      // with the status change, so undefined means the app crashed mid-transition
+      if (!tx.processingStartedAt) return true;
+      return Date.now() - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
     })
     .map(async tx => cancelTransaction(tx, 'Transaction took too long to process and was cancelled'));
 
   await Promise.all(cancelTransactionUpdates);
+};
+
+/**
+ * Cancel queued transactions that have been waiting too long (TTL expired)
+ */
+export const cancelStaleQueuedTransactions = async () => {
+  const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
+  const stale = queued.filter(tx => Date.now() - tx.initiatedAt > MAX_QUEUED_AGE);
+  await Promise.all(stale.map(tx => cancelTransaction(tx, 'Transaction expired after being queued too long')));
 };
 
 /**
@@ -554,6 +569,16 @@ export const generateTransaction = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   useWorker: boolean = true
 ) => {
+  // Sync state first to ensure we have latest account state
+  // Separate lock acquisition to avoid holding lock during network call
+  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
+  // catch block which cancels the transaction — this is intentional fail-fast behavior,
+  // since the transaction can't be submitted without network anyway
+  await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    await midenClient.syncState();
+  });
+
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Date.now()
@@ -632,7 +657,9 @@ export const cancelTransaction = async (transaction: Transaction, error: any) =>
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     dbTx.completedAt = Date.now() / 1000; // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
-    dbTx.error = error.toString();
+    dbTx.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    dbTx.displayMessage = 'Failed';
+    dbTx.displayIcon = 'FAILED';
   });
 };
 
@@ -652,6 +679,7 @@ export const generateTransactionsLoop = async (
   useWorker: boolean = true
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
+  await cancelStaleQueuedTransactions();
 
   // Import any notes needed for queued transactions
   await importAllNotes();

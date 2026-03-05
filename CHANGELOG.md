@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.2
+
+### Fixes
+
+* [FIX][all] Fixed transaction recovery after network outages. Private accounts could enter a permanently broken state where all transactions fail with "initial state commitment does not match". Root causes: AutoSync loop died on the generating-transaction page, transactions were built against stale local state, and the transaction modal blocked on stale tx failures. Now syncs state before executing transactions, keeps AutoSync alive during transaction generation, cancels crashed/stale transactions properly, and shows correct "Failed" status instead of misleading "Executing". (#150)
+
+---
+
 ## 1.13.1 (2026-02-16)
 
 ### Features
