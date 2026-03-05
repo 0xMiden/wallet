@@ -26,7 +26,8 @@ export class WalletSigner implements Signer {
 
   async signCommitment(commitmentHex: string): Promise<string> {
     const paddedHex = commitmentHex.startsWith('0x') ? commitmentHex : `0x${commitmentHex}`;
-    return await this.signWordFn(this.commitmentForStorageRetrieval, paddedHex);
+    const sig = await this.signWordFn(this.commitmentForStorageRetrieval, paddedHex);
+    return sig;
   }
 
   static computeAccountDigest(accountId: string, timestamp: number): Word {

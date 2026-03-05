@@ -1,3 +1,6 @@
+import { PsmHttpClient } from '@openzeppelin/psm-client';
+
+import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
 import { WalletState, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -112,7 +115,6 @@ export class Sync {
     } finally {
       useWalletStore.getState().setSyncStatus(false);
     }
-
     await sleep(3000);
     await this.sync();
   }

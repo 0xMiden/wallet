@@ -6,15 +6,14 @@ import {
   NoteFilterTypes,
   NoteId,
   TransactionRequest,
-  TransactionResult,
-  TransactionSummary
+  TransactionResult
 } from '@miden-sdk/miden-sdk';
 import { liveQuery } from 'dexie';
 
 import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
 import { sendTransaction } from 'lib/miden-worker/sendTransaction';
 import { submitTransaction } from 'lib/miden-worker/submitTransaction';
-import { getOrCreatePsmService, isPsmAccountAndNotFirstTx } from 'lib/miden/front/psm-manager';
+import { getOrCreateMultisigService, isPsmAccount } from 'lib/miden/front/psm-manager';
 import * as Repo from 'lib/miden/repo';
 import { isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -577,8 +576,7 @@ export const generateTransaction = async (
     accountId: transaction.accountId
   });
   // Route PSM accounts through PSM service
-  if (await isPsmAccountAndNotFirstTx(transaction.accountId)) {
-    console.log('Routing transaction through PSM service', { txId: transaction.id, accountId: transaction.accountId });
+  if (isPsmAccount(transaction.accountId)) {
     await generatePsmTransaction(transaction, signCallback);
     return;
   }
@@ -652,52 +650,58 @@ export const generateTransaction = async (
 };
 
 /**
- * Generate a transaction for a PSM account using the PSM service.
- * Routes the transaction through PsmService.createTransactionProposal().
+ * Generate a transaction for a PSM account using the MultisigService.
+ * Routes the transaction through MultisigService proposal methods.
  */
 const generatePsmTransaction = async (
   transaction: ITransaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ): Promise<void> => {
-  console.log('Generating PSM transaction', { txId: transaction.id, accountId: transaction.accountId });
-  const psmService = await getOrCreatePsmService(transaction.accountId);
-  console.log('Generating PSM transaction', psmService);
+  const multisigService = await getOrCreateMultisigService(transaction.accountId, signCallback);
 
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
+  let proposalResult;
+
+  switch (transaction.type) {
+    case 'send': {
+      const sendTx = transaction as SendTransaction;
+      proposalResult = await multisigService.createSendProposal(
+        sendTx.secondaryAccountId,
+        sendTx.faucetId,
+        BigInt(sendTx.amount)
+      );
+      break;
     }
-  };
-  // Get serialized TransactionSummary from SDK based on transaction type
-  const summaryBytes = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient(options);
-
-    switch (transaction.type) {
-      case 'send':
-        return await midenClient.sendTransaction(transaction as SendTransaction, true);
-      case 'consume':
-        return await midenClient.consumeNoteId(transaction as ConsumeTransaction, true);
-      case 'execute':
-      default:
+    case 'consume': {
+      const consumeTx = transaction as ConsumeTransaction;
+      proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
+      break;
+    }
+    case 'execute':
+    default: {
+      // For custom transactions, get TransactionSummary and create a custom proposal
+      const summaryBytes = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
         const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
         return (
           await midenClient.webClient.executeForSummary(accountIdStringToSdk(transaction.accountId), txRequest)
         ).serialize();
+      });
+      proposalResult = await multisigService.createCustomProposal(summaryBytes);
+      break;
     }
-  });
-  // Deserialize and submit to PSM
-  const txSummary = TransactionSummary.deserialize(summaryBytes);
-  await psmService.createTransactionProposal(txSummary);
-
-  // Determine display message based on transaction type
-  let displayMessage = 'Completed';
-  if (transaction.type === 'send') {
-    displayMessage = 'Sent';
-  } else if (transaction.type === 'consume') {
-    displayMessage = 'Received';
   }
+
+  // Get the proposal commitment for signing and execution
+  const proposalCommitment = proposalResult.proposal.commitment;
+  console.log('Transaction proposal created with commitment:', proposalCommitment);
+
+  // Sign and execute the proposal
+  await multisigService.signAndExecuteProposal(proposalCommitment);
+
+  await multisigService.sync();
+  // Determine display message based on transaction type
+  const displayMessage =
+    transaction.type === 'send' ? 'Sent' : transaction.type === 'consume' ? 'Received' : 'Completed';
 
   // Update transaction as completed
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
