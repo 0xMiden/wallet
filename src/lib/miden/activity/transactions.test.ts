@@ -558,6 +558,202 @@ describe('transactions utilities', () => {
   });
 });
 
+/**
+ * Integration test: full network outage recovery flow.
+ * Uses jest.isolateModules with a stateful in-memory DB to simulate:
+ *   1. Network up → transaction succeeds
+ *   2. Network down → syncState fails → transaction cancelled
+ *   3. Network back up → new transaction succeeds
+ */
+describe('Transaction resilience: network outage recovery (isolated)', () => {
+  beforeEach(() => {
+    jest.resetModules();
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('recovers after network outage - full flow', async () => {
+    // ---- In-memory DB ----
+    const txStore: any[] = [];
+    const repoMock = {
+      transactions: {
+        add: jest.fn(async (tx: any) => {
+          txStore.push({ ...tx });
+        }),
+        filter: jest.fn((fn: (tx: any) => boolean) => ({
+          toArray: jest.fn(async () => txStore.filter(fn))
+        })),
+        where: jest.fn((query: any) => ({
+          first: jest.fn(async () => txStore.find(tx => tx.id === query.id)),
+          modify: jest.fn(async (fn: (tx: any) => void) => {
+            const tx = txStore.find(t => t.id === query.id);
+            if (tx) fn(tx);
+          })
+        }))
+      }
+    };
+
+    // ---- Network toggle ----
+    let networkUp = true;
+    const mockSyncState = jest.fn(async () => {
+      if (!networkUp) throw new Error('Network unreachable');
+      return { blockNum: () => 42 };
+    });
+
+    const mockNewTransaction = jest.fn(async () => new Uint8Array([10, 20, 30]));
+
+    jest.doMock('lib/miden/repo', () => repoMock);
+
+    jest.doMock('../sdk/miden-client', () => ({
+      getMidenClient: jest.fn(async () => ({
+        syncState: mockSyncState,
+        newTransaction: mockNewTransaction
+      })),
+      withWasmClientLock: jest.fn((cb: () => any) => cb())
+    }));
+
+    jest.doMock('@miden-sdk/miden-sdk', () => ({
+      Address: { fromBech32: jest.fn() },
+      TransactionResult: {
+        deserialize: jest.fn(() => ({
+          executedTransaction: () => ({
+            id: () => ({ toHex: () => 'mock-tx-hash' }),
+            outputNotes: () => ({ notes: () => [] }),
+            inputNotes: () => ({ notes: () => [] })
+          }),
+          serialize: () => new Uint8Array([1, 2, 3])
+        }))
+      },
+      InputNoteState: {
+        ConsumedAuthenticatedLocal: 0,
+        ConsumedUnauthenticatedLocal: 1,
+        ConsumedExternal: 2,
+        Invalid: 3,
+        Committed: 4,
+        Expected: 5,
+        Unverified: 6
+      }
+    }));
+
+    jest.doMock('../helpers', () => ({
+      toNoteTypeString: jest.fn(() => 'public')
+    }));
+
+    jest.doMock('./helpers', () => ({
+      interpretTransactionResult: jest.fn((tx: any) => ({
+        ...tx,
+        transactionId: 'mock-tx-hash',
+        displayMessage: 'Executed',
+        displayIcon: 'DEFAULT'
+      }))
+    }));
+
+    jest.doMock('./notes', () => ({
+      importAllNotes: jest.fn(),
+      queueNoteImport: jest.fn(),
+      registerOutputNote: jest.fn()
+    }));
+
+    jest.doMock('lib/miden-worker/submitTransaction', () => ({
+      submitTransaction: jest.fn(async () => new Uint8Array([1, 2, 3]))
+    }));
+    jest.doMock('lib/miden-worker/consumeNoteId', () => ({
+      consumeNoteId: jest.fn()
+    }));
+    jest.doMock('lib/miden-worker/sendTransaction', () => ({
+      sendTransaction: jest.fn()
+    }));
+
+    jest.doMock('lib/platform', () => ({
+      isMobile: jest.fn(() => false)
+    }));
+
+    jest.doMock('shared/logger', () => ({
+      logger: { warning: jest.fn(), error: jest.fn() }
+    }));
+
+    let ITransactionStatus: any;
+    let generateTransactionsLoop: any;
+
+    jest.isolateModules(() => {
+      ({ ITransactionStatus } = require('../db/types'));
+      ({ generateTransactionsLoop } = require('./transactions'));
+    });
+
+    const signCallback = jest.fn(async () => new Uint8Array());
+
+    // ---- Phase 1: Network up, transaction succeeds ----
+    networkUp = true;
+    txStore.push({
+      id: 'tx-1',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([1])
+    });
+
+    const result1 = await generateTransactionsLoop(signCallback);
+
+    expect(result1).toBe(true);
+    const tx1 = txStore.find((t: any) => t.id === 'tx-1');
+    expect(tx1.status).toBe(ITransactionStatus.Completed);
+    expect(tx1.transactionId).toBe('mock-tx-hash');
+    expect(mockSyncState).toHaveBeenCalled();
+
+    // ---- Phase 2: Network down, new transaction gets cancelled ----
+    networkUp = false;
+    mockSyncState.mockClear();
+
+    txStore.push({
+      id: 'tx-2',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([2])
+    });
+
+    const result2 = await generateTransactionsLoop(signCallback);
+
+    // generateTransactionsLoop catches the error and cancels the tx
+    expect(result2).toBe(false);
+    const tx2 = txStore.find((t: any) => t.id === 'tx-2');
+    expect(tx2.status).toBe(ITransactionStatus.Failed);
+    expect(tx2.displayMessage).toBe('Failed');
+    expect(tx2.displayIcon).toBe('FAILED');
+
+    // ---- Phase 3: Network back up, new transaction succeeds ----
+    networkUp = true;
+    mockSyncState.mockClear();
+
+    txStore.push({
+      id: 'tx-3',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([3])
+    });
+
+    const result3 = await generateTransactionsLoop(signCallback);
+
+    expect(result3).toBe(true);
+    const tx3 = txStore.find((t: any) => t.id === 'tx-3');
+    expect(tx3.status).toBe(ITransactionStatus.Completed);
+    expect(tx3.transactionId).toBe('mock-tx-hash');
+    expect(mockSyncState).toHaveBeenCalled();
+  });
+});
+
 // Note: The completeCustomTransaction test below uses jest.isolateModules
 // which conflicts with module-level mocks. It's kept as a separate isolated test.
 describe('completeCustomTransaction (isolated)', () => {
