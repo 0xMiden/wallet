@@ -5,6 +5,7 @@ import {
   NoteFilter,
   NoteFilterTypes,
   NoteId,
+  TransactionRequest,
   TransactionResult
 } from '@miden-sdk/miden-sdk';
 import { liveQuery } from 'dexie';
@@ -12,6 +13,7 @@ import { liveQuery } from 'dexie';
 import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
 import { sendTransaction } from 'lib/miden-worker/sendTransaction';
 import { submitTransaction } from 'lib/miden-worker/submitTransaction';
+import { getOrCreateMultisigService, isPsmAccount } from 'lib/miden/front/psm-manager';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -598,6 +600,18 @@ export const generateTransaction = async (
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
+<<<<<<< HEAD
+=======
+  console.log('Generating transaction', {
+    txId: transaction.id,
+    type: transaction.type,
+    accountId: transaction.accountId
+  });
+  // Route PSM accounts through PSM service
+  if (isPsmAccount(transaction.accountId)) {
+    await generatePsmTransaction(transaction, signCallback);
+    return;
+  }
 
   // Process transaction
   let result: TransactionResult;
@@ -665,6 +679,67 @@ export const generateTransaction = async (
       await completeCustomTransaction(transaction, result);
       break;
   }
+};
+
+/**
+ * Generate a transaction for a PSM account using the MultisigService.
+ * Routes the transaction through MultisigService proposal methods.
+ */
+const generatePsmTransaction = async (
+  transaction: ITransaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+): Promise<void> => {
+  const multisigService = await getOrCreateMultisigService(transaction.accountId, signCallback);
+
+  let proposalResult;
+
+  switch (transaction.type) {
+    case 'send': {
+      const sendTx = transaction as SendTransaction;
+      proposalResult = await multisigService.createSendProposal(
+        sendTx.secondaryAccountId,
+        sendTx.faucetId,
+        BigInt(sendTx.amount)
+      );
+      break;
+    }
+    case 'consume': {
+      const consumeTx = transaction as ConsumeTransaction;
+      proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
+      break;
+    }
+    case 'execute':
+    default: {
+      // For custom transactions, get TransactionSummary and create a custom proposal
+      const summaryBytes = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
+        return (
+          await midenClient.webClient.executeForSummary(accountIdStringToSdk(transaction.accountId), txRequest)
+        ).serialize();
+      });
+      proposalResult = await multisigService.createCustomProposal(summaryBytes);
+      break;
+    }
+  }
+
+  // Get the proposal commitment for signing and execution
+  const proposalCommitment = proposalResult.proposal.commitment;
+  console.log('Transaction proposal created with commitment:', proposalCommitment);
+
+  // Sign and execute the proposal
+  await multisigService.signAndExecuteProposal(proposalCommitment);
+
+  await multisigService.sync();
+  // Determine display message based on transaction type
+  const displayMessage =
+    transaction.type === 'send' ? 'Sent' : transaction.type === 'consume' ? 'Received' : 'Completed';
+
+  // Update transaction as completed
+  await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+    displayMessage,
+    completedAt: Math.floor(Date.now() / 1000)
+  });
 };
 
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
