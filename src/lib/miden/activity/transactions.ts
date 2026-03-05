@@ -5,13 +5,16 @@ import {
   NoteFilter,
   NoteFilterTypes,
   NoteId,
-  TransactionResult
+  TransactionRequest,
+  TransactionResult,
+  TransactionSummary
 } from '@miden-sdk/miden-sdk';
 import { liveQuery } from 'dexie';
 
 import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
 import { sendTransaction } from 'lib/miden-worker/sendTransaction';
 import { submitTransaction } from 'lib/miden-worker/submitTransaction';
+import { getOrCreatePsmService, isPsmAccountAndNotFirstTx } from 'lib/miden/front/psm-manager';
 import * as Repo from 'lib/miden/repo';
 import { isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -26,7 +29,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
@@ -199,7 +202,7 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
         resolve(tx.transactionId!);
       } else if (tx.status === ITransactionStatus.Failed) {
         cleanup();
-        reject(new Error('Consume transaction failed'));
+        reject(tx.error);
       }
     });
 
@@ -568,6 +571,17 @@ export const generateTransaction = async (
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
+  console.log('Generating transaction', {
+    txId: transaction.id,
+    type: transaction.type,
+    accountId: transaction.accountId
+  });
+  // Route PSM accounts through PSM service
+  if (await isPsmAccountAndNotFirstTx(transaction.accountId)) {
+    console.log('Routing transaction through PSM service', { txId: transaction.id, accountId: transaction.accountId });
+    await generatePsmTransaction(transaction, signCallback);
+    return;
+  }
 
   // Process transaction
   let result: TransactionResult;
@@ -635,6 +649,61 @@ export const generateTransaction = async (
       await completeCustomTransaction(transaction, result);
       break;
   }
+};
+
+/**
+ * Generate a transaction for a PSM account using the PSM service.
+ * Routes the transaction through PsmService.createTransactionProposal().
+ */
+const generatePsmTransaction = async (
+  transaction: ITransaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+): Promise<void> => {
+  console.log('Generating PSM transaction', { txId: transaction.id, accountId: transaction.accountId });
+  const psmService = await getOrCreatePsmService(transaction.accountId);
+  console.log('Generating PSM transaction', psmService);
+
+  const options: MidenClientCreateOptions = {
+    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+      const keyString = Buffer.from(publicKey).toString('hex');
+      const signingInputsString = Buffer.from(signingInputs).toString('hex');
+      return await signCallback(keyString, signingInputsString);
+    }
+  };
+  // Get serialized TransactionSummary from SDK based on transaction type
+  const summaryBytes = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient(options);
+
+    switch (transaction.type) {
+      case 'send':
+        return await midenClient.sendTransaction(transaction as SendTransaction, true);
+      case 'consume':
+        return await midenClient.consumeNoteId(transaction as ConsumeTransaction, true);
+      case 'execute':
+      default:
+        const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
+        return (
+          await midenClient.webClient.executeForSummary(accountIdStringToSdk(transaction.accountId), txRequest)
+        ).serialize();
+    }
+  });
+  // Deserialize and submit to PSM
+  const txSummary = TransactionSummary.deserialize(summaryBytes);
+  await psmService.createTransactionProposal(txSummary);
+
+  // Determine display message based on transaction type
+  let displayMessage = 'Completed';
+  if (transaction.type === 'send') {
+    displayMessage = 'Sent';
+  } else if (transaction.type === 'consume') {
+    displayMessage = 'Received';
+  }
+
+  // Update transaction as completed
+  await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+    displayMessage,
+    completedAt: Math.floor(Date.now() / 1000)
+  });
 };
 
 export const cancelTransaction = async (transaction: Transaction, error: any) => {

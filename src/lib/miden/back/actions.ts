@@ -200,9 +200,21 @@ export function signTransaction(publicKey: string, signingInputs: string) {
   });
 }
 
+export function signWord(publicKey: string, wordHex: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.signWord(publicKey, wordHex);
+  });
+}
+
 export function getAuthSecretKey(key: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.getAuthSecretKey(key);
+  });
+}
+
+export function getPublicKeyForCommitment(publicKeyCommitment: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.getPublicKeyForCommitment(publicKeyCommitment);
   });
 }
 

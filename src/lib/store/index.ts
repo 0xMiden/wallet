@@ -256,6 +256,16 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
+    signWord: async (publicKey, wordHex) => {
+      const res = await request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey,
+        wordHex
+      });
+      assertResponse(res.type === WalletMessageType.SignWordResponse);
+      return res.signature;
+    },
+
     getAuthSecretKey: async key => {
       const res = await request({
         type: WalletMessageType.GetAuthSecretKeyRequest,
@@ -263,6 +273,15 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.GetAuthSecretKeyResponse);
       return res.key;
+    },
+
+    getPublicKeyForCommitment: async publicKeyCommitment => {
+      const res = await request({
+        type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+        publicKeyCommitment
+      });
+      assertResponse(res.type === WalletMessageType.GetPublicKeyForCommitmentResponse);
+      return res.publicKey;
     },
 
     // DApp actions

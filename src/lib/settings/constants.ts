@@ -12,3 +12,5 @@ export const DEFAULT_HAPTIC_FEEDBACK = true;
 
 export const THEME_STORAGE_KEY = 'theme_setting';
 export const DEFAULT_THEME: 'light' | 'dark' = 'light';
+
+export const PSM_URL_STORAGE_KEY = 'psm_url';

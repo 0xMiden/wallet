@@ -97,11 +97,12 @@ export class Sync {
         return syncSummary.blockNum();
       });
 
-      if (blockNum !== null) {
-        this.lastHeight = blockNum;
-        syncDebugInfo.lastBlockNum = blockNum;
-        syncDebugInfo.lastError = undefined;
-      }
+      if (useWalletStore.getState())
+        if (blockNum !== null) {
+          this.lastHeight = blockNum;
+          syncDebugInfo.lastBlockNum = blockNum;
+          syncDebugInfo.lastError = undefined;
+        }
       syncDebugInfo.syncCount++;
       syncDebugInfo.lastSyncTime = new Date().toLocaleTimeString();
     } catch (error) {

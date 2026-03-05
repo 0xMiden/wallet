@@ -839,7 +839,12 @@ const ConfirmDAppForm: FC = () => {
         <div className="flex-1" />
 
         <div
-          className={classNames('sticky bottom-0 w-full', 'bg-surface-solid shadow-md', 'flex items-stretch', 'px-4 pt-2 pb-6')}
+          className={classNames(
+            'sticky bottom-0 w-full',
+            'bg-surface-solid shadow-md',
+            'flex items-stretch',
+            'px-4 pt-2 pb-6'
+          )}
         >
           <div className="w-1/2 pr-2">
             <Button

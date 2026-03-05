@@ -2,7 +2,6 @@ import React, { FC, useCallback, useState } from 'react';
 
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
-
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';

@@ -5,7 +5,8 @@ export enum OnboardingType {
 
 export enum WalletType {
   OffChain = 'off-chain',
-  OnChain = 'on-chain'
+  OnChain = 'on-chain',
+  Psm = 'psm'
 }
 
 export enum ImportType {

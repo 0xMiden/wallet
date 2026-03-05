@@ -28,6 +28,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { ConsumeTransaction, SendTransaction } from '../db/types';
 import { toNoteType } from '../helpers';
+import { createPsmAccount } from '../psm/account';
 import { NoteExportType } from './constants';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from './helpers';
 
@@ -91,7 +92,6 @@ export class MidenClientInterface {
       options.insertKeyCallback,
       options.signCallback
     );
-
     return new MidenClientInterface(webClient, network, options.onConnectivityIssue);
   }
 
@@ -108,6 +108,11 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
+    if (walletType === WalletType.Psm) {
+      const account = await createPsmAccount(this.webClient, seed);
+      return getBech32AddressFromAccountId(account.id());
+    }
+
     // Create a new wallet
     const accountStorageMode =
       walletType === WalletType.OnChain ? AccountStorageMode.public() : AccountStorageMode.private();
@@ -145,11 +150,21 @@ export class MidenClientInterface {
     return result;
   }
 
-  async consumeNoteId(transaction: ConsumeTransaction): Promise<Uint8Array> {
+  async consumeNoteId(transaction: ConsumeTransaction, onlySummary: boolean = false): Promise<Uint8Array> {
     const { accountId, noteId } = transaction;
 
     const notes = await this.getNotesByIds([noteId]);
     const consumeTransactionRequest = this.webClient.newConsumeTransactionRequest(notes);
+
+    if (onlySummary) {
+      const summary = await this.webClient.executeForSummary(
+        accountIdStringToSdk(accountId),
+        consumeTransactionRequest
+      );
+
+      return summary.serialize();
+    }
+
     let consumeTransactionResult = await this.webClient.executeTransaction(
       accountIdStringToSdk(accountId),
       consumeTransactionRequest
@@ -224,7 +239,7 @@ export class MidenClientInterface {
     return result;
   }
 
-  async sendTransaction(dbTransaction: SendTransaction) {
+  async sendTransaction(dbTransaction: SendTransaction, onlySummary: boolean = false): Promise<Uint8Array> {
     const {
       accountId: senderAccountId,
       secondaryAccountId: recipientAccountId,
@@ -249,6 +264,16 @@ export class MidenClientInterface {
       amount,
       recallHeight
     );
+
+    if (onlySummary) {
+      const summary = await this.webClient.executeForSummary(
+        accountIdStringToSdk(senderAccountId),
+        sendTransactionRequest
+      );
+
+      return summary.serialize();
+    }
+
     let sendTransactionResult = await this.webClient.executeTransaction(
       accountIdStringToSdk(senderAccountId),
       sendTransactionRequest

@@ -116,11 +116,23 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         type: WalletMessageType.SignTransactionResponse,
         signature
       };
+    case WalletMessageType.SignWordRequest:
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      return {
+        type: WalletMessageType.SignWordResponse,
+        signature: wordSignature
+      };
     case WalletMessageType.GetAuthSecretKeyRequest:
       const key = await Actions.getAuthSecretKey(req.key);
       return {
         type: WalletMessageType.GetAuthSecretKeyResponse,
         key
+      };
+    case WalletMessageType.GetPublicKeyForCommitmentRequest:
+      const publicKey = await Actions.getPublicKeyForCommitment(req.publicKeyCommitment);
+      return {
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey
       };
     case MidenMessageType.DAppGetAllSessionsRequest:
       const allSessions = await Actions.getAllDAppSessions();
