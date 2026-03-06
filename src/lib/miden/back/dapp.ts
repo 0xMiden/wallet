@@ -7,7 +7,7 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NetworkId, NoteFilter, NoteFilterTypes, NoteId, NoteType } from '@miden-sdk/miden-sdk';
+import { AccountInterface, NetworkId, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
@@ -508,16 +508,28 @@ const generatePromisifyRequestPrivateNotes = async (
   }
 };
 
+function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]): NoteQuery | undefined {
+  if (filterType === NoteFilterTypes.List && noteIds) return { ids: noteIds };
+  const statusMap: Record<string, string> = {
+    [NoteFilterTypes.Consumed]: 'consumed',
+    [NoteFilterTypes.Committed]: 'committed',
+    [NoteFilterTypes.Expected]: 'expected',
+    [NoteFilterTypes.Processing]: 'processing',
+    [NoteFilterTypes.Unverified]: 'unverified'
+  };
+  const status = statusMap[filterType as unknown as string];
+  if (status) return { status } as NoteQuery;
+  return undefined;
+}
+
 async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: string[]): Promise<InputNoteDetails[]> {
   let privateNotes: InputNoteDetails[] = [];
   try {
     privateNotes = await withUnlocked(async () => {
-      // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        const midenNoteIds = noteIds ? noteIds.map(id => NoteId.fromHex(id)) : undefined;
-        const noteFilter = new NoteFilter(notefilterType, midenNoteIds);
-        let allNotes = await midenClient.getInputNoteDetails(noteFilter);
+        const query = noteFilterTypeToQuery(notefilterType, noteIds);
+        let allNotes = await midenClient.getInputNoteDetails(query);
         let privateNotes = allNotes.filter(note => note.noteType === NoteType.Private);
         return privateNotes;
       });
@@ -625,10 +637,9 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
       return await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
         await midenClient.syncState();
-        const consumableNotes = await midenClient.getConsumableNotes(accountId);
-        const consumableNotesDetails = consumableNotes.map(note => {
+        const notes = await midenClient.getConsumableNotes(accountId);
+        const consumableNotesDetails = notes.map(note => {
           const assets = note
-            .inputNoteRecord()
             .details()
             .assets()
             .fungibleAssets()
@@ -636,15 +647,13 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
               amount: asset.amount().toString(),
               faucetId: asset.faucetId().toBech32(NetworkId.testnet(), AccountInterface.BasicWallet)
             }));
-          const inputNoteRecord = note.inputNoteRecord();
           return {
-            noteId: inputNoteRecord.id().toString(),
-            noteType: inputNoteRecord.metadata()?.noteType(),
+            noteId: note.id().toString(),
+            noteType: note.metadata()?.noteType(),
             senderAccountId:
-              inputNoteRecord.metadata()?.sender()?.toBech32(NetworkId.testnet(), AccountInterface.BasicWallet) ||
-              undefined,
-            nullifier: inputNoteRecord.nullifier(),
-            state: inputNoteRecord.state(),
+              note.metadata()?.sender()?.toBech32(NetworkId.testnet(), AccountInterface.BasicWallet) || undefined,
+            nullifier: note.nullifier(),
+            state: note.state(),
             assets: assets
           };
         });
