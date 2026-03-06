@@ -506,4 +506,4 @@ const workerConfig = {
   }
 };
 
-module.exports = [appConfig, backgroundConfig, workerConfig];
+module.exports = [appConfig, backgroundConfig];

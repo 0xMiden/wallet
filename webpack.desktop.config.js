@@ -352,4 +352,4 @@ const desktopWorkerConfig = {
   }
 };
 
-module.exports = [desktopAppConfig, desktopWorkerConfig];
+module.exports = [desktopAppConfig];
