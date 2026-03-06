@@ -15,8 +15,7 @@
 
   "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms"],
   "host_permissions": [
-    "http://localhost:4180/",
-    "http://localhost:3000/",
+    "http://localhost/*",
     "https://*.miden.fi/*"
   ],
 

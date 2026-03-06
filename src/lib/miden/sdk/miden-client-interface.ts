@@ -15,11 +15,10 @@ import {
 } from '@miden-sdk/miden-sdk';
 
 import {
+  DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
-  MIDEN_NETWORK_NAME,
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
-  MIDEN_PROVING_ENDPOINTS,
-  MIDEN_TRANSPORT_LAYER_NAME
+  MIDEN_PROVING_ENDPOINTS
 } from 'lib/miden-chain/constants';
 import { addConnectivityIssue } from 'lib/miden/activity/connectivity-issues';
 import { isMobile } from 'lib/platform';
@@ -61,9 +60,7 @@ export class MidenClientInterface {
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
-    const network = MIDEN_NETWORK_NAME.TESTNET;
-    const transportLayer = MIDEN_TRANSPORT_LAYER_NAME.TESTNET;
-    // Keep note transport on testnet for now.
+    const network = DEFAULT_NETWORK;
 
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
       const sdk = await import('@miden-sdk/miden-sdk');
@@ -75,7 +72,7 @@ export class MidenClientInterface {
 
     const midenClient = await MidenClient.create({
       rpcUrl: MIDEN_NETWORK_ENDPOINTS.get(network)!,
-      noteTransportUrl: MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(transportLayer),
+      noteTransportUrl: MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network),
       seed: options.seed,
       keystore: hasKeystore
         ? {
