@@ -7,8 +7,6 @@ import { type TokenPrices } from 'lib/prices/binance';
 import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { TokenBalanceData } from '../miden/front/balance';
-
 /**
  * Core wallet state (synced from backend)
  */
@@ -19,15 +17,6 @@ export interface WalletSlice {
   networks: MidenNetwork[];
   settings: WalletSettings | null;
   ownMnemonic: boolean | null;
-}
-
-/**
- * Balance state (previously separate SWR cache)
- */
-export interface BalancesSlice {
-  balances: Record<string, TokenBalanceData[]>;
-  balancesLoading: Record<string, boolean>;
-  balancesLastFetched: Record<string, number>;
 }
 
 /**
@@ -141,14 +130,6 @@ export interface WalletActions {
 }
 
 /**
- * Balance actions
- */
-export interface BalanceActions {
-  fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
-  setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
-}
-
-/**
  * Asset actions
  */
 export interface AssetActions {
@@ -222,7 +203,6 @@ export interface NoteToastActions {
 export interface WalletStore
   extends
     WalletSlice,
-    BalancesSlice,
     AssetsSlice,
     UISlice,
     FiatCurrencySlice,
@@ -231,7 +211,6 @@ export interface WalletStore
     NoteToastSlice,
     ExtensionSyncSlice,
     WalletActions,
-    BalanceActions,
     AssetActions,
     FiatCurrencyActions,
     SyncActions,

@@ -120,48 +120,6 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
   return <>{children}</>;
 }
 
-/**
- * useTokensMetadata - Hook to get token metadata utilities
- *
- * Now uses Zustand store directly instead of constate context.
- */
-export function useTokensMetadata() {
-  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
-  const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
-
-  // Ref for backward compatibility with existing code that uses allTokensBaseMetadataRef
-  const allTokensBaseMetadataRef = useRef(assetsMetadata);
-
-  // Keep ref in sync with Zustand store
-  useEffect(() => {
-    allTokensBaseMetadataRef.current = assetsMetadata;
-  }, [assetsMetadata]);
-
-  const fetchMetadata = useCallback((assetId: string) => fetchTokenMetadata(assetId), []);
-
-  const setTokensDetailedMetadata = useCallback(
-    (toSet: Record<string, DetailedAssetMetdata>) =>
-      getStorageProvider().set(mapObjectKeys(toSet, getDetailedMetadataStorageKey)),
-    []
-  );
-
-  // Wrapper that updates both storage and Zustand
-  const setTokensBaseMetadataWithStore = useCallback(
-    async (toSet: Record<string, AssetMetadata>) => {
-      setAssetsMetadata(toSet);
-      await setTokensBaseMetadata(toSet);
-    },
-    [setAssetsMetadata]
-  );
-
-  return {
-    allTokensBaseMetadataRef,
-    fetchMetadata,
-    setTokensBaseMetadata: setTokensBaseMetadataWithStore,
-    setTokensDetailedMetadata
-  };
-}
-
 // Helper to set detailed metadata to storage
 async function setTokensDetailedMetadataStorage(toSet: Record<string, DetailedAssetMetdata>): Promise<void> {
   await getStorageProvider().set(mapObjectKeys(toSet, getDetailedMetadataStorageKey));
