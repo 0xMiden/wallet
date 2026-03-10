@@ -1,4 +1,4 @@
-import { ITransactionIcon } from 'lib/miden/db/types';
+import { ITransactionIcon, ITransactionType } from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
   key: string;
@@ -6,10 +6,11 @@ export interface IHistoryEntry {
   timestamp: number;
   message: string;
   type: HistoryEntryType;
+  txType: ITransactionType;
 
   // Optional properties
   token?: string;
-  amount?: string;
+  amount?: bigint;
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;
@@ -21,6 +22,7 @@ export interface IHistoryEntry {
   externalTxId?: string;
   faucetId?: string;
   blockNumber?: number;
+  outputNoteIds?: string[];
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

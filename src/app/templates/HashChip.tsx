@@ -7,7 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 type HashChipProps = HTMLAttributes<HTMLButtonElement> &
   ComponentProps<typeof HashShortView> &
   Pick<ComponentProps<typeof Icon>, 'size' | 'fill' | 'className'> &
-  Pick<CopyButtonProps, 'small' | 'type' | 'bgShade' | 'rounded' | 'textShade'>;
+  Pick<CopyButtonProps, 'small' | 'type' | 'bgShade' | 'rounded' | 'textShade'> & { copyIcon?: boolean };
 
 const HashChip: FC<HashChipProps> = ({
   hash,
@@ -19,6 +19,7 @@ const HashChip: FC<HashChipProps> = ({
   type = 'button',
   size = 'xs',
   fill = 'black',
+  copyIcon = true,
   ...rest
 }) => (
   <CopyButton text={hash} type={type} {...rest}>
@@ -31,7 +32,7 @@ const HashChip: FC<HashChipProps> = ({
         lastCharsCount={lastCharsCount}
         displayName={displayName}
       />
-      <Icon name={IconName.Copy} size={size} fill={fill} />
+      {copyIcon && <Icon name={IconName.Copy} size={size} fill={fill} />}
     </span>
   </CopyButton>
 );

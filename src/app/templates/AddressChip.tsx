@@ -7,7 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 type AddressChipProps = HTMLAttributes<HTMLButtonElement> &
   ComponentProps<typeof AddressShortView> &
   Pick<ComponentProps<typeof Icon>, 'size' | 'fill' | 'className'> &
-  Pick<CopyButtonProps, 'small' | 'type' | 'bgShade' | 'rounded' | 'textShade'>;
+  Pick<CopyButtonProps, 'small' | 'type' | 'bgShade' | 'rounded' | 'textShade'> & { copyIcon?: boolean };
 
 const AddressChip: FC<AddressChipProps> = ({
   address,
@@ -16,6 +16,7 @@ const AddressChip: FC<AddressChipProps> = ({
   type = 'button',
   size = 'xs',
   className = 'ml-4',
+  copyIcon = true,
   ...rest
 }) => (
   <CopyButton text={address} type={type} {...rest} className="p-0!">
@@ -23,7 +24,7 @@ const AddressChip: FC<AddressChipProps> = ({
       <span className="mr-1 break-all text-heading-gray text-xs leading-none font-medium opacity-64">
         <AddressShortView address={address} displayName={displayName} trim={trim} />
       </span>
-      <Icon name={IconName.Copy} size={size} className={className} />
+      {copyIcon && <Icon name={IconName.Copy} size={size} className={className} />}
     </span>
   </CopyButton>
 );

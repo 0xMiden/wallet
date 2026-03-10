@@ -5,67 +5,21 @@ import { useTranslation } from 'react-i18next';
 
 import AddressShortView from 'app/atoms/AddressShortView';
 import { Button } from 'app/atoms/Button';
-import HashShortView from 'app/atoms/HashShortView';
 import { useAppEnv } from 'app/env';
-import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
-import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
-import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
-import { ReactComponent as SendIcon } from 'app/icons/send-new.svg';
 import { ExploreSelectors } from 'app/pages/Explore.selectors';
-import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
-import { ITransactionIcon } from 'lib/miden/db/types';
 import { isMobile } from 'lib/platform';
+import { formatAmount } from 'lib/shared/format';
 import { Link } from 'lib/woozie';
 
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { IHistoryEntry } from './IHistoryEntry';
+import TransactionIcon from './TransactionIcon';
+import { isFaucetRequest } from './transactionUtils';
 
 type HistoryItemProps = {
   entry: IHistoryEntry;
   fullHistory?: boolean;
   className?: string;
   lastEntry?: boolean;
-};
-
-// Check if this is a faucet request (sender is the Miden faucet)
-const isFaucetRequest = (entry: IHistoryEntry): boolean => {
-  const midenFaucetId = TOKEN_MAPPING[MidenTokens.Miden]?.faucetId;
-  return (
-    entry.transactionIcon === 'RECEIVE' && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId
-  );
-};
-
-const getTransactionIcon = (entry: IHistoryEntry) => {
-  const isPending =
-    entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
-
-  if (isPending) {
-    return <PendingIcon className="w-6 h-6 animate-spin" />;
-  }
-
-  if (isFaucetRequest(entry)) {
-    return (
-      <div className="w-8.5 h-8.5 flex items-center justify-center rounded-xl bg-[#777487]">
-        <FaucetIcon className="w-4.5 h-4.5" />
-      </div>
-    );
-  }
-
-  switch (entry.transactionIcon) {
-    case 'SEND':
-      return (
-        <div className={classNames('w-8.5 h-8.5 flex items-center justify-center rounded-xl', 'bg-[#2E80C4]')}>
-          <SendIcon className="w-3.5 h-3.5" />
-        </div>
-      );
-    case 'RECEIVE':
-      return (
-        <div className={classNames('w-8.5 h-8.5 flex items-center justify-center rounded-xl', 'bg-[#1A9C52]')}>
-          <ReceiveIcon className="w-4.5 h-4.5" />
-        </div>
-      );
-    default:
-      return <ReceiveIcon className="w-6 h-6" />;
-  }
 };
 
 const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry }) => {
@@ -83,18 +37,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     [entry]
   );
 
-  // For faucet requests, extract block number from txId (last 6 digits)
-  const blockNumber = useMemo(() => {
-    if (isFaucet && entry.txId) {
-      // Use last 6 characters of txId as block number display
-      return entry.txId.slice(-6);
-    }
-    return null;
-  }, [isFaucet, entry.txId]);
-
   const title = isFaucet ? t('faucetRequest') : entry.message;
-  const subtitle = isFaucet && blockNumber ? `#${blockNumber}` : null;
-
   return (
     <div
       className={classNames(
@@ -108,32 +51,32 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         className="flex items-center justify-center shrink-0 rounded-[10px]  bg-transparent text-primary-500"
         style={{ width: 40, height: 40 }}
       >
-        {getTransactionIcon(entry)}
+        <TransactionIcon entry={entry} size="sm" />
       </div>
 
       {/* Content */}
       <div className="flex flex-col grow min-w-0">
         <span className="text-black font-medium truncate text-sm leading-none">{title}</span>
-        {subtitle ? (
-          <span className="text-xs text-heading-gray opacity-50">{subtitle}</span>
-        ) : (
-          entry.secondaryAddress && (
-            <span className="text-xs text-grey-500 truncate flex gap-0.5">
-              <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
-              <AddressShortView address={entry.secondaryAddress} trim={isMobile() || popup} />
-            </span>
-          )
+
+        {entry.secondaryAddress && (
+          <span className="text-xs text-grey-500 truncate flex gap-0.5">
+            <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
+            <AddressShortView address={entry.secondaryAddress} trim={isMobile() || popup} />
+          </span>
         )}
       </div>
 
       {/* Amount */}
-      {entry.amount && (
+      {entry.amount !== undefined && (
         <div className="flex flex-col items-end shrink-0">
           <span
-            className={classNames('text-sm font-medium leading-none', isReceive ? 'text-[#1A9C52]' : 'text-[#DC2626]')}
+            className={classNames(
+              'text-sm font-medium leading-none',
+              isReceive ? 'text-receive-green' : 'text-[#DC2626]'
+            )}
           >
             {isReceive ? '+' : '-'}
-            {entry.amount.replace(/^[+-]/, '')}
+            {entry.amount.toString()}
           </span>
           {entry.token && <span className="text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>}
         </div>

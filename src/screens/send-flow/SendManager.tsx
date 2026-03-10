@@ -83,6 +83,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
+  const [note, setNote] = useState('');
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
@@ -386,6 +387,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
               addressError={errors.recipientAddress?.message?.toString()}
               recallTime={recallTime}
               recallDate={recallDate}
+              note={note}
               onAction={onAction}
               onGoBack={preselectedTokenId ? onClose : goBack}
               onAmountChange={onAmountChange}
@@ -395,6 +397,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
               onYourAccounts={() => goToStep(SendFlowStep.AccountsList)}
               onRecallDateChange={setRecallDate}
               onRecallTimeChange={setRecallTime}
+              onNoteChange={setNote}
             />
           );
         case SendFlowStep.AccountsList:
@@ -448,6 +451,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
       onSubmit,
       recallDate,
       recallTime,
+      note,
       onClose,
       preselectedTokenId
     ]

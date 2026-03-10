@@ -137,12 +137,13 @@ async function fetchTransactionsAsHistoryEntries(
       message: updateMessageForFailed,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
-      amount: tx.amount ? formatAmount(tx.amount, tx.type, tokenMetadata?.decimals) : undefined,
+      amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: tokenMetadata ? tokenMetadata.symbol : undefined,
       secondaryAddress: tx.secondaryAccountId,
       txId: tx.id,
       noteType: tx.noteType,
-      faucetId: tx.faucetId
+      faucetId: tx.faucetId,
+      txType: tx.type
     } as IHistoryEntry;
 
     return entry;
@@ -166,13 +167,14 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,
       message: tx.displayMessage || 'Generating transaction',
-      amount: tx.amount ? formatAmount(tx.amount, tx.type, tokenMetadata?.decimals) : undefined,
+      amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: tokenMetadata ? tokenMetadata.symbol : undefined,
       secondaryAddress: tx.secondaryAccountId,
       txId: tx.id,
       type: entryType,
       noteType: tx.noteType,
-      faucetId: tx.faucetId
+      faucetId: tx.faucetId,
+      txType: tx.type
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

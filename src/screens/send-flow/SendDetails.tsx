@@ -14,6 +14,7 @@ import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { Calendar } from 'lib/ui/calendar';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
 import { SendFlowAction, SendFlowActionId, SendFlowStep, UIToken } from './types';
 
@@ -45,6 +46,7 @@ export interface SendDetailsProps {
   recallTime: string;
   amountError?: string;
   addressError?: string;
+  note: string;
   onAction: (action: SendFlowAction) => void;
   onGoBack: () => void;
   onAmountChange: (amount: string) => void;
@@ -54,6 +56,7 @@ export interface SendDetailsProps {
   onYourAccounts: () => void;
   onRecallDateChange: (date: Date | undefined) => void;
   onRecallTimeChange: (time: string) => void;
+  onNoteChange: (note: string) => void;
 }
 
 export const SendDetails: React.FC<SendDetailsProps> = ({
@@ -68,6 +71,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   addressError,
   recallDate,
   recallTime,
+  note,
   onAction,
   onGoBack,
   onAmountChange,
@@ -75,7 +79,8 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   onScannedAddress,
   onYourAccounts,
   onRecallDateChange,
-  onRecallTimeChange
+  onRecallTimeChange,
+  onNoteChange
 }) => {
   const { t } = useTranslation();
   const [scanError, setScanError] = useState<string | null>(null);
@@ -137,11 +142,12 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-app-bg text-black">
-      <NavigationHeader mode="back" title={t('send')} onBack={onGoBack} showBorder />
+      <NavigationHeader mode="back" title={t('details')} onBack={onGoBack} showBorder />
 
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
-        <div className="flex flex-col flex-1 pt-8 pb-4 overflow-y-auto min-h-0 no-scrollbar">
-          <div className="relative flex flex-col items-center justify-center shrink-0">
+        <div className="flex flex-col flex-1 overflow-y-auto min-h-0 no-scrollbar">
+          {/* Amount */}
+          <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 py-4 border-b border-grey-300/20">
             <InputAmount
               className="self-stretch text-black"
               value={amount}
@@ -155,7 +161,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   <span className="text-red-500 text-sm">{t(amountError)}</span>
                 </div>
               ) : (
-                <span className="text-heading-gray/60 text-base">
+                <span className="text-heading-gray/60 text-sm">
                   {t('balance')}: {token.balance.toFixed(2)} {token.name}
                 </span>
               )}
@@ -163,9 +169,9 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           </div>
 
           {/* Recipient Address */}
-          <div className="mt-5">
+          <div className="mt-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('recipientAddress')}</h3>
+              <h3 className="text-base leading-none font-medium text-heading-gray">{t('recipientAddress')}</h3>
               <div className="flex items-center gap-x-1">
                 <button
                   type="button"
@@ -187,11 +193,11 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 )}
               </div>
             </div>
-            <div className="mt-3">
+            <div className="mt-2">
               <input
                 type="text"
                 placeholder={t('enterWalletAddress')}
-                className="w-full bg-input-bg border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
+                className="w-full bg-pure-white border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
                 value={recipientAddress}
                 onChange={e => onAddressChange(e as any)}
               />
@@ -201,90 +207,123 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
             )}
           </div>
 
-          {/* Advanced Toggle */}
+          {/* Private Payment */}
+          <div className="mt-6">
+            <h3 className="text-base leading-4 font-medium text-heading-gray">{t('privatePayment')}</h3>
+            <div className="flex mt-2 gap-2">
+              <button
+                type="button"
+                className={clsx(
+                  'flex-1 py-3 rounded-10 text-sm font-semibold transition-colors cursor-pointer',
+                  sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-pure-white text-heading-gray/40'
+                )}
+                onClick={() => {
+                  hapticLight();
+                  onAction({ id: SendFlowActionId.SetFormValues, payload: { sharePrivately: true } });
+                }}
+              >
+                {t('on')}
+              </button>
+              <button
+                type="button"
+                className={clsx(
+                  'flex-1 py-3 rounded-10 text-sm font-semibold transition-colors cursor-pointer',
+                  !sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-input-bg text-heading-gray/40'
+                )}
+                onClick={() => {
+                  hapticLight();
+                  onAction({ id: SendFlowActionId.SetFormValues, payload: { sharePrivately: false } });
+                }}
+              >
+                {t('off')}
+              </button>
+            </div>
+          </div>
+
+          {/* Add a Note */}
+          {/* <div className="mt-6">
+            <textarea
+              placeholder={t('addANote')}
+              value={note}
+              onChange={e => onNoteChange(e.target.value)}
+              className="w-full bg-pure-white border-none rounded-10 px-4 py-4 font-medium text-base text-heading-gray placeholder-grey-400 outline-none resize-none min-h-[100px]"
+            />
+          </div> */}
+
+          {/* Advanced Options */}
           <button
             type="button"
-            className="mt-5 flex items-center gap-2 self-start rounded-[10px] bg-input-bg px-4 py-2.5 transition-colors active:bg-input-bg"
+            className="mt-6 flex items-center justify-between w-full rounded-[10px] px-4 py-3.5 transition-colors bg-pure-white"
             onClick={() => {
               hapticLight();
               setShowAdvanced(prev => !prev);
             }}
           >
-            <span className="text-sm font-semibold text-heading-gray">{t('advanced')}</span>
-            <motion.div animate={{ rotate: showAdvanced ? 180 : 0 }} transition={{ duration: 0.2 }}>
-              <Icon name={IconName.ChevronDown} size="xs" fill="currentColor" />
+            <span className="text-sm font-semibold text-heading-gray">{t('advancedOptions')}</span>
+            <motion.div animate={{ rotate: showAdvanced ? 90 : 0 }} transition={{ duration: 0.2 }}>
+              <Icon name={IconName.ChevronRight} size="xs" />
             </motion.div>
           </button>
-
-          <div
-            className={clsx(
-              'overflow-hidden transition-all duration-200 ease-in-out',
-              showAdvanced ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'
-            )}
-          >
-            {/* Recall Height */}
-            <div className="mt-4">
-              <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('recallHeight')}</h3>
-              <p className="text-xs text-heading-gray mt-1">{t('recallHeightDescription')}</p>
-              <button
-                type="button"
-                className="w-full h-14 flex items-center justify-between bg-input-bg rounded-[10px] px-4 mt-3"
-                onClick={() => setShowCalendar(true)}
+          <AnimatePresence initial={false}>
+            {showAdvanced && (
+              <motion.section
+                key="content"
+                initial="collapsed"
+                animate="open"
+                exit="collapsed"
+                variants={{
+                  open: { opacity: 1, height: 'auto' },
+                  collapsed: { opacity: 0, height: 0 }
+                }}
+                transition={{ duration: 0.3 }}
+                className="bg-white"
               >
-                <div className="flex items-center gap-2">
-                  <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
-                  <span
-                    className={clsx('text-sm font-medium', recallDate ? 'text-heading-gray' : 'text-heading-gray/60')}
-                  >
-                    {displayRecallLabel}
-                  </span>
+                <div className="px-4 bg-white rounded-b-10">
+                  <div className="mt-4">
+                    <OptionItem
+                      icon={IconName.DelegateProving}
+                      title={t('delegateProving')}
+                      subTitle={t('delegateProvingDescription')}
+                      value={delegateTransaction}
+                      onToggle={(val: boolean) => {
+                        onAction({
+                          id: SendFlowActionId.SetFormValues,
+                          payload: { delegateTransaction: val }
+                        });
+                      }}
+                    />
+                  </div>
+
+                  {/* Recall Height */}
+                  <div className="mt-4 pb-2">
+                    <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('recallHeight')}</h3>
+                    <p className="text-xs text-heading-gray mt-1">{t('recallHeightDescription')}</p>
+                    <button
+                      type="button"
+                      className="w-full h-14 flex items-center justify-between bg-input-bg rounded-[10px] px-4 mt-3"
+                      onClick={() => setShowCalendar(true)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
+                        <span
+                          className={clsx(
+                            'text-sm font-medium',
+                            recallDate ? 'text-heading-gray' : 'text-heading-gray/60'
+                          )}
+                        >
+                          {displayRecallLabel}
+                        </span>
+                      </div>
+                      <Icon name={IconName.ChevronDown} size="xs" fill="currentColor" />
+                    </button>
+                  </div>
                 </div>
-                <Icon name={IconName.ChevronDown} size="xs" fill="currentColor" />
-              </button>
-            </div>
-
-            {/* Divider */}
-            <div className="mt-4 border-t border-border-light" />
-
-            {/* Privacy Options */}
-            <div className="mt-4">
-              <h3 className="text-base leading-4 font-semibold text-heading-gray">{t('privacyOptions')}</h3>
-              <p className="text-xs text-heading-gray mt-1">{t('privacyOptionsDescription')}</p>
-
-              <div className="flex flex-col gap-6 mt-6">
-                {/* Private Payment */}
-                <OptionItem
-                  icon={IconName.Lock}
-                  title={t('privatePayment')}
-                  subTitle={t('privatePaymentDescription')}
-                  value={sharePrivately}
-                  onToggle={(val: boolean) => {
-                    onAction({
-                      id: SendFlowActionId.SetFormValues,
-                      payload: { sharePrivately: val }
-                    });
-                  }}
-                />
-
-                {/* Delegate Proving */}
-                <OptionItem
-                  icon={IconName.DelegateProving}
-                  title={t('delegateProving')}
-                  subTitle={t('delegateProvingDescription')}
-                  value={delegateTransaction}
-                  onToggle={(val: boolean) => {
-                    onAction({
-                      id: SendFlowActionId.SetFormValues,
-                      payload: { delegateTransaction: val }
-                    });
-                  }}
-                />
-              </div>
-            </div>
-          </div>
+              </motion.section>
+            )}
+          </AnimatePresence>
 
           {/* Continue Button */}
-          <div className="pt-8 pb-4 shrink-0">
+          <div className="mt-auto pt-8 pb-4 shrink-0">
             <Button
               title={t('continue')}
               variant={ButtonVariant.Primary}
@@ -295,89 +334,70 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           </div>
         </div>
 
-        {/* Calendar Bottom Sheet */}
-        <AnimatePresence>
-          {showCalendar && (
-            <>
-              <motion.div
-                className="absolute inset-0 bg-pure-black/30 z-40"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowCalendar(false)}
+        {/* Calendar Drawer */}
+        <Drawer open={showCalendar} onOpenChange={setShowCalendar}>
+          <DrawerContent>
+            <DrawerHeader>
+              <DrawerTitle>{t('recallHeight')}</DrawerTitle>
+            </DrawerHeader>
+            <div className="px-4 pb-4 flex flex-col items-center overflow-y-auto no-scrollbar max-h-[70vh]">
+              <Calendar
+                mode="single"
+                selected={recallDate}
+                onSelect={date => {
+                  if (date) {
+                    onRecallDateChange(date);
+                    setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+                  }
+                }}
+                month={calendarMonth}
+                onMonthChange={setCalendarMonth}
+                disabled={{ before: new Date() }}
+                className="p-0 [--cell-size:--spacing(8)]"
               />
-              <motion.div
-                className="absolute bottom-0 left-0 right-0 z-50 bg-app-bg rounded-t-2xl"
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                style={{ paddingBottom: isMobile() ? 'max(1rem, env(safe-area-inset-bottom))' : '1rem' }}
-              >
-                <div className="flex justify-center pt-4 pb-2">
-                  <div className="w-12 h-1 bg-grey-200 rounded-full" />
-                </div>
-                <h3 className="text-center text-heading-gray font-medium text-base pb-2">{t('recallHeight')}</h3>
-                <div className="px-4 pb-4 flex flex-col items-center overflow-y-auto no-scrollbar max-h-[70vh]">
-                  <Calendar
-                    mode="single"
-                    selected={recallDate}
-                    onSelect={date => {
-                      if (date) {
-                        onRecallDateChange(date);
-                        setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-                      }
+
+              {/* Time Input */}
+              <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-border-subtle">
+                <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
+                <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
+                <input
+                  type="time"
+                  value={recallTime}
+                  onChange={e => onRecallTimeChange(e.target.value)}
+                  className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
+                />
+              </div>
+
+              {/* Confirm button */}
+              {recallDate && (
+                <button
+                  type="button"
+                  className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium"
+                  onClick={() => applyDateTimeSelection(recallDate, recallTime)}
+                >
+                  {t('confirm')}
+                </button>
+              )}
+
+              {/* Presets */}
+              <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3 mt-3 w-full">
+                {RECALL_PRESETS(t).map((preset, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors"
+                    onClick={() => {
+                      const date = preset.fn(new Date());
+                      applyDateTimeSelection(date, format(date, 'HH:mm'));
                     }}
-                    month={calendarMonth}
-                    onMonthChange={setCalendarMonth}
-                    disabled={{ before: new Date() }}
-                    className="p-0 [--cell-size:--spacing(8)]"
-                  />
-
-                  {/* Time Input */}
-                  <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-border-subtle">
-                    <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
-                    <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
-                    <input
-                      type="time"
-                      value={recallTime}
-                      onChange={e => onRecallTimeChange(e.target.value)}
-                      className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
-                    />
-                  </div>
-
-                  {/* Confirm button */}
-                  {recallDate && (
-                    <button
-                      type="button"
-                      className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium"
-                      onClick={() => applyDateTimeSelection(recallDate, recallTime)}
-                    >
-                      {t('confirm')}
-                    </button>
-                  )}
-
-                  {/* Presets */}
-                  <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3 mt-3 w-full">
-                    {RECALL_PRESETS(t).map((preset, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors"
-                        onClick={() => {
-                          const date = preset.fn(new Date());
-                          applyDateTimeSelection(date, format(date, 'HH:mm'));
-                        }}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </DrawerContent>
+        </Drawer>
       </div>
     </div>
   );

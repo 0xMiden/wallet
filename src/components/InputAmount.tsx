@@ -75,9 +75,7 @@ export const InputAmount: React.FC<InputAmountProps> = ({
           autoFocus={autoFocus}
         />
         {!displayFiat ? (
-          <label className={classNames('ml-2 text-black text-left leading-snug shrink-0', textSize)}>
-            {currencyLabel}
-          </label>
+          <label className={classNames('text-black text-left leading-snug shrink-0', textSize)}>{currencyLabel}</label>
         ) : null}
       </div>
       {displayToggleCurrency && (

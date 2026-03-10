@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount } from 'lib/miden/front';
+import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 import { truncateAddress } from 'utils/string';
 
 import { SendFlowAction } from './types';
@@ -57,30 +58,41 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
         </div>
 
         {/* Transfer Details Card */}
-        <div className="mt-8 border border-[#E6E6E6] rounded-2xl w-full">
-          <div className="text-xs border-b border-[#E6E6E6] font-semibold text-heading-gray uppercase tracking-[0.6px] leading-4 w-full py-3 pl-4">
-            {t('transferDetails')}
-          </div>
-
-          <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
-          <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
-          <DetailRow label={t('network')} badge={t('testnet')} isLast={!hasRecall} />
-          {hasRecall && <DetailRow label={t('recallBy')} value={displayRecalLabel || recallBlocks!} isLast />}
+        <div className="mt-8 w-full">
+          <DetailCard title={t('transferDetails')}>
+            <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
+            <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
+            <DetailRow label={t('network')} badge={t('testnet')} isLast={!hasRecall} />
+            {hasRecall && <DetailRow label={t('recallBy')} value={displayRecalLabel || recallBlocks!} isLast />}
+          </DetailCard>
         </div>
 
         {/* Options Card */}
-        <div className="mt-4 border border-[#E6E6E6] rounded-2xl">
-          <div className="text-xs border-b border-[#E6E6E6] font-semibold text-heading-gray uppercase tracking-[0.6px] leading-4 w-full py-3 pl-4">
-            {t('options')}
-          </div>
-          <OptionRow icon={IconName.Lock} label={t('privatePayment')} enabled={sharePrivately} />
-          <OptionRow
-            icon={IconName.DelegateProving}
-            label={t('delegateProving')}
-            enabled={delegateTransaction}
-            isLast={!hasRecall}
-          />
-          {hasRecall && <OptionRow icon={IconName.RecallClock} label={t('recallEnabled')} enabled={true} isLast />}
+        <div className="mt-4">
+          <DetailCard title={t('options')}>
+            <DetailRow
+              label={t('privatePayment')}
+              icon={<Icon name={IconName.Lock} size="xs" className="text-primary-500" />}
+            >
+              <ToggleBadge enabled={sharePrivately} />
+            </DetailRow>
+            <DetailRow
+              label={t('delegateProving')}
+              icon={<Icon name={IconName.DelegateProving} size="xs" className="text-primary-500" />}
+              isLast={!hasRecall}
+            >
+              <ToggleBadge enabled={delegateTransaction} />
+            </DetailRow>
+            {hasRecall && (
+              <DetailRow
+                label={t('recallEnabled')}
+                icon={<Icon name={IconName.RecallClock} size="xs" className="text-primary-500" />}
+                isLast
+              >
+                <ToggleBadge enabled />
+              </DetailRow>
+            )}
+          </DetailCard>
         </div>
 
         <div className="flex-1" />
@@ -107,52 +119,15 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   );
 };
 
-const DetailRow = ({
-  label,
-  value,
-  badge,
-  isLast
-}: {
-  label: string;
-  value?: string;
-  badge?: string;
-  isLast?: boolean;
-}) => (
-  <div className={`flex items-center justify-between px-4 py-3 ${!isLast ? 'border-b border-[#E6E6E6]' : ''}`}>
-    <span className="text-sm text-heading-gray">{label}</span>
-    {badge ? (
-      <span className="text-sm font-medium text-[#CC5200] bg-[#FFF3EB] px-3 py-1 rounded-full">{badge}</span>
-    ) : (
-      <span className="text-sm text-heading-gray font-medium">{value}</span>
-    )}
-  </div>
-);
-
-const OptionRow = ({
-  icon,
-  label,
-  enabled,
-  isLast
-}: {
-  icon: IconName;
-  label: string;
-  enabled: boolean;
-  isLast?: boolean;
-}) => {
+const ToggleBadge: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   const { t } = useTranslation();
   return (
-    <div className={`flex items-center justify-between px-4 py-3 ${!isLast ? 'border-b border-[#E6E6E6]' : ''}`}>
-      <div className="flex items-center gap-3">
-        <Icon name={icon} size="xs" className="text-primary-500" />
-        <span className="text-sm text-heading-gray">{label}</span>
-      </div>
-      <span
-        className={`text-xs font-medium px-3 py-1 rounded-full ${
-          enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
-        }`}
-      >
-        {enabled ? t('on') : t('off')}
-      </span>
-    </div>
+    <span
+      className={`text-xs font-medium px-3 py-1 rounded-full ${
+        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
+      }`}
+    >
+      {enabled ? t('on') : t('off')}
+    </span>
   );
 };

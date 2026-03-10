@@ -602,5 +602,13 @@
   "fungible": "Fungible",
   "network": "Network",
   "recentActivity": "Recent Activity",
-  "type": "Type"
+  "type": "Type",
+  "txIdLabel": "Tx ID",
+  "notesSection": "Notes",
+  "created": "Created",
+  "confirmed": "Confirmed",
+  "date": "Date",
+  "details": "Details",
+  "addANote": "Add a note",
+  "advancedOptions": "Advanced Options"
 }
