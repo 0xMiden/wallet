@@ -5,8 +5,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { MULTISIG_SLOT_NAMES } from '../psm/account';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 /**
- * Get or create a MultisigService for the given account (lazy initialization).
- * Services are cached in memory and reused for subsequent calls.
+ * Create a MultisigService for the given PSM account.
  */
 export async function getOrCreateMultisigService(
   accountPublicKey: string,
@@ -50,8 +49,7 @@ export async function getOrCreateMultisigService(
 }
 
 /**
- * Check if an account is a PSM account and has completed at least one transaction.
- * PSM routing only applies after the first transaction.
+ * Check if an account is a PSM account.
  */
 export function isPsmAccount(accountPublicKey: string): boolean {
   const accounts = useWalletStore.getState().accounts;

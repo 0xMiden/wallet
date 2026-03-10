@@ -518,12 +518,10 @@ export class Vault {
 
   async getPublicKeyForCommitment(pkc: string): Promise<string> {
     try {
-      console.log('Getting public key for commitment', pkc);
       const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), this.vaultKey);
-      console.log('Got secret key for commitment', { pkc, sk });
       let secretKeyBytes = new Uint8Array(Buffer.from(sk, 'hex'));
       const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
-      console.log(wasmSecretKey.publicKey().serialize());
+      // Skip first byte (type prefix) from serialized public key
       return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
     } catch (e) {
       console.error('Error in getPublicKeyForCommitment', e);

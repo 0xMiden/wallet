@@ -1,6 +1,3 @@
-import { PsmHttpClient } from '@openzeppelin/psm-client';
-
-import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
 import { WalletState, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -100,12 +97,11 @@ export class Sync {
         return syncSummary.blockNum();
       });
 
-      if (useWalletStore.getState())
-        if (blockNum !== null) {
-          this.lastHeight = blockNum;
-          syncDebugInfo.lastBlockNum = blockNum;
-          syncDebugInfo.lastError = undefined;
-        }
+      if (blockNum !== null) {
+        this.lastHeight = blockNum;
+        syncDebugInfo.lastBlockNum = blockNum;
+        syncDebugInfo.lastError = undefined;
+      }
       syncDebugInfo.syncCount++;
       syncDebugInfo.lastSyncTime = new Date().toLocaleTimeString();
     } catch (error) {

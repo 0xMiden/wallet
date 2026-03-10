@@ -577,7 +577,11 @@ export const generateTransaction = async (
   });
   // Route PSM accounts through PSM service
   if (isPsmAccount(transaction.accountId)) {
-    await generatePsmTransaction(transaction, signCallback);
+    try {
+      await generatePsmTransaction(transaction, signCallback);
+    } catch (error) {
+      await cancelTransaction(transaction, error);
+    }
     return;
   }
 

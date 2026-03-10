@@ -1,4 +1,3 @@
-import { ProposalMetadata } from '@openzeppelin/psm-client';
 import { v4 as uuid } from 'uuid';
 
 import { ConsumableNote, NoteType } from '../types';
