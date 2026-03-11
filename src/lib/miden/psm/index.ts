@@ -1,6 +1,5 @@
-import { Account, WebClient } from '@miden-sdk/miden-sdk';
+import { Account } from '@miden-sdk/miden-sdk';
 import {
-  AccountInspector,
   Multisig,
   MultisigClient,
   MultisigConfig,
@@ -129,6 +128,7 @@ export class MultisigService {
     if (!account) {
       throw new Error('Account not found in MultisigService');
     }
+    // +2 accounts for the current nonce plus the proposal execution incrementing nonce
     const nonce = Number(account.nonce().asInt()) + 2;
 
     // Create metadata for unknown/custom proposal type
@@ -164,7 +164,7 @@ export class MultisigService {
           await new Promise(resolve => setTimeout(resolve, 3000)); // Wait before retrying
           await this.sync();
         } else {
-          console.error('Max sync retries reached. Please check your account state and try again.');
+          throw new Error('Max sync retries reached: local state is ahead of on-chain state');
         }
       } else {
         throw error; // Rethrow if it's a different error

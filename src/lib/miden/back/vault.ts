@@ -503,6 +503,31 @@ export class Vault {
     return Buffer.from(signature.serialize()).toString('hex');
   }
 
+  async signWord(publicKey: string, wordHex: string): Promise<string> {
+    const word = Word.fromHex(wordHex);
+    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
+      accAuthSecretKeyStrgKey(publicKey),
+      this.vaultKey
+    );
+    let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
+    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+    const signature = wasmSecretKey.sign(word);
+    return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+  }
+
+  async getPublicKeyForCommitment(pkc: string): Promise<string> {
+    try {
+      const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), this.vaultKey);
+      let secretKeyBytes = new Uint8Array(Buffer.from(sk, 'hex'));
+      const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+      // Skip first byte (type prefix) from serialized public key
+      return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
+    } catch (e) {
+      console.error('Error in getPublicKeyForCommitment', e);
+      throw new PublicError('Failed to get public key for commitment');
+    }
+  }
+
   async getAuthSecretKey(key: string) {
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
     return secretKey;
