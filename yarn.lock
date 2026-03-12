@@ -2221,19 +2221,24 @@
     "@nodelib/fs.scandir" "2.1.5"
     fastq "^1.6.0"
 
-"@openzeppelin/miden-multisig-client@^0.13.0":
-  version "0.13.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.13.0.tgz#e33ab86a774f976efa0a576dcd806bdac60e548d"
-  integrity sha512-b0wxXCM6iSWlKLKb0QzG15z4+UeqKGv4920Gvk6jn1ofeth1uy8Q8pTdDICe/L1UvwUsgqLhicEADUKkB+KOiw==
+"@openzeppelin/miden-multisig-client@^0.13.1":
+  version "0.13.1"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.13.1.tgz#da78637e0fb1397a5ba264a4a849ec9bfb094708"
+  integrity sha512-+potgpQgl4VE5CsXwqPyDuEHM0UY6ZvSATY8LBn0+3ZW8t4udIdLmsr7DzKDoUly6GSQWy8zNveCss/Buj/T8w==
   dependencies:
     "@miden-sdk/miden-sdk" "^0.13.0"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/psm-client" "^0.13.0"
+    "@openzeppelin/psm-client" "^0.13.1"
 
 "@openzeppelin/psm-client@^0.13.0":
   version "0.13.0"
   resolved "https://registry.yarnpkg.com/@openzeppelin/psm-client/-/psm-client-0.13.0.tgz#fe4df2282ddede6af451fdfe728e5733bf85f4c0"
   integrity sha512-pf/b5CpWfVDbYBSXCDxyuRgbgrKNCB8Y/Bw9U2vW3DteUmfGdsCeCX+PprwVbTvNo1thfja1NzbEfkAvO9XLIw==
+
+"@openzeppelin/psm-client@^0.13.1":
+  version "0.13.1"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/psm-client/-/psm-client-0.13.1.tgz#c7131e3eb9286edb3e156fc6847e17140d0a63f6"
+  integrity sha512-uUVw7qI7MtW3SUemX0a2JActTjCXojRPtIYPF7OQC7eIu01H9fpY/yqo8DBgQvkUS1wOssPueVVqVBqZEy6PHA==
 
 "@peculiar/asn1-schema@^2.0.27", "@peculiar/asn1-schema@^2.3.13":
   version "2.6.0"

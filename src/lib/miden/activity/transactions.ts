@@ -729,21 +729,45 @@ const generatePsmTransaction = async (
 
   // Get the proposal commitment for signing and execution
   const proposalCommitment = proposalResult.proposal.commitment;
-  console.log('Transaction proposal created with commitment:', proposalCommitment);
 
   // Sign and execute the proposal
-  await multisigService.signAndExecuteProposal(proposalCommitment);
+  const tr = await multisigService.signAndCreateTransactionRequest(proposalCommitment);
+
+  const options: MidenClientCreateOptions = {
+    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+      const keyString = Buffer.from(publicKey).toString('hex');
+      const signingInputsString = Buffer.from(signingInputs).toString('hex');
+      return await signCallback(keyString, signingInputsString);
+    }
+  };
+
+  // Wrap WASM client operations in a lock to prevent concurrent access
+  const transactionResultBytes = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient(options);
+    return await midenClient.newTransaction(transaction.accountId, tr.serialize());
+  });
+
+  const transactionResult = TransactionResult.deserialize(transactionResultBytes);
+
+  await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    await midenClient.submitTransaction(transactionResultBytes, transaction.delegateTransaction);
+  });
+
+  switch (transaction.type) {
+    case 'send':
+      await completeSendTransaction(transaction as SendTransaction, transactionResult);
+      break;
+    case 'consume':
+      await completeConsumeTransaction(transaction.id, transactionResult);
+      break;
+    case 'execute':
+    default:
+      await completeCustomTransaction(transaction, transactionResult);
+      break;
+  }
 
   await multisigService.sync();
-  // Determine display message based on transaction type
-  const displayMessage =
-    transaction.type === 'send' ? 'Sent' : transaction.type === 'consume' ? 'Received' : 'Completed';
-
-  // Update transaction as completed
-  await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
-    displayMessage,
-    completedAt: Math.floor(Date.now() / 1000)
-  });
 };
 
 export const cancelTransaction = async (transaction: Transaction, error: any) => {

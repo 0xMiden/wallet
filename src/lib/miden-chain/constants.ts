@@ -62,4 +62,4 @@ export const TOKEN_MAPPING = {
   [MidenTokens.Miden]: { faucetId: 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph' }
 };
 
-export const DEFAULT_PSM_ENDPOINT = 'https://psm-stg.openzeppelin.com';
+export const DEFAULT_PSM_ENDPOINT = 'http://localhost:3000';

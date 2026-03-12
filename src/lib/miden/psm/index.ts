@@ -1,4 +1,4 @@
-import { Account } from '@miden-sdk/miden-sdk';
+import { Account, TransactionRequest } from '@miden-sdk/miden-sdk';
 import {
   Multisig,
   MultisigClient,
@@ -146,6 +146,11 @@ export class MultisigService {
   async signAndExecuteProposal(commitment: string): Promise<void> {
     await this.multisig.signTransactionProposal(commitment);
     await this.multisig.executeTransactionProposal(commitment);
+  }
+
+  async signAndCreateTransactionRequest(commitment: string): Promise<TransactionRequest> {
+    await this.multisig.signTransactionProposal(commitment);
+    return await this.multisig.createTransactionProposalRequest(commitment);
   }
 
   async sync(): Promise<void> {
