@@ -31,7 +31,7 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { interpretTransactionResult } from './helpers';
-import { importAllNotes, queueNoteImport, registerOutputNote } from './notes';
+import { importAllNotes, queueNoteImport } from './notes';
 import { compareAccountIds } from './utils';
 
 // On mobile, use a shorter timeout since there's no background processing
@@ -76,8 +76,6 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       console.error('Missing recipient account id for private note', { txId: transaction.id });
       continue;
     }
-
-    await registerOutputNote(note.id().toString());
 
     let fullNote: Note;
 
@@ -281,8 +279,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   const outputNoteIds = noteId ? [noteId] : [];
 
   if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
-    await registerOutputNote(noteId);
-
     // Wrap all WASM client operations in a lock to prevent concurrent access
     type SendResult = { success: true } | { success: false; errorType: 'init' | 'transport'; error: unknown };
     const sendResult = await withWasmClientLock<SendResult>(async () => {

@@ -369,7 +369,6 @@
   "transactionSuccessDescription": "Your transaction was successfully processed and confirmed on the network.",
   "transactionErrorDescription": "There was an error processing your transaction. Please try again.",
   "multipleTransactionsFailed": "$count$ transactions failed. Please try again.",
-  "downloadGeneratedFiles": "Download Generated Files",
   "onChainAccountPublic": "On-chain Account (Public)",
   "onChainAccountDescription": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers.",
   "offChainAccountPrivate": "Off-chain Account (Private)",

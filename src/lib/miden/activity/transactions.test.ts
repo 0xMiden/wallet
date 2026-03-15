@@ -49,8 +49,7 @@ jest.mock('../sdk/miden-client', () => ({
 
 jest.mock('./notes', () => ({
   importAllNotes: jest.fn(),
-  queueNoteImport: jest.fn(),
-  registerOutputNote: jest.fn()
+  queueNoteImport: jest.fn()
 }));
 
 jest.mock('lib/miden-worker/consumeNoteId', () => ({
@@ -652,8 +651,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
 
     jest.doMock('./notes', () => ({
       importAllNotes: jest.fn(),
-      queueNoteImport: jest.fn(),
-      registerOutputNote: jest.fn()
+      queueNoteImport: jest.fn()
     }));
 
     jest.doMock('lib/miden-worker/submitTransaction', () => ({
@@ -788,8 +786,7 @@ describe('completeCustomTransaction (isolated)', () => {
 
     jest.doMock('./notes', () => ({
       importAllNotes: jest.fn(),
-      queueNoteImport: jest.fn(),
-      registerOutputNote: jest.fn()
+      queueNoteImport: jest.fn()
     }));
 
     jest.doMock('lib/miden-worker/consumeNoteId', () => ({
