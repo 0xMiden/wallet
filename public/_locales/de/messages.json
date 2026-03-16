@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Laden Sie die generierten Dateien herunter",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "On-Chain-Konto (öffentlich)",
     "englishSource": "On-chain Account (Public)"

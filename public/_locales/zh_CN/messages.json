@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "下载生成的文件",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "链上账户（公共）",
     "englishSource": "On-chain Account (Public)"

@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Завантажте згенеровані файли",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Обліковий запис у мережі (публічний)",
     "englishSource": "On-chain Account (Public)"

@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "생성된 파일 다운로드",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "온체인 계정(공개)",
     "englishSource": "On-chain Account (Public)"

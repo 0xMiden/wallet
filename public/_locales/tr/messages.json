@@ -1641,10 +1641,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Oluşturulan Dosyaları İndir",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Zincir İçi Hesap (Herkese Açık)",
     "englishSource": "On-chain Account (Public)"

@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "生成されたファイルをダウンロードする",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "オンチェーンアカウント (パブリック)",
     "englishSource": "On-chain Account (Public)"
