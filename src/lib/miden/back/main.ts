@@ -3,6 +3,7 @@ import { Runtime } from 'webextension-polyfill';
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
 import { store, toFront } from 'lib/miden/back/store';
+import { doSync, getConsumableNotesFromWarmClient } from 'lib/miden/back/sync-manager';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { MidenMessageType } from '../types';
@@ -20,6 +21,13 @@ export async function start() {
 
 async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
   switch (req?.type) {
+    case WalletMessageType.SyncRequest:
+      doSync().catch(err => console.warn('[SyncManager] Error:', err));
+      return { type: WalletMessageType.SyncResponse };
+    case WalletMessageType.GetConsumableNotesRequest: {
+      const notes = await getConsumableNotesFromWarmClient(req.accountPublicKey);
+      return { type: WalletMessageType.GetConsumableNotesResponse, notes };
+    }
     // case WalletMessageType.SendTrackEventRequest:
     //   await Analytics.trackEvent(req);
     //   return { type: WalletMessageType.SendTrackEventResponse };

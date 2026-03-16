@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
+import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
+import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
@@ -495,6 +497,11 @@ export const useWalletStore = create<WalletStore>()(
           isNoteToastVisible: true,
           noteToastShownAt: Date.now()
         });
+
+        // Persist to chrome.storage.local so service worker can read them
+        if (isExtension()) {
+          persistSeenNoteIds(updatedSeenNotes).catch(() => {});
+        }
       }
     },
 
@@ -508,6 +515,10 @@ export const useWalletStore = create<WalletStore>()(
         isNoteToastVisible: false,
         noteToastShownAt: null
       });
+
+      if (isExtension()) {
+        clearPersistedSeenNoteIds().catch(() => {});
+      }
     }
   }))
 );
