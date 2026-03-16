@@ -11,7 +11,7 @@ import { useWalletStore } from 'lib/store';
 
 /**
  * Provider component that monitors for new notes and displays notifications.
- * Active on both mobile (native notifications) and extension (Chrome notifications).
+ * Active on both mobile (native notifications) and extension (desktop notifications).
  */
 export const NoteToastProvider: FC = () => {
   if (!isMobile() && !isExtension()) {
@@ -24,7 +24,7 @@ export const NoteToastProvider: FC = () => {
 /**
  * Inner component that handles the actual notification logic.
  * On mobile: uses native local notifications.
- * On extension: uses Chrome desktop notifications.
+ * On extension: uses Web Notifications API (with chrome.notifications fallback).
  */
 const NoteToastProviderInner: FC = () => {
   const { t } = useTranslation();
