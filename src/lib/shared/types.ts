@@ -288,6 +288,7 @@ export interface NewWalletRequest extends WalletMessageBase {
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic?: string;
   ownMnemonic?: boolean;
+  walletType: WalletType;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {

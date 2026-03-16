@@ -15,6 +15,7 @@ import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import { WelcomeScreen } from './common/Welcome';
 import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
+import { SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
 import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransactionType';
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
@@ -54,6 +55,8 @@ const Header: React.FC<{
     currentStep = 3;
   } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
     currentStep = 2;
+  } else if (step === OnboardingStep.SelectRecoveryMethod) {
+    currentStep = 4;
   } else if (step === OnboardingStep.Confirmation) {
     currentStep = 4;
   }
@@ -61,7 +64,7 @@ const Header: React.FC<{
   return (
     <div className="w-full flex items-center px-4 pt-8">
       <div className="flex-1 flex justify-center">
-        <ProgressIndicator currentStep={currentStep || 1} steps={3} className={currentStep ? '' : 'opacity-0'} />
+        <ProgressIndicator currentStep={currentStep || 1} steps={4} className={currentStep ? '' : 'opacity-0'} />
       </div>
     </div>
   );
@@ -141,6 +144,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onCreatePasswordSubmit = (password: string) =>
       onForwardAction?.({ id: 'create-password-submit', payload: { password, enableBiometric: false } });
 
+    const onSelectRecoveryMethodSubmit = (walletType: WalletType) =>
+      onForwardAction?.({ id: 'select-recovery-method', payload: walletType });
+
     const onSelectTransactionTypeSubmit = () =>
       onForwardAction?.({ id: 'select-transaction-type', payload: 'private' });
 
@@ -178,6 +184,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <ImportWalletFileScreen onSubmit={onImportFileSubmit} />;
       case OnboardingStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
+      case OnboardingStep.SelectRecoveryMethod:
+        return <SelectRecoveryMethodScreen onSubmit={onSelectRecoveryMethodSubmit} />;
       case OnboardingStep.SelectTransactionType:
         return <SelectTransactionTypeScreen onSubmit={onSelectTransactionTypeSubmit} />;
       case OnboardingStep.Confirmation:

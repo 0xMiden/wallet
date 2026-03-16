@@ -185,7 +185,12 @@ export class Vault {
     return passKey;
   }
 
-  static async spawn(password: string, mnemonic?: string, ownMnemonic?: boolean): Promise<Vault> {
+  static async spawn(
+    walletType: WalletType,
+    password: string,
+    mnemonic?: string,
+    ownMnemonic?: boolean
+  ): Promise<Vault> {
     return withError('Failed to create wallet', async (): Promise<Vault> => {
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
@@ -233,7 +238,7 @@ export class Vault {
         insertKeyCallback
       };
       const hdAccIndex = 0;
-      const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
+      const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
 
       // Wrap WASM client operations in a lock to prevent concurrent access
       const accPublicKey = await withWasmClientLock(async () => {
@@ -243,12 +248,12 @@ export class Vault {
             return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
           } catch (e) {
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+            return await midenClient.createMidenWallet(walletType, walletSeed);
           }
         } else {
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           await midenClient.syncState();
-          return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+          return await midenClient.createMidenWallet(walletType, walletSeed);
         }
       });
 
@@ -256,7 +261,7 @@ export class Vault {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
         isPublic: true,
-        type: WalletType.OnChain,
+        type: walletType,
         hdIndex: hdAccIndex
       };
       const newAccounts = [initialAccount];
