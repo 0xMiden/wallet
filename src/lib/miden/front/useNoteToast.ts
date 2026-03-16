@@ -6,7 +6,7 @@ import { useClaimableNotes } from './claimable-notes';
 
 /**
  * Hook that monitors for new claimable notes and shows toast notifications.
- * Only active on mobile - on extension, this hook does nothing.
+ * Active on both mobile and extension platforms.
  *
  * @param publicAddress - The account's public address to monitor notes for
  * @param enabled - Whether to enable monitoring (default: true)

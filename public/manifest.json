@@ -13,7 +13,7 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Miden Wallet",
 
-  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs"],
+  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications"],
   "host_permissions": [
     "http://localhost:4180/",
     "http://localhost:3000/",
