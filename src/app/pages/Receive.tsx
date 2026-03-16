@@ -23,7 +23,6 @@ import { AssetMetadata, useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { ConsumableNote } from 'lib/miden/types';
-import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
@@ -46,9 +45,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
   const { popup, fullPage } = useAppEnv();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const safeClaimableNotes = (claimableNotes ?? []).filter((n): n is NonNullable<typeof n> => n != null);
-  const [isDragging, setIsDragging] = useState(false);
   const [claimingNoteIds, setClaimingNoteIds] = useState<Set<string>>(new Set());
   // Track individual note claiming states reported by child components
   const [individualClaimingIds, setIndividualClaimingIds] = useState<Set<string>>(new Set());
@@ -263,70 +260,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     }
   };
 
-  const handleButtonClick = () => {
-    // Trigger the hidden input's click event
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileChange = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e: ProgressEvent<FileReader>) => {
-      try {
-        if (e.target?.result instanceof ArrayBuffer) {
-          const noteBytesAsUint8Array = new Uint8Array(e.target.result);
-
-          // Wrap WASM client operations in a lock to prevent concurrent access
-          const noteId = await withWasmClientLock(async () => {
-            const midenClient = await getMidenClient();
-            const id = await midenClient.importNoteBytes(noteBytesAsUint8Array);
-            await midenClient.syncState();
-            return id;
-          });
-          navigate(`/import-note-pending/${noteId}`);
-        }
-      } catch (error) {
-        console.error('Error during note import:', error);
-        navigate('/import-note-failure');
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }, []);
-
-  const onDropFile = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file) {
-        handleFileChange(file);
-        setIsDragging(false);
-      }
-    },
-    [handleFileChange]
-  );
-
-  const onDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const onDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return; // Ignore if the drag is over a childelement
-    setIsDragging(false);
-  }, []);
-
-  const onUploadFile = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        handleFileChange(file);
-      }
-    },
-    [handleFileChange]
-  );
-
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
   const containerClass = isMobile()
     ? 'h-full w-full'
@@ -337,33 +270,13 @@ export const Receive: React.FC<ReceiveProps> = () => {
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-white')}>
       <NavigationHeader mode="close" title={t('receive')} onClose={handleClose} showBorder />
-      <div
-        className="flex-1 flex flex-col min-h-0"
-        onDrop={onDropFile}
-        onDragOver={e => e.preventDefault()}
-        onDragEnter={onDragEnter}
-        onDragLeave={onDragLeave}
-        data-testid="receive-page"
-      >
+      <div className="flex-1 flex flex-col min-h-0" data-testid="receive-page">
         <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-        {/* Fixed top section - QR code and upload */}
+        {/* Fixed top section - QR code */}
         <div className="flex-shrink-0">
           <div className="w-5/6 md:w-1/2 mx-auto pb-4 flex flex-col items-center">
             <QRCode address={address} size={80} onCopy={copy} className="w-full" />
             {copied && <p className="text-xs text-primary-500 mt-1 transition-opacity duration-200">{t('copied')}</p>}
-          </div>
-          <div className="w-5/6 md:w-1/2 mx-auto" style={{ borderBottom: '1px solid #E9EBEF' }}></div>
-          <div className="flex flex-col justify-center items-center gap-y-2 p-6">
-            <p className="text-xs text-gray-400">{t('alreadyHaveTransactionFile')}</p>
-            <Button
-              className={classNames('w-5/6 md:w-1/2')}
-              variant={isDragging ? ButtonVariant.Primary : ButtonVariant.Secondary}
-              onClick={handleButtonClick}
-              title={t('uploadFile')}
-              style={{ cursor: 'pointer' }}
-              iconLeft={true ? IconName.File : null}
-            />
-            <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={onUploadFile} />
           </div>
           <div className="w-5/6 md:w-1/2 mx-auto" style={{ borderBottom: '1px solid #E9EBEF' }}></div>
         </div>

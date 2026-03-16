@@ -422,7 +422,6 @@
   "recallBlocks": "Recall blocks",
   "delegateTransaction": "Delegate transaction",
   "shareTransactionPrivately": "Share transaction privately",
-  "alreadyHaveTransactionFile": "Already have a transaction file?",
   "claimAll": "Claim All",
   "claimAllSummary": "$succeeded$ succeeded, $failed$ failed",
   "readyToClaim": "$count$ notes ready to claim",
