@@ -35,6 +35,7 @@
     "mobile:ios:export": "xcodebuild -exportArchive -archivePath ios/App/build/MidenWallet.xcarchive -exportPath ios/App/build/export -exportOptionsPlist ios/App/ExportOptions.plist",
     "zip": "ts-node --project ./tsconfig-utility.json ./utility/buildZip.ts",
     "test": "jest",
+    "stress-test": "playwright test --project=stress",
     "test-debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "test:coverage": "jest --coverage",
     "test:smoke": "jest src/lib/miden/smoke.integration.test.ts",
