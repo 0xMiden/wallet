@@ -6,7 +6,6 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import CircularProgress from 'app/atoms/CircularProgress';
-import useBeforeUnload from 'app/hooks/useBeforeUnload';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { Button, ButtonVariant } from 'components/Button';
@@ -16,7 +15,6 @@ import {
   getAllUncompletedTransactions,
   getFailedTransactions
 } from 'lib/miden/activity';
-import { useExportNotes } from 'lib/miden/activity/notes';
 import { useMidenContext } from 'lib/miden/front';
 import { isExtension, isMobile } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
@@ -31,7 +29,6 @@ export interface GeneratingTransactionPageProps {
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ keepOpen = false }) => {
   const { signTransaction } = useMidenContext();
   const { pageEvent, trackEvent } = useAnalytics();
-  const [outputNotes, downloadAll] = useExportNotes();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Track failed transaction count during this session
   const [failedCount, setFailedCount] = useState(0);
@@ -106,12 +103,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [transactions, hasStartedProcessing, failedCount]);
 
   useEffect(() => {
-    if (
-      outputNotes.length === 0 &&
-      prevTransactionsLength.current &&
-      prevTransactionsLength.current > 0 &&
-      transactions.length === 0
-    ) {
+    if (prevTransactionsLength.current && prevTransactionsLength.current > 0 && transactions.length === 0) {
       new Promise(res => setTimeout(res, 10_000)).then(async () => {
         await trackEvent('GeneratingTransaction Page Closed Automatically');
         isAutoCloseEnabled() && onClose();
@@ -119,7 +111,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     }
 
     prevTransactionsLength.current = transactions.length;
-  }, [transactions, trackEvent, outputNotes, onClose]);
+  }, [transactions, trackEvent, onClose]);
 
   const generateTransaction = useCallback(async () => {
     setHasStartedProcessing(true);
@@ -150,7 +142,6 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     };
   }, [generateTransaction]);
 
-  useBeforeUnload(transactions.length !== 0, downloadAll);
   const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   const transactionComplete = transactions.length === 0 && hasStartedProcessing;
   const hasErrors = failedCount > 0;
@@ -203,7 +194,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   progress = 80
 }) => {
   const { t } = useTranslation();
-  const [outputNotes, downloadAll] = useExportNotes();
   const inExtension = isExtension();
 
   const renderIcon = useCallback(() => {
@@ -288,24 +278,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           </div>
         </div>
         <div className={classNames('flex flex-col gap-y-4', inExtension ? 'mt-4' : 'mt-8')}>
-          {outputNotes.length > 0 && transactionComplete && !hasErrors && (
-            <Button
-              title={t('downloadGeneratedFiles')}
-              iconLeft={IconName.Download}
-              variant={ButtonVariant.Primary}
-              className="flex-1"
-              onClick={downloadAll}
-            />
-          )}
-          {/* Show Done button when transaction is complete */}
-          {transactionComplete && (
-            <Button
-              title={t('done')}
-              variant={outputNotes.length > 0 ? ButtonVariant.Secondary : ButtonVariant.Primary}
-              onClick={onDoneClick}
-            />
-          )}
-          {/* Show Hide button while transaction is in progress */}
+          {transactionComplete && <Button title={t('done')} variant={ButtonVariant.Primary} onClick={onDoneClick} />}
           {!transactionComplete && <Button title={t('hide')} variant={ButtonVariant.Primary} onClick={onDoneClick} />}
         </div>
       </div>

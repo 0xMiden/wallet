@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "下载生成的文件",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "链上账户（公共）",
     "englishSource": "On-chain Account (Public)"
@@ -1862,10 +1858,6 @@
   "shareTransactionPrivately": {
     "message": "私下分享交易",
     "englishSource": "Share transaction privately"
-  },
-  "alreadyHaveTransactionFile": {
-    "message": "已有交易文件？",
-    "englishSource": "Already have a transaction file?"
   },
   "claimAll": {
     "message": "索取全部",

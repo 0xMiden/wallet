@@ -17,11 +17,6 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Success: 'Success', Failed: 'Failed', InProgress: 'InProgress' }
 }));
 
-jest.mock('app/hooks/useBeforeUnload', () => ({
-  __esModule: true,
-  default: () => undefined
-}));
-
 jest.mock('lib/store', () => ({
   useWalletStore: Object.assign(() => ({}), {
     getState: () => ({
@@ -56,10 +51,6 @@ const safeGenerateTransactionsLoopMock = jest.fn();
 jest.mock('lib/miden/activity', () => ({
   safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
   getAllUncompletedTransactions: jest.fn(async () => [])
-}));
-
-jest.mock('lib/miden/activity/notes', () => ({
-  useExportNotes: () => [[], jest.fn()]
 }));
 
 describe('GeneratingTransactionPage interval cleanup', () => {

@@ -1377,7 +1377,7 @@ describe('Receive - Edge Cases', () => {
     });
 
     // No Claim buttons or spinners should be present
-    expect(testContainer.querySelectorAll('[data-testid="claim-button"]').length).toBe(1); // Only upload button
+    expect(testContainer.querySelectorAll('[data-testid="claim-button"]').length).toBe(0);
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(0);
   });
 

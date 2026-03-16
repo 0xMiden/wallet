@@ -1641,10 +1641,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Oluşturulan Dosyaları İndir",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Zincir İçi Hesap (Herkese Açık)",
     "englishSource": "On-chain Account (Public)"
@@ -1861,10 +1857,6 @@
   "shareTransactionPrivately": {
     "message": "İşlemi özel olarak paylaş",
     "englishSource": "Share transaction privately"
-  },
-  "alreadyHaveTransactionFile": {
-    "message": "Zaten bir işlem dosyanız var mı?",
-    "englishSource": "Already have a transaction file?"
   },
   "claimAll": {
     "message": "Tümünü Talep Et",

@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Télécharger les fichiers générés",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Compte en chaîne (public)",
     "englishSource": "On-chain Account (Public)"
@@ -1862,10 +1858,6 @@
   "shareTransactionPrivately": {
     "message": "Partager la transaction en privé",
     "englishSource": "Share transaction privately"
-  },
-  "alreadyHaveTransactionFile": {
-    "message": "Vous avez déjà un dossier de transaction ?",
-    "englishSource": "Already have a transaction file?"
   },
   "claimAll": {
     "message": "Réclamez tout",

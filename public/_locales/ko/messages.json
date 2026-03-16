@@ -1642,10 +1642,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "생성된 파일 다운로드",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "온체인 계정(공개)",
     "englishSource": "On-chain Account (Public)"
@@ -1862,10 +1858,6 @@
   "shareTransactionPrivately": {
     "message": "비공개로 거래 공유",
     "englishSource": "Share transaction privately"
-  },
-  "alreadyHaveTransactionFile": {
-    "message": "이미 거래 파일이 있나요?",
-    "englishSource": "Already have a transaction file?"
   },
   "claimAll": {
     "message": "모두 청구",
