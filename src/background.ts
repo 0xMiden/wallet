@@ -20,6 +20,10 @@ if (process.env.TARGET_BROWSER === 'safari') {
   });
 }
 
+browser.notifications.onClicked.addListener(() => {
+  tabs.create({ url: runtime.getURL('fullpage.html#/receive') });
+});
+
 function openFullPage() {
   tabs.create({
     url: runtime.getURL('fullpage.html')

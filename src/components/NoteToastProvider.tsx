@@ -2,19 +2,19 @@ import React, { FC, useEffect } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { showExtensionNotification } from 'lib/extension/notifications';
 import { useAccount } from 'lib/miden/front';
 import { useNoteToastMonitor } from 'lib/miden/front/useNoteToast';
 import { initNativeNotifications, showNoteReceivedNotification } from 'lib/mobile/native-notifications';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 
 /**
- * Provider component that monitors for new notes and displays native notifications.
- * Only active on mobile - returns null on extension.
+ * Provider component that monitors for new notes and displays notifications.
+ * Active on both mobile (native notifications) and extension (Chrome notifications).
  */
 export const NoteToastProvider: FC = () => {
-  // Early return for non-mobile platforms
-  if (!isMobile()) {
+  if (!isMobile() && !isExtension()) {
     return null;
   }
 
@@ -23,7 +23,8 @@ export const NoteToastProvider: FC = () => {
 
 /**
  * Inner component that handles the actual notification logic.
- * Separated to ensure hooks are only called on mobile.
+ * On mobile: uses native local notifications.
+ * On extension: uses Chrome desktop notifications.
  */
 const NoteToastProviderInner: FC = () => {
   const { t } = useTranslation();
@@ -32,23 +33,29 @@ const NoteToastProviderInner: FC = () => {
   const noteToastShownAt = useWalletStore(state => state.noteToastShownAt);
   const dismissNoteToast = useWalletStore(state => state.dismissNoteToast);
 
-  // Initialize native notifications on mount
+  // Initialize native notifications on mount (mobile only)
   useEffect(() => {
-    initNativeNotifications();
+    if (isMobile()) {
+      initNativeNotifications();
+    }
   }, []);
 
   // Monitor for new notes
   useNoteToastMonitor(account.publicKey);
 
-  // Show native notification when toast should be visible
+  // Show notification when toast should be visible
   useEffect(() => {
     if (isNoteToastVisible && noteToastShownAt) {
-      showNoteReceivedNotification(t('noteReceivedTitle'), t('noteReceivedTapToClaim'));
-      // Dismiss the store state since we've shown the native notification
+      if (isMobile()) {
+        showNoteReceivedNotification(t('noteReceivedTitle'), t('noteReceivedTapToClaim'));
+      } else if (isExtension()) {
+        showExtensionNotification(t('noteReceivedTitle'), t('noteReceivedClickToClaim'));
+      }
+      // Dismiss the store state since we've shown the notification
       dismissNoteToast();
     }
   }, [isNoteToastVisible, noteToastShownAt, dismissNoteToast, t]);
 
-  // This component doesn't render anything - notifications are native
+  // This component doesn't render anything - notifications are native/system
   return null;
 };

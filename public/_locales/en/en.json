@@ -502,6 +502,7 @@
   "noNotesToClaim": "You don't currently have notes to claim, but when you do, they will appear here.",
   "noteReceivedTitle": "You have received a note",
   "noteReceivedTapToClaim": "Tap here to claim it",
+  "noteReceivedClickToClaim": "Click to view and claim it",
   "tokenHistory": "$tokenName$ History",
   "historyDetails": "Details",
   "passwordsCanBeInsecure": "Passwords can be insecure. Use biometric authentication instead.",
