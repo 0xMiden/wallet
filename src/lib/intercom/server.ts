@@ -9,6 +9,7 @@ export class IntercomServer {
   private ports = new Set<Runtime.Port>();
   private reqHandlers: Array<ReqHandler> = [];
   private initializedHandlers: boolean = false;
+  private disconnectListeners: Array<() => void> = [];
 
   constructor() {
     browser.runtime.onConnect.addListener(port => {
@@ -24,6 +25,24 @@ export class IntercomServer {
 
   isConnected(port: Runtime.Port) {
     return this.ports.has(port);
+  }
+
+  /**
+   * Returns true if any popup/fullpage intercom clients are connected.
+   * Filters out content script and other non-intercom port connections.
+   */
+  hasClients(): boolean {
+    for (const port of this.ports) {
+      if (port.name === 'INTERCOM') return true;
+    }
+    return false;
+  }
+
+  onAllClientsDisconnected(listener: () => void): () => void {
+    this.disconnectListeners.push(listener);
+    return () => {
+      this.disconnectListeners = this.disconnectListeners.filter(l => l !== listener);
+    };
   }
 
   onRequest(handler: ReqHandler) {
@@ -103,6 +122,16 @@ export class IntercomServer {
   private removePort(port: Runtime.Port) {
     port.onMessage.removeListener(this.handleMessage);
     this.ports.delete(port);
+
+    if (this.ports.size === 0) {
+      for (const listener of this.disconnectListeners) {
+        try {
+          listener();
+        } catch (err) {
+          console.error('[IntercomServer] Disconnect listener error:', err);
+        }
+      }
+    }
   }
 
   private addReqHandler(handler: ReqHandler) {

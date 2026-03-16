@@ -9,6 +9,7 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { getMidenClient } from '../sdk/miden-client';
 import { TokensMetadataProvider } from './assets';
+import { useSyncTrigger } from './useSyncTrigger';
 
 // Pre-create the modal container to avoid flash when first opening
 if (typeof document !== 'undefined' && document.body) {
@@ -70,6 +71,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
  */
 const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   const { ready } = useMidenContext();
+
+  // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
+  useSyncTrigger();
 
   return useMemo(
     () =>

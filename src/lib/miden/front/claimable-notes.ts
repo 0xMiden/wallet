@@ -1,7 +1,8 @@
 import { useCallback, useRef } from 'react';
 
+import { getCachedConsumableNotes } from 'lib/miden/back/note-checker-storage';
 import { getUncompletedTransactions } from 'lib/miden/activity';
-import { isIOS } from 'lib/platform';
+import { isExtension, isIOS } from 'lib/platform';
 import { useRetryableSWR } from 'lib/swr';
 
 import { isMidenFaucet } from '../assets';
@@ -131,6 +132,35 @@ async function persistMetadataIfAny(
   }
 }
 
+// -------------------- Data fetching --------------------
+
+async function fetchNotesFromLocalClient(
+  publicAddress: string,
+  debugInfoRef: React.MutableRefObject<ClaimableNotesDebugInfo>
+): Promise<ParsedNote[]> {
+  let rawNotes: any[] = [];
+  try {
+    rawNotes = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      return midenClient.getConsumableNotes(publicAddress);
+    });
+  } catch (e) {
+    debugInfoRef.current = {
+      ...debugInfoRef.current,
+      error: `getConsumableNotes failed: ${e}`,
+      lastFetchTime: new Date().toISOString()
+    };
+    throw e;
+  }
+
+  const uncompletedTxs = await getUncompletedTransactions(publicAddress);
+  const notesBeingClaimed = new Set(
+    uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
+  );
+
+  return parseNotes(rawNotes, notesBeingClaimed);
+}
+
 // -------------------- Hook (composes helpers) --------------------
 
 export function useClaimableNotes(publicAddress: string, enabled: boolean = true) {
@@ -144,33 +174,51 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
     lastFetchTime: 'never'
   });
 
+  const localClientReady = useRef(false);
+
   const fetchClaimableNotes = useCallback(async () => {
-    // Note: getConsumableNotes is a read-only operation that doesn't need key/sign callbacks.
-    // Using getMidenClient() without options avoids disposing/recreating the client on every fetch,
-    // which caused issues on iOS due to constant WASM worker churn.
-    let rawNotes: any[] = [];
-    try {
-      rawNotes = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return midenClient.getConsumableNotes(publicAddress);
-      });
-    } catch (e) {
-      debugInfoRef.current = {
-        ...debugInfoRef.current,
-        error: `getConsumableNotes failed: ${e}`,
-        lastFetchTime: new Date().toISOString()
-      };
-      throw e;
+    let parsedNotes: ParsedNote[];
+
+    // On extension, the local WASM client takes ~10s to initialize. On the first fetch,
+    // read from chrome.storage.local (cached by the service worker during background sync).
+    // This is instant — no WASM, no locks, no intercom round-trip.
+    if (isExtension() && !localClientReady.current) {
+      try {
+        const cached = await getCachedConsumableNotes();
+        if (cached.length > 0) {
+          const uncompletedTxs = await getUncompletedTransactions(publicAddress);
+          const notesBeingClaimed = new Set(
+            uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
+          );
+          parsedNotes = cached.map(n => ({
+            id: n.id,
+            faucetId: n.faucetId,
+            amountBaseUnits: n.amountBaseUnits,
+            senderAddress: n.senderAddress,
+            isBeingClaimed: notesBeingClaimed.has(n.id)
+          }));
+
+          // Warm up local client in background for subsequent fetches
+          withWasmClientLock(async () => {
+            const client = await getMidenClient();
+            await client.syncState();
+          })
+            .then(() => {
+              localClientReady.current = true;
+            })
+            .catch(() => {});
+        } else {
+          // No cache — fall back to local WASM client
+          parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
+          localClientReady.current = true;
+        }
+      } catch {
+        parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
+        localClientReady.current = true;
+      }
+    } else {
+      parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
     }
-
-    const uncompletedTxs = await getUncompletedTransactions(publicAddress);
-
-    const notesBeingClaimed = new Set(
-      uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
-    );
-
-    // 1) Parse notes and collect faucet ids
-    const parsedNotes = parseNotes(rawNotes, notesBeingClaimed);
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
 
@@ -201,7 +249,7 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
 
     // Update debug info
     debugInfoRef.current = {
-      rawNotesCount: rawNotes?.length ?? 0,
+      rawNotesCount: parsedNotes.length,
       parsedNotesCount: parsedNotes.length,
       notesWithMetadataCount: result.length,
       missingFaucetIds,

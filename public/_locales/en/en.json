@@ -505,6 +505,7 @@
   "noteReceivedTitle": "You have received a note",
   "noteReceivedTapToClaim": "Tap here to claim it",
   "noteReceivedClickToClaim": "Click to view and claim it",
+  "noteReceivedMultiple": "You have $count$ new notes to claim",
   "tokenHistory": "$tokenName$ History",
   "historyDetails": "Details",
   "passwordsCanBeInsecure": "Passwords can be insecure. Use biometric authentication instead.",

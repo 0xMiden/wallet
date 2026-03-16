@@ -4,6 +4,7 @@ import 'mv3-hot-reload/background';
 import browser, { tabs, runtime } from 'webextension-polyfill';
 
 import { start } from 'lib/miden/back/main';
+import { setupSyncManager } from 'lib/miden/back/sync-manager';
 
 runtime.onInstalled.addListener(({ reason }) => (reason === 'install' ? openFullPage() : null));
 
@@ -12,7 +13,8 @@ runtime.onUpdateAvailable.addListener(details => {
   runtime.reload();
 });
 
-start();
+// Chain sync manager setup after start() to ensure Actions.init() completes first
+start().then(() => setupSyncManager());
 
 if (process.env.TARGET_BROWSER === 'safari') {
   browser.browserAction.onClicked.addListener(() => {
@@ -20,7 +22,8 @@ if (process.env.TARGET_BROWSER === 'safari') {
   });
 }
 
-browser.notifications.onClicked.addListener(() => {
+browser.notifications.onClicked.addListener(notificationId => {
+  browser.notifications.clear(notificationId);
   tabs.create({ url: runtime.getURL('fullpage.html#/receive') });
 });
 

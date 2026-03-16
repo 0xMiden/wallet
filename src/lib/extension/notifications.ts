@@ -16,7 +16,8 @@ export async function showExtensionNotification(title: string, message: string):
     if (permission === 'granted') {
       const notif = new Notification(title, {
         body: message,
-        icon: chrome.runtime.getURL('misc/logo-white-bg-128.png')
+        icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
+        requireInteraction: true
       });
 
       notif.onclick = () => {
@@ -38,7 +39,8 @@ export async function showExtensionNotification(title: string, message: string):
       type: 'basic',
       iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
       title,
-      message
+      message,
+      requireInteraction: true
     },
     () => {
       if (chrome.runtime.lastError) {

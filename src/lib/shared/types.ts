@@ -93,10 +93,17 @@ export enum WalletMessageType {
   DecryptCiphertextsRequest = 'DECRYPT_CIPHERTEXTS_REQUEST',
   DecryptCiphertextsResponse = 'DECRYPT_CIPHERTEXTS_RESPONSE',
   GetOwnedRecordsRequest = 'GET_OWNED_RECORDS_REQUEST',
-  GetOwnedRecordsResponse = 'GET_OWNED_RECORDS_RESPONSE'
+  GetOwnedRecordsResponse = 'GET_OWNED_RECORDS_RESPONSE',
+  // Sync messages (service worker <-> frontend)
+  SyncCompleted = 'SYNC_COMPLETED',
+  SyncRequest = 'SYNC_REQUEST',
+  SyncResponse = 'SYNC_RESPONSE',
+  // Consumable notes (frontend reads from service worker's warm WASM client)
+  GetConsumableNotesRequest = 'GET_CONSUMABLE_NOTES_REQUEST',
+  GetConsumableNotesResponse = 'GET_CONSUMABLE_NOTES_RESPONSE'
 }
 
-export type WalletNotification = StateUpdated;
+export type WalletNotification = StateUpdated | SyncCompleted;
 
 export interface WalletMessageBase {
   type: WalletMessageType | MidenMessageType;
@@ -118,6 +125,35 @@ export interface AcknowledgeResponse extends WalletMessageBase {
 
 export interface StateUpdated extends WalletMessageBase {
   type: WalletMessageType.StateUpdated;
+}
+
+export interface SyncCompleted extends WalletMessageBase {
+  type: WalletMessageType.SyncCompleted;
+}
+
+export interface SyncRequest extends WalletMessageBase {
+  type: WalletMessageType.SyncRequest;
+}
+
+export interface SyncResponse extends WalletMessageBase {
+  type: WalletMessageType.SyncResponse;
+}
+
+export interface SerializedConsumableNote {
+  id: string;
+  faucetId: string;
+  amountBaseUnits: string;
+  senderAddress: string;
+}
+
+export interface GetConsumableNotesRequest extends WalletMessageBase {
+  type: WalletMessageType.GetConsumableNotesRequest;
+  accountPublicKey: string;
+}
+
+export interface GetConsumableNotesResponse extends WalletMessageBase {
+  type: WalletMessageType.GetConsumableNotesResponse;
+  notes: SerializedConsumableNote[];
 }
 
 export interface GetStateRequest extends WalletMessageBase {
@@ -566,7 +602,9 @@ export type WalletRequest =
   | SendPerformanceEventRequest
   | DecryptCiphertextsRequest
   | GetOwnedRecordsRequest
-  | ImportFromClientRequest;
+  | ImportFromClientRequest
+  | SyncRequest
+  | GetConsumableNotesRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -608,4 +646,6 @@ export type WalletResponse =
   | SendPerformanceEventResponse
   | DecryptCiphertextsResponse
   | GetOwnedRecordsResponse
-  | ImportFromClientResponse;
+  | ImportFromClientResponse
+  | SyncResponse
+  | GetConsumableNotesResponse;

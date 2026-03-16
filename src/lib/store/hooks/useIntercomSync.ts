@@ -46,12 +46,17 @@ export function useIntercomSync() {
     // Subscribe to state updates from backend
     const intercom = getIntercom();
 
+    const setSyncStatus = useWalletStore.getState().setSyncStatus;
+
     const unsubscribe = intercom.subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
         // Refetch state when backend notifies of changes
         fetchStateFromBackend(0)
           .then(syncFromBackend)
           .catch(error => console.error('Failed to sync state:', error));
+      } else if (msg?.type === WalletMessageType.SyncCompleted) {
+        // Service worker finished a sync cycle — update sync status
+        setSyncStatus(false);
       }
     });
 
