@@ -1859,10 +1859,6 @@
     "message": "비공개로 거래 공유",
     "englishSource": "Share transaction privately"
   },
-  "alreadyHaveTransactionFile": {
-    "message": "이미 거래 파일이 있나요?",
-    "englishSource": "Already have a transaction file?"
-  },
   "claimAll": {
     "message": "모두 청구",
     "englishSource": "Claim All"

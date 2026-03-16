@@ -1859,10 +1859,6 @@
     "message": "トランザクションを非公開で共有する",
     "englishSource": "Share transaction privately"
   },
-  "alreadyHaveTransactionFile": {
-    "message": "すでにトランザクション ファイルをお持ちですか?",
-    "englishSource": "Already have a transaction file?"
-  },
   "claimAll": {
     "message": "すべてを請求する",
     "englishSource": "Claim All"

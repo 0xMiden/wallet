@@ -1859,10 +1859,6 @@
     "message": "Partager la transaction en privé",
     "englishSource": "Share transaction privately"
   },
-  "alreadyHaveTransactionFile": {
-    "message": "Vous avez déjà un dossier de transaction ?",
-    "englishSource": "Already have a transaction file?"
-  },
   "claimAll": {
     "message": "Réclamez tout",
     "englishSource": "Claim All"

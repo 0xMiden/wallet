@@ -1791,10 +1791,6 @@
     "message": "Udostępnij transakcję prywatnie",
     "englishSource": "Share transaction privately"
   },
-  "alreadyHaveTransactionFile": {
-    "message": "Masz już plik transakcji?",
-    "englishSource": "Already have a transaction file?"
-  },
   "claimAll": {
     "message": "Odbierz wszystko",
     "englishSource": "Claim All"

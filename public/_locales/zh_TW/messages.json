@@ -1859,10 +1859,6 @@
     "message": "私下分享交易",
     "englishSource": "Share transaction privately"
   },
-  "alreadyHaveTransactionFile": {
-    "message": "已有交易文件？",
-    "englishSource": "Already have a transaction file?"
-  },
   "claimAll": {
     "message": "索取全部",
     "englishSource": "Claim All"

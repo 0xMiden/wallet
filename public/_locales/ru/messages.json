@@ -1859,10 +1859,6 @@
     "message": "Поделитесь транзакцией конфиденциально",
     "englishSource": "Share transaction privately"
   },
-  "alreadyHaveTransactionFile": {
-    "message": "У вас уже есть файл транзакции?",
-    "englishSource": "Already have a transaction file?"
-  },
   "claimAll": {
     "message": "Претендовать на все",
     "englishSource": "Claim All"
