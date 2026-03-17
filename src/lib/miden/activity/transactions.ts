@@ -13,8 +13,10 @@ import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
 import { sendTransaction } from 'lib/miden-worker/sendTransaction';
 import { submitTransaction } from 'lib/miden-worker/submitTransaction';
 import * as Repo from 'lib/miden/repo';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { WalletMessageType } from 'lib/shared/types';
+import { getIntercom } from 'lib/store';
 import { logger } from 'shared/logger';
 
 import {
@@ -154,6 +156,13 @@ export const initiateConsumeTransaction = async (
   }
 
   await Repo.transactions.add(dbTransaction);
+
+  // Notify other tabs that a claim is in progress (cross-tab coordination)
+  if (isExtension()) {
+    getIntercom()
+      .request({ type: WalletMessageType.NoteClaimStarted, noteId: note.id })
+      .catch(() => {});
+  }
 
   return dbTransaction.id;
 };

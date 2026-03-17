@@ -1,8 +1,9 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { isExtension, isIOS } from 'lib/platform';
-import { SerializedConsumableNote } from 'lib/shared/types';
+import { SerializedConsumableNote, WalletMessageType } from 'lib/shared/types';
+import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { isMidenFaucet } from '../assets';
@@ -161,9 +162,70 @@ async function fetchNotesFromLocalClient(
   return parseNotes(rawNotes, notesBeingClaimed);
 }
 
-// -------------------- Hook (composes helpers) --------------------
+// -------------------- Extension hook (reads from Zustand) --------------------
 
-export function useClaimableNotes(publicAddress: string, enabled: boolean = true) {
+function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
+  const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
+  const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const [seeded, setSeeded] = useState(false);
+
+  // On mount: seed from chrome.storage.local cache (notification-click flow)
+  useEffect(() => {
+    if (!enabled || seeded) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = globalThis as any;
+    if (g.chrome?.storage?.local) {
+      g.chrome.storage.local.get('miden_cached_consumable_notes', (result: any) => {
+        const cached: SerializedConsumableNote[] = result?.miden_cached_consumable_notes || [];
+        if (cached.length > 0 && extensionNotes === null) {
+          useWalletStore.getState().setExtensionClaimableNotes(cached);
+          // Don't clear the cache here — it'll be overwritten on next sync.
+          // Clearing eagerly would cause a flash if popup reopens before next SyncCompleted.
+        }
+        setSeeded(true);
+      });
+    } else {
+      setSeeded(true);
+    }
+  }, [enabled, seeded, extensionNotes]);
+
+  // Map serialized notes to ConsumableNote with metadata
+  const computedData = useMemo(() => {
+    if (!enabled || extensionNotes === null) return undefined;
+
+    return extensionNotes
+      .filter(n => n.metadata || assetsMetadata[n.faucetId])
+      .map(n => ({
+        id: n.id,
+        faucetId: n.faucetId,
+        amount: n.amountBaseUnits,
+        metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
+        senderAddress: n.senderAddress,
+        isBeingClaimed: extensionClaimingNoteIds.has(n.id)
+      }));
+  }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
+
+  const mutate = useCallback(() => {
+    // Trigger a SyncRequest to get fresh data
+    const intercom = getIntercom();
+    intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
+    return Promise.resolve(undefined);
+  }, []);
+
+  return {
+    data: computedData,
+    mutate,
+    isLoading: extensionNotes === null,
+    isValidating: false,
+    debugInfo: undefined
+  };
+}
+
+// -------------------- Local hook (WASM client, for mobile/desktop) --------------------
+
+function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   const { allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata } = useTokensMetadata();
   const debugInfoRef = useRef<ClaimableNotesDebugInfo>({
     rawNotesCount: 0,
@@ -174,74 +236,15 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
     lastFetchTime: 'never'
   });
 
-  const localClientReady = useRef(false);
-
   const fetchClaimableNotes = useCallback(async () => {
-    let parsedNotes: ParsedNote[];
+    const parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
 
-    // On extension, the local WASM client takes ~10s to initialize. On the first fetch,
-    // read from chrome.storage.local (cached by the service worker during background sync).
-    // This is instant — no WASM, no locks, no intercom round-trip.
-    if (isExtension() && !localClientReady.current) {
-      try {
-        // Read directly from chrome.storage.local — no polyfill, no dynamic import
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const g = globalThis as any;
-        const result = await g.chrome.storage.local.get('miden_cached_consumable_notes');
-        const cached: SerializedConsumableNote[] = result.miden_cached_consumable_notes || [];
-        if (cached.length > 0) {
-          // Clear cache after reading — it's a one-shot for the notification click flow.
-          // Subsequent opens (popup, etc.) will use the live WASM client.
-          g.chrome.storage.local.remove('miden_cached_consumable_notes');
-
-          // Notes with metadata can be returned immediately — no async lookups needed
-          const notesWithMetadata = cached.filter(n => n.metadata);
-          if (notesWithMetadata.length > 0) {
-            const uncompletedTxs = await getUncompletedTransactions(publicAddress);
-            const notesBeingClaimed = new Set(
-              uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
-            );
-
-            // Warm up local client in background for subsequent fetches
-            withWasmClientLock(async () => {
-              const client = await getMidenClient();
-              await client.syncState();
-            })
-              .then(() => {
-                localClientReady.current = true;
-              })
-              .catch(() => {});
-
-            // Return cached notes directly — bypasses buildMetadataMapFromCache entirely
-            return notesWithMetadata.map(n => ({
-              id: n.id,
-              faucetId: n.faucetId,
-              amount: n.amountBaseUnits,
-              metadata: n.metadata as AssetMetadata,
-              senderAddress: n.senderAddress,
-              isBeingClaimed: notesBeingClaimed.has(n.id)
-            }));
-          }
-        } else {
-          // No cache — fall back to local WASM client
-          parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
-          localClientReady.current = true;
-        }
-      } catch {
-        parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
-        localClientReady.current = true;
-      }
-    } else {
-      parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
-    }
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
 
     // 3) Schedule background fetch for any missing metadata (non-blocking)
-    // Notes without metadata will be filtered out initially but appear after SWR revalidates
     const missingFaucetIds = await findMissingFaucetIds(parsedNotes, metadataByFaucetId);
     if (missingFaucetIds.length > 0) {
-      // Run when client is idle to avoid blocking critical operations
       runWhenClientIdle(async () => {
         const fetched: Record<string, AssetMetadata> = {};
         for (const id of missingFaucetIds) {
@@ -259,7 +262,6 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
     }
 
     // 4) Return notes with available metadata immediately
-    // Notes without metadata will appear after metadata fetch completes and SWR revalidates
     const result = attachMetadataToNotes(parsedNotes, metadataByFaucetId);
 
     // Update debug info
@@ -291,9 +293,18 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
     }
   });
 
-  // Return both SWR result and debug info (debug info only used on iOS)
   return {
     ...swrResult,
     debugInfo: isIOS() ? debugInfoRef.current : undefined
   };
+}
+
+// -------------------- Dispatch hook --------------------
+
+export function useClaimableNotes(publicAddress: string, enabled: boolean = true) {
+  const extensionMode = isExtension();
+  // Both hooks always called (React rules), but only the active one does work
+  const extensionResult = useExtensionClaimableNotes(publicAddress, enabled && extensionMode);
+  const localResult = useLocalClaimableNotes(publicAddress, enabled && !extensionMode);
+  return extensionMode ? extensionResult : localResult;
 }

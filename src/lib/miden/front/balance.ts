@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { fetchBalances } from 'lib/store/utils/fetchBalances';
 
@@ -68,7 +69,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
 
   // Fetch balances function that respects deduping
   // Uses global lock to prevent concurrent WASM client calls
+  // On extension, balances arrive via SyncCompleted broadcast — skip WASM polling
   const fetchBalancesWithDeduping = useCallback(async () => {
+    if (isExtension()) return;
+
     // Check global lock - prevents concurrent calls across all component instances
     if (fetchingAddresses.has(address)) return;
 

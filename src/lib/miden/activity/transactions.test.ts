@@ -667,7 +667,8 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     }));
 
     jest.doMock('lib/platform', () => ({
-      isMobile: jest.fn(() => false)
+      isMobile: jest.fn(() => false),
+      isExtension: jest.fn(() => false)
     }));
 
     jest.doMock('shared/logger', () => ({
@@ -817,6 +818,11 @@ describe('completeCustomTransaction (isolated)', () => {
 
     jest.doMock('../sdk/miden-client', () => ({
       getMidenClient: jest.fn()
+    }));
+
+    jest.doMock('lib/platform', () => ({
+      isMobile: jest.fn(() => false),
+      isExtension: jest.fn(() => false)
     }));
 
     let ITransactionStatus: any;

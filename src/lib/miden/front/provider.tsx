@@ -4,6 +4,7 @@ import { NoteToastProvider } from 'components/NoteToastProvider';
 import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { isExtension } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
@@ -36,7 +37,10 @@ if (typeof document !== 'undefined' && document.body) {
  */
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // Eagerly initialize the Miden client singleton when the app starts
+  // On extension, skip — the WASM client will lazy-init on first write operation
   useEffect(() => {
+    if (isExtension()) return;
+
     const initializeClient = async () => {
       try {
         await getMidenClient();

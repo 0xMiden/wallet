@@ -3,9 +3,11 @@ import { useEffect, useRef } from 'react';
 import retry from 'async-retry';
 
 import { MidenState } from 'lib/miden/types';
-import { WalletMessageType, WalletNotification } from 'lib/shared/types';
+import { isExtension } from 'lib/platform';
+import { NoteClaimStarted, SyncCompleted, WalletMessageType, WalletNotification } from 'lib/shared/types';
 
 import { getIntercom, useWalletStore } from '../index';
+import { updateBalancesFromSyncData } from '../utils/updateBalancesFromSyncData';
 
 /** Wraps a promise with a timeout */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -48,6 +50,8 @@ export function useIntercomSync() {
 
     const setSyncStatus = useWalletStore.getState().setSyncStatus;
 
+    const store = useWalletStore.getState;
+
     const unsubscribe = intercom.subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
         // Refetch state when backend notifies of changes
@@ -57,6 +61,28 @@ export function useIntercomSync() {
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
         // Service worker finished a sync cycle — update sync status
         setSyncStatus(false);
+
+        if (isExtension()) {
+          const syncData = (msg as SyncCompleted).data;
+          const currentAccount = store().currentAccount;
+          if (syncData && currentAccount && syncData.accountPublicKey === currentAccount.publicKey) {
+            // Push claimable notes into Zustand
+            store().setExtensionClaimableNotes(syncData.notes);
+            // Clear stale claiming IDs (SyncCompleted has authoritative state)
+            store().clearExtensionClaimingNoteIds();
+            // Trigger note toast check (so popup shows toast for new notes)
+            const noteIds = syncData.notes.map(n => n.id);
+            store().checkForNewNotes(noteIds);
+            // Convert vault assets → balances, update Zustand
+            updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
+              console.warn('[useIntercomSync] Balance update failed:', err)
+            );
+          }
+        }
+      } else if (msg?.type === WalletMessageType.NoteClaimStarted) {
+        if (isExtension()) {
+          store().addExtensionClaimingNoteId((msg as NoteClaimStarted).noteId);
+        }
       }
     });
 

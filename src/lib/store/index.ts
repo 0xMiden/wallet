@@ -79,6 +79,10 @@ export const useWalletStore = create<WalletStore>()(
     isNoteToastVisible: false,
     noteToastShownAt: null,
 
+    // Initial extension sync state
+    extensionClaimableNotes: null,
+    extensionClaimingNoteIds: new Set<string>(),
+
     // Sync action - updates store from backend state
     syncFromBackend: (state: MidenState) => {
       const prevStatus = get().status;
@@ -96,7 +100,8 @@ export const useWalletStore = create<WalletStore>()(
       });
 
       // Immediately fetch balances when wallet becomes Ready (before any React effects)
-      if (justBecameReady && state.currentAccount) {
+      // On extension, skip — balances arrive via SyncCompleted broadcast from service worker
+      if (justBecameReady && state.currentAccount && !isExtension()) {
         const address = state.currentAccount.publicKey;
         fetchBalances(address, get().assetsMetadata)
           .then(balances => {
@@ -519,6 +524,21 @@ export const useWalletStore = create<WalletStore>()(
       if (isExtension()) {
         clearPersistedSeenNoteIds().catch(() => {});
       }
+    },
+
+    // Extension sync actions
+    setExtensionClaimableNotes: notes => {
+      set({ extensionClaimableNotes: notes });
+    },
+
+    addExtensionClaimingNoteId: noteId => {
+      set(state => ({
+        extensionClaimingNoteIds: new Set([...state.extensionClaimingNoteIds, noteId])
+      }));
+    },
+
+    clearExtensionClaimingNoteIds: () => {
+      set({ extensionClaimingNoteIds: new Set<string>() });
     }
   }))
 );

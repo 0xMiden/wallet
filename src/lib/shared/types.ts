@@ -98,12 +98,12 @@ export enum WalletMessageType {
   SyncCompleted = 'SYNC_COMPLETED',
   SyncRequest = 'SYNC_REQUEST',
   SyncResponse = 'SYNC_RESPONSE',
-  // Consumable notes (frontend reads from service worker's warm WASM client)
-  GetConsumableNotesRequest = 'GET_CONSUMABLE_NOTES_REQUEST',
-  GetConsumableNotesResponse = 'GET_CONSUMABLE_NOTES_RESPONSE'
+  // Cross-tab claim coordination
+  NoteClaimStarted = 'NOTE_CLAIM_STARTED',
+  NoteClaimStartedResponse = 'NOTE_CLAIM_STARTED_RESPONSE'
 }
 
-export type WalletNotification = StateUpdated | SyncCompleted;
+export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
 
 export interface WalletMessageBase {
   type: WalletMessageType | MidenMessageType;
@@ -127,8 +127,20 @@ export interface StateUpdated extends WalletMessageBase {
   type: WalletMessageType.StateUpdated;
 }
 
+export interface SerializedVaultAsset {
+  faucetId: string;
+  amountBaseUnits: string;
+}
+
+export interface SyncData {
+  notes: SerializedConsumableNote[];
+  vaultAssets: SerializedVaultAsset[];
+  accountPublicKey: string;
+}
+
 export interface SyncCompleted extends WalletMessageBase {
   type: WalletMessageType.SyncCompleted;
+  data?: SyncData;
 }
 
 export interface SyncRequest extends WalletMessageBase {
@@ -152,14 +164,13 @@ export interface SerializedConsumableNote {
   };
 }
 
-export interface GetConsumableNotesRequest extends WalletMessageBase {
-  type: WalletMessageType.GetConsumableNotesRequest;
-  accountPublicKey: string;
+export interface NoteClaimStarted extends WalletMessageBase {
+  type: WalletMessageType.NoteClaimStarted;
+  noteId: string;
 }
 
-export interface GetConsumableNotesResponse extends WalletMessageBase {
-  type: WalletMessageType.GetConsumableNotesResponse;
-  notes: SerializedConsumableNote[];
+export interface NoteClaimStartedResponse extends WalletMessageBase {
+  type: WalletMessageType.NoteClaimStartedResponse;
 }
 
 export interface GetStateRequest extends WalletMessageBase {
@@ -610,7 +621,7 @@ export type WalletRequest =
   | GetOwnedRecordsRequest
   | ImportFromClientRequest
   | SyncRequest
-  | GetConsumableNotesRequest;
+  | NoteClaimStarted;
 
 export type WalletResponse =
   | MidenResponse
@@ -654,4 +665,4 @@ export type WalletResponse =
   | GetOwnedRecordsResponse
   | ImportFromClientResponse
   | SyncResponse
-  | GetConsumableNotesResponse;
+  | NoteClaimStartedResponse;

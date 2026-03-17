@@ -3,7 +3,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
-import { WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
+import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { TokenBalanceData } from '../miden/front/balance';
@@ -183,6 +183,25 @@ export interface TransactionModalActions {
 }
 
 /**
+ * Extension sync state (service worker pushes data to frontend via SyncCompleted)
+ */
+export interface ExtensionSyncSlice {
+  /** Claimable notes pushed from service worker (null = not yet received) */
+  extensionClaimableNotes: SerializedConsumableNote[] | null;
+  /** Note IDs being claimed (optimistic, cleared on each SyncCompleted) */
+  extensionClaimingNoteIds: Set<string>;
+}
+
+/**
+ * Extension sync actions
+ */
+export interface ExtensionSyncActions {
+  setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
+  addExtensionClaimingNoteId: (noteId: string) => void;
+  clearExtensionClaimingNoteIds: () => void;
+}
+
+/**
  * Note toast actions (mobile only)
  */
 export interface NoteToastActions {
@@ -207,10 +226,12 @@ export interface WalletStore
     SyncSlice,
     TransactionModalSlice,
     NoteToastSlice,
+    ExtensionSyncSlice,
     WalletActions,
     BalanceActions,
     AssetActions,
     FiatCurrencyActions,
     SyncActions,
     TransactionModalActions,
-    NoteToastActions {}
+    NoteToastActions,
+    ExtensionSyncActions {}

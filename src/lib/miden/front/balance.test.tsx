@@ -9,6 +9,13 @@ import { useWalletStore } from 'lib/store';
 
 import { useAllBalances, getAllBalanceSWRKey } from './balance';
 
+// webextension-polyfill auto-mock causes isExtension() to return true in tests.
+// Override to return false so balance hooks use the WASM polling path.
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: jest.fn(() => false)
+}));
+
 // Track concurrent calls to detect WASM client abuse
 let concurrentCalls = 0;
 let maxConcurrentCalls = 0;
