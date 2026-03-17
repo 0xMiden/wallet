@@ -144,6 +144,12 @@ export interface SerializedConsumableNote {
   faucetId: string;
   amountBaseUnits: string;
   senderAddress: string;
+  metadata?: {
+    decimals: number;
+    symbol: string;
+    name: string;
+    thumbnailUri?: string;
+  };
 }
 
 export interface GetConsumableNotesRequest extends WalletMessageBase {
