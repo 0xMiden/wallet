@@ -532,11 +532,11 @@ export const ConsumableNoteComponent = ({
         try {
           await waitForConsumeTx(tx.id, signal);
           await mutateClaimableNotes();
+          // Don't setIsLoading(false) on success — keep spinner until sync removes the note
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') return;
           hasVerifiedClaimStatus.current = true;
           setError('Failed to consume note. Please try again.');
-        } finally {
           setIsLoading(false);
         }
         return;
@@ -585,10 +585,10 @@ export const ConsumableNoteComponent = ({
         try {
           await waitForConsumeTx(id, signal);
           await mutateClaimableNotes();
+          // Don't setIsLoading(false) on success — keep spinner until sync removes the note
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') return;
           setError('Failed to consume note. Please try again.');
-        } finally {
           setIsLoading(false);
         }
       } else {
