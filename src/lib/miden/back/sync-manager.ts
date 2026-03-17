@@ -232,12 +232,8 @@ export function setupSyncManager(): void {
   // Primary sync (3s) is driven by frontend SyncRequest when popup is open.
   browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
 
-  // Listen for alarm fires
-  browser.alarms.onAlarm.addListener(alarm => {
-    if (alarm.name === ALARM_NAME) {
-      doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
-    }
-  });
+  // NOTE: The alarm listener is registered at the top level of background.ts
+  // (Chrome MV3 requires synchronous registration to catch events that wake the SW).
 
   // Run an initial sync immediately
   doSync().catch(err => console.warn('[SyncManager] Initial sync error:', err));

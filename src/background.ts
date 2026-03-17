@@ -4,7 +4,7 @@ import 'mv3-hot-reload/background';
 import browser, { tabs, runtime } from 'webextension-polyfill';
 
 import { start } from 'lib/miden/back/main';
-import { setupSyncManager } from 'lib/miden/back/sync-manager';
+import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
 
 runtime.onInstalled.addListener(({ reason }) => (reason === 'install' ? openFullPage() : null));
@@ -12,6 +12,17 @@ runtime.onInstalled.addListener(({ reason }) => (reason === 'install' ? openFull
 runtime.onUpdateAvailable.addListener(details => {
   // Swaps in the new version immediately
   runtime.reload();
+});
+
+// IMPORTANT: Chrome MV3 requires event listeners to be registered synchronously
+// at the top level. Listeners inside async .then() callbacks miss events that
+// woke the SW. doSync() independently checks vault state, so it's safe to call
+// before start() completes.
+browser.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === 'miden-sync') {
+    doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
+  }
+  // 'miden-tx-processor' alarm is just a keepalive — no action needed
 });
 
 // Chain sync manager + transaction processor setup after start() to ensure Actions.init() completes first
