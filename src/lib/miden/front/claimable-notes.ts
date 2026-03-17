@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { isExtension, isIOS } from 'lib/platform';
@@ -168,28 +168,32 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
   const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
-  const [seeded, setSeeded] = useState(false);
 
-  // On mount: seed from chrome.storage.local cache (notification-click flow)
+  // Poll chrome.storage.local for notes on mount + every 3s.
+  // The SW writes miden_cached_consumable_notes on every sync cycle.
+  // This is the primary data channel — more reliable than intercom broadcasts
+  // which can be lost if any port in the forEach throws.
   useEffect(() => {
-    if (!enabled || seeded) return;
+    if (!enabled) return;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
-    if (g.chrome?.storage?.local) {
+    if (!g.chrome?.storage?.local) return;
+
+    const poll = () => {
       g.chrome.storage.local.get('miden_cached_consumable_notes', (result: any) => {
         const cached: SerializedConsumableNote[] = result?.miden_cached_consumable_notes || [];
-        if (cached.length > 0 && extensionNotes === null) {
-          useWalletStore.getState().setExtensionClaimableNotes(cached);
-          // Don't clear the cache here — it'll be overwritten on next sync.
-          // Clearing eagerly would cause a flash if popup reopens before next SyncCompleted.
-        }
-        setSeeded(true);
+        useWalletStore.getState().setExtensionClaimableNotes(cached);
       });
-    } else {
-      setSeeded(true);
-    }
-  }, [enabled, seeded, extensionNotes]);
+    };
+
+    // Read immediately on mount
+    poll();
+
+    // Then poll every 3s (aligned with useSyncTrigger's SyncRequest interval)
+    const timer = setInterval(poll, 3_000);
+    return () => clearInterval(timer);
+  }, [enabled]);
 
   // Map serialized notes to ConsumableNote with metadata
   const computedData = useMemo(() => {

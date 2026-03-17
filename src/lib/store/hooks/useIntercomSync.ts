@@ -4,7 +4,7 @@ import retry from 'async-retry';
 
 import { MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
-import { NoteClaimStarted, SyncCompleted, WalletMessageType, WalletNotification } from 'lib/shared/types';
+import { NoteClaimStarted, SyncData, WalletMessageType, WalletNotification } from 'lib/shared/types';
 
 import { getIntercom, useWalletStore } from '../index';
 import { updateBalancesFromSyncData } from '../utils/updateBalancesFromSyncData';
@@ -61,24 +61,6 @@ export function useIntercomSync() {
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
         // Service worker finished a sync cycle — update sync status
         setSyncStatus(false);
-
-        if (isExtension()) {
-          const syncData = (msg as SyncCompleted).data;
-          const currentAccount = store().currentAccount;
-          if (syncData && currentAccount && syncData.accountPublicKey === currentAccount.publicKey) {
-            // Push claimable notes into Zustand
-            store().setExtensionClaimableNotes(syncData.notes);
-            // Clear stale claiming IDs (SyncCompleted has authoritative state)
-            store().clearExtensionClaimingNoteIds();
-            // Trigger note toast check (so popup shows toast for new notes)
-            const noteIds = syncData.notes.map(n => n.id);
-            store().checkForNewNotes(noteIds);
-            // Convert vault assets → balances, update Zustand
-            updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
-              console.warn('[useIntercomSync] Balance update failed:', err)
-            );
-          }
-        }
       } else if (msg?.type === WalletMessageType.NoteClaimStarted) {
         if (isExtension()) {
           store().addExtensionClaimingNoteId((msg as NoteClaimStarted).noteId);
@@ -88,6 +70,42 @@ export function useIntercomSync() {
 
     return unsubscribe;
   }, [syncFromBackend]);
+
+  // Poll balance data from chrome.storage.local (vault assets).
+  // Notes are polled separately by useExtensionClaimableNotes.
+  useEffect(() => {
+    if (!isExtension()) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = globalThis as any;
+    if (!g.chrome?.storage?.local) return;
+
+    const store = useWalletStore.getState;
+
+    const poll = () => {
+      g.chrome.storage.local.get('miden_sync_data', (result: any) => {
+        const syncData: SyncData | undefined = result?.miden_sync_data;
+        if (!syncData) return;
+
+        const currentAccount = store().currentAccount;
+        if (!currentAccount || syncData.accountPublicKey !== currentAccount.publicKey) return;
+
+        // Clear stale claiming IDs (sync data is authoritative)
+        store().clearExtensionClaimingNoteIds();
+        // Trigger note toast check (so popup shows toast for new notes)
+        const noteIds = syncData.notes.map(n => n.id);
+        store().checkForNewNotes(noteIds);
+        // Convert vault assets → balances, update Zustand
+        updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
+          console.warn('[useIntercomSync] Balance update failed:', err)
+        );
+      });
+    };
+
+    poll();
+    const timer = setInterval(poll, 3_000);
+    return () => clearInterval(timer);
+  }, []);
 
   return isInitialized;
 }

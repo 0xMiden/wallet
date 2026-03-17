@@ -106,22 +106,26 @@ export async function doSync(): Promise<void> {
       const noteIds = parsedNotes.map(n => n.id);
       const newIds = await mergeAndPersistSeenNoteIds(noteIds);
 
-      // Cache notes for instant display on notification-click (cold open)
-      chrome.storage.local.set({ miden_cached_consumable_notes: parsedNotes });
+      // Write sync data to chrome.storage.local — the reliable data channel.
+      // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).
+      const syncData: SyncData = {
+        notes: parsedNotes,
+        vaultAssets,
+        accountPublicKey: accountPubKey
+      };
+      chrome.storage.local.set({
+        miden_cached_consumable_notes: parsedNotes,
+        miden_sync_data: syncData
+      });
 
-      if (intercom.hasClients()) {
-        // Broadcast data to connected frontends
-        const syncData: SyncData = {
-          notes: parsedNotes,
-          vaultAssets,
-          accountPublicKey: accountPubKey
-        };
-        try {
-          intercom.broadcast({ type: WalletMessageType.SyncCompleted, data: syncData });
-        } catch {
-          // No frontends connected — that's fine
-        }
-      } else if (newIds.length > 0) {
+      // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local)
+      try {
+        intercom.broadcast({ type: WalletMessageType.SyncCompleted });
+      } catch {
+        // No frontends connected — that's fine
+      }
+
+      if (!intercom.hasClients() && newIds.length > 0) {
         // No popup open and new notes arrived — show desktop notification
         const title = getMessage('noteReceivedTitle') || 'You have received a note';
         const message =

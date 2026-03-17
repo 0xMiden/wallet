@@ -140,7 +140,6 @@ export interface SyncData {
 
 export interface SyncCompleted extends WalletMessageBase {
   type: WalletMessageType.SyncCompleted;
-  data?: SyncData;
 }
 
 export interface SyncRequest extends WalletMessageBase {
