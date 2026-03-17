@@ -1,8 +1,8 @@
 import { useCallback, useRef } from 'react';
 
-import { getCachedConsumableNotes } from 'lib/miden/back/note-checker-storage';
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { isExtension, isIOS } from 'lib/platform';
+import { SerializedConsumableNote } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
 
 import { isMidenFaucet } from '../assets';
@@ -184,29 +184,44 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
     // This is instant — no WASM, no locks, no intercom round-trip.
     if (isExtension() && !localClientReady.current) {
       try {
-        const cached = await getCachedConsumableNotes();
+        // Read directly from chrome.storage.local — no polyfill, no dynamic import
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const g = globalThis as any;
+        const result = await g.chrome.storage.local.get('miden_cached_consumable_notes');
+        const cached: SerializedConsumableNote[] = result.miden_cached_consumable_notes || [];
         if (cached.length > 0) {
-          const uncompletedTxs = await getUncompletedTransactions(publicAddress);
-          const notesBeingClaimed = new Set(
-            uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
-          );
-          parsedNotes = cached.map(n => ({
-            id: n.id,
-            faucetId: n.faucetId,
-            amountBaseUnits: n.amountBaseUnits,
-            senderAddress: n.senderAddress,
-            isBeingClaimed: notesBeingClaimed.has(n.id)
-          }));
+          // Clear cache after reading — it's a one-shot for the notification click flow.
+          // Subsequent opens (popup, etc.) will use the live WASM client.
+          g.chrome.storage.local.remove('miden_cached_consumable_notes');
 
-          // Warm up local client in background for subsequent fetches
-          withWasmClientLock(async () => {
-            const client = await getMidenClient();
-            await client.syncState();
-          })
-            .then(() => {
-              localClientReady.current = true;
+          // Notes with metadata can be returned immediately — no async lookups needed
+          const notesWithMetadata = cached.filter(n => n.metadata);
+          if (notesWithMetadata.length > 0) {
+            const uncompletedTxs = await getUncompletedTransactions(publicAddress);
+            const notesBeingClaimed = new Set(
+              uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
+            );
+
+            // Warm up local client in background for subsequent fetches
+            withWasmClientLock(async () => {
+              const client = await getMidenClient();
+              await client.syncState();
             })
-            .catch(() => {});
+              .then(() => {
+                localClientReady.current = true;
+              })
+              .catch(() => {});
+
+            // Return cached notes directly — bypasses buildMetadataMapFromCache entirely
+            return notesWithMetadata.map(n => ({
+              id: n.id,
+              faucetId: n.faucetId,
+              amount: n.amountBaseUnits,
+              metadata: n.metadata as AssetMetadata,
+              senderAddress: n.senderAddress,
+              isBeingClaimed: notesBeingClaimed.has(n.id)
+            }));
+          }
         } else {
           // No cache — fall back to local WASM client
           parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);

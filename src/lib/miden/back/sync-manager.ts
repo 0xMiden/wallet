@@ -3,10 +3,11 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { SerializedConsumableNote, WalletMessageType } from 'lib/shared/types';
 
+import { fetchTokenMetadata } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { getIntercom } from './defaults';
-import { cacheConsumableNotes, mergeAndPersistSeenNoteIds } from './note-checker-storage';
+import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 
 const ALARM_NAME = 'miden-sync';
@@ -88,8 +89,23 @@ async function checkForNewNotes(): Promise<void> {
       })
       .filter(Boolean) as SerializedConsumableNote[];
 
+    // Fetch metadata for each faucet so the frontend can display instantly (no async lookups)
+    for (const note of parsedNotes) {
+      try {
+        const { base } = await fetchTokenMetadata(note.faucetId);
+        note.metadata = {
+          decimals: base.decimals,
+          symbol: base.symbol,
+          name: base.name,
+          thumbnailUri: base.thumbnailUri
+        };
+      } catch {
+        // Leave metadata undefined — frontend will handle
+      }
+    }
+
     // Cache for instant display when fullpage tab opens from notification click
-    await cacheConsumableNotes(parsedNotes);
+    chrome.storage.local.set({ miden_cached_consumable_notes: parsedNotes });
 
     if (parsedNotes.length === 0) return;
 
