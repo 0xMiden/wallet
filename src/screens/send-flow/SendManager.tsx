@@ -8,11 +8,15 @@ import * as yup from 'yup';
 import { useAppEnv } from 'app/env';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { initiateSendTransaction, waitForTransactionCompletion } from 'lib/miden/activity';
+import {
+  initiateSendTransaction,
+  requestSWTransactionProcessing,
+  waitForTransactionCompletion
+} from 'lib/miden/activity';
 import { useAccount, useAllAccounts } from 'lib/miden/front';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -228,10 +232,15 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading }) => {
           delegateTransaction
         );
 
-        // Step 2: Open the loading modal (same as Receive)
+        // Step 2: Open the loading modal
         useWalletStore.getState().openTransactionModal();
 
-        // Step 3: Wait for transaction completion (same as Receive's waitForConsumeTx)
+        if (isExtension()) {
+          // On extension: tell SW to process, then wait for Dexie updates
+          requestSWTransactionProcessing();
+        }
+
+        // Step 3: Wait for transaction completion (Dexie liveQuery works cross-context)
         const result = await waitForTransactionCompletion(txId);
 
         if ('errorMessage' in result) {

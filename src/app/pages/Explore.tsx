@@ -18,6 +18,7 @@ import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import {
   hasQueuedTransactions,
   initiateConsumeTransaction,
+  requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import {
@@ -31,7 +32,7 @@ import {
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { openFaucetWebview } from 'lib/mobile/faucet-webview';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -111,8 +112,13 @@ const Explore: FC = () => {
     await Promise.all(promises);
     mutateClaimableNotes();
 
-    // Process auto-consume transactions silently in the background (no modal/tab)
-    startBackgroundTransactionProcessing(signTransaction);
+    if (isExtension()) {
+      // On extension: fire-and-forget — SW handles processing
+      requestSWTransactionProcessing();
+    } else {
+      // Process auto-consume transactions silently in the background (no modal/tab)
+      startBackgroundTransactionProcessing(signTransaction);
+    }
   }, [
     midenNotes,
     isDelegatedProvingEnabled,

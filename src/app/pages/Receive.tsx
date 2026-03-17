@@ -16,6 +16,7 @@ import {
   getFailedTransactions,
   getUncompletedTransactions,
   initiateConsumeTransaction,
+  requestSWTransactionProcessing,
   verifyStuckTransactionsFromNode,
   waitForConsumeTx
 } from 'lib/miden/activity';
@@ -24,10 +25,10 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
+import { WalletAccount, WalletMessageType } from 'lib/shared/types';
+import { getIntercom, useWalletStore } from 'lib/store';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -87,7 +88,10 @@ export const Receive: React.FC<ReceiveProps> = () => {
   }, []);
 
   // Poll for stuck transactions and verify their state from the node
+  // On extension, skip — the SW handles stuck transaction cleanup via generateTransactionsLoop
   useEffect(() => {
+    if (isExtension()) return;
+
     const checkStuckTransactions = async () => {
       const resolved = await verifyStuckTransactionsFromNode();
       if (resolved > 0) {
@@ -129,17 +133,32 @@ export const Receive: React.FC<ReceiveProps> = () => {
 
         // 2. Check node state for Invalid notes
         try {
-          const { InputNoteState, NoteFilter, NoteFilterTypes, NoteId } = await import('@miden-sdk/miden-sdk');
-          const noteIds = safeClaimableNotes.map(n => NoteId.fromHex(n.id));
-          const noteDetails = await withWasmClientLock(async () => {
-            const midenClient = await getMidenClient();
-            const noteFilter = new NoteFilter(NoteFilterTypes.List, noteIds);
-            return await midenClient.getInputNoteDetails(noteFilter);
-          });
+          if (isExtension()) {
+            // On extension, use intercom to check note state via SW
+            const res = await getIntercom().request({
+              type: WalletMessageType.GetInputNoteDetailsRequest,
+              noteIds: safeClaimableNotes.map(n => n.id)
+            });
+            if (res && 'notes' in res) {
+              for (const note of (res as any).notes) {
+                if (note.state === 'Invalid') {
+                  failedIds.add(note.noteId);
+                }
+              }
+            }
+          } else {
+            const { InputNoteState, NoteFilter, NoteFilterTypes, NoteId } = await import('@miden-sdk/miden-sdk');
+            const noteIds = safeClaimableNotes.map(n => NoteId.fromHex(n.id));
+            const noteDetails = await withWasmClientLock(async () => {
+              const midenClient = await getMidenClient();
+              const noteFilter = new NoteFilter(NoteFilterTypes.List, noteIds);
+              return await midenClient.getInputNoteDetails(noteFilter);
+            });
 
-          for (const note of noteDetails) {
-            if (note.state === InputNoteState.Invalid) {
-              failedIds.add(note.noteId);
+            for (const note of noteDetails) {
+              if (note.state === InputNoteState.Invalid) {
+                failedIds.add(note.noteId);
+              }
             }
           }
         } catch (err) {
@@ -213,38 +232,48 @@ export const Receive: React.FC<ReceiveProps> = () => {
         }
       }
 
-      // Open loading page (popup stays open since tab is not active)
-      useWalletStore.getState().openTransactionModal();
+      if (isExtension()) {
+        // On extension: fire-and-forget — SW handles processing.
+        // Notes show "claiming" spinner via claimingNoteIds + NoteClaimStarted broadcast.
+        // Notes disappear when sync cycle removes them from getConsumableNotes().
+        requestSWTransactionProcessing();
+      } else {
+        // Open loading page (popup stays open since tab is not active)
+        useWalletStore.getState().openTransactionModal();
 
-      // Wait for all transactions to complete
-      for (const { noteId, txId } of transactionIds) {
-        if (signal.aborted) break;
-        try {
-          await waitForConsumeTx(txId, signal);
-          succeeded++;
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') {
-            break;
+        // Wait for all transactions to complete
+        for (const { noteId, txId } of transactionIds) {
+          if (signal.aborted) break;
+          try {
+            await waitForConsumeTx(txId, signal);
+            succeeded++;
+          } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') {
+              break;
+            }
+            console.error('Error waiting for transaction:', txId, err);
+            failed++;
+            // Mark this note as failed
+            setFailedNoteIds(prev => new Set(prev).add(noteId));
           }
-          console.error('Error waiting for transaction:', txId, err);
-          failed++;
-          // Mark this note as failed
-          setFailedNoteIds(prev => new Set(prev).add(noteId));
+          // Note: Don't remove from claimingNoteIds here - keep spinner visible
+          // until mutateClaimableNotes() refreshes the list and removes the note
         }
-        // Note: Don't remove from claimingNoteIds here - keep spinner visible
-        // until mutateClaimableNotes() refreshes the list and removes the note
-      }
 
-      // Refresh the list - this will remove successfully claimed notes
-      await mutateClaimableNotes();
+        // Refresh the list - this will remove successfully claimed notes
+        await mutateClaimableNotes();
 
-      // Navigate to home on mobile after claiming all notes (only if all succeeded)
-      failed += queueFailed;
-      if (isMobile() && failed === 0) {
-        navigate('/', HistoryAction.Replace);
+        // Navigate to home on mobile after claiming all notes (only if all succeeded)
+        failed += queueFailed;
+        if (isMobile() && failed === 0) {
+          navigate('/', HistoryAction.Replace);
+        }
       }
     } finally {
-      setClaimingNoteIds(new Set());
+      if (!isExtension()) {
+        setClaimingNoteIds(new Set());
+      }
+      // On extension, keep claimingNoteIds set — they'll be cleared when notes disappear from sync
     }
   }, [
     unclaimedNotes,
@@ -277,14 +306,28 @@ export const Receive: React.FC<ReceiveProps> = () => {
         if (e.target?.result instanceof ArrayBuffer) {
           const noteBytesAsUint8Array = new Uint8Array(e.target.result);
 
-          // Wrap WASM client operations in a lock to prevent concurrent access
-          const noteId = await withWasmClientLock(async () => {
-            const midenClient = await getMidenClient();
-            const id = await midenClient.importNoteBytes(noteBytesAsUint8Array);
-            await midenClient.syncState();
-            return id;
-          });
-          navigate(`/import-note-pending/${noteId}`);
+          if (isExtension()) {
+            // On extension, route through SW via intercom
+            const b64 = Buffer.from(noteBytesAsUint8Array).toString('base64');
+            const res = await getIntercom().request({
+              type: WalletMessageType.ImportNoteBytesRequest,
+              noteBytes: b64
+            });
+            if (res && 'noteId' in res) {
+              navigate(`/import-note-pending/${(res as any).noteId}`);
+            } else {
+              navigate('/import-note-failure');
+            }
+          } else {
+            // Wrap WASM client operations in a lock to prevent concurrent access
+            const noteId = await withWasmClientLock(async () => {
+              const midenClient = await getMidenClient();
+              const id = await midenClient.importNoteBytes(noteBytesAsUint8Array);
+              await midenClient.syncState();
+              return id;
+            });
+            navigate(`/import-note-pending/${noteId}`);
+          }
         }
       } catch (error) {
         console.error('Error during note import:', error);
@@ -479,6 +522,26 @@ export const ConsumableNoteComponent = ({
         return;
       }
 
+      if (isExtension()) {
+        // On extension, SW handles processing. Just ensure it's running and wait for Dexie updates.
+        requestSWTransactionProcessing();
+
+        abortControllerRef.current = new AbortController();
+        const signal = abortControllerRef.current.signal;
+
+        try {
+          await waitForConsumeTx(tx.id, signal);
+          await mutateClaimableNotes();
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          hasVerifiedClaimStatus.current = true;
+          setError('Failed to consume note. Please try again.');
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       abortControllerRef.current = new AbortController();
       const signal = abortControllerRef.current.signal;
 
@@ -511,14 +574,33 @@ export const ConsumableNoteComponent = ({
 
     try {
       const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
-      useWalletStore.getState().openTransactionModal();
-      const txHash = await waitForConsumeTx(id, signal);
-      const remainingNotes = await mutateClaimableNotes();
-      console.log('Successfully consumed note, tx hash:', txHash);
 
-      // Navigate to home on mobile if no more notes to claim
-      if (isMobile() && (!remainingNotes || remainingNotes.length === 0)) {
-        navigate('/', HistoryAction.Replace);
+      if (isExtension()) {
+        // On extension: fire-and-forget — SW handles processing.
+        // Note shows "claiming" spinner via isLoading state.
+        // Note disappears when sync cycle removes it from getConsumableNotes().
+        requestSWTransactionProcessing();
+
+        // Wait for the Dexie transaction to complete (Dexie liveQuery updates from SW)
+        try {
+          await waitForConsumeTx(id, signal);
+          await mutateClaimableNotes();
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
+          setError('Failed to consume note. Please try again.');
+        } finally {
+          setIsLoading(false);
+        }
+      } else {
+        useWalletStore.getState().openTransactionModal();
+        const txHash = await waitForConsumeTx(id, signal);
+        const remainingNotes = await mutateClaimableNotes();
+        console.log('Successfully consumed note, tx hash:', txHash);
+
+        // Navigate to home on mobile if no more notes to claim
+        if (isMobile() && (!remainingNotes || remainingNotes.length === 0)) {
+          navigate('/', HistoryAction.Replace);
+        }
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -527,7 +609,9 @@ export const ConsumableNoteComponent = ({
       setError('Failed to consume note. Please try again.');
       console.error('Error consuming note:', error);
     } finally {
-      setIsLoading(false);
+      if (!isExtension()) {
+        setIsLoading(false);
+      }
     }
   }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note]);
   const amountText = `${formatBigInt(BigInt(note.amount), note.metadata?.decimals || 6)} ${note.metadata?.symbol || 'UNKNOWN'}`;

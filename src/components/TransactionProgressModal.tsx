@@ -6,10 +6,12 @@ import Modal from 'react-modal';
 
 import {
   hasQueuedTransactions,
+  requestSWTransactionProcessing,
   safeGenerateTransactionsLoop as dbTransactionsLoop,
   getAllUncompletedTransactions
 } from 'lib/miden/activity';
 import { useMidenContext } from 'lib/miden/front';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { GeneratingTransaction } from 'screens/generating-transaction/GeneratingTransaction';
@@ -26,6 +28,23 @@ export const TransactionProgressModal: FC = () => {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   // Track if we're actively processing (started when modal opens, continues even when hidden)
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // On extension: check for uncompleted send transactions on mount and auto-open modal
+  useEffect(() => {
+    if (!isExtension()) return;
+
+    const checkForSendTxs = async () => {
+      const uncompleted = await getAllUncompletedTransactions();
+      const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
+      if (hasSendTxs) {
+        openModal();
+        // Ensure SW is processing (deduplicates via isProcessing flag)
+        requestSWTransactionProcessing();
+      }
+    };
+
+    checkForSendTxs();
+  }, [openModal]);
 
   // Reset hasLoadedOnce when modal closes
   useEffect(() => {
@@ -51,7 +70,14 @@ export const TransactionProgressModal: FC = () => {
   const transactions = txs || [];
 
   // Process transactions - continues even when modal is hidden
+  // On extension: SW drives processing, this is a no-op
   const generateTransaction = useCallback(async () => {
+    if (isExtension()) {
+      // On extension, just refresh the list — SW handles processing
+      mutateTx();
+      return;
+    }
+
     try {
       const success = await dbTransactionsLoop(signTransaction);
       if (success === false) {
@@ -80,9 +106,23 @@ export const TransactionProgressModal: FC = () => {
   }, [isOpen, isProcessing]);
 
   // Processing loop - runs while processing, regardless of modal visibility
+  // On extension: only polls for status (no local WASM calls)
   useEffect(() => {
     if (!isProcessing || error) {
       return;
+    }
+
+    if (isExtension()) {
+      // On extension, just poll for status — SW handles processing
+      const intervalId = setInterval(async () => {
+        const remaining = await getAllUncompletedTransactions();
+        mutateTx();
+        if (remaining.length === 0) {
+          setIsProcessing(false);
+        }
+      }, 5_000);
+
+      return () => clearInterval(intervalId);
     }
 
     // Check if we still have transactions to process
@@ -105,7 +145,7 @@ export const TransactionProgressModal: FC = () => {
     return () => {
       clearInterval(intervalId);
     };
-  }, [isProcessing, generateTransaction, error]);
+  }, [isProcessing, generateTransaction, error, mutateTx]);
 
   // Auto-close when all transactions are done
   // Only auto-close AFTER we've done initial fetch (hasLoadedOnce) to prevent race condition

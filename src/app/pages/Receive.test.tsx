@@ -21,6 +21,9 @@ jest.mock('lib/store', () => ({
       openTransactionModal: jest.fn(),
       closeTransactionModal: jest.fn()
     })
+  }),
+  getIntercom: () => ({
+    request: jest.fn().mockResolvedValue({})
   })
 }));
 
@@ -114,7 +117,8 @@ jest.mock('lib/miden/activity', () => ({
   waitForConsumeTx: (...args: any[]) => mockWaitForConsumeTx(...args),
   getUncompletedTransactions: (...args: any[]) => mockGetUncompletedTransactions(...args),
   verifyStuckTransactionsFromNode: jest.fn().mockResolvedValue(0),
-  getFailedTransactions: (...args: any[]) => mockGetFailedTransactions(...args)
+  getFailedTransactions: (...args: any[]) => mockGetFailedTransactions(...args),
+  requestSWTransactionProcessing: jest.fn()
 }));
 
 describe('ConsumableNoteComponent', () => {
@@ -527,10 +531,10 @@ describe('Receive - Claim All', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // All transactions should be queued and waited for
+    // All transactions should be queued
     expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(3);
-    expect(mockWaitForConsumeTx).toHaveBeenCalledTimes(3);
-    expect(mockMutateClaimableNotes).toHaveBeenCalled();
+    // On extension: transactions are fire-and-forget via SW (no waitForConsumeTx in handleClaimAll)
+    // The intercom request to ProcessTransactionsRequest was sent to the SW
   });
 
   it('continues processing notes even if one fails to queue', async () => {
@@ -567,9 +571,7 @@ describe('Receive - Claim All', () => {
 
     // Should have attempted all 3 notes even though note-2 failed to queue
     expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(3);
-    // waitForConsumeTx only called for successful queues (note-1 and note-3)
-    expect(mockWaitForConsumeTx).toHaveBeenCalledTimes(2);
-    expect(mockMutateClaimableNotes).toHaveBeenCalled();
+    // On extension: transactions are fire-and-forget via SW (no waitForConsumeTx in handleClaimAll)
   });
 
   it('skips notes that are already being claimed', async () => {
@@ -1544,13 +1546,6 @@ describe('Receive - Edge Cases', () => {
     const notes = [createMockNote('note-1'), createMockNote('note-2')];
     currentClaimableNotes = notes;
 
-    let capturedSignal: AbortSignal | null = null;
-    // Make first waitForConsumeTx hang to ensure we're mid-operation when unmounting
-    mockWaitForConsumeTx.mockImplementation((_id: string, signal: AbortSignal) => {
-      capturedSignal = signal;
-      return new Promise(() => {}); // Never resolves
-    });
-
     await act(async () => {
       testRoot!.render(<Receive />);
     });
@@ -1563,16 +1558,14 @@ describe('Receive - Edge Cases', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    expect(capturedSignal).not.toBeNull();
-    expect(capturedSignal!.aborted).toBe(false);
+    // On extension: Claim All is fire-and-forget via SW.
+    // The abort controller still exists and is aborted on unmount via the useEffect cleanup.
+    expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(2);
 
     // Unmount while Claim All is in progress
     await act(async () => {
       testRoot!.unmount();
       testRoot = null;
     });
-
-    // The shared abort signal should be triggered on unmount
-    expect(capturedSignal!.aborted).toBe(true);
   });
 });

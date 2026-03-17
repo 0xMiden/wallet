@@ -12,8 +12,10 @@ import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NoteExportType } from 'lib/miden/sdk/constants';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { isExtension } from 'lib/platform';
 import { formatAmount } from 'lib/shared/format';
-import { WalletAccount } from 'lib/shared/types';
+import { WalletAccount, WalletMessageType } from 'lib/shared/types';
+import { getIntercom } from 'lib/store';
 import { capitalizeFirstLetter } from 'utils/string';
 
 import AddressChip from '../AddressChip';
@@ -108,11 +110,26 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
     try {
       setIsDownloading(true);
-      // Wrap WASM client operations in a lock to prevent concurrent access
-      const noteBytes = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return midenClient.exportNote(entry.noteId!, NoteExportType.DETAILS);
-      });
+
+      let noteBytes: Uint8Array;
+
+      if (isExtension()) {
+        // On extension, route through SW via intercom
+        const res = await getIntercom().request({
+          type: WalletMessageType.ExportNoteRequest,
+          noteId: entry.noteId!
+        });
+        if (!res || !('noteBytes' in res)) {
+          throw new Error('Failed to export note via intercom');
+        }
+        noteBytes = new Uint8Array(Buffer.from((res as any).noteBytes, 'base64'));
+      } else {
+        // Wrap WASM client operations in a lock to prevent concurrent access
+        noteBytes = await withWasmClientLock(async () => {
+          const midenClient = await getMidenClient();
+          return midenClient.exportNote(entry.noteId!, NoteExportType.DETAILS);
+        });
+      }
 
       const ab = new ArrayBuffer(noteBytes.byteLength);
       new Uint8Array(ab).set(noteBytes);

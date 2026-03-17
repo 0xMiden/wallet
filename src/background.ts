@@ -5,6 +5,7 @@ import browser, { tabs, runtime } from 'webextension-polyfill';
 
 import { start } from 'lib/miden/back/main';
 import { setupSyncManager } from 'lib/miden/back/sync-manager';
+import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
 
 runtime.onInstalled.addListener(({ reason }) => (reason === 'install' ? openFullPage() : null));
 
@@ -13,8 +14,11 @@ runtime.onUpdateAvailable.addListener(details => {
   runtime.reload();
 });
 
-// Chain sync manager setup after start() to ensure Actions.init() completes first
-start().then(() => setupSyncManager());
+// Chain sync manager + transaction processor setup after start() to ensure Actions.init() completes first
+start().then(() => {
+  setupSyncManager();
+  setupTransactionProcessor();
+});
 
 if (process.env.TARGET_BROWSER === 'safari') {
   browser.browserAction.onClicked.addListener(() => {
