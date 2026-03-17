@@ -2196,6 +2196,19 @@
     "message": "Hak talebinde bulunmak için buraya dokunun",
     "englishSource": "Tap here to claim it"
   },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenHistory": {
     "message": "$tokenName$ Geçmiş",
     "englishSource": "$tokenName$ History",

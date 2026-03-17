@@ -2197,6 +2197,19 @@
     "message": "Tap here to claim it",
     "englishSource": "Tap here to claim it"
   },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenHistory": {
     "message": "$tokenName$ History",
     "englishSource": "$tokenName$ History",
