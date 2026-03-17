@@ -6,6 +6,7 @@ import {
   getTransactionsInProgress,
   getAllUncompletedTransactions,
   getFailedTransactions,
+  getFailedConsumeTransactions,
   getCompletedTransactions,
   getTransactionById,
   cancelTransactionById,
@@ -133,6 +134,61 @@ describe('transactions utilities', () => {
       const result = await getFailedTransactions();
 
       expect(result[0].id).toBe('tx-2');
+    });
+  });
+
+  describe('getFailedConsumeTransactions', () => {
+    it('returns failed consume transactions for account sorted by initiatedAt', async () => {
+      const txs = [
+        {
+          id: 'tx-1',
+          status: ITransactionStatus.Failed,
+          type: 'consume',
+          accountId: 'acc-1',
+          initiatedAt: 200,
+          noteId: 'note-1'
+        },
+        {
+          id: 'tx-2',
+          status: ITransactionStatus.Failed,
+          type: 'send',
+          accountId: 'acc-1',
+          initiatedAt: 100,
+          noteId: 'note-2'
+        },
+        {
+          id: 'tx-3',
+          status: ITransactionStatus.Failed,
+          type: 'consume',
+          accountId: 'acc-2',
+          initiatedAt: 50,
+          noteId: 'note-3'
+        },
+        {
+          id: 'tx-4',
+          status: ITransactionStatus.Completed,
+          type: 'consume',
+          accountId: 'acc-1',
+          initiatedAt: 10,
+          noteId: 'note-4'
+        },
+        {
+          id: 'tx-5',
+          status: ITransactionStatus.Failed,
+          type: 'consume',
+          accountId: 'acc-1_tag',
+          initiatedAt: 150,
+          noteId: 'note-5'
+        }
+      ];
+
+      mockTransactionsFilter.mockImplementationOnce(predicate => ({
+        toArray: jest.fn().mockResolvedValueOnce(txs.filter(predicate))
+      }));
+
+      const result = await getFailedConsumeTransactions('acc-1');
+
+      expect(result.map(tx => tx.id)).toEqual(['tx-5', 'tx-1']);
     });
   });
 

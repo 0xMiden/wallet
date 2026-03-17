@@ -413,6 +413,17 @@ export const getFailedTransactions = async () => {
   return transactions;
 };
 
+export const getFailedConsumeTransactions = async (accountId: string) => {
+  let transactions = await Repo.transactions
+    .filter(
+      tx =>
+        tx.status === ITransactionStatus.Failed && tx.type === 'consume' && compareAccountIds(tx.accountId, accountId)
+    )
+    .toArray();
+  transactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
+  return transactions;
+};
+
 export const getCompletedTransactions = async (
   accountId: string,
   offset?: number,
