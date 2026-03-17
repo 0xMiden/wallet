@@ -140,6 +140,12 @@ export interface StateUpdated extends WalletMessageBase {
 export interface SerializedVaultAsset {
   faucetId: string;
   amountBaseUnits: string;
+  metadata?: {
+    decimals: number;
+    symbol: string;
+    name: string;
+    thumbnailUri?: string;
+  };
 }
 
 export interface SyncData {

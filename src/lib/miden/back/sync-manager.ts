@@ -85,12 +85,17 @@ export async function doSync(): Promise<void> {
         return { parsedNotes: notes, vaultAssets: assets };
       });
 
-      // Fetch metadata for each faucet in parallel (RPC, outside lock — no WASM needed)
+      // Fetch metadata for all faucets in parallel (RPC, outside lock — no WASM needed)
+      // Collect all unique faucet IDs from both notes and vault assets
+      const allFaucetIds = new Set([...parsedNotes.map(n => n.faucetId), ...vaultAssets.map(a => a.faucetId)]);
+
+      const metadataCache: Record<string, { decimals: number; symbol: string; name: string; thumbnailUri?: string }> =
+        {};
       await Promise.all(
-        parsedNotes.map(async note => {
+        [...allFaucetIds].map(async faucetId => {
           try {
-            const { base } = await fetchTokenMetadata(note.faucetId);
-            note.metadata = {
+            const { base } = await fetchTokenMetadata(faucetId);
+            metadataCache[faucetId] = {
               decimals: base.decimals,
               symbol: base.symbol,
               name: base.name,
@@ -101,6 +106,20 @@ export async function doSync(): Promise<void> {
           }
         })
       );
+
+      // Attach metadata to notes
+      for (const note of parsedNotes) {
+        if (metadataCache[note.faucetId]) {
+          note.metadata = metadataCache[note.faucetId];
+        }
+      }
+
+      // Attach metadata to vault assets
+      for (const asset of vaultAssets) {
+        if (metadataCache[asset.faucetId]) {
+          asset.metadata = metadataCache[asset.faucetId];
+        }
+      }
 
       // Always update seenNoteIds for background dedup consistency
       const noteIds = parsedNotes.map(n => n.id);
