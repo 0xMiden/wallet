@@ -73,22 +73,26 @@ export function useIntercomSync() {
 
   // Poll balance data from chrome.storage.local (vault assets).
   // Notes are polled separately by useExtensionClaimableNotes.
+  // Re-run when currentAccount changes so the first poll isn't wasted
+  // (on mount, currentAccount is null until initial state fetch completes).
+  const currentAccount = useWalletStore(s => s.currentAccount);
+
   useEffect(() => {
     if (!isExtension()) return;
+    if (!currentAccount) return;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const g = globalThis as any;
     if (!g.chrome?.storage?.local) return;
 
+    const accountPublicKey = currentAccount.publicKey;
     const store = useWalletStore.getState;
 
     const poll = () => {
       g.chrome.storage.local.get('miden_sync_data', (result: any) => {
         const syncData: SyncData | undefined = result?.miden_sync_data;
         if (!syncData) return;
-
-        const currentAccount = store().currentAccount;
-        if (!currentAccount || syncData.accountPublicKey !== currentAccount.publicKey) return;
+        if (syncData.accountPublicKey !== accountPublicKey) return;
 
         // Clear stale claiming IDs (sync data is authoritative)
         store().clearExtensionClaimingNoteIds();
@@ -105,7 +109,7 @@ export function useIntercomSync() {
     poll();
     const timer = setInterval(poll, 3_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [currentAccount]);
 
   return isInitialized;
 }
