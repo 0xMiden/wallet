@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.13.3
+
+### Features
+
+* [FEATURE][extension] Desktop notifications for new notes. When the popup is closed and a new note arrives, the service worker shows a Web Notification (with chrome.notifications fallback). Clicking the notification opens a fullscreen tab with instant note display from cached data. (#162)
+* [FEATURE][extension] Service worker as single backend for extension reads. The SW now broadcasts notes and vault assets via `SyncCompleted` after each sync cycle — the frontend reads from Zustand only, eliminating WASM client usage for reads. Removes ~10s WASM init delay on popup open, fixes stale notes when popup is open, and adds cross-tab claim coordination via `NoteClaimStarted`. (#163)
+
+---
+
 ## 1.13.2
 
 ### Fixes
