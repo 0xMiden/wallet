@@ -54,9 +54,7 @@ const Tokens: FC = () => {
                   subtitleRight={`${priceInfo.percentageChange24h >= 0 ? '+' : ''}${priceInfo.percentageChange24h.toFixed(2)}%`}
                   subtitleRightClassName={classNames(
                     '!opacity-100',
-                    priceInfo.percentageChange24h >= 0
-                      ? '!text-green-500'
-                      : '!text-red-500'
+                    priceInfo.percentageChange24h >= 0 ? '!text-green-500' : '!text-red-500'
                   )}
                   className="rounded-none justify-between p-0!"
                   hoverable={true}
