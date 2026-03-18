@@ -1,15 +1,28 @@
 import { Address, BasicFungibleFaucetComponent, Endpoint, RpcClient } from '@miden-sdk/miden-sdk';
 
 import { isMidenAsset } from 'lib/miden/assets';
+import { fetchFromStorage } from 'lib/miden/front/storage';
 
 import { DEFAULT_TOKEN_METADATA, getAssetUrl, MIDEN_METADATA } from './defaults';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
+
+const METADATA_STORAGE_KEY = 'tokens_base_metadata';
 
 export async function fetchTokenMetadata(
   assetId: string
 ): Promise<{ base: AssetMetadata; detailed: DetailedAssetMetdata }> {
   if (isMidenAsset(assetId)) {
     return { base: MIDEN_METADATA, detailed: MIDEN_METADATA };
+  }
+
+  // Check cache before hitting RPC
+  try {
+    const cached = await fetchFromStorage<Record<string, AssetMetadata>>(METADATA_STORAGE_KEY);
+    if (cached && cached[assetId]) {
+      return { base: cached[assetId], detailed: cached[assetId] };
+    }
+  } catch {
+    // Cache miss — proceed to RPC
   }
 
   try {

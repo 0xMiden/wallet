@@ -54,7 +54,7 @@ describe('Tokens', () => {
     expect(screen.queryAllByTestId('card-item').length).toBe(0);
   });
 
-  it('shows "Tokens" title when tokens are loaded with zero balance', () => {
+  it('renders token list when tokens are loaded with zero balance', () => {
     mockUseAllBalances.mockReturnValue({
       data: [
         {
@@ -68,10 +68,10 @@ describe('Tokens', () => {
 
     render(<Tokens />);
 
-    expect(screen.getByText('tokens')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('searchForToken')).toBeInTheDocument();
   });
 
-  it('shows "Tokens" title when tokens are loaded with positive balance', () => {
+  it('renders token list when tokens are loaded with positive balance', () => {
     mockUseAllBalances.mockReturnValue({
       data: [
         {
@@ -85,11 +85,10 @@ describe('Tokens', () => {
 
     render(<Tokens />);
 
-    expect(screen.getByText('tokens')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('searchForToken')).toBeInTheDocument();
   });
 
-  it('shows "Tokens" title when MIDEN token exists with zero balance (MIDEN is always present)', () => {
-    // MIDEN token is always added by fetchBalances, even with 0 balance
+  it('renders when MIDEN token exists with zero balance (MIDEN is always present)', () => {
     mockUseAllBalances.mockReturnValue({
       data: [
         {
@@ -103,7 +102,7 @@ describe('Tokens', () => {
 
     render(<Tokens />);
 
-    expect(screen.getByText('tokens')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('searchForToken')).toBeInTheDocument();
   });
 
   it('does not show skeleton loader - balances are displayed immediately from cache', () => {

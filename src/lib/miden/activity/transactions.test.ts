@@ -430,15 +430,16 @@ describe('transactions utilities', () => {
 
   describe('cancelStaleQueuedTransactions', () => {
     it('cancels queued transactions older than MAX_QUEUED_AGE', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
       const staleTx = {
         id: 'stale-tx',
         status: ITransactionStatus.Queued,
-        initiatedAt: Date.now() - MAX_QUEUED_AGE - 1000
+        initiatedAt: nowSec - MAX_QUEUED_AGE - 10
       };
       const freshTx = {
         id: 'fresh-tx',
         status: ITransactionStatus.Queued,
-        initiatedAt: Date.now()
+        initiatedAt: nowSec
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
@@ -458,7 +459,7 @@ describe('transactions utilities', () => {
       const freshTx = {
         id: 'fresh-tx',
         status: ITransactionStatus.Queued,
-        initiatedAt: Date.now()
+        initiatedAt: Math.floor(Date.now() / 1000)
       };
 
       mockTransactionsFilter.mockReturnValueOnce({

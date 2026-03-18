@@ -253,7 +253,9 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
 
-    // 3) Schedule background fetch for any missing metadata (non-blocking)
+    // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
+    // This doesn't "warm up" the WASM client — it fetches token metadata (symbol, decimals)
+    // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
     const missingFaucetIds = await findMissingFaucetIds(parsedNotes, metadataByFaucetId);
     if (missingFaucetIds.length > 0) {
       runWhenClientIdle(async () => {
