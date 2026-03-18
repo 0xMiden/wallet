@@ -237,9 +237,10 @@ export const Receive: React.FC<ReceiveProps> = () => {
     // Refresh the claimable notes list before queueing to avoid race conditions
     // with auto-consume (Explore page may have already started claiming some notes)
     const freshNotes = await mutateClaimableNotes();
-    const freshUnclaimedNotes = (freshNotes ?? []).filter(
-      n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
-    );
+    // On extension, mutate returns undefined (fire-and-forget sync), so fall back to unclaimedNotes
+    const freshUnclaimedNotes = freshNotes
+      ? freshNotes.filter(n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id))
+      : unclaimedNotes;
 
     if (freshUnclaimedNotes.length === 0) {
       // All notes are already being claimed (likely by auto-consume)
