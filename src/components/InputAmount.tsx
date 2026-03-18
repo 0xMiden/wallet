@@ -57,11 +57,15 @@ export const InputAmount: React.FC<InputAmountProps> = ({
   const currencyLabel = label || 'MIDEN';
 
   return (
-    <div {...props} className={classNames('flex flex-col items-center gap-y-2', className)}>
-      <div className="flex cursor-pointer" onClick={() => inputRef.current?.focus()}>
+    <div {...props} className={classNames('flex flex-col items-center gap-y-1', className)}>
+      <div className="flex cursor-pointer items-baseline" onClick={() => inputRef.current?.focus()}>
         {displayFiat ? <label className={classNames('text-left leading-none text-black', textSize)}>$</label> : null}
         <CurrencyInput
-          className={classNames('p-0 placeholder-black outline-none leading-0 font-medium', textSize, textColor)}
+          className={classNames(
+            'p-0 placeholder-black outline-none leading-0 font-medium w-full text-center',
+            textSize,
+            textColor
+          )}
           value={displayFiat ? fiatValue || value : value}
           onValueChange={onValueChange}
           placeholder="0"
@@ -74,10 +78,8 @@ export const InputAmount: React.FC<InputAmountProps> = ({
           size={value?.length || 1}
           autoFocus={autoFocus}
         />
-        {!displayFiat ? (
-          <label className={classNames('text-black text-left leading-snug shrink-0', textSize)}>{currencyLabel}</label>
-        ) : null}
       </div>
+      {!displayFiat && <label className="text-heading-gray/60 text-sm font-medium">{currencyLabel}</label>}
       {displayToggleCurrency && (
         <button className="flex items-center gap-x-1 cursor-pointer" type="button" onClick={onToggleCurrency}>
           {!displayFiat ? (

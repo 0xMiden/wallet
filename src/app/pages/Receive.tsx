@@ -401,7 +401,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
           className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100 cursor-pointer"
           aria-label="Back"
         >
-          <Icon name={IconName.ChevronLeft} size="sm" fill="currentColor" className="stroke-black" />
+          <Icon name={IconName.ChevronLeft} size="sm" fill="black" />
         </button>
         <h1 className="text-[20px] font-medium text-black">{t('receive')}</h1>
 
@@ -414,7 +414,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
             setIsQRSheetOpen(true);
           }}
         >
-          <QRIcon className="stroke-black fill-black" style={{ width: '25px', height: '25px' }} />
+          <QRIcon className="text-black" style={{ width: '22px', height: '22px' }} />
         </button>
       </div>
 
