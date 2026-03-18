@@ -2580,5 +2580,37 @@
   "type": {
     "message": "Тип",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Tx ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Створено",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Підтверджено",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Дата",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Подробиці",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Додайте note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Додаткові параметри",
+    "englishSource": "Advanced Options"
   }
 }

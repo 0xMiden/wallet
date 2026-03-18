@@ -2580,5 +2580,37 @@
   "type": {
     "message": "Тип",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Идентификатор передачи",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Созданный",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Подтвержденный",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Дата",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Добавьте note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Дополнительные параметры",
+    "englishSource": "Advanced Options"
   }
 }

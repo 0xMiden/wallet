@@ -2579,5 +2579,37 @@
   "type": {
     "message": "タイプ",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "送信ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "作成されました",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "確認済み",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "日付",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "note を追加します",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "詳細オプション",
+    "englishSource": "Advanced Options"
   }
 }

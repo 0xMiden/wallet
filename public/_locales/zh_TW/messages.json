@@ -2579,5 +2579,37 @@
   "type": {
     "message": "类型",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "发送 ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "<xid=\"0\"/>",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "已创建",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "确认的",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "日期",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "细节",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "添加 note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "高级选项",
+    "englishSource": "Advanced Options"
   }
 }

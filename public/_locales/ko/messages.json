@@ -2579,5 +2579,37 @@
   "type": {
     "message": "유형",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "전송 ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "생성됨",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "확인됨",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "날짜",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "세부",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "note 추가",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "고급 옵션",
+    "englishSource": "Advanced Options"
   }
 }

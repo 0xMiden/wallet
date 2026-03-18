@@ -2504,5 +2504,37 @@
   "type": {
     "message": "Typ",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Identyfikator wysyłania",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Stworzony",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Potwierdzony",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Data",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Bliższe dane",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Dodaj note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Opcje zaawansowane",
+    "englishSource": "Advanced Options"
   }
 }

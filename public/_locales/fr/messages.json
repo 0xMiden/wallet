@@ -2566,5 +2566,37 @@
   "type": {
     "message": "Taper",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "ID d'émission",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Créé",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Confirmé",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Date",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Détails",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Ajoutez un note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Options avancées",
+    "englishSource": "Advanced Options"
   }
 }

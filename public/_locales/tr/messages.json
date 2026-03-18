@@ -2567,5 +2567,37 @@
   "type": {
     "message": "Tip",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Gönderim kimliği",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Oluşturuldu",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Onaylandı",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Tarih",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Detaylar",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Bir note ekleyin",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Gelişmiş Seçenekler",
+    "englishSource": "Advanced Options"
   }
 }

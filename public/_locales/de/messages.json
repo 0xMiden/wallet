@@ -2579,5 +2579,37 @@
   "type": {
     "message": "Typ",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Sende-ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Erstellt",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Bestätigt",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Datum",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Einzelheiten",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Fügen Sie ein note hinzu",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Erweiterte Optionen",
+    "englishSource": "Advanced Options"
   }
 }
