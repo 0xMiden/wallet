@@ -82,8 +82,8 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
                 iconLeft={<TokenLogo symbol={token.name} />}
                 title={token.name}
                 subtitle={token.name.toUpperCase()}
-                titleRight={token.balance.toFixed(0)}
-                subtitleRight={`${fiatBalance(token).toFixed(0)} USD`}
+                titleRight={token.balance.toFixed(3)}
+                subtitleRight={`${fiatBalance(token).toFixed(2)} USD`}
                 className="border-b-[0.25px] border-[#00000033] border-dashed rounded-none px-0 py-3 justify-between"
                 hoverable={true}
                 onClick={() => onSelectToken(token)}

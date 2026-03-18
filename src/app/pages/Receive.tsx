@@ -237,9 +237,10 @@ export const Receive: React.FC<ReceiveProps> = () => {
     // Refresh the claimable notes list before queueing to avoid race conditions
     // with auto-consume (Explore page may have already started claiming some notes)
     const freshNotes = await mutateClaimableNotes();
-    const freshUnclaimedNotes = (freshNotes ?? []).filter(
-      n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
-    );
+    // On extension, mutate returns undefined (fire-and-forget sync), so fall back to unclaimedNotes
+    const freshUnclaimedNotes = freshNotes
+      ? freshNotes.filter(n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id))
+      : unclaimedNotes;
 
     if (freshUnclaimedNotes.length === 0) {
       // All notes are already being claimed (likely by auto-consume)
@@ -344,16 +345,16 @@ export const Receive: React.FC<ReceiveProps> = () => {
         <button
           type="button"
           onClick={goBack}
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100 cursor-pointer"
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 cursor-pointer"
           aria-label="Back"
         >
-          <Icon name={IconName.ChevronLeft} size="sm" fill="black" />
+          <Icon name={IconName.ChevronLeft} size="sm" fill="currentColor" className="text-black" />
         </button>
         <h1 className="text-[20px] font-medium text-black">{t('receive')}</h1>
 
         <button
           type="button"
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100 cursor-pointer"
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 cursor-pointer"
           aria-label={t('showQrCode')}
           onClick={() => {
             hapticLight();

@@ -162,7 +162,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 </div>
               ) : (
                 <span className="text-heading-gray/60 text-sm">
-                  {t('balance')}: {token.balance.toFixed(2)} {token.name}
+                  {t('balance')}: {token.balance.toFixed(3)} {token.name}
                 </span>
               )}
             </div>
