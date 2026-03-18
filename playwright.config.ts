@@ -1,20 +1,27 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './playwright/tests',
-  timeout: 30_000,
-  expect: {
-    timeout: 10_000,
-  },
-  // Browser extension tests are flaky when run in parallel due to Chrome/extension resource conflicts
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: 2,
   workers: 1,
   reporter: [['list']],
   use: {
-    headless: true,
-    trace: 'on-first-retry',
+    trace: 'on-first-retry'
   },
+  projects: [
+    {
+      name: 'default',
+      testDir: './playwright/tests',
+      timeout: 30_000,
+      use: { headless: true },
+      retries: 2
+    },
+    {
+      name: 'stress',
+      testDir: './stress-test',
+      timeout: 7_200_000, // 2 hours
+      use: { headless: false }, // extensions require headed mode
+      retries: 0
+    }
+  ]
 });
-

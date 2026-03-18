@@ -20,5 +20,5 @@
     "downlevelIteration": true,
     "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["src", "playwright/**/*.ts", "playwright.config.ts"]
+  "include": ["src", "playwright/**/*.ts", "stress-test/**/*.ts", "playwright.config.ts"]
 }
