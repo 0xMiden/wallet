@@ -50,10 +50,8 @@ export async function fetchBalances(
   // Local copy of metadata that we can add to during this fetch
   const localMetadatas = { ...tokenMetadatas };
 
-  // see if missing metadata should be fetched
-  const fetchMissingMetadata = Object.keys(localMetadatas)
-    .map(faucetId => !cachedMetadatas[faucetId])
-    .some(isMissing => isMissing);
+  // Always fetch missing metadata — the check happens per-asset inside the loop
+  const fetchMissingMetadata = true;
   // Get midenFaucetId early so we can use it inside the lock
   const midenFaucetId = await getFaucetIdSetting();
 

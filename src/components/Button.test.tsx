@@ -61,7 +61,7 @@ describe('Button', () => {
     it('applies Secondary variant styles', () => {
       render(<Button variant={ButtonVariant.Secondary} />);
 
-      expect(screen.getByRole('button')).toHaveClass('bg-grey-25');
+      expect(screen.getByRole('button')).toHaveClass('bg-[#E9E4E4]');
     });
 
     it('applies Ghost variant styles', () => {

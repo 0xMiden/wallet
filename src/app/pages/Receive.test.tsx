@@ -100,7 +100,8 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/platform', () => ({
-  isMobile: () => false
+  isMobile: () => false,
+  isExtension: () => false
 }));
 
 jest.mock('lib/settings/helpers', () => ({
