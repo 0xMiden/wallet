@@ -325,7 +325,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     individualClaimingIds
   ]);
 
-
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
   const containerClass = isMobile()
     ? 'h-full w-full'
