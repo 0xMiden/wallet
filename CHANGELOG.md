@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.14.0 (TBD)
+
+### Features
+
+* [FEATURE][all] Migrated backend from `WasmWebClient` to the new `MidenClient` TypeScript API. All service-worker WASM access now goes through `MidenClientInterface` wrapping the high-level `MidenClient` surface.
+* [FEATURE][all] Migrated frontend to `@miden-sdk/react` hooks (`useMiden`, `useSyncState`, `useAccount`, etc.), replacing manual sync and balance-polling logic.
+
+---
+
 ## 1.13.2 (TBD)
 
 ### Features
