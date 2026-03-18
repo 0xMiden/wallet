@@ -34,7 +34,7 @@ const NetworksSettings: FC = () => {
                   title={item.name}
                   className="hover:bg-grey-50 cursor-pointer"
                   iconLeft={
-                    <div className="bg-black rounded-full w-8 h-8 flex items-center justify-center p-2">
+                    <div className="bg-pure-black rounded-full w-8 h-8 flex items-center justify-center p-2">
                       <Icon name={IconName.MidenLogoWhite} />
                     </div>
                   }

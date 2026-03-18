@@ -154,8 +154,8 @@ export function decryptCiphertexts(accPublicKey: string, cipherTexts: string[]) 
 
 export function revealViewKey(accPublicKey: string, password: string) {}
 
-export function revealMnemonic(password: string) {
-  return withUnlocked(() => Vault.revealMnemonic(password));
+export function revealMnemonic(password?: string) {
+  return withInited(() => Vault.revealMnemonic(password));
 }
 
 export function revealPrivateKey(accPublicKey: string, password: string) {}

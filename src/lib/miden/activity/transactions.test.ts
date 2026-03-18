@@ -39,12 +39,15 @@ jest.mock('lib/miden/repo', () => {
   };
 });
 
+const mockGetInputNote = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue({ blockNum: () => 1 });
-const mockGetMidenClient = jest.fn().mockResolvedValue({ syncState: mockSyncState });
-
+const mockGetMidenClient = jest.fn((): any => ({
+  syncState: mockSyncState,
+  webClient: { getInputNote: mockGetInputNote }
+}));
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: (...args: any[]) => mockGetMidenClient(...args),
-  withWasmClientLock: jest.fn((callback: () => any) => callback())
+  getMidenClient: () => mockGetMidenClient(),
+  withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
 jest.mock('./notes', () => ({
@@ -212,8 +215,8 @@ describe('transactions utilities', () => {
   });
 
   describe('MAX_WAIT_BEFORE_CANCEL', () => {
-    it('is 30 minutes in milliseconds', () => {
-      expect(MAX_WAIT_BEFORE_CANCEL).toBe(30 * 60_000);
+    it('is 30 minutes in seconds', () => {
+      expect(MAX_WAIT_BEFORE_CANCEL).toBe(30 * 60);
     });
   });
 
@@ -309,7 +312,8 @@ describe('transactions utilities', () => {
         faucetId: 'faucet',
         amount: '100',
         senderAddress: 'sender',
-        isBeingClaimed: false
+        isBeingClaimed: false,
+        type: NoteTypeEnum.Private
       };
 
       const result = await initiateConsumeTransaction('account-1', note);
@@ -336,7 +340,8 @@ describe('transactions utilities', () => {
         faucetId: 'faucet',
         amount: '100',
         senderAddress: 'sender',
-        isBeingClaimed: false
+        isBeingClaimed: false,
+        type: NoteTypeEnum.Private
       };
 
       const result = await initiateConsumeTransaction('account-1', note);
@@ -348,6 +353,9 @@ describe('transactions utilities', () => {
 
   describe('initiateConsumeTransactionFromId', () => {
     it('creates consume transaction from note id', async () => {
+      mockGetInputNote.mockReturnValueOnce({
+        metadata: () => ({ noteType: () => 'public' })
+      });
       mockTransactionsFilter.mockReturnValueOnce({
         toArray: jest.fn().mockResolvedValueOnce([])
       });
@@ -362,17 +370,18 @@ describe('transactions utilities', () => {
 
   describe('cancelStuckTransactions', () => {
     it('cancels transactions that exceed MAX_WAIT_BEFORE_CANCEL', async () => {
+      const nowInSeconds = Math.floor(Date.now() / 1000);
       const stuckTx = {
         id: 'stuck-tx',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: 100,
-        processingStartedAt: Date.now() - MAX_WAIT_BEFORE_CANCEL - 1000
+        processingStartedAt: nowInSeconds - MAX_WAIT_BEFORE_CANCEL - 10 // 10 seconds past the limit
       };
       const recentTx = {
         id: 'recent-tx',
         status: ITransactionStatus.GeneratingTransaction,
         initiatedAt: 200,
-        processingStartedAt: Date.now()
+        processingStartedAt: nowInSeconds
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
@@ -421,15 +430,16 @@ describe('transactions utilities', () => {
 
   describe('cancelStaleQueuedTransactions', () => {
     it('cancels queued transactions older than MAX_QUEUED_AGE', async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
       const staleTx = {
         id: 'stale-tx',
         status: ITransactionStatus.Queued,
-        initiatedAt: Date.now() - MAX_QUEUED_AGE - 1000
+        initiatedAt: nowSec - MAX_QUEUED_AGE - 10
       };
       const freshTx = {
         id: 'fresh-tx',
         status: ITransactionStatus.Queued,
-        initiatedAt: Date.now()
+        initiatedAt: nowSec
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
@@ -449,7 +459,7 @@ describe('transactions utilities', () => {
       const freshTx = {
         id: 'fresh-tx',
         status: ITransactionStatus.Queued,
-        initiatedAt: Date.now()
+        initiatedAt: Math.floor(Date.now() / 1000)
       };
 
       mockTransactionsFilter.mockReturnValueOnce({
@@ -519,7 +529,7 @@ describe('transactions utilities', () => {
       });
 
       // Mock the WASM client for the actual transaction execution
-      mockGetMidenClient.mockResolvedValue({
+      mockGetMidenClient.mockReturnValue({
         syncState: mockSyncState,
         sendTransaction: jest.fn().mockImplementation(() => {
           callOrder.push('sendTransaction');

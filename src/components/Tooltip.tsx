@@ -19,7 +19,7 @@ const arrowClassPerPosition = {
 export const Tooltip: React.FC<TooltipProps> = ({ className, title, arrowPosition = 'bottom', ...props }) => {
   return (
     <div {...props} className={classNames('relative bg-grey-800 px-3 py-2 rounded max-w-[200px]', className)}>
-      <p className="text-white text-sm ">{title}</p>
+      <p className="text-pure-white text-sm ">{title}</p>
       <div className={classNames('absolute', arrowClassPerPosition[arrowPosition], 'h-0 w-0   ')} />
     </div>
   );

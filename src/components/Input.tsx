@@ -31,8 +31,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             'flex flex-row items-center',
             'transition duration-300 ease-in-out',
             'overflow-hidden',
-            'border border-grey-200 hover:border-grey-300 rounded-lg',
-            'has-[:focus]:outline-none has-[:focus]:border-black has-[:focus]:ring-1 has-[:focus]:ring-black'
+            'border border-grey-200 hover:border-grey-300 rounded-lg'
           )}
         >
           {prefix && (
@@ -57,7 +56,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {icon && (
             <div className={classNames('flex items-center justify-center', 'py-2 pr-2', iconClassName)}>{icon}</div>
           )}
-          {suffix && <div className="flex text-gray-400 mr-4 text-base">{suffix}</div>}
+          {suffix && <div className="flex text-gray-800 text-sm font-bold mr-4">{suffix}</div>}
         </div>
       </div>
     );

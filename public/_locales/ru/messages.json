@@ -1,4 +1,8 @@
 {
+  "advanced": {
+    "message": "Передовой",
+    "englishSource": "Advanced"
+  },
   "appName": {
     "message": "Лео - Кошелек Алео",
     "englishSource": "Miden Wallet"
@@ -8,8 +12,8 @@
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
-    "message": "Создать или восстановить учетную запись",
-    "englishSource": "Create or Restore account"
+    "message": "Зарегистрироваться",
+    "englishSource": "Create Account"
   },
   "importAccount": {
     "message": "Импорт аккаунта",
@@ -354,6 +358,10 @@
     "message": "Отправить",
     "englishSource": "Send"
   },
+  "searchByNameOrSymbol": {
+    "message": "Поиск по имени или символу",
+    "englishSource": "Search by name or symbol"
+  },
   "transactionInitiated": {
     "message": "Транзакция инициирована",
     "englishSource": "Transaction initiated"
@@ -385,6 +393,10 @@
   "generatingTransaction": {
     "message": "Создание транзакции",
     "englishSource": "Generating Transaction"
+  },
+  "generatingTransactionDescription": {
+    "message": "Это может занять некоторое время в зависимости от уровня сетевого трафика.",
+    "englishSource": "This may take a moment depending on the level network traffic"
   },
   "status": {
     "message": "Положение дел",
@@ -479,16 +491,16 @@
     "englishSource": "Reveal Seed Phrase"
   },
   "revealSeedPhraseDescription": {
-    "message": "Эта исходная фраза, также известная как «Экспортный кошелек», может понадобиться вам для доступа к вашему кошельку и учетным записям на других устройствах.",
-    "englishSource": "Also known as \"Export Wallet\", you may need this seed phrase to access your wallet and accounts on other devices."
+    "message": "Просмотрите свою фразу восстановления",
+    "englishSource": "View your recovery phrase"
   },
   "exportWalletFile": {
     "message": "Экспортировать файл кошелька",
     "englishSource": "Export Wallet File"
   },
   "dAppsDescription": {
-    "message": "В этом разделе вы можете включить возможность взаимодействия с децентрализованными приложениями, поддерживающими Miden Wallet.",
-    "englishSource": "In this section you can enable ability to interact with decentralized applications that support Miden Wallet."
+    "message": "Управление подключенными приложениями",
+    "englishSource": "Manage Connected Apps"
   },
   "removeAccount": {
     "message": "Удалить учетную запись",
@@ -503,24 +515,40 @@
     "englishSource": "Advanced Settings"
   },
   "advancedSettingsDescription": {
-    "message": "Инструменты, которые помогут вам отлаживать и диагностировать проблемы с Miden Wallet.",
-    "englishSource": "Tools to help you debug and diagnose issues with Miden Wallet."
+    "message": "Faucet Идентификатор, авторизованные децентрализованные приложения",
+    "englishSource": "Faucet ID, Authorized DApps"
   },
   "resync": {
     "message": "Повторная синхронизация",
     "englishSource": "Resync"
   },
   "about": {
-    "message": "Об этом приложении",
-    "englishSource": "About This App"
+    "message": "О",
+    "englishSource": "About"
+  },
+  "aboutMidenWallet": {
+    "message": "О кошельке Miden",
+    "englishSource": "About Miden Wallet"
+  },
+  "preferences": {
+    "message": "Предпочтения",
+    "englishSource": "Preferences"
+  },
+  "security": {
+    "message": "Безопасность",
+    "englishSource": "Security"
+  },
+  "developer": {
+    "message": "Разработчик",
+    "englishSource": "Developer"
   },
   "info": {
     "message": "Информация",
     "englishSource": "Info"
   },
   "aboutDescription": {
-    "message": "Используйте этот раздел для просмотра метаинформации о кошельке Miden.",
-    "englishSource": "Use this section to view meta info about Miden Wallet."
+    "message": "Версия и ссылки",
+    "englishSource": "Version and links"
   },
   "unlockPasswordErrorDelay": {
     "message": "Вы ввели неправильный пароль три раза. Ваш кошелек заблокирован за",
@@ -538,9 +566,37 @@
     "message": "Политика конфиденциальности",
     "englishSource": "Privacy Policy"
   },
+  "termsOfService": {
+    "message": "Условия использования",
+    "englishSource": "Terms of Service"
+  },
   "termsOfUse": {
     "message": "Условия эксплуатации",
     "englishSource": "Terms of Use"
+  },
+  "recoveryPhrase": {
+    "message": "Фраза восстановления",
+    "englishSource": "Recovery Phrase"
+  },
+  "viewThisInPrivatePlace": {
+    "message": "Посмотреть это в личном месте",
+    "englishSource": "View this in a private place"
+  },
+  "anyoneWithRecoveryPhrase": {
+    "message": "Любой, кто знает вашу фразу восстановления, может получить доступ к вашему кошельку и средствам.",
+    "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
+  },
+  "pleaseWriteDownRecoveryPhrase": {
+    "message": "Пожалуйста, запишите свою секретную фразу восстановления и сохраните ее в надежном месте.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
+  },
+  "view": {
+    "message": "Вид",
+    "englishSource": "View"
+  },
+  "hideRecoveryPhrase": {
+    "message": "Скрыть фразу восстановления",
+    "englishSource": "Hide Recovery Phrase"
   },
   "disable": {
     "message": "запрещать",
@@ -560,9 +616,8 @@
     }
   },
   "dAppsInteraction": {
-    "message": "Взаимодействие DApps",
-    "description": "DApps = Decentralized Applications",
-    "englishSource": "DApps interaction"
+    "message": "Взаимодействие с децентрализованными приложениями",
+    "englishSource": "DApps Interaction"
   },
   "none": {
     "message": "Никто",
@@ -671,6 +726,18 @@
     "message": "Пожалуйста, запишите свою секретную фразу восстановления и сохраните ее в надежном месте. Эта фраза — единственный способ восстановить аккаунт. Не делитесь этим ни с кем. Любой, кто произнесет эту фразу, может навсегда забрать ваши активы.",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account. Do not share it with anyone. Anyone with this phrase can take your assets forever."
   },
+  "seedPhraseDescription": {
+    "message": "Пожалуйста, запишите свою секретную фразу восстановления и сохраните ее в надежном месте. Эта фраза — единственный способ восстановить аккаунт.",
+    "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
+  },
+  "doNotShareWithAnyone": {
+    "message": "Не делитесь этим ни с кем.",
+    "englishSource": "Do not share it with anyone."
+  },
+  "anyoneCanTakeAssets": {
+    "message": "Любой, кто произнесет эту фразу, может навсегда забрать ваши активы.",
+    "englishSource": "Anyone with this phrase can take your assets forever."
+  },
   "continue": {
     "message": "Продолжать",
     "englishSource": "Continue"
@@ -740,6 +807,15 @@
       }
     }
   },
+  "revealSecretUnlockDescription": {
+    "message": "Разблокируйте с помощью пароля, чтобы открыть $secretName$ .",
+    "englishSource": "Unlock with your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "reveal": {
     "message": "Показывать",
     "englishSource": "Reveal"
@@ -801,8 +877,8 @@
     "englishSource": "General"
   },
   "generalSettingsDescription": {
-    "message": "Здесь вы можете управлять языковыми настройками и режимом отображения.",
-    "englishSource": "Here you can manage languages preferences and display mode."
+    "message": "Генерация доказательств, транзакции",
+    "englishSource": "Proof generation, transactions"
   },
   "language": {
     "message": "Язык",
@@ -810,7 +886,7 @@
   },
   "languageDescription": {
     "message": "Изменить язык отображения",
-    "englishSource": "Change the display language"
+    "englishSource": "Change display language"
   },
   "add": {
     "message": "Добавлять",
@@ -821,8 +897,12 @@
     "englishSource": "Assets"
   },
   "tokens": {
-    "message": "Токены",
-    "englishSource": "Tokens"
+    "message": "Исследуйте токены",
+    "englishSource": "Explore tokens"
+  },
+  "searchForToken": {
+    "message": "Поиск токена",
+    "englishSource": "Search for token"
   },
   "history": {
     "message": "История",
@@ -954,33 +1034,6 @@
     "message": "Другой",
     "englishSource": "Other"
   },
-  "thousandFormat": {
-    "message": "$thousand$k",
-    "englishSource": "$thousand$k",
-    "placeholders": {
-      "thousand": {
-        "content": "$1"
-      }
-    }
-  },
-  "millionFormat": {
-    "message": "$million$M",
-    "englishSource": "$million$M",
-    "placeholders": {
-      "million": {
-        "content": "$1"
-      }
-    }
-  },
-  "billionFormat": {
-    "message": "$billion$B",
-    "englishSource": "$billion$B",
-    "placeholders": {
-      "billion": {
-        "content": "$1"
-      }
-    }
-  },
   "uploadFile": {
     "message": "Загрузить файл",
     "englishSource": "Upload File"
@@ -999,8 +1052,8 @@
     "englishSource": "Address Book"
   },
   "addressBookDescription": {
-    "message": "Добавляйте, удаляйте и управляйте своими контактами.",
-    "englishSource": "Add, remove and manage your contacts."
+    "message": "Управляйте своими контактами здесь",
+    "englishSource": "Manage your contacts here"
   },
   "addNewContact": {
     "message": "Новый контакт",
@@ -1008,7 +1061,7 @@
   },
   "addContact": {
     "message": "Добавить контакт",
-    "englishSource": "Add contact"
+    "englishSource": "Add Contact"
   },
   "newContactPlaceholder": {
     "message": "например Алиса Боб",
@@ -1020,7 +1073,11 @@
   },
   "currentContacts": {
     "message": "Текущие контакты",
-    "englishSource": "Current contacts"
+    "englishSource": "Current Contacts"
+  },
+  "searchContacts": {
+    "message": "Поиск",
+    "englishSource": "Search"
   },
   "deleteContactConfirm": {
     "message": "Вы уверены, что хотите удалить этот контакт?",
@@ -1119,6 +1176,10 @@
     "message": "Частная",
     "englishSource": "Private"
   },
+  "external": {
+    "message": "Внешний",
+    "englishSource": "External"
+  },
   "customizeFee": {
     "message": "Настроить плату",
     "englishSource": "Customize fee"
@@ -1135,6 +1196,22 @@
     "message": "Частные транзакции в любое время, в любом месте.",
     "note": "Onboarding",
     "englishSource": "Private transactions anytime, anywhere."
+  },
+  "midenWallet": {
+    "message": "Миден кошелек",
+    "englishSource": "Miden Wallet"
+  },
+  "privateTransactions": {
+    "message": "Частные сделки.",
+    "englishSource": "Private transactions."
+  },
+  "anytime": {
+    "message": "В любое время.",
+    "englishSource": "Anytime."
+  },
+  "anywhere": {
+    "message": "Где угодно.",
+    "englishSource": "Anywhere."
   },
   "createANewWallet": {
     "message": "Создать новый кошелек",
@@ -1167,9 +1244,8 @@
     "englishSource": "Copied"
   },
   "copyToClipboard": {
-    "message": "Скопировать",
-    "note": "Onboarding",
-    "englishSource": "Copy to clipboard"
+    "message": "Копировать",
+    "englishSource": "Copy"
   },
   "createsProofsOnYourComputer": {
     "message": "Создает доказательства на вашем компьютере",
@@ -1192,8 +1268,12 @@
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Подтвердите, что вы сохранили секретную фразу восстановления. Выберите первое и последнее слова из вашей фразы.",
-    "englishSource": "Confirm you've saved your secret recovery phrase. Select the first and last words from your phrase."
+    "message": "Подтвердите, что вы сохранили фразу восстановления.",
+    "englishSource": "Confirm you've saved your recovery phrase."
+  },
+  "verifyMessageSuffix": {
+    "message": "Выберите <b>первое</b> и <b>последнее</b> слово фразы.",
+    "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "enterYourWalletSeedPhrase": {
     "message": "Введите Seed-фразу из 12 слов вашего кошелька.",
@@ -1243,9 +1323,8 @@
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
-    "message": "Установите пароль для разблокировки вашего кошелька каждый раз, когда вы используете свой компьютер. Он не может быть использован для восстановления вашего кошелька.",
-    "note": "Onboarding",
-    "englishSource": "Set a password to unlock your wallet each time you use your computer. It can't be used to recover your wallet."
+    "message": "Установите пароль, чтобы разблокировать свой кошелек",
+    "englishSource": "Set a password to unlock your wallet"
   },
   "veryStrong": {
     "message": "Очень сильный!",
@@ -1273,9 +1352,12 @@
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Сохраните эти 12 слов в менеджере паролей или запишите и храните в безопасном месте. Не делитесь с кем-либо.",
-    "note": "Onboarding",
-    "englishSource": "Save these 12 words to a password manager, or write down and store in a secure place. Do not share with anyone."
+    "message": "Сохраните эти 12 слов и храните в надежном месте.",
+    "englishSource": "Save these 12 words and store in a secure place."
+  },
+  "doNotShareWithAnywone": {
+    "message": "Не делитесь ни с кем.",
+    "englishSource": "Do not share with anyone."
   },
   "select": {
     "message": "Выбрать",
@@ -1433,16 +1515,20 @@
     "englishSource": "Encrypted Wallet File"
   },
   "encryptedWalletFileDescription": {
-    "message": "Введите свой пароль для доступа к вашему зашифрованному файлу кошелька. Отключите демонстрацию эfaucetа. Не делитесь этим ни с кем.",
-    "englishSource": "Enter your password to access your Encrypted Wallet File. Turn off screen sharing. Don't share it with anyone."
+    "message": "Введите свой пароль для доступа к вашему зашифрованному файлу кошелька.",
+    "englishSource": "Enter your password to access your Encrypted Wallet File."
+  },
+  "encryptedWalletFileDescriptionHardware": {
+    "message": "Разблокируйте с помощью пароля, чтобы получить доступ к зашифрованному файлу кошелька.",
+    "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
     "message": "Я никому не передам свой зашифрованный файл кошелька, включая Miden Wallet.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
   },
   "enterPasswordToEncrypt": {
-    "message": "Введите пароль, чтобы зашифровать файл вашего кошелька. Этот пароль понадобится вам для восстановления вашего кошелька позже.",
-    "englishSource": "Enter a password to encrypt your wallet file. You'll need this password to restore your wallet later."
+    "message": "Введите пароль, чтобы зашифровать файл вашего кошелька.",
+    "englishSource": "Enter a password to encrypt your wallet file."
   },
   "recipientAccountId": {
     "message": "Идентификатор аккаунта получателя",
@@ -1451,6 +1537,10 @@
   "yourAccounts": {
     "message": "Ваши аккаунты",
     "englishSource": "Your Accounts"
+  },
+  "contacts": {
+    "message": "Контакты",
+    "englishSource": "Contacts"
   },
   "noOtherAccounts": {
     "message": "Никаких других аккаунтов",
@@ -1485,12 +1575,32 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Auto Consume будет автоматически использовать заметки из официального сборщика Miden.",
-    "englishSource": "Auto Consume will automatically consume notes from the official Miden Faucet."
+    "message": "Автоматически использовать notes из Miden Faucet",
+    "englishSource": "Automatically consume notes from Miden Faucet"
   },
   "encryptedWalletFileExported": {
     "message": "Зашифрованный файл кошелька экспортирован",
     "englishSource": "Encrypted Wallet File Exported"
+  },
+  "encryptedWalletFileExportedTitle1": {
+    "message": "Зашифрованный файл кошелька",
+    "englishSource": "Encrypted Wallet File"
+  },
+  "encryptedWalletFileExportedTitle2": {
+    "message": "Экспортировано!",
+    "englishSource": "Exported!"
+  },
+  "encryptedWalletFileExportedDesc1": {
+    "message": "Ваш зашифрованный файл кошелька загружен.",
+    "englishSource": "Your encrypted wallet file has been downloaded."
+  },
+  "encryptedWalletFileExportedDesc2": {
+    "message": "Храните его и свой пароль в безопасности.",
+    "englishSource": "Keep it and your password safe."
+  },
+  "encryptedWalletFileExportedDesc3": {
+    "message": "Если вы их потеряете, вы рискуете потерять доступ к своему кошельку.",
+    "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "encryptedWalletFileExportedDescription": {
     "message": "Ваш зашифрованный файл кошелька загружен. Храните его и свой пароль в безопасности, поскольку их потеря означает потерю доступа к вашему кошельку.",
@@ -1863,6 +1973,46 @@
     "message": "Поделитесь транзакцией конфиденциально",
     "englishSource": "Share transaction privately"
   },
+  "privatePayment": {
+    "message": "Частный платеж",
+    "englishSource": "Private Payment"
+  },
+  "privatePaymentDescription": {
+    "message": "Храните детали транзакции в тайне",
+    "englishSource": "Keep transaction details private"
+  },
+  "useDelegateProving": {
+    "message": "Используйте делегированное доказательство",
+    "englishSource": "Use Delegate Proving"
+  },
+  "delegateProving": {
+    "message": "Делегат Доказывание",
+    "englishSource": "Delegate Proving"
+  },
+  "delegateProvingDescription": {
+    "message": "Генерация доказательств на аутсорсе",
+    "englishSource": "Outsource proof generation"
+  },
+  "oneToManyPayment": {
+    "message": "Оплата «один ко многим»",
+    "englishSource": "One to Many Payment"
+  },
+  "oneToManyPaymentDescription": {
+    "message": "Отправить нескольким получателям",
+    "englishSource": "Send to multiple recipients"
+  },
+  "recallTransaction": {
+    "message": "Отозвать транзакцию",
+    "englishSource": "Recall Transaction"
+  },
+  "sendPayment": {
+    "message": "Отправить платеж",
+    "englishSource": "Send Payment"
+  },
+  "reviewTransaction": {
+    "message": "Обзор транзакции",
+    "englishSource": "Review Transaction"
+  },
   "alreadyHaveTransactionFile": {
     "message": "У вас уже есть файл транзакции?",
     "englishSource": "Already have a transaction file?"
@@ -1884,8 +2034,8 @@
     }
   },
   "readyToClaim": {
-    "message": "$count$ notes готов подать заявку",
-    "englishSource": "$count$ notes ready to claim",
+    "message": "В ожидании notes: $count$ ",
+    "englishSource": "Pending notes: $count$",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -1920,9 +2070,17 @@
     "message": "Открытый ключ аккаунта",
     "englishSource": "Account Public Key"
   },
+  "accountPublicKeyDescription": {
+    "message": "Обязательство открытого ключа вашей учетной записи",
+    "englishSource": "Your account's public key commitment"
+  },
   "editMidenFaucetId": {
     "message": "Изменить идентификатор Faucet Miden",
     "englishSource": "Edit Miden Faucet ID"
+  },
+  "editMidenFaucetIdDescription": {
+    "message": "Измените faucet, используемый для запросов токенов.",
+    "englishSource": "Change the faucet used for token requests"
   },
   "faucetId": {
     "message": "Идентификатор Faucet",
@@ -1991,6 +2149,66 @@
   "recallBlocksDescription": {
     "message": "Если получатель не примет транзакцию в течение этого времени, средства будут возвращены вам.",
     "englishSource": "If the recipient does not accept the transaction within this time, the funds will be returned to you."
+  },
+  "recallHeight": {
+    "message": "Напомним высоту",
+    "englishSource": "Recall Height"
+  },
+  "recallHeightDescription": {
+    "message": "Если note не будет израсходован до этой даты, средства будут возвращены вам.",
+    "englishSource": "If the note is not consumed by this date, the funds will be returned to you."
+  },
+  "selectRecallDate": {
+    "message": "Выберите дату отзыва (необязательно)",
+    "englishSource": "Select recall date (optional)"
+  },
+  "privacyOptions": {
+    "message": "Параметры конфиденциальности",
+    "englishSource": "Privacy Options"
+  },
+  "privacyOptionsDescription": {
+    "message": "Настройте уровень прозрачности и тип оплаты",
+    "englishSource": "Adjust the level of transparency & type of payment"
+  },
+  "enterWalletAddress": {
+    "message": "Введите адрес кошелька...",
+    "englishSource": "Enter wallet address..."
+  },
+  "balance": {
+    "message": "Баланс",
+    "englishSource": "Balance"
+  },
+  "tomorrow": {
+    "message": "Завтра",
+    "englishSource": "Tomorrow"
+  },
+  "in3Days": {
+    "message": "Через 3 дня",
+    "englishSource": "In 3 days"
+  },
+  "inAWeek": {
+    "message": "Через неделю",
+    "englishSource": "In a week"
+  },
+  "in2Weeks": {
+    "message": "Через 2 недели",
+    "englishSource": "In 2 weeks"
+  },
+  "30mins": {
+    "message": "30 минут",
+    "englishSource": "30 mins"
+  },
+  "1hour": {
+    "message": "1 час",
+    "englishSource": "1 hour"
+  },
+  "5hours": {
+    "message": "5 часов",
+    "englishSource": "5 hours"
+  },
+  "time": {
+    "message": "Время",
+    "englishSource": "Time"
   },
   "clearText": {
     "message": "Очистить текст",
@@ -2185,6 +2403,10 @@
     "message": "Сканирование отменено",
     "englishSource": "Scan cancelled"
   },
+  "darkMode": {
+    "message": "Темный режим",
+    "englishSource": "Dark Mode"
+  },
   "hapticFeedback": {
     "message": "Тактильная обратная связь",
     "englishSource": "Haptic Feedback"
@@ -2229,5 +2451,125 @@
   "unlockWalletDescription": {
     "message": "С помощью seed phrase вы всегда можете восстановить свою общедоступную учетную запись. Выберите ниже, как быстро разблокировать свой кошелек.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
+  },
+  "sortBy": {
+    "message": "Сортировать по",
+    "englishSource": "Sort by"
+  },
+  "recent": {
+    "message": "Недавний",
+    "englishSource": "Recent"
+  },
+  "faucetRequest": {
+    "message": "Faucet Запрос",
+    "englishSource": "Faucet Request"
+  },
+  "faucetMessage": {
+    "message": "Вы можете получить токены с faucet или перевести их с другого кошелька или аккаунта.",
+    "englishSource": "You can get tokens from the faucet or transfer them from another wallet or account"
+  },
+  "accountCreationSuccess": {
+    "message": "Аккаунт успешно создан!",
+    "englishSource": "Account created successfully!"
+  },
+  "activity": {
+    "message": "Активность",
+    "englishSource": "Activity"
+  },
+  "permissions": {
+    "message": "Разрешения",
+    "englishSource": "Permissions"
+  },
+  "permissionUponRequest": {
+    "message": "По запросу",
+    "englishSource": "Upon Request"
+  },
+  "permissionAutomatic": {
+    "message": "Автоматический",
+    "englishSource": "Automatic"
+  },
+  "dAppsToggleDescription": {
+    "message": "Переключите, чтобы включить или отключить соединения DApp и сбалансировать видимость.",
+    "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
+  },
+  "seeConnected": {
+    "message": "См. подключенное",
+    "englishSource": "See connected"
+  },
+  "transferDetails": {
+    "message": "Детали трансфера",
+    "englishSource": "Transfer Details"
+  },
+  "recallBy": {
+    "message": "Отозвать по",
+    "englishSource": "Recall by"
+  },
+  "options": {
+    "message": "Параметры",
+    "englishSource": "Options"
+  },
+  "recallEnabled": {
+    "message": "Повторный вызов включен",
+    "englishSource": "Recall enabled"
+  },
+  "on": {
+    "message": "На",
+    "englishSource": "On"
+  },
+  "off": {
+    "message": "Выключенный",
+    "englishSource": "Off"
+  },
+  "enterUsername": {
+    "message": "Введите имя пользователя",
+    "englishSource": "Enter username"
+  },
+  "enterAddress": {
+    "message": "Введите адрес",
+    "englishSource": "Enter Address"
+  },
+  "failedToClaimNote": {
+    "message": "Не удалось заявить права на note",
+    "englishSource": "Failed to claim note"
+  },
+  "testnet": {
+    "message": "Тестовая сеть",
+    "englishSource": "Testnet"
+  },
+  "browser": {
+    "message": "Браузер",
+    "englishSource": "Browser"
+  },
+  "invalidAmount": {
+    "message": "Неверная сумма",
+    "englishSource": "Invalid amount"
+  },
+  "showQrCode": {
+    "message": "Показать QR-код",
+    "englishSource": "Show QR Code"
+  },
+  "tokenPrice": {
+    "message": "Цена токена",
+    "englishSource": "Token Price"
+  },
+  "tokenInfo": {
+    "message": "Информация о токене",
+    "englishSource": "Token Info"
+  },
+  "fungible": {
+    "message": "взаимозаменяемый",
+    "englishSource": "Fungible"
+  },
+  "network": {
+    "message": "Сеть",
+    "englishSource": "Network"
+  },
+  "recentActivity": {
+    "message": "Недавняя активность",
+    "englishSource": "Recent Activity"
+  },
+  "type": {
+    "message": "Тип",
+    "englishSource": "Type"
   }
 }

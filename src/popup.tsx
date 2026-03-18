@@ -10,9 +10,12 @@ import 'lib/lock-up/run-checks';
 import App from 'app/App';
 import { WindowType, openInFullPage } from 'app/env';
 import { isPopupModeEnabled } from 'lib/popup-mode';
+import { initTheme } from 'lib/settings/theme';
+
+initTheme();
 
 // Disable animations for extension
-document.documentElement.classList.add('extension-no-animations');
+// Animations enabled for extension
 
 const container = document.getElementById('root');
 const root = createRoot(container!);

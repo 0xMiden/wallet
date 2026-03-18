@@ -9,6 +9,9 @@ import App from 'app/App';
 import { WindowType } from 'app/env';
 import { getMobileIntercomAdapter } from 'lib/intercom/mobile-adapter';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
+import { initTheme } from 'lib/settings/theme';
+
+initTheme();
 
 // Show error on screen for debugging
 function showError(message: string, error?: unknown) {

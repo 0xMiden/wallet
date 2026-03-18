@@ -18,7 +18,7 @@ const classPerSize = {
   xs: 'w-4 h-4',
   sm: 'w-5 h-5',
   md: 'w-6 h-6',
-  lg: 'w-8 h-8',
+  lg: 'w-9 h-9',
   xl: 'w-12 h-12',
   xxl: 'w-16 h-16'
 };
@@ -48,7 +48,7 @@ export const Avatar: React.FC<AvatarProps> = ({
     return null;
   }, [image, identiconPublicKey, isCollectible, t]);
   return (
-    <div {...props} className={classNames('rounded-full overflow-hidden', classPerSize[size], className)}>
+    <div {...props} className={classNames('rounded-[3.21px] overflow-hidden', classPerSize[size], className)}>
       {imageComponent()}
     </div>
   );

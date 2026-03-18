@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -39,7 +39,13 @@ export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[];
   routes,
   initialRouteName
 }) => {
-  const [cardStack, setCardStack] = useState<Route[]>([]);
+  const [cardStack, setCardStack] = useState<Route[]>(() => {
+    if (initialRouteName) {
+      const initial = routes.find(r => r.name === initialRouteName);
+      if (initial) return [initial];
+    }
+    return [];
+  });
   const [navigationDirection, setNavigationDirection] = useState<AnimationDirection>('forward');
 
   const navigate = useCallback(
@@ -112,7 +118,6 @@ export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[];
 export type NavigatorProps = {
   animationDuration?: number;
   renderRoute: (route: Route, index: number) => React.ReactNode;
-  initialRouteName: string;
   animationConfig?: {
     pushInitialPosition: AnimationConfig;
     focusPosition: AnimationConfig;
@@ -171,8 +176,8 @@ const PushHiddenPosition: AnimationConfig = {
 const PushModalBackgroundPosition: AnimationConfig = {
   x: '0vw',
   y: '0vw',
-  opacity: 0.0,
-  scale: 0.95,
+  opacity: 1,
+  scale: 1,
   backgroundColor: '#ffffff'
 };
 
@@ -204,21 +209,13 @@ export const DefaultAnimationConfig = {
 
 export const Navigator: React.FC<NavigatorProps> = ({
   renderRoute,
-  initialRouteName,
   animationDuration = 0.15,
   animationConfig = DefaultAnimationConfig
 }) => {
-  const { direction, cardStack, routes, activeRoute, activeIndex, navigateTo } = useNavigator();
+  const { direction, activeRoute, activeIndex } = useNavigator();
 
   // Only animate on mobile (disable for Chrome extension)
   const effectiveDuration = isMobile() ? animationDuration : 0;
-
-  useEffect(() => {
-    // const initialRoute = routes.find(r => r.name === initialRouteName);
-    if (initialRouteName && cardStack.length === 0) {
-      navigateTo(initialRouteName);
-    }
-  }, [initialRouteName, cardStack, routes, navigateTo]);
 
   const animationVariants = useMemo(() => {
     return {
@@ -253,6 +250,7 @@ export const Navigator: React.FC<NavigatorProps> = ({
     <AnimatePresence mode="wait" initial={false}>
       {activeRoute ? (
         <motion.div
+          className="flex-1 flex flex-col min-h-0"
           key={activeRoute?.name}
           custom={{
             direction: direction,
@@ -262,7 +260,6 @@ export const Navigator: React.FC<NavigatorProps> = ({
           initial="initialPosition"
           animate="focusPosition"
           exit="exitPosition"
-          className="flex-1 flex"
           transition={{
             duration: effectiveDuration,
             when: 'beforeChildren',

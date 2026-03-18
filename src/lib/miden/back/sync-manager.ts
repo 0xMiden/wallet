@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
+import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -61,7 +62,8 @@ export async function doSync(): Promise<void> {
                 id: noteId,
                 faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
                 amountBaseUnits: firstAsset.amount().toString(),
-                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : ''
+                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
+                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
               };
             } catch {
               return null;

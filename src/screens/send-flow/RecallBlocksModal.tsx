@@ -26,12 +26,12 @@ export const RecallBlocksModal: FC<RecallBlocksModalProps> = ({
     <Modal
       id={'recall-height-modal'}
       {...restProps}
-      className={classNames('w-full bg-white px-4 py-6 md:rounded-b z-30 shadow-2xl')}
+      className={classNames('w-full bg-app-bg px-4 py-6 md:rounded-b z-30 shadow-2xl')}
       appElement={document.getElementById('root')!}
       closeTimeoutMS={isExtension() ? 0 : 200}
       overlayClassName={classNames(
         'absolute inset-0 z-30',
-        'bg-white/10 backdrop-blur-xl backdrop-saturate-150',
+        'bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150',
         'flex items-end justify-center'
       )}
       onAfterOpen={() => {

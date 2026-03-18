@@ -54,23 +54,36 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
       return { type: WalletMessageType.ExportNoteResponse, noteBytes: exportedB64 };
     }
     case WalletMessageType.GetInputNoteDetailsRequest: {
-      const { NoteFilter: NF, NoteFilterTypes: NFT, NoteId: NId } = await import('@miden-sdk/miden-sdk');
-      const noteIdObjects = req.noteIds.map((id: string) => NId.fromHex(id));
-      const details = await withWasmClientLock(async () => {
+      if (!req.noteIds.length) {
+        return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: [] };
+      }
+      const serialized: SerializedInputNoteDetail[] = await withWasmClientLock(async () => {
         const client = await getMidenClient();
-        const noteFilter = new NF(NFT.List, noteIdObjects);
-        return client.getInputNoteDetails(noteFilter);
+        const results: SerializedInputNoteDetail[] = [];
+        for (const noteId of req.noteIds) {
+          try {
+            const record = await client.webClient.getInputNote(noteId);
+            if (!record) continue;
+            const assets = record
+              .details()
+              .assets()
+              .fungibleAssets()
+              .map((a: any) => ({
+                amount: a.amount()?.toString() ?? '0',
+                faucetId: a.faucetId() ? getBech32AddressFromAccountId(a.faucetId()) : ''
+              }));
+            results.push({
+              noteId,
+              state: record.state()?.toString() ?? 'Unknown',
+              assets,
+              nullifier: record.nullifier()?.toString() ?? ''
+            });
+          } catch {
+            // Skip notes that can't be found
+          }
+        }
+        return results;
       });
-      const serialized: SerializedInputNoteDetail[] = details.map((note: any) => ({
-        noteId: note.noteId,
-        state: note.state?.toString() ?? 'Unknown',
-        senderAccountId: note.senderAccountId ? getBech32AddressFromAccountId(note.senderAccountId) : undefined,
-        assets: (note.assets || []).map((a: any) => ({
-          amount: a.amount?.toString() ?? '0',
-          faucetId: a.faucetId ? getBech32AddressFromAccountId(a.faucetId) : ''
-        })),
-        nullifier: note.nullifier?.toString() ?? ''
-      }));
       return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: serialized };
     }
     // case WalletMessageType.SendTrackEventRequest:

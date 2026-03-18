@@ -42,7 +42,7 @@ const App: FC<AppProps> = ({ env }) => {
 
             <AwaitI18N />
 
-            <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
+            <AwaitFonts name="Geist" weights={[300, 400, 500, 600]} className="antialiased font-geist">
               <BootAnimation>{env.confirmWindow ? <ConfirmPage /> : <PageRouter />}</BootAnimation>
             </AwaitFonts>
           </AppProvider>

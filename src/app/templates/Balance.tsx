@@ -5,6 +5,8 @@ import classNames from 'clsx';
 import CSSTransition from 'react-transition-group/CSSTransition';
 
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { getTokenPrice } from 'lib/prices';
+import { useWalletStore } from 'lib/store';
 
 type BalanceProps = {
   children: (b: BigNumber) => ReactElement;
@@ -14,9 +16,14 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const account = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
 
   return useMemo(() => {
-    const childNode = children(new BigNumber(allTokenBalances.reduce((sum, token) => sum + token.balance, 0)));
+    const totalFiat = allTokenBalances.reduce((sum, token) => {
+      const { price } = getTokenPrice(tokenPrices, token.metadata.symbol);
+      return sum + token.balance * price;
+    }, 0);
+    const childNode = children(new BigNumber(totalFiat));
     const exist = true;
 
     return (
@@ -34,7 +41,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
         })}
       </CSSTransition>
     );
-  }, [children, allTokenBalances]);
+  }, [children, allTokenBalances, tokenPrices]);
 });
 
 export default Balance;

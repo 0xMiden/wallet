@@ -13,6 +13,7 @@ export interface NavigationHeaderProps extends HTMLAttributes<HTMLDivElement> {
   onBack?: () => void;
   onClose?: () => void;
   showBorder?: boolean;
+  innerDivClassName?: string;
 }
 
 export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
@@ -20,22 +21,23 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   onBack,
   onClose,
   showBorder = false,
+  innerDivClassName,
   ...props
 }) => {
   return (
     <div
       className={classNames(
-        'flex flex-row px-4 items-center justify-between',
-        showBorder && 'border-b border-grey-100',
+        'flex flex-row px-4 items-center w-full bg-app-bg',
+        showBorder && 'border-b-[0.5px] border-[#00000033]',
+        'py-4',
         className
       )}
-      style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
     >
-      <div className="flex flex-row items-center gap-x-4">
-        {onBack ? <CircleButton icon={IconName.ArrowLeft} onClick={onBack} /> : null}
-        <h1 className="text-lg font-semibold">{props.title}</h1>
+      <div className={classNames('flex flex-row items-center gap-x-4 w-full text-xl text-black', innerDivClassName)}>
+        {onBack ? <CircleButton icon={IconName.ChevronLeft} onClick={onBack} className="shrink-0" size="sm" /> : null}
+        <h1 className={classNames('flex-1 font-medium text-center', onBack ? 'pr-10' : '')}>{props.title}</h1>
       </div>
-      {onClose ? <CircleButton icon={IconName.Close} onClick={onClose} /> : null}
+      {onClose ? <CircleButton icon={IconName.Close} onClick={onClose} className="fill-black text-black" /> : null}
     </div>
   );
 };

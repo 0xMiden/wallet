@@ -26,7 +26,7 @@ const ConnectBanner: FC<ConnectBannerProps> = ({ type, origin }) => {
         </div>
 
         <div className={classNames('border border-gray-100 rounded-3xl', 'flex flex-col items-center', 'p-6')}>
-          <Icon name={IconName.Globe} fill="black" size="lg" />
+          <Icon name={IconName.Globe} fill="currentColor" size="lg" />
         </div>
       </div>
       <span className="font-medium text-center text-[16px] items-center font-semibold">{origin}</span>

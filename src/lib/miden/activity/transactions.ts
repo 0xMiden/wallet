@@ -38,10 +38,10 @@ import { compareAccountIds } from './utils';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
-export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60_000 : 30 * 60_000; // 2 mins on mobile, 30 mins on desktop
+export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
-export const MAX_QUEUED_AGE = 30 * 60_000; // 30 minutes
+export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -132,12 +132,22 @@ export const initiateConsumeTransactionFromId = async (
   noteId: string,
   delegateTransaction?: boolean
 ): Promise<string> => {
+  const sdkNote = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+
+    return midenClient.webClient.getInputNote(noteId);
+  });
+  if (!sdkNote) {
+    throw new Error(`Note with id ${noteId} not found`);
+  }
+  const noteMeta = sdkNote.metadata();
   const note: ConsumableNote = {
     id: noteId,
     faucetId: '',
     amount: '',
     senderAddress: '',
-    isBeingClaimed: false
+    isBeingClaimed: false,
+    type: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
   };
 
   return await initiateConsumeTransaction(accountId, note, delegateTransaction);
@@ -232,7 +242,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     faucetId,
     amount,
     noteType: toNoteTypeString(note.metadata().noteType()),
-    completedAt: Date.now() / 1000, // Convert to seconds.
+    completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
 };
@@ -457,7 +467,7 @@ export const cancelStuckTransactions = async () => {
       // Crashed before processing started — processingStartedAt is set atomically
       // with the status change, so undefined means the app crashed mid-transition
       if (!tx.processingStartedAt) return true;
-      return Date.now() - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
+      return Math.floor(Date.now() / 1000) - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
     })
     .map(async tx => cancelTransaction(tx, 'Transaction took too long to process and was cancelled'));
 
@@ -469,7 +479,7 @@ export const cancelStuckTransactions = async () => {
  */
 export const cancelStaleQueuedTransactions = async () => {
   const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
-  const stale = queued.filter(tx => Date.now() - tx.initiatedAt > MAX_QUEUED_AGE);
+  const stale = queued.filter(tx => Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE);
   await Promise.all(stale.map(tx => cancelTransaction(tx, 'Transaction expired after being queued too long')));
 };
 
@@ -496,7 +506,7 @@ const CONSUMED_NOTE_STATES = [
 
 // Minimum time a transaction must be in GeneratingTransaction status before we consider it "stuck"
 // This prevents cancelling transactions that are actively being processed
-const MIN_PROCESSING_TIME_BEFORE_STUCK = 60_000; // 1 minute
+const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
 
 /**
  * Verify stuck transactions by checking note state from the node.
@@ -545,7 +555,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
         // Note has been consumed on-chain - mark transaction as completed
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Received',
-          completedAt: Date.now() / 1000
+          completedAt: Math.floor(Date.now() / 1000)
         });
         resolvedCount++;
       } else if (note.state === InputNoteState.Invalid) {
@@ -559,7 +569,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
       ) {
         // Note is still claimable - only cancel if tx has been processing for a while
         // This prevents cancelling transactions that are actively being processed
-        const processingTime = tx.processingStartedAt ? Date.now() - tx.processingStartedAt : 0;
+        const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
         if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
           await cancelTransaction(tx, 'Transaction was interrupted');
           resolvedCount++;
@@ -590,7 +600,7 @@ export const generateTransaction = async (
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
-    processingStartedAt: Date.now()
+    processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
 
   // Process transaction
@@ -664,7 +674,7 @@ export const generateTransaction = async (
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
   // Cancel the transaction
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
-    dbTx.completedAt = Date.now() / 1000; // Convert to seconds
+    dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
     dbTx.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     dbTx.displayMessage = 'Failed';

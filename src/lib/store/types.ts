@@ -3,6 +3,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
+import { type TokenPrices } from 'lib/prices/binance';
 import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -51,6 +52,7 @@ export interface FiatCurrencySlice {
   selectedFiatCurrency: FiatCurrencyOption | null;
   fiatRates: ExchangeRateRecord | null;
   fiatRatesLoading: boolean;
+  tokenPrices: TokenPrices;
 }
 
 /**
@@ -104,7 +106,7 @@ export interface WalletActions {
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
-  revealMnemonic: (password: string) => Promise<string>;
+  revealMnemonic: (password?: string) => Promise<string>;
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
@@ -161,6 +163,7 @@ export interface FiatCurrencyActions {
   setSelectedFiatCurrency: (currency: FiatCurrencyOption) => void;
   setFiatRates: (rates: ExchangeRateRecord | null) => void;
   fetchFiatRates: () => Promise<void>;
+  setTokenPrices: (prices: TokenPrices) => void;
 }
 
 /**

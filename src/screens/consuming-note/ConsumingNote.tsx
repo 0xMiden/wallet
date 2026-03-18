@@ -113,7 +113,7 @@ export const ConsumingNotePage: FC<ConsumingNotePageProps> = ({ noteId }) => {
         containerClass,
         'mx-auto overflow-hidden ',
         'flex flex-1',
-        'flex-col bg-white p-6',
+        'flex-col bg-app-bg p-6',
         'overflow-hidden relative'
       )}
     >

@@ -67,19 +67,21 @@ describe('fetchBalances', () => {
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
       fiatPrice: 1,
-      balance: 0
+      balance: 0,
+      change24h: 0
     });
   });
 
   it('returns balances for account with assets', async () => {
-    // Mock so bech32 conversion returns the miden faucet id
+    // Mock so bech32 conversion always returns the miden faucet id for this test
+    // (called multiple times: filter check + map in balance building)
     const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
-    getBech32AddressFromAccountId.mockReturnValueOnce('miden-faucet-id');
+    getBech32AddressFromAccountId.mockImplementation(() => 'miden-faucet-id');
 
     const mockAssets = [
       {
         faucetId: () => 'raw-miden-faucet',
-        amount: () => ({ toString: () => '100000000' }) // 1 MIDEN (8 decimals)
+        amount: () => ({ toString: () => '100000000' }) // 1 MIDEN (8 decimals per mock)
       }
     ];
 
@@ -89,11 +91,14 @@ describe('fetchBalances', () => {
       })
     });
 
-    const result = await fetchBalances('my-address', {}, { fetchMissingMetadata: false });
+    const result = await fetchBalances('my-address', {});
 
     expect(result).toHaveLength(1);
     expect(result[0].tokenSlug).toBe('MIDEN');
     expect(result[0].balance).toBe(1);
+
+    // Restore default mock
+    getBech32AddressFromAccountId.mockImplementation((id: string) => `bech32-${id}`);
   });
 
   it('includes zero MIDEN balance if not in vault', async () => {
@@ -124,7 +129,7 @@ describe('fetchBalances', () => {
     expect(result[1].balance).toBe(0);
   });
 
-  it('skips assets without metadata', async () => {
+  it('shows unknown tokens with default metadata when fetch fails', async () => {
     const mockAssets = [
       {
         faucetId: () => 'unknown-faucet',
@@ -138,11 +143,15 @@ describe('fetchBalances', () => {
       })
     });
 
-    const result = await fetchBalances('my-address', {}, { fetchMissingMetadata: false });
+    // fetchTokenMetadata will throw for unknown token — falls back to DEFAULT_TOKEN_METADATA
+    mockFetchTokenMetadata.mockRejectedValueOnce(new Error('Not found'));
 
-    // Only MIDEN default balance (unknown asset skipped)
-    expect(result).toHaveLength(1);
-    expect(result[0].tokenSlug).toBe('MIDEN');
+    const result = await fetchBalances('my-address', {});
+
+    // Unknown token shown with default metadata + MIDEN with 0 balance
+    expect(result).toHaveLength(2);
+    expect(result[0].tokenSlug).toBe('Unknown');
+    expect(result[1].tokenSlug).toBe('MIDEN');
   });
 
   it('fetches metadata inline and calls setAssetsMetadata', async () => {
@@ -314,7 +323,7 @@ describe('fetchBalances', () => {
     const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
     getBech32AddressFromAccountId.mockReturnValueOnce('miden-faucet-id');
 
-    await fetchBalances('my-address', {}, { fetchMissingMetadata: false });
+    await fetchBalances('my-address', {});
 
     // Should read from IndexedDB
     expect(mockGetAccount).toHaveBeenCalledWith('my-address');

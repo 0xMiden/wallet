@@ -20,7 +20,7 @@ const AccountBanner = memo<AccountBannerProps>(({ className, account }) => {
   return (
     <div className={classNames('flex flex-col mt-4', className)}>
       <div className={classNames('w-full', 'border border-gray-100 rounded-2xl', 'p-4', 'flex items-center')}>
-        <Icon name={IconName.Wallet} fill="black" size="sm" />
+        <Icon name={IconName.Wallet} fill="currentColor" size="sm" />
 
         <div className="flex items-center ml-3 text-sm">
           <Name className="text-gray-600 mr-3">{account!.name}</Name>

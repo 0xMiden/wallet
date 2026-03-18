@@ -3,7 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { ConsumableNoteComponent, Receive } from './Receive';
+import { Receive } from './Receive';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -12,7 +12,7 @@ jest.mock('react-i18next', () => ({
 jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
 
 jest.mock('app/env', () => ({
-  useAppEnv: () => ({ popup: false })
+  useAppEnv: () => ({ fullPage: false })
 }));
 
 jest.mock('lib/store', () => ({
@@ -27,18 +27,26 @@ jest.mock('lib/store', () => ({
   })
 }));
 
-jest.mock('app/hooks/useMidenClient', () => ({
-  useMidenClient: () => ({ midenClient: null })
-}));
-
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { ArrowRightDownFilledCircle: 'ArrowRightDownFilledCircle', Copy: 'Copy', File: 'File' }
+  IconName: { ChevronLeft: 'ChevronLeft', Coins: 'Coins', Copy: 'Copy', File: 'File' }
 }));
 
-jest.mock('app/layouts/PageLayout', () => ({ children }: { children: React.ReactNode }) => <div>{children}</div>);
+jest.mock('app/icons/eye-closed.svg', () => ({
+  ReactComponent: () => null
+}));
 
-jest.mock('app/templates/AddressChip', () => () => null);
+jest.mock('app/icons/eye-open.svg', () => ({
+  ReactComponent: () => null
+}));
+
+jest.mock('app/icons/qr-new.svg', () => ({
+  ReactComponent: () => null
+}));
+
+jest.mock('app/templates/AssetIcon', () => ({
+  AssetIcon: () => null
+}));
 
 jest.mock('components/Button', () => ({
   Button: ({ onClick, title, disabled }: { onClick: () => void; title: string; disabled?: boolean }) => (
@@ -49,16 +57,27 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 
+jest.mock('components/QRCode', () => ({
+  QRCode: () => null
+}));
+
 jest.mock('components/SyncWaveBackground', () => ({
   SyncWaveBackground: ({ isSyncing }: { isSyncing: boolean }) => (isSyncing ? <div data-testid="sync-wave" /> : null)
 }));
 
-jest.mock('lib/i18n/numbers', () => ({
-  formatBigInt: (value: bigint) => value.toString()
+jest.mock('framer-motion', () => ({
+  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  motion: {
+    div: React.forwardRef(({ children, ...props }: any, ref: any) => (
+      <div ref={ref} {...props}>
+        {children}
+      </div>
+    ))
+  }
 }));
 
-jest.mock('lib/i18n/react', () => ({
-  T: ({ id }: { id: string }) => <span>{id}</span>
+jest.mock('lib/i18n/numbers', () => ({
+  formatBigInt: (value: bigint) => value.toString()
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -72,17 +91,37 @@ jest.mock('lib/miden/front/claimable-notes', () => ({
   useClaimableNotes: () => mockUseClaimableNotes()
 }));
 
+jest.mock('lib/miden/types', () => ({
+  NoteTypeEnum: { Public: 'public', Private: 'private' }
+}));
+
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn()
+}));
+
+jest.mock('lib/platform', () => ({
+  isMobile: () => false,
+  isExtension: () => false
+}));
+
 jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => false
 }));
 
+jest.mock('lib/ui/drawer', () => ({
+  Drawer: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DrawerContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DrawerTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>
+}));
+
 jest.mock('lib/ui/useCopyToClipboard', () => ({
   __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: jest.fn() })
+  default: () => ({ fieldRef: { current: null }, copy: jest.fn(), copied: false })
 }));
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
+  goBack: jest.fn(),
   useLocation: () => ({ search: '' }),
   HistoryAction: { Replace: 'Replace' }
 }));
@@ -109,38 +148,36 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 
 const mockInitiateConsumeTransaction = jest.fn();
 const mockWaitForConsumeTx = jest.fn();
-const mockGetUncompletedTransactions = jest.fn();
 const mockGetFailedTransactions = jest.fn();
 
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
   waitForConsumeTx: (...args: any[]) => mockWaitForConsumeTx(...args),
-  getUncompletedTransactions: (...args: any[]) => mockGetUncompletedTransactions(...args),
   verifyStuckTransactionsFromNode: jest.fn().mockResolvedValue(0),
   getFailedTransactions: (...args: any[]) => mockGetFailedTransactions(...args),
   requestSWTransactionProcessing: jest.fn()
 }));
 
-describe('ConsumableNoteComponent', () => {
+// Helper: each note gets a unique faucetId so it renders as a SingleNoteRow (not grouped)
+const createMockNote = (id: string, overrides: Record<string, any> = {}) => ({
+  id,
+  faucetId: `faucet-${id}`,
+  amount: '1000000',
+  senderAddress: 'sender-address-789',
+  isBeingClaimed: false,
+  type: 'public',
+  metadata: {
+    symbol: 'TEST',
+    name: 'Test Token',
+    decimals: 6
+  },
+  ...overrides
+});
+
+describe('Receive - Single Note Claiming', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
-
-  const mockAccount = { publicKey: 'test-account-123' };
-
-  const createMockNote = (overrides = {}) => ({
-    id: 'note-123',
-    faucetId: 'faucet-456',
-    amount: '1000000',
-    senderAddress: 'sender-address-789',
-    isBeingClaimed: false,
-    metadata: {
-      symbol: 'TEST',
-      name: 'Test Token',
-      decimals: 6
-    },
-    ...overrides
-  });
 
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -153,11 +190,9 @@ describe('ConsumableNoteComponent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     currentClaimableNotes = [];
-    mockGetUncompletedTransactions.mockResolvedValue([]);
     mockGetFailedTransactions.mockResolvedValue([]);
     mockInitiateConsumeTransaction.mockResolvedValue('tx-id-123');
     mockWaitForConsumeTx.mockResolvedValue('tx-hash-456');
-    // Suppress expected console.error calls during error handling tests
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -179,42 +214,27 @@ describe('ConsumableNoteComponent', () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
-    const note = createMockNote({ isBeingClaimed: false });
+    const note = createMockNote('note-1', { isBeingClaimed: false });
+    currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
+      testRoot!.render(<Receive />);
     });
 
-    const button = testContainer.querySelector('[data-testid="claim-button"]');
-    expect(button).toBeTruthy();
-    expect(button?.textContent).toBe('claim');
+    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButton = Array.from(buttons).find(b => b.textContent === 'claim');
+    expect(claimButton).toBeTruthy();
   });
 
   it('shows spinner when note is being claimed', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
-    // Make the transaction lookup never resolve so spinner stays visible
-    mockGetUncompletedTransactions.mockReturnValue(new Promise(() => {}));
-
-    const note = createMockNote({ isBeingClaimed: true });
+    const note = createMockNote('note-1', { isBeingClaimed: true });
+    currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
+      testRoot!.render(<Receive />);
     });
 
     const spinner = testContainer.querySelector('[data-testid="sync-wave"]');
@@ -225,52 +245,18 @@ describe('ConsumableNoteComponent', () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
-    const note = createMockNote({ isBeingClaimed: false });
+    const note = createMockNote('note-1', { isBeingClaimed: false });
+    currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
+      testRoot!.render(<Receive />);
     });
 
-    const button = testContainer.querySelector('[data-testid="claim-button"]') as HTMLButtonElement;
+    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
 
     await act(async () => {
-      button.click();
-    });
-
-    expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith('test-account-123', note, false);
-    expect(mockWaitForConsumeTx).toHaveBeenCalledWith('tx-id-123', expect.any(AbortSignal));
-  });
-
-  it('shows error and Retry button when claim fails', async () => {
-    testContainer = document.createElement('div');
-    testRoot = createRoot(testContainer);
-
-    mockWaitForConsumeTx.mockRejectedValue(new Error('Transaction failed'));
-
-    const note = createMockNote({ isBeingClaimed: false });
-
-    await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
-    });
-
-    const button = testContainer.querySelector('[data-testid="claim-button"]') as HTMLButtonElement;
-
-    await act(async () => {
-      button.click();
+      claimButton.click();
     });
 
     // Wait for async operations
@@ -278,106 +264,39 @@ describe('ConsumableNoteComponent', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    const retryButton = testContainer.querySelector('[data-testid="claim-button"]');
-    expect(retryButton?.textContent).toBe('retry');
-    expect(testContainer.textContent).toContain('error:');
+    expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith('test-account-123', note, false);
+    expect(mockWaitForConsumeTx).toHaveBeenCalledWith('tx-id-123', expect.any(AbortSignal));
   });
 
-  it('resumes waiting for in-progress transaction on mount', async () => {
+  it('shows Retry button when claim fails', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
-    mockGetUncompletedTransactions.mockResolvedValue([{ id: 'existing-tx-id', type: 'consume', noteId: 'note-123' }]);
-
-    const note = createMockNote({ isBeingClaimed: true });
-
-    await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
-    });
-
-    // Wait for the resume effect to run
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-
-    expect(mockGetUncompletedTransactions).toHaveBeenCalledWith('test-account-123');
-    expect(mockWaitForConsumeTx).toHaveBeenCalledWith('existing-tx-id', expect.any(AbortSignal));
-  });
-
-  it('clears loading state if no in-progress transaction found on mount', async () => {
-    testContainer = document.createElement('div');
-    testRoot = createRoot(testContainer);
-
-    // Use a deferred promise so we can control when it resolves
-    let resolveGetTransactions: (value: any[]) => void;
-    mockGetUncompletedTransactions.mockReturnValue(
-      new Promise(resolve => {
-        resolveGetTransactions = resolve;
-      })
-    );
-
-    const note = createMockNote({ isBeingClaimed: true });
-
-    await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
-    });
-
-    // Initially shows spinner (before the async lookup completes)
-    expect(testContainer.querySelector('[data-testid="sync-wave"]')).toBeTruthy();
-
-    // Now resolve with no transactions found
-    await act(async () => {
-      resolveGetTransactions!([]);
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-
-    // Should now show button since no transaction was found
-    const button = testContainer.querySelector('[data-testid="claim-button"]');
-    expect(button).toBeTruthy();
-  });
-
-  it('shows error when resumed transaction fails', async () => {
-    testContainer = document.createElement('div');
-    testRoot = createRoot(testContainer);
-
-    mockGetUncompletedTransactions.mockResolvedValue([{ id: 'existing-tx-id', type: 'consume', noteId: 'note-123' }]);
     mockWaitForConsumeTx.mockRejectedValue(new Error('Transaction failed'));
 
-    const note = createMockNote({ isBeingClaimed: true });
+    const note = createMockNote('note-1', { isBeingClaimed: false });
+    currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
+      testRoot!.render(<Receive />);
     });
 
-    // Wait for the resume effect and error handling
+    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
+
+    await act(async () => {
+      claimButton.click();
+    });
+
+    // Wait for async operations
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    expect(testContainer.textContent).toContain('error:');
-    const retryButton = testContainer.querySelector('[data-testid="claim-button"]');
-    expect(retryButton?.textContent).toBe('retry');
+    const retryButton = Array.from(testContainer.querySelectorAll('[data-testid="claim-button"]')).find(
+      b => b.textContent === 'retry'
+    );
+    expect(retryButton).toBeTruthy();
   });
 
   it('aborts waiting on unmount', async () => {
@@ -390,23 +309,18 @@ describe('ConsumableNoteComponent', () => {
       return new Promise(() => {}); // Never resolves
     });
 
-    const note = createMockNote({ isBeingClaimed: false });
+    const note = createMockNote('note-1', { isBeingClaimed: false });
+    currentClaimableNotes = [note];
 
     await act(async () => {
-      testRoot!.render(
-        <ConsumableNoteComponent
-          note={note as any}
-          account={mockAccount as any}
-          mutateClaimableNotes={mockMutateClaimableNotes}
-          isDelegatedProvingEnabled={false}
-        />
-      );
+      testRoot!.render(<Receive />);
     });
 
-    const button = testContainer.querySelector('[data-testid="claim-button"]') as HTMLButtonElement;
+    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
 
     await act(async () => {
-      button.click();
+      claimButton.click();
     });
 
     expect(abortSignal).not.toBeNull();
@@ -427,20 +341,6 @@ describe('Receive - Claim All', () => {
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
 
-  const createMockNote = (id: string, overrides = {}) => ({
-    id,
-    faucetId: 'faucet-456',
-    amount: '1000000',
-    senderAddress: 'sender-address-789',
-    isBeingClaimed: false,
-    metadata: {
-      symbol: 'TEST',
-      name: 'Test Token',
-      decimals: 6
-    },
-    ...overrides
-  });
-
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -452,11 +352,9 @@ describe('Receive - Claim All', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     currentClaimableNotes = [];
-    mockGetUncompletedTransactions.mockResolvedValue([]);
     mockGetFailedTransactions.mockResolvedValue([]);
     mockInitiateConsumeTransaction.mockResolvedValue('tx-id-123');
     mockWaitForConsumeTx.mockResolvedValue('tx-hash-456');
-    // Suppress expected console.error calls during error handling tests
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -646,20 +544,6 @@ describe('Receive - Dynamic Note Arrivals', () => {
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
 
-  const createMockNote = (id: string, overrides = {}) => ({
-    id,
-    faucetId: 'faucet-456',
-    amount: '1000000',
-    senderAddress: 'sender-address-789',
-    isBeingClaimed: false,
-    metadata: {
-      symbol: 'TEST',
-      name: 'Test Token',
-      decimals: 6
-    },
-    ...overrides
-  });
-
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -671,7 +555,6 @@ describe('Receive - Dynamic Note Arrivals', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     currentClaimableNotes = [];
-    mockGetUncompletedTransactions.mockResolvedValue([]);
     mockGetFailedTransactions.mockResolvedValue([]);
     mockInitiateConsumeTransaction.mockResolvedValue('tx-id-123');
     mockWaitForConsumeTx.mockResolvedValue('tx-hash-456');
@@ -847,19 +730,11 @@ describe('Receive - Dynamic Note Arrivals', () => {
     ];
     currentClaimableNotes = notes;
 
-    // Mock uncompleted transactions so the resume waiting effect doesn't clear loading
-    mockGetUncompletedTransactions.mockResolvedValue([
-      { id: 'tx-1', type: 'consume', noteId: 'note-1' },
-      { id: 'tx-2', type: 'consume', noteId: 'note-2' }
-    ]);
-    // Make waitForConsumeTx hang so spinners stay visible
-    mockWaitForConsumeTx.mockReturnValue(new Promise(() => {}));
-
     await act(async () => {
       testRoot!.render(<Receive />);
     });
 
-    // Wait for resume waiting effects to run
+    // Wait for effects to run
     await act(async () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
@@ -997,20 +872,6 @@ describe('Receive - Claiming State Reporting', () => {
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
 
-  const createMockNote = (id: string, overrides = {}) => ({
-    id,
-    faucetId: 'faucet-456',
-    amount: '1000000',
-    senderAddress: 'sender-address-789',
-    isBeingClaimed: false,
-    metadata: {
-      symbol: 'TEST',
-      name: 'Test Token',
-      decimals: 6
-    },
-    ...overrides
-  });
-
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -1022,7 +883,6 @@ describe('Receive - Claiming State Reporting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     currentClaimableNotes = [];
-    mockGetUncompletedTransactions.mockResolvedValue([]);
     mockGetFailedTransactions.mockResolvedValue([]);
     mockInitiateConsumeTransaction.mockResolvedValue('tx-id-123');
     mockWaitForConsumeTx.mockResolvedValue('tx-hash-456');
@@ -1122,42 +982,6 @@ describe('Receive - Claiming State Reporting', () => {
     // After claim completes, if note is still there (mock didn't remove it),
     // Claim button should reappear (claim finished successfully)
     // In real scenario, mutateClaimableNotes would remove the claimed note
-  });
-
-  it('syncs isLoading state when note.isBeingClaimed changes', async () => {
-    testContainer = document.createElement('div');
-    testRoot = createRoot(testContainer);
-
-    // Start with unclaimed note
-    const initialNotes = [createMockNote('note-1', { isBeingClaimed: false })];
-    currentClaimableNotes = initialNotes;
-
-    await act(async () => {
-      testRoot!.render(<Receive />);
-    });
-
-    // Should show Claim button initially
-    let buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    expect(Array.from(buttons).find(b => b.textContent === 'claim')).toBeTruthy();
-
-    // Simulate SWR update where note is now being claimed (popup was reopened)
-    // Also mock the uncompleted transactions to include this note
-    const updatedNotes = [createMockNote('note-1', { isBeingClaimed: true })];
-    currentClaimableNotes = updatedNotes;
-    mockGetUncompletedTransactions.mockResolvedValue([{ id: 'tx-1', type: 'consume', noteId: 'note-1' }]);
-    mockWaitForConsumeTx.mockReturnValue(new Promise(() => {})); // Hang to keep spinner visible
-
-    await act(async () => {
-      testRoot!.render(<Receive />);
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-
-    // Should now show spinner
-    expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(1);
-
-    // Claim All should be hidden
-    buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    expect(Array.from(buttons).find(b => b.textContent === 'claimAll')).toBeFalsy();
   });
 
   it('handles claim error and allows retry', async () => {
@@ -1322,20 +1146,6 @@ describe('Receive - Edge Cases', () => {
   let testContainer: HTMLDivElement | null = null;
   let consoleErrorSpy: jest.SpyInstance;
 
-  const createMockNote = (id: string, overrides = {}) => ({
-    id,
-    faucetId: 'faucet-456',
-    amount: '1000000',
-    senderAddress: 'sender-address-789',
-    isBeingClaimed: false,
-    metadata: {
-      symbol: 'TEST',
-      name: 'Test Token',
-      decimals: 6
-    },
-    ...overrides
-  });
-
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -1347,7 +1157,6 @@ describe('Receive - Edge Cases', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     currentClaimableNotes = [];
-    mockGetUncompletedTransactions.mockResolvedValue([]);
     mockGetFailedTransactions.mockResolvedValue([]);
     mockInitiateConsumeTransaction.mockResolvedValue('tx-id-123');
     mockWaitForConsumeTx.mockResolvedValue('tx-hash-456');
@@ -1379,8 +1188,10 @@ describe('Receive - Edge Cases', () => {
     });
 
     // No Claim buttons or spinners should be present
-    expect(testContainer.querySelectorAll('[data-testid="claim-button"]').length).toBe(1); // Only upload button
+    expect(testContainer.querySelectorAll('[data-testid="claim-button"]').length).toBe(0);
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(0);
+    // Should show empty state message
+    expect(testContainer.textContent).toContain('noNotesToClaim');
   });
 
   it('handles undefined claimable notes', async () => {
@@ -1437,7 +1248,7 @@ describe('Receive - Edge Cases', () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
-    // Create 20 notes
+    // Create 20 notes with unique faucetIds
     const notes = Array.from({ length: 20 }, (_, i) => createMockNote(`note-${i + 1}`));
     currentClaimableNotes = notes;
 
@@ -1445,7 +1256,7 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Should render all notes
+    // Should render all notes as SingleNoteRows (each has unique faucetId)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     expect(claimButtons.length).toBe(20);
@@ -1567,5 +1378,30 @@ describe('Receive - Edge Cases', () => {
       testRoot!.unmount();
       testRoot = null;
     });
+  });
+
+  it('groups notes with the same faucetId into a collapsible group', async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+
+    // Two notes with the same faucetId should be grouped
+    const notes = [
+      createMockNote('note-1', { faucetId: 'shared-faucet' }),
+      createMockNote('note-2', { faucetId: 'shared-faucet' })
+    ];
+    currentClaimableNotes = notes;
+
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+
+    // Grouped notes are collapsed by default, so individual claim buttons are hidden
+    // Only the Claim All button should be visible at the bottom
+    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
+    expect(claimButtons.length).toBe(0); // No individual claim buttons when collapsed
+
+    const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
+    expect(claimAllButton).toBeTruthy();
   });
 });

@@ -313,7 +313,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         <FormSubmitButton
           disabled={isDisabled}
           loading={isSubmitting}
-          className="w-full justify-center"
+          className="w-full justify-center rounded-[10px]"
           style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
         >
           {t('unlock')}
