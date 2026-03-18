@@ -22,7 +22,7 @@ export interface AlertProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'
 const propsPerVariant = {
   [AlertVariant.Info]: {
     icon: IconName.InformationFill,
-    color: colors.blue[500],
+    color: 'var(--color-primary)',
     backgroundColor: 'bg-primary-50'
   },
   [AlertVariant.Warning]: {
@@ -32,7 +32,7 @@ const propsPerVariant = {
   },
   [AlertVariant.Error]: {
     icon: IconName.CloseCircleFill,
-    color: colors.red[500],
+    color: colors.yellow[500],
     backgroundColor: 'bg-red-50'
   },
   [AlertVariant.Success]: {

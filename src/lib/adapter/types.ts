@@ -1,4 +1,3 @@
-import type { NoteFilterTypes } from '@miden-sdk/miden-sdk';
 import {
   AllowedPrivateData,
   Asset,
@@ -10,6 +9,7 @@ import {
   SignKind,
   WalletAdapterNetwork
 } from '@demox-labs/miden-wallet-adapter-base';
+import type { NoteFilterTypes } from '@miden-sdk/miden-sdk';
 
 import { TransactionOutput } from 'lib/miden/db/types';
 

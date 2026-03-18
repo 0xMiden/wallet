@@ -35,7 +35,9 @@ export const ChangelogOverlay: FC = () => {
 
   return lastShownVersion !== currentVersion ? (
     <>
-      <div className={'fixed inset-0 bg-white/10 backdrop-blur-xl backdrop-saturate-150 z-50'}></div>
+      <div
+        className={'fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 z-50'}
+      ></div>
       <ContentContainer className={classNames('fixed z-50', 'max-h-full', popupClassName)} padding={!popup}>
         <div
           className={classNames(
@@ -51,12 +53,12 @@ export const ChangelogOverlay: FC = () => {
           }}
         >
           <div className={classNames('flex flex-col max-w-sm mx-auto w-full')}>
-            <p className="text-xl font-inter font-semibold" style={{ fontSize: 23, color: '#9f7aea' }}>
+            <p className="text-xl font-geist font-semibold" style={{ fontSize: 23, color: '#9f7aea' }}>
               {t('changelogTitle')}
             </p>
             {filteredChangelog.map(({ version, data }) => (
               <React.Fragment key={version}>
-                <p className="mb-5 mt-8 font-inter" style={{ fontSize: 16 }}>
+                <p className="mb-5 mt-8 font-geist" style={{ fontSize: 16 }}>
                   {t('update')} {version}
                 </p>
                 <ul>
@@ -80,7 +82,7 @@ export const ChangelogOverlay: FC = () => {
               <Button
                 className={classNames(
                   'py-2',
-                  'text-white font-inter rounded font-semibold uppercase',
+                  'text-pure-white font-geist rounded font-semibold uppercase',
                   'mx-auto',
                   s.overlay_ok_button
                 )}

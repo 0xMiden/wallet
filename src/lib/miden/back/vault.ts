@@ -91,36 +91,35 @@ export class Vault {
    * @returns Vault instance if successful, null if hardware unlock not available/failed
    */
   static async tryHardwareUnlock(): Promise<Vault | null> {
-    if (!isDesktop() && !isMobile()) {
+    try {
+      const vaultKey = await Vault.getHardwareVaultKey();
+      return new Vault(vaultKey);
+    } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get the vault key using hardware-backed security (biometric).
+   * Throws if hardware unlock is not available or fails.
+   */
+  private static async getHardwareVaultKey(): Promise<CryptoKey> {
+    if (!isDesktop() && !isMobile()) {
+      throw new PublicError('Hardware unlock is not available on this platform');
     }
 
     const encryptedVaultKey = await getPlain<string>(VAULT_KEY_HARDWARE_STORAGE_KEY);
     if (!encryptedVaultKey) {
-      return null;
+      throw new PublicError('Hardware protector is not configured');
     }
 
-    try {
-      if (isDesktop()) {
-        const { decryptWithHardwareKey } = await import('lib/desktop/secure-storage');
-        const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey);
-        const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
-        const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
-        return new Vault(vaultKey);
-      }
+    const decryptWithHardwareKey = isDesktop()
+      ? (await import('lib/desktop/secure-storage')).decryptWithHardwareKey
+      : (await import('lib/biometric')).decryptWithHardwareKey;
 
-      if (isMobile()) {
-        const { decryptWithHardwareKey } = await import('lib/biometric');
-        const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey);
-        const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
-        const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
-        return new Vault(vaultKey);
-      }
-
-      return null;
-    } catch (error) {
-      return null;
-    }
+    const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey);
+    const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
+    return Passworder.importVaultKey(vaultKeyBytes);
   }
 
   /**
@@ -517,8 +516,15 @@ export class Vault {
 
   async revealViewKey(accPublicKey: string) {}
 
-  static async revealMnemonic(password: string) {
-    const vaultKey = await Vault.unlockWithPassword(password);
+  static async revealMnemonic(password?: string) {
+    let vaultKey: CryptoKey;
+
+    if (password) {
+      vaultKey = await Vault.unlockWithPassword(password);
+    } else {
+      vaultKey = await Vault.getHardwareVaultKey();
+    }
+
     return withError('Failed to reveal seed phrase', async () => {
       const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
       const mnemonicPattern = /^(\b\w+\b\s?){12}$/;

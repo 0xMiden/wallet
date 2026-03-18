@@ -3,9 +3,13 @@ import { Runtime } from 'webextension-polyfill';
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
 import { store, toFront } from 'lib/miden/back/store';
-import { doSync, getConsumableNotesFromWarmClient } from 'lib/miden/back/sync-manager';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { doSync } from 'lib/miden/back/sync-manager';
+import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
+import { NoteExportType } from '../sdk/constants';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
 const frontStore = store.map(toFront);
@@ -24,9 +28,63 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
     case WalletMessageType.SyncRequest:
       doSync().catch(err => console.warn('[SyncManager] Error:', err));
       return { type: WalletMessageType.SyncResponse };
-    case WalletMessageType.GetConsumableNotesRequest: {
-      const notes = await getConsumableNotesFromWarmClient(req.accountPublicKey);
-      return { type: WalletMessageType.GetConsumableNotesResponse, notes };
+    case WalletMessageType.NoteClaimStarted:
+      intercom.broadcast({ type: WalletMessageType.NoteClaimStarted, noteId: req.noteId });
+      return { type: WalletMessageType.NoteClaimStartedResponse };
+    case WalletMessageType.ProcessTransactionsRequest:
+      // Fire-and-forget — start processing asynchronously
+      startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
+      return { type: WalletMessageType.ProcessTransactionsResponse };
+    case WalletMessageType.ImportNoteBytesRequest: {
+      const noteBytes = new Uint8Array(Buffer.from(req.noteBytes, 'base64'));
+      const noteId = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        const id = await client.importNoteBytes(noteBytes);
+        await client.syncState();
+        return id.toString();
+      });
+      return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
+    }
+    case WalletMessageType.ExportNoteRequest: {
+      const exportedBytes = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        return client.exportNote(req.noteId, NoteExportType.DETAILS);
+      });
+      const exportedB64 = Buffer.from(exportedBytes).toString('base64');
+      return { type: WalletMessageType.ExportNoteResponse, noteBytes: exportedB64 };
+    }
+    case WalletMessageType.GetInputNoteDetailsRequest: {
+      if (!req.noteIds.length) {
+        return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: [] };
+      }
+      const serialized: SerializedInputNoteDetail[] = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        const results: SerializedInputNoteDetail[] = [];
+        for (const noteId of req.noteIds) {
+          try {
+            const record = await client.webClient.getInputNote(noteId);
+            if (!record) continue;
+            const assets = record
+              .details()
+              .assets()
+              .fungibleAssets()
+              .map((a: any) => ({
+                amount: a.amount()?.toString() ?? '0',
+                faucetId: a.faucetId() ? getBech32AddressFromAccountId(a.faucetId()) : ''
+              }));
+            results.push({
+              noteId,
+              state: record.state()?.toString() ?? 'Unknown',
+              assets,
+              nullifier: record.nullifier()?.toString() ?? ''
+            });
+          } catch {
+            // Skip notes that can't be found
+          }
+        }
+        return results;
+      });
+      return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: serialized };
     }
     // case WalletMessageType.SendTrackEventRequest:
     //   await Analytics.trackEvent(req);

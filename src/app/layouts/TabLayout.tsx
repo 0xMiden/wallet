@@ -6,7 +6,7 @@ import { useAppEnv } from 'app/env';
 import { useHistoryBadge } from 'app/hooks/useHistoryBadge';
 import Footer from 'app/layouts/PageLayout/Footer';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isDesktop, isMobile } from 'lib/platform';
+import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { useLocation } from 'lib/woozie';
 
@@ -20,12 +20,14 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { pathname } = useLocation();
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Animate content on route change
+  // Animate content on route change (mobile only, not extension)
   // Remove class after animation completes to prevent replay on display toggle
   // (resetViewportAfterWebview toggles display:none which restarts CSS animations)
   useEffect(() => {
     if (!contentRef.current) return;
     if (isMobile() && isReturningFromWebview()) return;
+    // Skip animation on extension
+    if (isExtension()) return;
 
     const el = contentRef.current;
     el.classList.remove('mobile-page-enter');
@@ -57,19 +59,20 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         : { height: '600px', width: '360px' };
 
   return (
-    <div className={classNames('flex flex-col m-auto bg-white', fullPage && 'rounded-3xl')} style={containerStyles}>
-      {/* Animated content area */}
-      <div
-        ref={contentRef}
-        className="flex-1 flex flex-col min-h-0 overflow-hidden"
-        style={{ willChange: 'transform, opacity' }}
-      >
+    <div
+      className={classNames('relative m-auto bg-app-bg overflow-hidden', fullPage && 'rounded-3xl')}
+      style={containerStyles}
+    >
+      {/* Content area — fills entire container, scrolls behind footer */}
+      <div ref={contentRef} className="absolute inset-0 flex flex-col" style={{ willChange: 'transform, opacity' }}>
         {children}
       </div>
 
-      {/* Persistent footer */}
-      <div className="flex-none">
-        <Footer historyBadge={historyBadge} />
+      {/* Floating footer with blur — overlays content */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
+        <div className="pointer-events-auto">
+          <Footer historyBadge={historyBadge} />
+        </div>
       </div>
     </div>
   );

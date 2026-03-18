@@ -51,7 +51,7 @@ const Money = memo<MoneyProps>(
     const tippyClassName = classNames(
       'truncate',
       'px-px -mr-px rounded cursor-pointer',
-      tooltip && 'hover:bg-black hover:bg-opacity-5',
+      tooltip && 'hover:bg-grey-100/5',
       'transition ease-in-out duration-200'
     );
 

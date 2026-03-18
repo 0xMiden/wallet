@@ -8,7 +8,6 @@ import { lettersNumbersMixtureRegx, specialCharacterRegx, uppercaseLowercaseMixt
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
-import { NavigationHeader } from 'components/NavigationHeader';
 import { PasswordStrengthIndicator, PasswordValidation } from 'screens/onboarding/common/CreatePassword';
 
 export interface ExportFilePasswordProps {
@@ -95,9 +94,8 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
   const EXTENSION = '.json';
 
   return (
-    <div className="flex-1 flex flex-col">
-      <NavigationHeader title={t('encryptedWalletFile')} onBack={onGoBack} mode="back" />
-      <div className="flex flex-col flex-1 justify-stretch p-4 gap-y-4 md:w-[460px] md:mx-auto">
+    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-app-bg">
+      <div className="flex flex-col justify-stretch px-4 pt-6 overflow-y-auto">
         <Input
           placeholder={DEFAULT_FILE_NAME}
           value={fileName}
@@ -107,11 +105,16 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           onKeyDown={handleNameInputTab}
           tabIndex={0}
           autoFocus
+          labelClassName="text-base font-medium leading-[20px]"
+          inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
+          containerClassName="gap-2"
         />
 
-        <div className="w-full items-center flex flex-col gap-y-4 flex-1">
-          <p className="text-sm text-left font-normal mt-2">{t('enterPasswordToEncrypt')}</p>
-          <div className="w-full flex flex-col gap-y-2">
+        <div className="w-full items-center flex flex-col gap-y-4 flex-1 pt-4">
+          <p className="text-sm leading-[130%] text-center bg-gray-25 rounded-10 px-8 py-2">
+            {t('enterPasswordToEncrypt')}
+          </p>
+          <div className="w-full flex flex-col gap-y-4">
             <Input
               ref={passwordRef}
               type={isPasswordVisible ? 'text' : 'password'}
@@ -120,12 +123,15 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
               placeholder={t('enterPassword')}
               icon={
                 <button className="flex-1" onClick={onPasswordVisibilityToggle}>
-                  <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="black" />
+                  <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
                 </button>
               }
               onChange={handlePasswordChange}
               onKeyDown={handlePasswordInputTab}
               tabIndex={1}
+              labelClassName="text-base font-medium leading-[20px]"
+              containerClassName="gap-2"
+              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
             />
             <PasswordStrengthIndicator password={passwordValue} validation={passwordValidation} />
           </div>
@@ -138,12 +144,15 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
               placeholder={t('enterPasswordAgain')}
               icon={
                 <button className="flex-1" onClick={onVerifyPasswordVisibilityToggle}>
-                  <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="black" />
+                  <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
                 </button>
               }
               onChange={e => setVerifyPassword(e.target.value)}
               onKeyDown={handleEnterKey}
               tabIndex={2}
+              labelClassName="text-base font-medium leading-[20px]"
+              containerClassName="gap-2"
+              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
             />
             <p
               className={classNames(
@@ -164,7 +173,13 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           </div>
         </div>
 
-        <Button variant={ButtonVariant.Primary} onClick={onGoNext} title={t('continue')} />
+        <Button
+          variant={ButtonVariant.Primary}
+          onClick={onGoNext}
+          title={t('continue')}
+          className="mt-8"
+          disabled={!passwordValue || !verifyPassword || !fileName}
+        />
       </div>
     </div>
   );

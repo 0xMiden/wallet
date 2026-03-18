@@ -1,13 +1,11 @@
-import React, { HTMLAttributes, useCallback, useMemo } from 'react';
+import React, { HTMLAttributes, useCallback, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
-import { formatValue } from 'react-currency-input-field';
 import { useTranslation } from 'react-i18next';
 
-import { AssetIcon } from 'app/templates/AssetIcon';
-import { Button, ButtonVariant } from 'components/Button';
 import { CardItem } from 'components/CardItem';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { TokenLogo } from 'components/TokenLogo';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 
 import { SendFlowAction, SendFlowActionId, SendFlowStep, UIToken } from './types';
@@ -21,6 +19,8 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const [searchQuery, setSearchQuery] = useState('');
+
   const tokens = useMemo(() => {
     return (
       balanceData?.map(token => ({
@@ -32,6 +32,13 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
       })) || []
     );
   }, [balanceData]);
+
+  const filteredTokens = useMemo(() => {
+    if (!searchQuery.trim()) return tokens;
+    const query = searchQuery.toLowerCase();
+    return tokens.filter(token => token.name.toLowerCase().includes(query));
+  }, [tokens, searchQuery]);
+
   const onCancel = useCallback(() => {
     onAction?.({
       id: SendFlowActionId.Finish
@@ -48,7 +55,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
       });
       onAction?.({
         id: SendFlowActionId.Navigate,
-        step: SendFlowStep.SelectRecipient
+        step: SendFlowStep.SendDetails
       });
     },
     [onAction]
@@ -57,32 +64,35 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
   const fiatBalance = (token: UIToken): number => token.balance * token.fiatPrice;
 
   return (
-    <div {...props} className={classNames('flex-1 flex flex-col ', className)}>
-      <NavigationHeader mode="close" title={t('chooseToken')} onClose={onCancel} showBorder />
-      <div className="flex flex-col flex-1 p-4 justify-between md:w-[460px] md:mx-auto">
-        <div className="flex-1">
-          {tokens?.map(token => (
-            <CardItem
-              key={token.id}
-              title={token.name.toUpperCase()}
-              titleRight={formatValue({
-                value: token.balance.toString()
-              })}
-              subtitleRight={['≈ ', '$', fiatBalance(token)].join('')}
-              iconLeft={
-                <AssetIcon
-                  assetSlug={token.name.toLowerCase()}
-                  assetId={token.id}
-                  size={24}
-                  className="mr-2 flex-shrink-0 rounded bg-white"
-                />
-              }
-              onClick={() => onSelectToken(token)}
-              hoverable
-            />
-          ))}
+    <div {...props} className={classNames('flex-1 flex flex-col bg-app-bg', className)}>
+      <NavigationHeader mode="back" title={t('send')} onBack={onCancel} showBorder />
+      <div className="flex flex-col flex-1 px-4 pt-4">
+        <input
+          type="text"
+          placeholder={t('searchByNameOrSymbol')}
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="w-full bg-gray-25 rounded-xl py-4 px-4 text-center text-base placeholder-[#484848A3] outline-none"
+        />
+        <div className="flex flex-col py-4">
+          {filteredTokens.map(token => {
+            return (
+              <CardItem
+                key={token.id}
+                iconLeft={<TokenLogo symbol={token.name} />}
+                title={token.name}
+                subtitle={token.name.toUpperCase()}
+                titleRight={token.balance.toFixed(0)}
+                subtitleRight={`${fiatBalance(token).toFixed(0)} USD`}
+                className="border-b-[0.25px] border-[#00000033] border-dashed rounded-none px-0 py-3 justify-between"
+                hoverable={true}
+                onClick={() => onSelectToken(token)}
+                titleClassName="!font-medium text-lg"
+                subtitleClassName="!font-normal text-[#484848A3] text-xs"
+              />
+            );
+          })}
         </div>
-        <Button title={t('cancel')} variant={ButtonVariant.Secondary} onClick={onCancel} />
       </div>
     </div>
   );

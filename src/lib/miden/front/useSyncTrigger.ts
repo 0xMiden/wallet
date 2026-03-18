@@ -8,11 +8,9 @@ const SYNC_INTERVAL_MS = 3_000;
 
 /**
  * On extension only: sends SyncRequest to the service worker every 3s.
- * Replaces AutoSync's setInterval for the extension platform.
- * The service worker runs doSync() asynchronously and returns SyncResponse immediately.
  *
- * Note: the frontend WASM client warmup sync is done inside useClaimableNotes'
- * fetcher (not here) to guarantee it completes before the first getConsumableNotes() call.
+ * The service worker runs syncState() on its warm WASM client and broadcasts
+ * SyncCompleted with notes + balances data. The frontend reads from Zustand only.
  */
 export function useSyncTrigger() {
   const status = useWalletStore(s => s.status);
@@ -24,12 +22,10 @@ export function useSyncTrigger() {
     const intercom = getIntercom();
 
     const timer = setInterval(() => {
-      intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {
-        // Service worker may be restarting — next tick will retry
-      });
+      intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
     }, SYNC_INTERVAL_MS);
 
-    // Fire one immediately
+    // Fire immediately
     intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
 
     return () => clearInterval(timer);

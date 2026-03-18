@@ -17,7 +17,8 @@ export function useFilteredContacts() {
       accounts.map(acc => ({
         address: acc.publicKey,
         name: acc.name,
-        accountInWallet: true
+        accountInWallet: true,
+        isPublic: acc.isPublic
       })),
     [accounts]
   );

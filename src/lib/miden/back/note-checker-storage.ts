@@ -1,7 +1,4 @@
-import { SerializedConsumableNote } from 'lib/shared/types';
-
 const STORAGE_KEY = 'miden_seen_note_ids';
-const NOTES_CACHE_KEY = 'miden_cached_consumable_notes';
 
 async function getBrowserStorage() {
   const browser = await import('webextension-polyfill');
@@ -41,22 +38,4 @@ export async function mergeAndPersistSeenNoteIds(currentIds: string[]): Promise<
 export async function clearPersistedSeenNoteIds(): Promise<void> {
   const storage = await getBrowserStorage();
   await storage.remove(STORAGE_KEY);
-}
-
-// ---- Consumable notes cache (for instant display on notification click) ----
-
-export async function cacheConsumableNotes(notes: SerializedConsumableNote[]): Promise<void> {
-  const storage = await getBrowserStorage();
-  await storage.set({ [NOTES_CACHE_KEY]: notes });
-}
-
-export async function getCachedConsumableNotes(): Promise<SerializedConsumableNote[]> {
-  const storage = await getBrowserStorage();
-  const result = await storage.get(NOTES_CACHE_KEY);
-  return (result[NOTES_CACHE_KEY] as SerializedConsumableNote[] | undefined) ?? [];
-}
-
-export async function clearCachedConsumableNotes(): Promise<void> {
-  const storage = await getBrowserStorage();
-  await storage.remove(NOTES_CACHE_KEY);
 }

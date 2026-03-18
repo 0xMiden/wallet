@@ -98,12 +98,22 @@ export enum WalletMessageType {
   SyncCompleted = 'SYNC_COMPLETED',
   SyncRequest = 'SYNC_REQUEST',
   SyncResponse = 'SYNC_RESPONSE',
-  // Consumable notes (frontend reads from service worker's warm WASM client)
-  GetConsumableNotesRequest = 'GET_CONSUMABLE_NOTES_REQUEST',
-  GetConsumableNotesResponse = 'GET_CONSUMABLE_NOTES_RESPONSE'
+  // Cross-tab claim coordination
+  NoteClaimStarted = 'NOTE_CLAIM_STARTED',
+  NoteClaimStartedResponse = 'NOTE_CLAIM_STARTED_RESPONSE',
+  // Transaction processing (popup → SW)
+  ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
+  ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // Note operations (popup → SW)
+  ImportNoteBytesRequest = 'IMPORT_NOTE_BYTES_REQUEST',
+  ImportNoteBytesResponse = 'IMPORT_NOTE_BYTES_RESPONSE',
+  ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
+  ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
+  GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
 }
 
-export type WalletNotification = StateUpdated | SyncCompleted;
+export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
 
 export interface WalletMessageBase {
   type: WalletMessageType | MidenMessageType;
@@ -127,6 +137,23 @@ export interface StateUpdated extends WalletMessageBase {
   type: WalletMessageType.StateUpdated;
 }
 
+export interface SerializedVaultAsset {
+  faucetId: string;
+  amountBaseUnits: string;
+  metadata?: {
+    decimals: number;
+    symbol: string;
+    name: string;
+    thumbnailUri?: string;
+  };
+}
+
+export interface SyncData {
+  notes: SerializedConsumableNote[];
+  vaultAssets: SerializedVaultAsset[];
+  accountPublicKey: string;
+}
+
 export interface SyncCompleted extends WalletMessageBase {
   type: WalletMessageType.SyncCompleted;
 }
@@ -144,6 +171,7 @@ export interface SerializedConsumableNote {
   faucetId: string;
   amountBaseUnits: string;
   senderAddress: string;
+  noteType?: string; // 'public' | 'private' | 'unknown'
   metadata?: {
     decimals: number;
     symbol: string;
@@ -152,14 +180,59 @@ export interface SerializedConsumableNote {
   };
 }
 
-export interface GetConsumableNotesRequest extends WalletMessageBase {
-  type: WalletMessageType.GetConsumableNotesRequest;
-  accountPublicKey: string;
+export interface NoteClaimStarted extends WalletMessageBase {
+  type: WalletMessageType.NoteClaimStarted;
+  noteId: string;
 }
 
-export interface GetConsumableNotesResponse extends WalletMessageBase {
-  type: WalletMessageType.GetConsumableNotesResponse;
-  notes: SerializedConsumableNote[];
+export interface NoteClaimStartedResponse extends WalletMessageBase {
+  type: WalletMessageType.NoteClaimStartedResponse;
+}
+
+export interface ProcessTransactionsRequest extends WalletMessageBase {
+  type: WalletMessageType.ProcessTransactionsRequest;
+}
+
+export interface ProcessTransactionsResponse extends WalletMessageBase {
+  type: WalletMessageType.ProcessTransactionsResponse;
+}
+
+export interface ImportNoteBytesRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportNoteBytesRequest;
+  noteBytes: string; // base64 encoded
+}
+
+export interface ImportNoteBytesResponse extends WalletMessageBase {
+  type: WalletMessageType.ImportNoteBytesResponse;
+  noteId: string;
+}
+
+export interface ExportNoteRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportNoteRequest;
+  noteId: string;
+}
+
+export interface ExportNoteResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportNoteResponse;
+  noteBytes: string; // base64 encoded
+}
+
+export interface SerializedInputNoteDetail {
+  noteId: string;
+  state: string; // serialized InputNoteState — plain string, not SDK enum
+  senderAccountId?: string;
+  assets: Array<{ amount: string; faucetId: string }>;
+  nullifier: string;
+}
+
+export interface GetInputNoteDetailsRequest extends WalletMessageBase {
+  type: WalletMessageType.GetInputNoteDetailsRequest;
+  noteIds: string[];
+}
+
+export interface GetInputNoteDetailsResponse extends WalletMessageBase {
+  type: WalletMessageType.GetInputNoteDetailsResponse;
+  notes: SerializedInputNoteDetail[];
 }
 
 export interface GetStateRequest extends WalletMessageBase {
@@ -291,7 +364,7 @@ export interface RevealPrivateKeyResponse extends WalletMessageBase {
 
 export interface RevealMnemonicRequest extends WalletMessageBase {
   type: WalletMessageType.RevealMnemonicRequest;
-  password: string;
+  password?: string;
 }
 
 export interface RevealMnemonicResponse extends WalletMessageBase {
@@ -364,6 +437,7 @@ export interface WalletContact {
   name: string;
   addedAt?: number;
   accountInWallet?: boolean;
+  isPublic?: boolean;
   sharedSecret?: string;
 }
 
@@ -610,7 +684,11 @@ export type WalletRequest =
   | GetOwnedRecordsRequest
   | ImportFromClientRequest
   | SyncRequest
-  | GetConsumableNotesRequest;
+  | NoteClaimStarted
+  | ProcessTransactionsRequest
+  | ImportNoteBytesRequest
+  | ExportNoteRequest
+  | GetInputNoteDetailsRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -654,4 +732,8 @@ export type WalletResponse =
   | GetOwnedRecordsResponse
   | ImportFromClientResponse
   | SyncResponse
-  | GetConsumableNotesResponse;
+  | NoteClaimStartedResponse
+  | ProcessTransactionsResponse
+  | ImportNoteBytesResponse
+  | ExportNoteResponse
+  | GetInputNoteDetailsResponse;

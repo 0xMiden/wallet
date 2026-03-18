@@ -44,7 +44,7 @@ const CleanButton: FC<CleanButtonProps> = ({
       className={classNames(
         'absolute',
         'border rounded-full shadow-sm hover:shadow',
-        'bg-black',
+        'bg-pure-black',
         'flex items-center',
         'text-xs text-black',
         'transition ease-in-out duration-200',

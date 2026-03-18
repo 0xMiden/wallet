@@ -1,8 +1,9 @@
 import browser from 'webextension-polyfill';
 
 import { getMessage } from 'lib/i18n';
-import { SerializedConsumableNote, WalletMessageType } from 'lib/shared/types';
+import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
+import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -24,7 +25,7 @@ export async function doSync(): Promise<void> {
     const exists = await Vault.isExist();
     if (!exists) return;
 
-    // THE sync for the whole app
+    // [Lock 1] THE sync for the whole app
     await withTimeout(
       withWasmClientLock(async () => {
         const client = await getMidenClient();
@@ -34,96 +35,145 @@ export async function doSync(): Promise<void> {
       SYNC_TIMEOUT_MS
     );
 
-    // Broadcast to connected frontends
     const intercom = getIntercom()!;
-    try {
-      intercom.broadcast({ type: WalletMessageType.SyncCompleted });
-    } catch {
-      // No frontends connected — that's fine
-    }
+    const accountPubKey = await Vault.getCurrentAccountPublicKey();
 
-    // If no popup open, check for new notes in background
-    if (!intercom.hasClients()) {
-      await checkForNewNotes();
+    if (accountPubKey) {
+      // [Lock 2] Read notes + vault assets from warm WASM client
+      const { parsedNotes, vaultAssets } = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        if (!client)
+          return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
+
+        // Read consumable notes
+        const rawNotes = await client.getConsumableNotes(accountPubKey);
+        const notes: SerializedConsumableNote[] = (rawNotes || [])
+          .map((note: any) => {
+            try {
+              const noteRecord = note.inputNoteRecord();
+              const noteId = noteRecord.id().toString();
+              const noteMeta = noteRecord.metadata();
+              const details = noteRecord.details();
+              const fungibleAssets = details.assets().fungibleAssets();
+              if (!fungibleAssets || fungibleAssets.length === 0) return null;
+              const firstAsset = fungibleAssets[0];
+              if (!firstAsset) return null;
+              return {
+                id: noteId,
+                faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
+                amountBaseUnits: firstAsset.amount().toString(),
+                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
+                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
+              };
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean) as SerializedConsumableNote[];
+
+        // Read vault assets
+        const account = await client.getAccount(accountPubKey);
+        const assets: SerializedVaultAsset[] = [];
+        if (account) {
+          const fungibleAssets = account.vault().fungibleAssets();
+          for (const asset of fungibleAssets) {
+            assets.push({
+              faucetId: getBech32AddressFromAccountId(asset.faucetId()),
+              amountBaseUnits: asset.amount().toString()
+            });
+          }
+        }
+
+        return { parsedNotes: notes, vaultAssets: assets };
+      });
+
+      // Fetch metadata for all faucets in parallel (RPC, outside lock — no WASM needed)
+      // Collect all unique faucet IDs from both notes and vault assets
+      const allFaucetIds = new Set([...parsedNotes.map(n => n.faucetId), ...vaultAssets.map(a => a.faucetId)]);
+
+      const metadataCache: Record<string, { decimals: number; symbol: string; name: string; thumbnailUri?: string }> =
+        {};
+      await Promise.all(
+        [...allFaucetIds].map(async faucetId => {
+          try {
+            const { base } = await fetchTokenMetadata(faucetId);
+            metadataCache[faucetId] = {
+              decimals: base.decimals,
+              symbol: base.symbol,
+              name: base.name,
+              thumbnailUri: base.thumbnailUri
+            };
+          } catch {
+            // Leave metadata undefined — frontend will handle
+          }
+        })
+      );
+
+      // Attach metadata to notes
+      for (const note of parsedNotes) {
+        if (metadataCache[note.faucetId]) {
+          note.metadata = metadataCache[note.faucetId];
+        }
+      }
+
+      // Attach metadata to vault assets
+      for (const asset of vaultAssets) {
+        if (metadataCache[asset.faucetId]) {
+          asset.metadata = metadataCache[asset.faucetId];
+        }
+      }
+
+      // Always update seenNoteIds for background dedup consistency
+      const noteIds = parsedNotes.map(n => n.id);
+      const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+
+      // Write sync data to chrome.storage.local — the reliable data channel.
+      // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).
+      const syncData: SyncData = {
+        notes: parsedNotes,
+        vaultAssets,
+        accountPublicKey: accountPubKey
+      };
+      chrome.storage.local.set({
+        miden_cached_consumable_notes: parsedNotes,
+        miden_sync_data: syncData
+      });
+
+      // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local)
+      try {
+        intercom.broadcast({ type: WalletMessageType.SyncCompleted });
+      } catch {
+        // No frontends connected — that's fine
+      }
+
+      if (!intercom.hasClients() && newIds.length > 0) {
+        // No popup open and new notes arrived — show desktop notification
+        const title = getMessage('noteReceivedTitle') || 'You have received a note';
+        const message =
+          newIds.length === 1
+            ? getMessage('noteReceivedClickToClaim') || 'Click to view and claim it'
+            : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
+              `You have ${newIds.length} new notes to claim`;
+        showBackgroundNotification(title, message);
+      }
+    } else {
+      // No account — broadcast bare SyncCompleted (just sync status)
+      try {
+        intercom.broadcast({ type: WalletMessageType.SyncCompleted });
+      } catch {
+        // No frontends connected — that's fine
+      }
     }
   } catch (err) {
     console.warn('[SyncManager] Sync error:', err);
+    // Always broadcast SyncCompleted so frontends don't get stuck with isSyncing=true
+    try {
+      getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });
+    } catch {
+      // No frontends connected
+    }
   } finally {
     isSyncing = false;
-  }
-}
-
-async function checkForNewNotes(): Promise<void> {
-  try {
-    const accountPubKey = await Vault.getCurrentAccountPublicKey();
-    if (!accountPubKey) return;
-
-    const rawNotes = await withWasmClientLock(async () => {
-      const client = await getMidenClient();
-      if (!client) return [];
-      return client.getConsumableNotes(accountPubKey);
-    });
-
-    // Parse ALL notes into serializable form and cache for instant frontend display
-    const parsedNotes: SerializedConsumableNote[] = (rawNotes || [])
-      .map((note: any) => {
-        try {
-          const noteRecord = note.inputNoteRecord();
-          const noteId = noteRecord.id().toString();
-          const noteMeta = noteRecord.metadata();
-          const details = noteRecord.details();
-          const fungibleAssets = details.assets().fungibleAssets();
-          if (!fungibleAssets || fungibleAssets.length === 0) return null;
-          const firstAsset = fungibleAssets[0];
-          if (!firstAsset) return null;
-
-          return {
-            id: noteId,
-            faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
-            amountBaseUnits: firstAsset.amount().toString(),
-            senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : ''
-          };
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean) as SerializedConsumableNote[];
-
-    // Fetch metadata for each faucet so the frontend can display instantly (no async lookups)
-    for (const note of parsedNotes) {
-      try {
-        const { base } = await fetchTokenMetadata(note.faucetId);
-        note.metadata = {
-          decimals: base.decimals,
-          symbol: base.symbol,
-          name: base.name,
-          thumbnailUri: base.thumbnailUri
-        };
-      } catch {
-        // Leave metadata undefined — frontend will handle
-      }
-    }
-
-    // Cache for instant display when fullpage tab opens from notification click
-    chrome.storage.local.set({ miden_cached_consumable_notes: parsedNotes });
-
-    if (parsedNotes.length === 0) return;
-
-    const noteIds = parsedNotes.map(n => n.id);
-    const newIds = await mergeAndPersistSeenNoteIds(noteIds);
-    if (newIds.length === 0) return;
-
-    // Show desktop notification
-    const title = getMessage('noteReceivedTitle') || 'You have received a note';
-    const message =
-      newIds.length === 1
-        ? getMessage('noteReceivedClickToClaim') || 'Click to view and claim it'
-        : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
-          `You have ${newIds.length} new notes to claim`;
-
-    showBackgroundNotification(title, message);
-  } catch (err) {
-    console.warn('[SyncManager] Note check error:', err);
   }
 }
 
@@ -163,46 +213,6 @@ function showBackgroundNotification(title: string, message: string): void {
   }
 }
 
-/**
- * Get consumable notes from the service worker's warm WASM client.
- * Called by the frontend via intercom to avoid waiting for its own WASM client to initialize.
- */
-export async function getConsumableNotesFromWarmClient(accountPublicKey: string): Promise<SerializedConsumableNote[]> {
-  const rawNotes = await withWasmClientLock(async () => {
-    const client = await getMidenClient();
-    if (!client) return [];
-    return client.getConsumableNotes(accountPublicKey);
-  });
-
-  if (!rawNotes || rawNotes.length === 0) return [];
-
-  return rawNotes
-    .map((note: any) => {
-      try {
-        const noteRecord = note.inputNoteRecord();
-        const noteId = noteRecord.id().toString();
-        const noteMeta = noteRecord.metadata();
-        const details = noteRecord.details();
-        const assetSet = details.assets();
-        const fungibleAssets = assetSet.fungibleAssets();
-
-        if (!fungibleAssets || fungibleAssets.length === 0) return null;
-        const firstAsset = fungibleAssets[0];
-        if (!firstAsset) return null;
-
-        return {
-          id: noteId,
-          faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
-          amountBaseUnits: firstAsset.amount().toString(),
-          senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : ''
-        };
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean) as SerializedConsumableNote[];
-}
-
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Sync timeout')), ms);
@@ -224,12 +234,8 @@ export function setupSyncManager(): void {
   // Primary sync (3s) is driven by frontend SyncRequest when popup is open.
   browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
 
-  // Listen for alarm fires
-  browser.alarms.onAlarm.addListener(alarm => {
-    if (alarm.name === ALARM_NAME) {
-      doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
-    }
-  });
+  // NOTE: The alarm listener is registered at the top level of background.ts
+  // (Chrome MV3 requires synchronous registration to catch events that wake the SW).
 
   // Run an initial sync immediately
   doSync().catch(err => console.warn('[SyncManager] Initial sync error:', err));

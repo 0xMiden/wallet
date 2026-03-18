@@ -6,12 +6,12 @@ import { Avatar } from 'components/Avatar';
 
 type ColorIdenticonProps = HTMLAttributes<HTMLDivElement> & {
   publicKey: string;
-  size?: number;
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
 };
 
 const ColorIdenticon: FC<ColorIdenticonProps> = ({
   publicKey,
-  size = 100,
+  size = 'md',
   className = 'm-auto',
   style = {},
   ...rest
@@ -19,7 +19,7 @@ const ColorIdenticon: FC<ColorIdenticonProps> = ({
   const color = randomColor({ seed: publicKey });
 
   return (
-    <Avatar className={className} style={{ backgroundColor: color }} size="md" image="/misc/avatars/miden-logo.svg" />
+    <Avatar className={className} style={{ backgroundColor: color }} size={size} image="/misc/avatars/miden-logo.svg" />
   );
 };
 

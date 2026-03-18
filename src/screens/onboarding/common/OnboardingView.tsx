@@ -19,7 +19,7 @@ const OnboardingView: FC<OnboardingViewProps> = ({ renderHeader, renderStep, ste
   return (
     <div
       className={clsx(
-        'flex flex-col bg-white overflow-hidden',
+        'flex flex-col bg-app-bg overflow-hidden',
         mobile ? 'w-full h-full' : 'w-[37.5rem] h-[40rem] border border-gray-100 mx-auto rounded-3xl'
       )}
     >

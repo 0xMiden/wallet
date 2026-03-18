@@ -70,7 +70,8 @@ const mobileAppConfig = {
       components: path.resolve(__dirname, 'src', 'components'),
       screens: path.resolve(__dirname, 'src', 'screens'),
       utils: path.resolve(__dirname, 'src', 'utils'),
-      'process/browser': require.resolve('process/browser.js')
+      'process/browser': require.resolve('process/browser.js'),
+      'webextension-polyfill': path.resolve(__dirname, 'src', 'lib', 'webextension-polyfill-mock.js')
     },
     fallback: {
       url: false,
@@ -288,7 +289,8 @@ const mobileWorkerConfig = {
       lib: path.resolve(__dirname, 'src', 'lib'),
       shared: path.resolve(__dirname, 'src', 'shared'),
       screens: path.resolve(__dirname, 'src', 'screens'),
-      'process/browser': require.resolve('process/browser.js')
+      'process/browser': require.resolve('process/browser.js'),
+      'webextension-polyfill': path.resolve(__dirname, 'src', 'lib', 'webextension-polyfill-mock.js')
     },
     fallback: {
       url: false,

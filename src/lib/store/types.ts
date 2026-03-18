@@ -3,7 +3,8 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
-import { WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
+import { type TokenPrices } from 'lib/prices/binance';
+import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { TokenBalanceData } from '../miden/front/balance';
@@ -51,6 +52,7 @@ export interface FiatCurrencySlice {
   selectedFiatCurrency: FiatCurrencyOption | null;
   fiatRates: ExchangeRateRecord | null;
   fiatRatesLoading: boolean;
+  tokenPrices: TokenPrices;
 }
 
 /**
@@ -104,7 +106,7 @@ export interface WalletActions {
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
-  revealMnemonic: (password: string) => Promise<string>;
+  revealMnemonic: (password?: string) => Promise<string>;
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
@@ -161,6 +163,7 @@ export interface FiatCurrencyActions {
   setSelectedFiatCurrency: (currency: FiatCurrencyOption) => void;
   setFiatRates: (rates: ExchangeRateRecord | null) => void;
   fetchFiatRates: () => Promise<void>;
+  setTokenPrices: (prices: TokenPrices) => void;
 }
 
 /**
@@ -180,6 +183,25 @@ export interface TransactionModalActions {
   /** Reset the dismissed flag (called when all transactions complete) */
   resetTransactionModalDismiss: () => void;
   setDappBrowserOpen: (isOpen: boolean) => void;
+}
+
+/**
+ * Extension sync state (service worker pushes data to frontend via SyncCompleted)
+ */
+export interface ExtensionSyncSlice {
+  /** Claimable notes pushed from service worker (null = not yet received) */
+  extensionClaimableNotes: SerializedConsumableNote[] | null;
+  /** Note IDs being claimed (optimistic, cleared on each SyncCompleted) */
+  extensionClaimingNoteIds: Set<string>;
+}
+
+/**
+ * Extension sync actions
+ */
+export interface ExtensionSyncActions {
+  setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
+  addExtensionClaimingNoteId: (noteId: string) => void;
+  clearExtensionClaimingNoteIds: () => void;
 }
 
 /**
@@ -207,10 +229,12 @@ export interface WalletStore
     SyncSlice,
     TransactionModalSlice,
     NoteToastSlice,
+    ExtensionSyncSlice,
     WalletActions,
     BalanceActions,
     AssetActions,
     FiatCurrencyActions,
     SyncActions,
     TransactionModalActions,
-    NoteToastActions {}
+    NoteToastActions,
+    ExtensionSyncActions {}

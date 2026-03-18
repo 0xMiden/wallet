@@ -62,6 +62,7 @@ export const useWalletStore = create<WalletStore>()(
     selectedFiatCurrency: null,
     fiatRates: null,
     fiatRatesLoading: false,
+    tokenPrices: {},
 
     // Initial sync state
     isInitialized: false,
@@ -78,6 +79,10 @@ export const useWalletStore = create<WalletStore>()(
     seenNoteIds: new Set<string>(),
     isNoteToastVisible: false,
     noteToastShownAt: null,
+
+    // Initial extension sync state
+    extensionClaimableNotes: null,
+    extensionClaimingNoteIds: new Set<string>(),
 
     // Sync action - updates store from backend state
     syncFromBackend: (state: MidenState) => {
@@ -96,9 +101,10 @@ export const useWalletStore = create<WalletStore>()(
       });
 
       // Immediately fetch balances when wallet becomes Ready (before any React effects)
-      if (justBecameReady && state.currentAccount) {
+      // On extension, skip — balances arrive via SyncCompleted broadcast from service worker
+      if (justBecameReady && state.currentAccount && !isExtension()) {
         const address = state.currentAccount.publicKey;
-        fetchBalances(address, get().assetsMetadata)
+        fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
           .then(balances => {
             set(s => ({
               balances: { ...s.balances, [address]: balances },
@@ -386,7 +392,10 @@ export const useWalletStore = create<WalletStore>()(
       });
 
       try {
-        const balances = await fetchBalances(accountAddress, tokenMetadatas, { setAssetsMetadata });
+        const balances = await fetchBalances(accountAddress, tokenMetadatas, {
+          setAssetsMetadata,
+          tokenPrices: get().tokenPrices
+        });
         set(state => ({
           balances: { ...state.balances, [accountAddress]: balances },
           balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
@@ -446,6 +455,10 @@ export const useWalletStore = create<WalletStore>()(
       } catch {
         set({ fiatRatesLoading: false });
       }
+    },
+
+    setTokenPrices: prices => {
+      set({ tokenPrices: prices });
     },
 
     // Sync actions
@@ -519,6 +532,21 @@ export const useWalletStore = create<WalletStore>()(
       if (isExtension()) {
         clearPersistedSeenNoteIds().catch(() => {});
       }
+    },
+
+    // Extension sync actions
+    setExtensionClaimableNotes: notes => {
+      set({ extensionClaimableNotes: notes });
+    },
+
+    addExtensionClaimingNoteId: noteId => {
+      set(state => ({
+        extensionClaimingNoteIds: new Set([...state.extensionClaimingNoteIds, noteId])
+      }));
+    },
+
+    clearExtensionClaimingNoteIds: () => {
+      set({ extensionClaimingNoteIds: new Set<string>() });
     }
   }))
 );

@@ -2,19 +2,23 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import Modal from 'react-modal';
 
 import {
   hasQueuedTransactions,
+  requestSWTransactionProcessing,
   safeGenerateTransactionsLoop as dbTransactionsLoop,
   getAllUncompletedTransactions
 } from 'lib/miden/activity';
 import { useMidenContext } from 'lib/miden/front';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { GeneratingTransaction } from 'screens/generating-transaction/GeneratingTransaction';
 
 export const TransactionProgressModal: FC = () => {
+  const { t } = useTranslation();
   // Use Zustand store for modal state
   const isOpen = useWalletStore(state => state.isTransactionModalOpen);
   const openModal = useWalletStore(state => state.openTransactionModal);
@@ -26,6 +30,23 @@ export const TransactionProgressModal: FC = () => {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   // Track if we're actively processing (started when modal opens, continues even when hidden)
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // On extension: check for uncompleted send transactions on mount and auto-open modal
+  useEffect(() => {
+    if (!isExtension()) return;
+
+    const checkForSendTxs = async () => {
+      const uncompleted = await getAllUncompletedTransactions();
+      const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
+      if (hasSendTxs) {
+        openModal();
+        // Ensure SW is processing (deduplicates via isProcessing flag)
+        requestSWTransactionProcessing();
+      }
+    };
+
+    checkForSendTxs();
+  }, [openModal]);
 
   // Reset hasLoadedOnce when modal closes
   useEffect(() => {
@@ -51,7 +72,14 @@ export const TransactionProgressModal: FC = () => {
   const transactions = txs || [];
 
   // Process transactions - continues even when modal is hidden
+  // On extension: SW drives processing, this is a no-op
   const generateTransaction = useCallback(async () => {
+    if (isExtension()) {
+      // On extension, just refresh the list — SW handles processing
+      mutateTx();
+      return;
+    }
+
     try {
       const success = await dbTransactionsLoop(signTransaction);
       if (success === false) {
@@ -80,9 +108,23 @@ export const TransactionProgressModal: FC = () => {
   }, [isOpen, isProcessing]);
 
   // Processing loop - runs while processing, regardless of modal visibility
+  // On extension: only polls for status (no local WASM calls)
   useEffect(() => {
     if (!isProcessing || error) {
       return;
+    }
+
+    if (isExtension()) {
+      // On extension, just poll for status — SW handles processing
+      const intervalId = setInterval(async () => {
+        const remaining = await getAllUncompletedTransactions();
+        mutateTx();
+        if (remaining.length === 0) {
+          setIsProcessing(false);
+        }
+      }, 5_000);
+
+      return () => clearInterval(intervalId);
     }
 
     // Check if we still have transactions to process
@@ -105,7 +147,7 @@ export const TransactionProgressModal: FC = () => {
     return () => {
       clearInterval(intervalId);
     };
-  }, [isProcessing, generateTransaction, error]);
+  }, [isProcessing, generateTransaction, error, mutateTx]);
 
   // Auto-close when all transactions are done
   // Only auto-close AFTER we've done initial fetch (hasLoadedOnce) to prevent race condition
@@ -151,22 +193,30 @@ export const TransactionProgressModal: FC = () => {
       isOpen={isOpen}
       onRequestClose={handleClose}
       shouldCloseOnOverlayClick={transactionComplete || error}
-      className={classNames('bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 outline-none overflow-hidden')}
-      overlayClassName="fixed inset-0 bg-white/10 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center p-6"
+      className={classNames('w-full max-w-lg outline-none flex flex-col items-stretch gap-6')}
+      overlayClassName="fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4"
       style={{
         overlay: { zIndex: 9999 },
-        content: { zIndex: 9999 }
+        content: { position: 'relative', inset: 'unset', zIndex: 9999 }
       }}
       appElement={modalRoot}
       parentSelector={() => modalRoot!}
       ariaHideApp={false}
     >
-      <GeneratingTransaction
-        progress={progress}
-        onDoneClick={handleClose}
-        transactionComplete={transactionComplete}
-        hasErrors={error}
-      />
+      <div className="bg-surface-solid rounded-3xl overflow-hidden">
+        <GeneratingTransaction
+          progress={progress}
+          onDoneClick={handleClose}
+          transactionComplete={transactionComplete}
+          hasErrors={error}
+        />
+      </div>
+      <button
+        className="w-full rounded-2xl bg-primary-500 text-pure-white font-semibold text-base h-12"
+        onClick={handleClose}
+      >
+        {transactionComplete ? t('done') : t('hide')}
+      </button>
     </Modal>,
     modalRoot
   );

@@ -54,7 +54,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, className, onTabChange, ..
       className={classNames(
         'flex-1 flex h-[72px]',
         'border-t border-grey-100',
-        'backdrop-blur-lg bg-white/[.70]',
+        'backdrop-blur-lg bg-pure-white/[.70] dark:bg-pure-black/[.70]',
         className
       )}
       {...props}

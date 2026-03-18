@@ -33,37 +33,40 @@ export const InputAmount: React.FC<InputAmountProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 0-5 36px
-  // 6-12 24px
-  // 13-16 18px
+  // Scale text size based on total display length (value + label)
+  // to prevent overflow on narrower mobile screens
   const textSize = useMemo(() => {
-    if (!value) {
+    const valueLen = value?.length || 1;
+    const labelLen = label?.length || 4;
+    const totalLen = valueLen + labelLen + 1; // +1 for the space between
+
+    if (totalLen >= 20) {
+      return 'text-lg';
+    }
+    if (totalLen >= 16) {
+      return 'text-2xl';
+    }
+    if (totalLen >= 12) {
       return 'text-4xl';
     }
-    if (value.length <= 5) {
-      return 'text-4xl md:text-4xl';
-    }
-    if (value.length <= 12) {
-      return 'text-2xl md:text-4xl';
-    }
-
-    return 'text-lg md:text-4xl';
-  }, [value]);
-
-  const inputWidth = useMemo(() => (value?.length ? `${value?.length}ch` : '1ch'), [value]);
+    return 'text-5xl';
+  }, [value, label]);
 
   const textColor = useMemo(() => (error ? 'text-red-500' : 'text-black'), [error]);
 
-  const currencyLabel = label || 'ALEO';
+  const currencyLabel = label || 'MIDEN';
 
   return (
-    <div {...props} className={classNames('flex flex-col items-center gap-y-2', className)}>
-      <div className="flex cursor-pointer items-end" onClick={() => inputRef.current?.focus()}>
-        {displayFiat ? <label className={classNames('text-grey-300 text-left leading-snug', textSize)}>$</label> : null}
+    <div {...props} className={classNames('flex flex-col items-center gap-y-1', className)}>
+      <div className="flex cursor-pointer items-baseline" onClick={() => inputRef.current?.focus()}>
+        {displayFiat ? <label className={classNames('text-left leading-none text-black', textSize)}>$</label> : null}
         <CurrencyInput
-          className={classNames('p-0 placeholder-grey-300 outline-none leading-snug', textSize, textColor)}
+          className={classNames(
+            'p-0 placeholder-black outline-none leading-0 font-medium w-full text-center',
+            textSize,
+            textColor
+          )}
           value={displayFiat ? fiatValue || value : value}
-          style={{ width: inputWidth }}
           onValueChange={onValueChange}
           placeholder="0"
           disableGroupSeparators
@@ -72,12 +75,11 @@ export const InputAmount: React.FC<InputAmountProps> = ({
           decimalsLimit={6}
           allowNegativeValue={false}
           maxLength={16}
+          size={value?.length || 1}
           autoFocus={autoFocus}
         />
-        {!displayFiat ? (
-          <label className={classNames('ml-2 text-grey-300 text-left leading-snug', textSize)}>{currencyLabel}</label>
-        ) : null}
       </div>
+      {!displayFiat && <label className="text-heading-gray/60 text-sm font-medium">{currencyLabel}</label>}
       {displayToggleCurrency && (
         <button className="flex items-center gap-x-1 cursor-pointer" type="button" onClick={onToggleCurrency}>
           {!displayFiat ? (
@@ -87,7 +89,7 @@ export const InputAmount: React.FC<InputAmountProps> = ({
               {fiatValue || value || 0} {currencyLabel}
             </p>
           )}
-          <Icon name={IconName.ArrowUpDown} size="xs" fill="black" />
+          <Icon name={IconName.ArrowUpDown} size="xs" fill="currentColor" />
         </button>
       )}
     </div>
