@@ -338,7 +338,26 @@ const Browser: FC = () => {
         </form>
       </div>
 
-      <main className="grow flex flex-col px-4">
+      {/* Favourites Section */}
+      <div className="flex-none px-4 pb-2">
+        <h3 className="text-sm font-medium text-grey-500 mb-3">{t('favourites')}</h3>
+        <div className="grid grid-cols-4 gap-4">
+          {FAVOURITES.map(fav => (
+            <button
+              key={fav.url}
+              onClick={() => openBrowser(fav.url)}
+              className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-grey-50 active:bg-grey-100 transition-colors"
+            >
+              <div className="w-12 h-12 rounded-xl bg-grey-100 flex items-center justify-center overflow-hidden">
+                <img src={fav.icon} alt={fav.name} className="w-8 h-8 object-contain" />
+              </div>
+              <span className="text-xs text-grey-600 text-center truncate w-full">{fav.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <main className="grow flex flex-col px-4 overflow-y-auto pb-20">
         {/* Recent URLs */}
         {recentUrls.length > 0 && (
           <div className="mb-4">
@@ -367,25 +386,6 @@ const Browser: FC = () => {
           </div>
         )}
       </main>
-
-      {/* Favourites Section */}
-      <div className="flex-none px-4 pb-4">
-        <h3 className="text-sm font-medium text-grey-500 mb-3">{t('favourites')}</h3>
-        <div className="grid grid-cols-4 gap-4">
-          {FAVOURITES.map(fav => (
-            <button
-              key={fav.url}
-              onClick={() => openBrowser(fav.url)}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-grey-50 active:bg-grey-100 transition-colors"
-            >
-              <div className="w-12 h-12 rounded-xl bg-grey-100 flex items-center justify-center overflow-hidden">
-                <img src={fav.icon} alt={fav.name} className="w-8 h-8 object-contain" />
-              </div>
-              <span className="text-xs text-grey-600 text-center truncate w-full">{fav.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
     </>
   );
 };
