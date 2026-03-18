@@ -14,7 +14,6 @@ export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
   const { portfolioChange, percentageChange } = useMemo(() => {
     const portfolioChange = allTokenBalances.reduce((sum, t) => {
       const p = tokenPrices[t.metadata.symbol]?.change24h ?? 0;
-      console.log(`Token ${t.metadata.symbol} has price change ${p}% and balance ${t.balance}`);
       return sum + t.balance * p;
     }, 0);
     const totalValue = allTokenBalances.reduce((sum, t) => {
@@ -31,8 +30,12 @@ export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
     <div className="flex items-center gap-1">
       <Badge
         className={clsx(
-          'font-medium !text-white',
-          isNeutral ? 'bg-grey-400' : isPositive ? 'bg-receive-green' : 'bg-red-500'
+          'font-medium',
+          isNeutral
+            ? 'bg-grey-400 !text-grey-800'
+            : isPositive
+              ? 'bg-receive-green !text-white'
+              : 'bg-red-500 !text-white'
         )}
       >
         {isNeutral ? '' : isPositive ? '+' : '-'}${Math.abs(portfolioChange).toFixed(2)}
