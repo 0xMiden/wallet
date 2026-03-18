@@ -18,7 +18,7 @@ export const WelcomeScreen = ({ onSubmit, ...props }: WelcomeScreenProps) => {
   return (
     <div className="flex flex-col items-center bg-app-bg max-w-full h-full" data-testid="onboarding-welcome">
       <div className="flex flex-col items-center justify-center pt-[120px]">
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center gap-6">
           <OnboardingLogo style={{ width: 120, height: 100 }} />
           <h1 className="text-5xl font-semibold mb-4 font-heading text-heading-gray">Miden Wallet</h1>
         </div>
@@ -30,7 +30,7 @@ export const WelcomeScreen = ({ onSubmit, ...props }: WelcomeScreenProps) => {
           {t('anywhere')}
         </p>
       </div>
-      <div className={clsx('w-full flex flex-col gap-3 px-4 mt-auto pb-8 pt-10', isMobile() ? 'pt-[120px]' : '')}>
+      <div className={clsx('w-full flex flex-col gap-2 px-4 mt-auto pb-4 pt-10', isMobile() ? 'pt-[120px]' : '')}>
         <Button tabIndex={0} title={t('createANewWallet')} onClick={() => onSubmit?.('select-wallet-type')} />
         <Button
           id={'import-link'}

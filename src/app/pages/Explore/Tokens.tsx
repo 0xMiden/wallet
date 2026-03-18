@@ -31,17 +31,14 @@ const Tokens: FC = () => {
 
   return (
     <div className={classNames('w-full mb-2 px-4')}>
-      <div className={classNames('text-sm font-medium text-black opacity-50')}>
-        <span>{t('tokens')}</span>
-      </div>
       <input
         type="text"
         placeholder={t('searchForToken')}
         value={search}
         onChange={e => setSearch(e.target.value)}
-        className="w-full mt-2 rounded-10 bg-white py-3 pl-4 text-sm placeholder:text-black/50 outline-none placeholder:text-sm placeholder:font-medium"
+        className="w-full rounded-10 bg-white py-2 pl-4 text-sm placeholder:text-black/50 outline-none placeholder:text-sm placeholder:font-medium"
       />
-      <div className="flex flex-col py-4 w-full px-4 gap-6">
+      <div className="flex flex-col pt-3 pb-4 w-full px-4 gap-6">
         {filteredTokens.length > 0 &&
           filteredTokens.map(asset => {
             const balance = asset.balance;

@@ -105,7 +105,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
       <div className="flex-1" />
 
-      <div className="flex flex-col gap-4 self-center pb-2 w-full">
+      <div className="flex flex-col gap-4 self-center w-full">
         {isHardwareSecurityAvailable && (
           <>
             <div className="flex flex-col gap-1 px-2">

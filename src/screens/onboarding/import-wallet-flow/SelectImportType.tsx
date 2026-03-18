@@ -39,28 +39,29 @@ export const SelectImportTypeScreen = ({ onSubmit, ...props }: SelectImportTypeS
   );
 
   return (
-    <div className="flex-1 flex flex-col items-center bg-transparent p-8 h-full" data-testid="import-select-type">
-      <div className="flex flex-col items-center w-4/5 pb-8">
-        <h1 className="font-semibold text-2xl lh-title">{t('chooseImportType')}</h1>
-        <p className="text-base text-center lh-title">{t('chooseImportTypeDescription')}</p>
+    <div
+      className="flex-1 flex flex-col items-center bg-transparent px-4 pt-6 overflow-y-auto"
+      data-testid="import-select-type"
+    >
+      <div className="flex flex-col items-center pb-6">
+        <h1 className="font-semibold text-2xl leading-tight">{t('chooseImportType')}</h1>
+        <p className="text-sm text-center leading-snug mt-2 text-grey-600">{t('chooseImportTypeDescription')}</p>
       </div>
-      {ImportTypeOptions.map(option => (
-        <div
-          key={option.id}
-          className={classNames(
-            'flex flex-col border w-3/5 p-4 rounded-lg cursor-pointer',
-            { 'mb-2': !option.isLast },
-            { 'mb-8': option.isLast }
-          )}
-          onClick={() => onSubmit?.(option.id)}
-        >
-          <div className="flex flex-row justify-between items-center">
-            <h2 className="font-medium text-base">{option.title}</h2>
-            <ArrowRightIcon fill="currentColor" height={'20px'} width={'20px'} />
+      <div className="flex flex-col gap-3 w-full pb-4">
+        {ImportTypeOptions.map(option => (
+          <div
+            key={option.id}
+            className="flex flex-col border border-grey-200 w-full p-4 rounded-xl cursor-pointer hover:bg-grey-50 transition-colors"
+            onClick={() => onSubmit?.(option.id)}
+          >
+            <div className="flex flex-row justify-between items-center">
+              <h2 className="font-medium text-sm">{option.title}</h2>
+              <ArrowRightIcon fill="currentColor" height={'16px'} width={'16px'} className="flex-shrink-0 ml-2" />
+            </div>
+            <p className="text-xs text-grey-600 mt-1">{option.description}</p>
           </div>
-          <p className="text-grey-600">{option.description}</p>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 };

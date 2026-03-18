@@ -50,6 +50,11 @@ const Explore: FC = () => {
     return claimableNotes.filter(note => note!.faucetId === midenFaucetId);
   }, [claimableNotes, midenFaucetId, shouldAutoConsume]);
 
+  const selfClaimableNotes = useMemo(() => {
+    if (!claimableNotes) return [];
+    return claimableNotes.filter(note => note!.faucetId !== midenFaucetId);
+  }, [claimableNotes, midenFaucetId]);
+
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
   }, [midenNotes]);
@@ -145,18 +150,20 @@ const Explore: FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full text-heading-gray font-geist">
-      <ConnectivityIssueBanner />
-      <ChainInstabilityBanner />
-      <Header />
-      <div className={classNames('flex flex-col justify-start', 'pt-4 px-4')}>
-        <div className="flex flex-col justify-center items-center pb-4">
-          <MainBanner />
-          <PriceChangeBadge account={account} />
+    <div className="flex flex-col h-full overflow-hidden text-heading-gray font-geist">
+      <div className="flex-shrink-0">
+        <ConnectivityIssueBanner />
+        <ChainInstabilityBanner />
+        <Header />
+        <div className={classNames('flex flex-col justify-start', 'pt-4 px-4')}>
+          <div className="flex flex-col justify-center items-center pb-4">
+            <MainBanner />
+            <PriceChangeBadge account={account} />
+          </div>
+          <ActionButtons address={address} claimableCount={selfClaimableNotes.length} />
         </div>
-        <ActionButtons address={address} />
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto relative pt-4">
+      <div className="flex-1 min-h-0 overflow-y-auto pt-2">
         <div className={classNames('bg-transparent')}>
           <Tokens />
         </div>

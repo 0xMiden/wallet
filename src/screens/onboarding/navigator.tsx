@@ -249,9 +249,22 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           >
             {renderStep()}
             {step !== OnboardingStep.Welcome && step !== OnboardingStep.Confirmation && (
-              <div className="px-4 pb-8">
+              <div className="px-4 pt-2 pb-4">
                 <Button title={t('back')} variant={ButtonVariant.Secondary} onClick={onBack} className="w-full" />
               </div>
+            )}
+            {step === OnboardingStep.CreatePassword && (
+              <p className="text-grey-600 text-xs text-center px-8 pb-6">
+                {t('byProceeding')}{' '}
+                <a target="_blank" href="https://www.miden.fi/terms" className="underline" rel="noreferrer">
+                  {t('termsOfUsage')}
+                </a>{' '}
+                {t('andWord')}{' '}
+                <a target="_blank" href="https://www.miden.fi/privacy" className="underline" rel="noreferrer">
+                  {t('privacyPolicy')}
+                </a>
+                .
+              </p>
             )}
           </motion.div>
         </AnimatePresence>

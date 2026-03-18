@@ -28,15 +28,8 @@ interface ActionButtonProps extends TestIDProps {
   isActive?: boolean;
 }
 
-function getActionBgColor(type: 'send' | 'receive' | 'faucet') {
-  switch (type) {
-    case 'send':
-      return 'bg-[#2E80C4]';
-    case 'receive':
-      return 'bg-[#38824A]';
-    case 'faucet':
-      return 'bg-[#777487]';
-  }
+function getActionBgColor(_type: 'send' | 'receive' | 'faucet') {
+  return 'bg-[#777487]';
 }
 
 const ActionButton: FC<ActionButtonProps> = ({
@@ -124,7 +117,7 @@ const ACTION_BUTTONS: (t: any, handleFaucetClick: () => void) => ActionButtonPro
   }
 ];
 
-export const ActionButtons = ({ address }: { address: string }) => {
+export const ActionButtons = ({ address, claimableCount = 0 }: { address: string; claimableCount?: number }) => {
   const { t } = useTranslation();
   const network = useNetwork();
   const handleFaucetClick = useCallback(async () => {
@@ -135,7 +128,25 @@ export const ActionButtons = ({ address }: { address: string }) => {
   return (
     <div className={classNames('flex w-full gap-3 items-center justify-evenly py-4 border-y border-grey-300/20')}>
       {ACTION_BUTTONS(t, handleFaucetClick).map(props => (
-        <ActionButton key={props.type} {...props} />
+        <div key={props.type} className="relative flex-1 overflow-visible">
+          <ActionButton {...props} />
+          {props.type === 'receive' && claimableCount > 0 && (
+            <span
+              className="absolute top-0 right-0 z-10 flex items-center justify-center rounded-full border-2"
+              style={{
+                width: 20,
+                height: 20,
+                fontSize: 11,
+                fontWeight: 700,
+                color: 'white',
+                backgroundColor: '#F49135',
+                borderColor: '#F49135'
+              }}
+            >
+              {claimableCount}
+            </span>
+          )}
+        </div>
       ))}
     </div>
   );

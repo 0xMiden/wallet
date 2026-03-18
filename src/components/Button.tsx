@@ -31,16 +31,16 @@ const propsPerButtonVariant = {
     hoverBackgroundColor: 'hover:bg-primary-600',
     disabledBackgroundColor: 'bg-[#FF550099]',
     iconColor: 'white',
-    border: ''
+    border: 'border-[0.5px] border-transparent'
   },
   [ButtonVariant.Secondary]: {
     color: 'text-heading-gray',
     disabledColor: 'text-grey-400',
     backgroundColor: 'bg-[#E9E4E4]',
-    hoverBackgroundColor: 'hover:bg-grey-50',
+    hoverBackgroundColor: 'hover:bg-[#DDD8D8]',
     disabledBackgroundColor: 'bg-grey-200',
     iconColor: 'black',
-    border: ''
+    border: 'border-[0.5px] border-transparent'
   },
   [ButtonVariant.Ghost]: {
     color: 'text-black',
@@ -58,7 +58,7 @@ const propsPerButtonVariant = {
     hoverBackgroundColor: 'hover:bg-red-600',
     disabledBackgroundColor: 'bg-grey-200',
     iconColor: 'white',
-    border: ''
+    border: 'border-[0.5px] border-transparent'
   }
 };
 
@@ -119,6 +119,7 @@ export const Button: React.FC<ButtonProps> = ({
         'flex justify-center items-center gap-x-2',
         'py-3 px-4 rounded-10',
         'transition duration-300 ease-in-out text-base',
+        disabled ? 'cursor-default' : 'cursor-pointer',
         className
       )}
       disabled={disabled}

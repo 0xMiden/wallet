@@ -38,6 +38,13 @@
   font-variant-ligatures: none;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 /**
  * Popper JS
  */

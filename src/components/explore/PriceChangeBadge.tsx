@@ -24,12 +24,20 @@ export const PriceChangeBadge = ({ account }: { account: WalletAccount }) => {
     const percentageChange = totalValue > 0 ? (portfolioChange / totalValue) * 100 : 0;
     return { portfolioChange, percentageChange };
   }, [allTokenBalances, tokenPrices]);
+  const isPositive = portfolioChange > 0;
+  const isNeutral = portfolioChange === 0;
+
   return (
     <div className="flex items-center gap-1">
-      <Badge className={clsx('font-medium text-pure-white', portfolioChange > 0 ? 'bg-receive-green' : 'bg-red-500')}>
-        {portfolioChange > 0 ? '+' : '-'}${Math.abs(portfolioChange).toFixed(2)}
+      <Badge
+        className={clsx(
+          'font-medium !text-white',
+          isNeutral ? 'bg-grey-400' : isPositive ? 'bg-receive-green' : 'bg-red-500'
+        )}
+      >
+        {isNeutral ? '' : isPositive ? '+' : '-'}${Math.abs(portfolioChange).toFixed(2)}
       </Badge>
-      <p className={clsx('text-xs', portfolioChange > 0 ? 'text-receive-green' : 'text-red-500')}>
+      <p className={clsx('text-xs', isNeutral ? 'text-grey-500' : isPositive ? 'text-receive-green' : 'text-red-500')}>
         {percentageChange.toFixed(2)}%
       </p>
     </div>

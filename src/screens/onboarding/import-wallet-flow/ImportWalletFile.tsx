@@ -168,7 +168,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       className={classNames(
         'flex-1 h-full',
         'flex flex-col justify-content items-center gap-y-2',
-        'bg-app-bg p-6',
+        'bg-app-bg px-4 pt-6',
         className
       )}
       onSubmit={handleSubmit(handleImportSubmit)}
@@ -237,7 +237,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         </div>
       )}
 
-      <div className="mt-auto pb-2 w-full">
+      <div className="mt-auto w-full pt-4">
         <FormSubmitButton
           loading={isSubmitting}
           className="w-full text-base"

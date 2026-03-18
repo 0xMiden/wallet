@@ -93,7 +93,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
         />
       </div>
 
-      <div className="flex flex-col gap-2 self-center w-full mt-auto pb-2">
+      <div className="flex flex-col gap-2 self-center w-full mt-auto">
         <Button title={t('continue')} onClick={onSubmit} className="text-base" />
       </div>
     </div>
