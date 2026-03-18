@@ -203,7 +203,7 @@ export const TransactionProgressModal: FC = () => {
       parentSelector={() => modalRoot!}
       ariaHideApp={false}
     >
-      <div className="bg-surface-solid rounded-10 overflow-hidden">
+      <div className="bg-surface-solid rounded-3xl overflow-hidden">
         <GeneratingTransaction
           progress={progress}
           onDoneClick={handleClose}

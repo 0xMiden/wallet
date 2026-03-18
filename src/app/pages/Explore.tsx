@@ -163,10 +163,8 @@ const Explore: FC = () => {
           <ActionButtons address={address} claimableCount={selfClaimableNotes.length} />
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto pt-2">
-        <div className={classNames('bg-transparent')}>
-          <Tokens />
-        </div>
+      <div className="flex-1 min-h-0 overflow-y-auto pt-2 pb-20">
+        <Tokens />
       </div>
     </div>
   );

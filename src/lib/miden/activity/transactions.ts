@@ -41,7 +41,7 @@ import { compareAccountIds } from './utils';
 export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
-export const MAX_QUEUED_AGE = 30 * 60_000; // 30 minutes
+export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -479,7 +479,7 @@ export const cancelStuckTransactions = async () => {
  */
 export const cancelStaleQueuedTransactions = async () => {
   const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
-  const stale = queued.filter(tx => Date.now() - tx.initiatedAt > MAX_QUEUED_AGE);
+  const stale = queued.filter(tx => Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE);
   await Promise.all(stale.map(tx => cancelTransaction(tx, 'Transaction expired after being queued too long')));
 };
 

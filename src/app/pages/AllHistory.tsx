@@ -21,7 +21,10 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   return (
     <>
       <NavigationHeader showBorder title={t('activity')} innerDivClassName="text-2xl" />
-      <div className={classNames('flex-1 min-h-0 overflow-y-auto', 'bg-app-bg z-30 relative')} ref={scrollParentRef}>
+      <div
+        className={classNames('flex-1 min-h-0 overflow-y-auto pb-20', 'bg-app-bg z-30 relative')}
+        ref={scrollParentRef}
+      >
         <div className="px-3">
           <input
             type="text"

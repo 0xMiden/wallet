@@ -59,19 +59,20 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         : { height: '600px', width: '360px' };
 
   return (
-    <div className={classNames('flex flex-col m-auto bg-app-bg', fullPage && 'rounded-3xl')} style={containerStyles}>
-      {/* Animated content area */}
-      <div
-        ref={contentRef}
-        className="flex-1 flex flex-col min-h-0 overflow-hidden"
-        style={{ willChange: 'transform, opacity' }}
-      >
+    <div
+      className={classNames('relative m-auto bg-app-bg overflow-hidden', fullPage && 'rounded-3xl')}
+      style={containerStyles}
+    >
+      {/* Content area — fills entire container, scrolls behind footer */}
+      <div ref={contentRef} className="absolute inset-0 flex flex-col" style={{ willChange: 'transform, opacity' }}>
         {children}
       </div>
 
-      {/* Persistent footer */}
-      <div className="flex-none">
-        <Footer historyBadge={historyBadge} />
+      {/* Floating footer with blur — overlays content */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
+        <div className="pointer-events-auto">
+          <Footer historyBadge={historyBadge} />
+        </div>
       </div>
     </div>
   );

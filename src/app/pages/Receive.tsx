@@ -724,12 +724,15 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
         requestSWTransactionProcessing();
 
         // Wait for the Dexie transaction to complete (Dexie liveQuery updates from SW)
+        console.log('[Claim] Queued tx:', id, 'requesting SW processing...');
         try {
           await waitForConsumeTx(id, signal);
+          console.log('[Claim] TX completed successfully');
           await mutateClaimableNotes();
           // Don't setIsLoading(false) on success — keep spinner until sync removes the note
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') return;
+          console.error('[Claim] waitForConsumeTx failed:', err);
           setError('Failed to claim note');
           setIsLoading(false);
         }
@@ -745,7 +748,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setError(t('failedToClaimNote'));
-      console.error('Error claiming note:', err);
+      console.error('[Claim] Error in outer catch:', err);
     } finally {
       if (!isExtension()) {
         setIsLoading(false);

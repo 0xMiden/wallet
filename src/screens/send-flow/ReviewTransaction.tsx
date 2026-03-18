@@ -49,56 +49,43 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
     <div className="flex flex-col bg-app-bg h-full">
       <NavigationHeader mode="back" title={t('reviewTransaction')} onBack={onGoBack} showBorder />
 
-      <div className="flex flex-col px-4 overflow-y-auto no-scrollbar">
-        {/* Amount */}
-        <div className="flex items-center justify-center pt-8">
-          <span className="text-[48px] font-medium text-heading-gray/53 leading-none">
-            {amount} {token}
-          </span>
-        </div>
+      <div className="flex flex-col flex-1 min-h-0 px-4">
+        <div className="flex-1 overflow-y-auto no-scrollbar">
+          {/* Amount */}
+          <div className="flex items-center justify-center py-4">
+            <span className="text-3xl font-medium text-heading-gray/53 leading-none">
+              {amount} {token}
+            </span>
+          </div>
 
-        {/* Transfer Details Card */}
-        <div className="mt-8 w-full">
-          <DetailCard title={t('transferDetails')}>
+          {/* Transfer Details Card */}
+          <DetailCard>
             <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
             <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
             <DetailRow label={t('network')} badge={t('testnet')} isLast={!hasRecall} />
             {hasRecall && <DetailRow label={t('recallBy')} value={displayRecalLabel || recallBlocks!} isLast />}
           </DetailCard>
-        </div>
 
-        {/* Options Card */}
-        <div className="mt-4">
-          <DetailCard title={t('options')}>
-            <DetailRow
-              label={t('privatePayment')}
-              icon={<Icon name={IconName.Lock} size="xs" className="text-primary-500" />}
-            >
-              <ToggleBadge enabled={sharePrivately} />
-            </DetailRow>
-            <DetailRow
-              label={t('delegateProving')}
-              icon={<Icon name={IconName.DelegateProving} size="xs" className="text-primary-500" />}
-              isLast={!hasRecall}
-            >
-              <ToggleBadge enabled={delegateTransaction} />
-            </DetailRow>
-            {hasRecall && (
-              <DetailRow
-                label={t('recallEnabled')}
-                icon={<Icon name={IconName.RecallClock} size="xs" className="text-primary-500" />}
-                isLast
-              >
-                <ToggleBadge enabled />
+          {/* Options Card */}
+          <div className="mt-3">
+            <DetailCard>
+              <DetailRow label={t('privatePayment')}>
+                <ToggleBadge enabled={sharePrivately} />
               </DetailRow>
-            )}
-          </DetailCard>
+              <DetailRow label={t('delegateProving')} isLast={!hasRecall}>
+                <ToggleBadge enabled={delegateTransaction} />
+              </DetailRow>
+              {hasRecall && (
+                <DetailRow label={t('recallEnabled')} isLast>
+                  <ToggleBadge enabled />
+                </DetailRow>
+              )}
+            </DetailCard>
+          </div>
         </div>
-
-        <div className="flex-1" />
 
         {/* Buttons */}
-        <div className="pt-12 pb-4 flex flex-col gap-y-4">
+        <div className="shrink-0 pt-4 pb-4 flex flex-col gap-y-2">
           <Button
             type="submit"
             title={t('confirm')}
@@ -110,7 +97,7 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
             type="button"
             onClick={onGoBack}
             variant={ButtonVariant.Secondary}
-            className="w-full rounded-5 bg-gray-25"
+            className="w-full rounded-5"
             title={t('cancel')}
           />
         </div>

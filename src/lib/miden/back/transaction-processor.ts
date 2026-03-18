@@ -37,7 +37,9 @@ export async function startTransactionProcessing(): Promise<void> {
 
     while (attempts < maxAttempts) {
       attempts++;
-      await safeGenerateTransactionsLoop(swSignCallback, false);
+      console.log('[TransactionProcessor] Loop attempt', attempts);
+      const result = await safeGenerateTransactionsLoop(swSignCallback, false);
+      console.log('[TransactionProcessor] Loop result:', result);
 
       // Broadcast progress so popup UI can update
       try {
