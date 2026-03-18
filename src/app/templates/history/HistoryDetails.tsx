@@ -61,6 +61,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const loadTransaction = useCallback(async () => {
     try {

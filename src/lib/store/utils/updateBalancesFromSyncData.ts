@@ -60,7 +60,8 @@ export async function updateBalancesFromSyncData(
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
       fiatPrice: 1,
-      balance: balance.toNumber()
+      balance: balance.toNumber(),
+      change24h: 0
     });
   }
 
@@ -77,7 +78,8 @@ export async function updateBalancesFromSyncData(
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
       fiatPrice: 1,
-      balance: 0
+      balance: 0,
+      change24h: 0
     });
   }
 

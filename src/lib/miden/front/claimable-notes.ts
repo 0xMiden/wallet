@@ -213,7 +213,8 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         amount: n.amountBaseUnits,
         metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
         senderAddress: n.senderAddress,
-        isBeingClaimed: extensionClaimingNoteIds.has(n.id)
+        isBeingClaimed: extensionClaimingNoteIds.has(n.id),
+        type: (n.noteType as any) || 'unknown'
       }));
   }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
 

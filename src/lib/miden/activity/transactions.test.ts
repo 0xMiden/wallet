@@ -41,11 +41,12 @@ jest.mock('lib/miden/repo', () => {
 
 const mockGetInputNote = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue({ blockNum: () => 1 });
+const mockGetMidenClient = jest.fn((): any => ({
+  syncState: mockSyncState,
+  webClient: { getInputNote: mockGetInputNote }
+}));
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: jest.fn(() => ({
-    syncState: mockSyncState,
-    webClient: { getInputNote: mockGetInputNote }
-  })),
+  getMidenClient: () => mockGetMidenClient(),
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
@@ -527,7 +528,7 @@ describe('transactions utilities', () => {
       });
 
       // Mock the WASM client for the actual transaction execution
-      mockGetMidenClient.mockResolvedValue({
+      mockGetMidenClient.mockReturnValue({
         syncState: mockSyncState,
         sendTransaction: jest.fn().mockImplementation(() => {
           callOrder.push('sendTransaction');

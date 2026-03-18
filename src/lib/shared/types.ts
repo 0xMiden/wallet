@@ -171,6 +171,7 @@ export interface SerializedConsumableNote {
   faucetId: string;
   amountBaseUnits: string;
   senderAddress: string;
+  noteType?: string; // 'public' | 'private' | 'unknown'
   metadata?: {
     decimals: number;
     symbol: string;

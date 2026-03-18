@@ -391,7 +391,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                     removedFungibleAssetsDetails.map(details => (
                       <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
                         <span className="text-black-500 text-lg font-semibold">
-                          {`${formatAmount(details.asset.amount(), 'send', details.metadata.decimals)} ${
+                          {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
@@ -403,7 +403,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                     addedFungibleAssetsDetails.map(details => (
                       <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
                         <span className="text-green-500 text-lg font-semibold">
-                          {`${formatAmount(details.asset.amount(), 'consume', details.metadata.decimals)} ${
+                          {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
