@@ -22,6 +22,10 @@ jest.mock('../../miden/front/assets', () => ({
   setTokensBaseMetadata: jest.fn(async () => {})
 }));
 
+jest.mock('lib/prices', () => ({
+  getTokenPrice: jest.fn(() => ({ price: 1, change24h: 0, percentageChange24h: 0 }))
+}));
+
 describe('updateBalancesFromSyncData', () => {
   beforeEach(() => {
     useWalletStore.setState({

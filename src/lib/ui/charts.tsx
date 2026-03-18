@@ -109,12 +109,12 @@ function ChartTooltipContent({
   nameKey,
   labelKey
 }: any & {
-    hideLabel?: boolean;
-    hideIndicator?: boolean;
-    indicator?: 'line' | 'dot' | 'dashed';
-    nameKey?: string;
-    labelKey?: string;
-  }) {
+  hideLabel?: boolean;
+  hideIndicator?: boolean;
+  indicator?: 'line' | 'dot' | 'dashed';
+  nameKey?: string;
+  labelKey?: string;
+}) {
   const { config } = useChart();
 
   const tooltipLabel = React.useMemo(() => {
@@ -221,13 +221,7 @@ function ChartTooltipContent({
 
 const ChartLegend = RechartsPrimitive.Legend;
 
-function ChartLegendContent({
-  className,
-  hideIcon = false,
-  payload,
-  verticalAlign = 'bottom',
-  nameKey
-}: any) {
+function ChartLegendContent({ className, hideIcon = false, payload, verticalAlign = 'bottom', nameKey }: any) {
   const { config } = useChart();
 
   if (!payload?.length) {

@@ -323,7 +323,7 @@ describe('fetchBalances', () => {
     const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
     getBech32AddressFromAccountId.mockReturnValueOnce('miden-faucet-id');
 
-    await fetchBalances('my-address', {}, { fetchMissingMetadata: false });
+    await fetchBalances('my-address', {});
 
     // Should read from IndexedDB
     expect(mockGetAccount).toHaveBeenCalledWith('my-address');

@@ -214,7 +214,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
         senderAddress: n.senderAddress,
         isBeingClaimed: extensionClaimingNoteIds.has(n.id),
-        type: (n.noteType as any) || 'unknown'
+        type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown'
       }));
   }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
 

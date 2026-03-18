@@ -14,8 +14,6 @@ import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../
 export interface FetchBalancesOptions {
   /** Callback to update asset metadata in the store */
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
-  /** Whether to fetch missing metadata inline (default: true) */
-  fetchMissingMetadata?: boolean;
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
 }
@@ -36,22 +34,12 @@ export async function fetchBalances(
 ): Promise<TokenBalanceData[]> {
   const cachedMetadatas =
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
-  console.log(
-    'fetchBalances - address:',
-    address,
-    'tokenMetadatas:',
-    tokenMetadatas,
-    'cachedMetadatas:',
-    cachedMetadatas
-  );
   const { setAssetsMetadata, tokenPrices = {} } = options;
   const balances: TokenBalanceData[] = [];
 
   // Local copy of metadata that we can add to during this fetch
   const localMetadatas = { ...tokenMetadatas };
 
-  // Always fetch missing metadata — the check happens per-asset inside the loop
-  const fetchMissingMetadata = true;
   // Get midenFaucetId early so we can use it inside the lock
   const midenFaucetId = await getFaucetIdSetting();
 
@@ -66,11 +54,12 @@ export async function fetchBalances(
 
     return { account: acc, assets: acc.vault().fungibleAssets() as FungibleAsset[] };
   });
-  console.log('Fetched account and assets from WASM client:', { account, assets });
+
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
 
-  if (fetchMissingMetadata) {
+  // Fetch missing metadata for non-MIDEN tokens
+  {
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());

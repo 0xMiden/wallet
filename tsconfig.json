@@ -20,6 +20,5 @@
     "downlevelIteration": true,
     "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["src", "playwright/**/*.ts", "playwright.config.ts"],
-  "exclude": ["src/lib/miden/sdk-bridge"]
+  "include": ["src", "playwright/**/*.ts", "playwright.config.ts"]
 }
