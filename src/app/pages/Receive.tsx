@@ -398,7 +398,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
         <button
           type="button"
           onClick={goBack}
-          className="flex items-center justify-center w-8 h-8 rounded-full "
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100 cursor-pointer"
           aria-label="Back"
         >
           <Icon name={IconName.ChevronLeft} size="sm" fill="currentColor" className="stroke-black" />
@@ -407,7 +407,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
 
         <button
           type="button"
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100"
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-grey-100 cursor-pointer"
           aria-label={t('showQrCode')}
           onClick={() => {
             hapticLight();

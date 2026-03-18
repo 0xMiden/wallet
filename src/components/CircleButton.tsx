@@ -37,6 +37,7 @@ export const CircleButton: React.FC<ButtonProps> = ({
         'aspect-square rounded-full p-1',
         'transition duration-300 ease-in-out focus:outline-none shadow-none',
         'hover:bg-gray-100 focus:bg-gray-100 disabled:bg-gray-200',
+        disabled ? 'cursor-default' : 'cursor-pointer',
         className
       )}
       disabled={disabled}

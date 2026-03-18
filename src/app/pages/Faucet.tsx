@@ -56,22 +56,18 @@ const Faucet: FC = () => {
   }
 
   return (
-    <div className={clsx('text-heading-gray')}>
+    <div className={clsx('flex flex-col h-full text-heading-gray')}>
       <NavigationHeader mode="back" title={t('faucet')} onBack={goBack} showBorder />
-      <div className={clsx('flex flex-col justify-between h-full w-full', isMobile() ? 'px-8' : 'px-4')}>
-        <div className="flex flex-col pt-16.25">
-          <div className="flex flex-col justify-center items-center bg-app-bg">
-            <div className="flex items-center justify-center mb-6 w-[156px] h-[156px]">
-              <FaucetIcon className="text-primary-orange" style={{ width: 78, height: 78 }} />
-            </div>
-            <div className="w-full flex flex-col items-center justify-center">
-              <h1 className="font-semibold text-2xl">{t('midenFaucet')}</h1>
-              <p className="text-sm text-center mt-2 ">{t('faucetMessage')}</p>
-            </div>
+      <div className={clsx('flex flex-col flex-1 min-h-0 w-full', isMobile() ? 'px-8' : 'px-4')}>
+        <div className="flex flex-col flex-1 items-center justify-center">
+          <div className="flex items-center justify-center mb-6 w-[156px] h-[156px]">
+            <FaucetIcon className="text-primary-orange" style={{ width: 78, height: 78 }} />
           </div>
+          <h1 className="font-semibold text-2xl">{t('midenFaucet')}</h1>
+          <p className="text-sm text-center mt-2">{t('faucetMessage')}</p>
         </div>
-        <div className="flex flex-col gap-y-4">
-          <Button onClick={openFaucet}>
+        <div className="shrink-0 pb-4">
+          <Button onClick={openFaucet} className="w-full">
             <span className="text-base font-medium text-pure-white">
               {copied ? t('copiedAddress') : t('goToFaucet')}
             </span>

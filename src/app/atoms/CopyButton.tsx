@@ -72,11 +72,11 @@ const CopyButton: FC<CopyButtonProps> = ({
                 'text-black',
                 roundedClassName,
                 smallClassName,
-                'font-tnum leading-none select-none',
+                'font-tnum leading-none select-none cursor-pointer',
                 'transition ease-in-out duration-300',
                 className
               )
-            : classNames('hover:underline', className)
+            : classNames('hover:underline cursor-pointer', className)
         }
         {...rest}
         onClick={handleCopyPress}

@@ -253,7 +253,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {/* Advanced Options */}
           <button
             type="button"
-            className="mt-6 flex items-center justify-between w-full rounded-[10px] px-4 py-3.5 transition-colors bg-pure-white"
+            className="mt-6 flex items-center justify-between w-full rounded-[10px] px-4 py-3.5 transition-colors bg-pure-white cursor-pointer"
             onClick={() => {
               hapticLight();
               setShowAdvanced(prev => !prev);
@@ -281,7 +281,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 <div className="px-4 bg-white rounded-b-10">
                   <div className="mt-4">
                     <OptionItem
-                      icon={IconName.DelegateProving}
                       title={t('delegateProving')}
                       subTitle={t('delegateProvingDescription')}
                       value={delegateTransaction}
@@ -300,7 +299,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                     <p className="text-xs text-heading-gray mt-1">{t('recallHeightDescription')}</p>
                     <button
                       type="button"
-                      className="w-full h-14 flex items-center justify-between bg-input-bg rounded-[10px] px-4 mt-3"
+                      className="w-full h-14 flex items-center justify-between bg-input-bg rounded-[10px] px-4 mt-3 cursor-pointer"
                       onClick={() => setShowCalendar(true)}
                     >
                       <div className="flex items-center gap-2">
@@ -323,15 +322,16 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           </AnimatePresence>
 
           {/* Continue Button */}
-          <div className="mt-auto pt-8 pb-4 shrink-0">
-            <Button
-              title={t('continue')}
-              variant={ButtonVariant.Primary}
-              onClick={handleReviewOpen}
-              disabled={!canProceed}
-              className="w-full rounded-[10px] text-base font-semibold"
-            />
-          </div>
+        </div>
+
+        <div className="pt-4 pb-4 shrink-0">
+          <Button
+            title={t('continue')}
+            variant={ButtonVariant.Primary}
+            onClick={handleReviewOpen}
+            disabled={!canProceed}
+            className="w-full rounded-[10px] text-base font-semibold"
+          />
         </div>
 
         {/* Calendar Drawer */}
@@ -364,7 +364,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   type="time"
                   value={recallTime}
                   onChange={e => onRecallTimeChange(e.target.value)}
-                  className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium"
+                  className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                 />
               </div>
 
@@ -372,7 +372,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               {recallDate && (
                 <button
                   type="button"
-                  className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium"
+                  className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium cursor-pointer"
                   onClick={() => applyDateTimeSelection(recallDate, recallTime)}
                 >
                   {t('confirm')}
@@ -385,7 +385,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   <button
                     key={i}
                     type="button"
-                    className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors"
+                    className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors cursor-pointer"
                     onClick={() => {
                       const date = preset.fn(new Date());
                       applyDateTimeSelection(date, format(date, 'HH:mm'));
@@ -410,7 +410,7 @@ export const OptionItem = ({
   subTitle,
   value
 }: {
-  icon: IconName;
+  icon?: IconName;
   onToggle: (val: boolean) => void;
   title: string;
   subTitle: string;
@@ -419,9 +419,11 @@ export const OptionItem = ({
   return (
     <div className="flex items-center justify-between font-geist">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0">
-          <Icon name={icon} size="sm" className="text-primary-500" />
-        </div>
+        {icon && (
+          <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0">
+            <Icon name={icon} size="sm" className="text-primary-500" />
+          </div>
+        )}
         <div className="space-y-0.5">
           <div className={clsx('font-medium text-heading-gray leading-none', isMobile() ? 'text-sm' : 'text-base')}>
             {title}

@@ -214,6 +214,17 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
         </div>
       </article>
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
+        <p className="text-grey-600 text-xs text-center px-4">
+          {t('byProceeding')}{' '}
+          <a target="_blank" href="https://www.miden.fi/terms" className="underline" rel="noreferrer">
+            {t('termsOfUsage')}
+          </a>{' '}
+          {t('andWord')}{' '}
+          <a target="_blank" href="https://www.miden.fi/privacy" className="underline" rel="noreferrer">
+            {t('privacyPolicy')}
+          </a>
+          .
+        </p>
         <Button title={t('continue')} disabled={!isValidPassword} onClick={onPasswordSubmit} />
       </div>
     </div>

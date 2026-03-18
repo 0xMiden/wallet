@@ -82,14 +82,14 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <div className="flex gap-3">
             <button
               onClick={() => navigate({ pathname: '/send', search: `?tokenId=${tokenId}` })}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-send-blue text-pure-white font-semibold text-sm"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-send-blue text-pure-white font-semibold text-sm cursor-pointer"
             >
               <SendIcon className="w-4 h-4" />
               {t('send')}
             </button>
             <button
               onClick={() => navigate('/receive')}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-receive-green text-pure-white font-semibold text-sm"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-receive-green text-pure-white font-semibold text-sm cursor-pointer"
             >
               <ReceiveIcon className="w-4 h-4" />
               {t('receive')}

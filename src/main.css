@@ -38,6 +38,16 @@
   font-variant-ligatures: none;
 }
 
+button,
+[role='button'] {
+  cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'] {
+  cursor: default;
+}
+
 html,
 body,
 #root {
