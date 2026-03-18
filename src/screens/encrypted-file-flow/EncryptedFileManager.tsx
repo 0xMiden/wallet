@@ -1,11 +1,13 @@
-import React, { ChangeEvent, useCallback, useEffect } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
 import { SubmitHandler, useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 
-import { useAppEnv } from 'app/env';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { navigate } from 'lib/woozie';
 import EncryptedWalletFileWalletPassword from 'screens/encrypted-file-flow/EncryptedWalletFileWalletPassword';
 
@@ -34,8 +36,9 @@ const ROUTES: Route[] = [
 export interface EncryptedFileManagerProps {}
 
 export const EncryptedFileManager: React.FC<{}> = () => {
-  const { navigateTo, goBack, cardStack } = useNavigator();
-  const { fullPage } = useAppEnv();
+  const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
+  const { t } = useTranslation();
+  const [drawerOpen, setDrawerOpen] = useState(true);
 
   const onClose = useCallback(() => {
     navigate('/settings');
@@ -56,7 +59,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
     defaultValues: {
       walletPassword: '',
       filePassword: '',
-      fileName: 'Encrypted Wallet File'
+      fileName: ''
     }
   });
 
@@ -94,23 +97,20 @@ export const EncryptedFileManager: React.FC<{}> = () => {
     [navigateTo, goBack, onClose, setValue]
   );
 
-  const onSubmit: SubmitHandler<EncryptedFileForm> = useCallback(
-    async data => {
-      if (formState.isSubmitting) {
-        return;
+  const onSubmit: SubmitHandler<EncryptedFileForm> = useCallback(async () => {
+    if (formState.isSubmitting) {
+      return;
+    }
+    try {
+      clearErrors('root');
+    } catch (e: unknown) {
+      const error = e as Error;
+      if (error.message) {
+        setError('root', { type: 'manual', message: error.message });
       }
-      try {
-        clearErrors('root');
-      } catch (e: unknown) {
-        const error = e as Error;
-        if (error.message) {
-          setError('root', { type: 'manual', message: error.message });
-        }
-        console.error(e);
-      }
-    },
-    [formState.isSubmitting, clearErrors, setError]
-  );
+      console.error(e);
+    }
+  }, [formState.isSubmitting, clearErrors, setError]);
 
   const goToStep = useCallback(
     (step: EncryptedFileStep) => {
@@ -149,19 +149,16 @@ export const EncryptedFileManager: React.FC<{}> = () => {
     [onAction]
   );
 
+  const handleWalletPasswordNext = useCallback(() => {
+    setDrawerOpen(false);
+    goToStep(EncryptedFileStep.ExportFilePassword);
+  }, [goToStep]);
+
   const renderStep = useCallback(
     (route: Route) => {
       switch (route.name) {
         case EncryptedFileStep.WalletPassword:
-          const onGoNext = () => goToStep(EncryptedFileStep.ExportFilePassword);
-          return (
-            <EncryptedWalletFileWalletPassword
-              onGoNext={onGoNext}
-              onGoBack={goBack}
-              onPasswordChange={onWalletPasswordChange}
-              walletPassword={walletPassword}
-            />
-          );
+          return null;
         case EncryptedFileStep.ExportFilePassword:
           return (
             <ExportFilePassword
@@ -189,43 +186,52 @@ export const EncryptedFileManager: React.FC<{}> = () => {
           return <></>;
       }
     },
-    [
-      goBack,
-      onWalletPasswordChange,
-      onFileNameChange,
-      fileName,
-      onFilePasswordChange,
-      filePassword,
-      walletPassword,
-      onClose,
-      goToStep
-    ]
+    [goBack, onFileNameChange, fileName, onFilePasswordChange, filePassword, walletPassword, onClose, goToStep]
   );
+
+  const isWalletPasswordStep = activeRoute?.name === EncryptedFileStep.WalletPassword;
 
   return (
     <div
-      className={classNames(
-        fullPage
-          ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-          : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]',
-        'mx-auto overflow-hidden ',
-        'flex flex-1',
-        'flex-col bg-white',
-        fullPage && 'border rounded-3xl',
-        'overflow-hidden relative'
-      )}
+      className={classNames('mx-auto overflow-hidden', 'flex flex-1', 'flex-col bg-app-bg', 'overflow-hidden relative')}
       data-testid="encrypted-file-manager-flow"
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex">
-        <Navigator renderRoute={renderStep} initialRouteName={EncryptedFileStep.WalletPassword} />
-      </form>
+      <Drawer
+        open={drawerOpen && isWalletPasswordStep}
+        onOpenChange={open => {
+          if (!open) onClose();
+        }}
+      >
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>{t('encryptedWalletFile')}</DrawerTitle>
+          </DrawerHeader>
+          <div className="px-4 pb-6 overflow-y-auto min-h-0">
+            <EncryptedWalletFileWalletPassword
+              onGoNext={handleWalletPasswordNext}
+              onGoBack={onClose}
+              onPasswordChange={onWalletPasswordChange}
+              walletPassword={walletPassword}
+            />
+          </div>
+        </DrawerContent>
+      </Drawer>
+
+      {!isWalletPasswordStep && (
+        <>
+          <NavigationHeader showBorder title={t('encryptedWalletFile')} onBack={onClose} />
+          <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0 bg-app-bg">
+            <Navigator renderRoute={renderStep} />
+          </form>
+        </>
+      )}
     </div>
   );
 };
 
-const NavigatorWrapper: React.FC<EncryptedFileManagerProps> = props => {
+const NavigatorWrapper: React.FC<EncryptedFileManagerProps> = () => {
   return (
-    <NavigatorProvider routes={ROUTES}>
+    <NavigatorProvider routes={ROUTES} initialRouteName={EncryptedFileStep.WalletPassword}>
       <EncryptedFileManager />
     </NavigatorProvider>
   );

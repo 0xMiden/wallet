@@ -1,5 +1,5 @@
 const fs = require('fs');
-const translate = require('translate');
+const translate = require('translate').default;
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');

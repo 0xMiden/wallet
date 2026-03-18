@@ -30,7 +30,7 @@ import ImportNoteResult from './pages/ImportNoteResult';
 import ManageAssets from './pages/ManageAssets';
 import ResetRequired from './pages/ResetRequired';
 import SelectAccount from './pages/SelectAccount';
-import TokenHistory from './pages/TokenHistory';
+import TokenDetail from './pages/TokenDetail';
 import { HistoryDetails } from './templates/history/HistoryDetails';
 
 interface RouteContext {
@@ -79,8 +79,8 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
         case ctx.locked:
           return <Unlock />;
 
-        case !ctx.ready && !ctx.fullPage:
-          return <OpenInFullPage />;
+        case !ctx.ready:
+          return <Welcome />;
 
         default:
           return Woozie.Router.SKIP;
@@ -111,9 +111,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (
-      <TabLayout>
+      <FullScreenPage>
         <Settings tabSlug={tabSlug} />
-      </TabLayout>
+      </FullScreenPage>
     ))
   ],
   [
@@ -190,10 +190,10 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/token-history/:tokenId',
+    '/token-detail/:tokenId',
     onlyReady(({ tokenId }) => (
       <FullScreenPage>
-        <TokenHistory tokenId={tokenId!} />
+        <TokenDetail tokenId={tokenId!} />
       </FullScreenPage>
     ))
   ],

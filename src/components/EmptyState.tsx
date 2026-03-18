@@ -19,7 +19,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => {
   return (
     <div {...props} className={classNames('flex flex-col items-center justify-center gap-y-1', className)}>
-      <Icon name={icon} fill="black" size="xl" />
+      <Icon name={icon} fill="currentColor" size="xl" />
       <div className="flex flex-col items-center gap-y-2">
         <h1 className="font-semibold text-lg">{title}</h1>
         <p className="text-sm">{description}</p>

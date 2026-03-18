@@ -59,7 +59,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
-import { queueNoteImport, startBackgroundTransactionProcessing } from '../activity';
+import { queueNoteImport } from '../activity';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -69,15 +69,11 @@ import {
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { store, withUnlocked } from './store';
+import { startTransactionProcessing } from './transaction-processor';
 
-/** Starts background transaction processing with a sign callback that re-acquires the vault on each attempt. */
+/** Starts background transaction processing using the unified SW transaction processor. */
 function startDappBackgroundProcessing() {
-  startBackgroundTransactionProcessing(async (publicKey, signingInputs) => {
-    return withUnlocked(async ({ vault }) => {
-      const signatureHex = await vault.signTransaction(publicKey, signingInputs);
-      return new Uint8Array(Buffer.from(signatureHex, 'hex'));
-    });
-  });
+  startTransactionProcessing().catch(err => console.error('[DApp] Transaction processing error:', err));
 }
 
 // Log to Rust stdout for desktop debugging

@@ -3,10 +3,11 @@ import React, { FC, memo, ReactNode } from 'react';
 import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 
+import Money from 'app/atoms/Money';
 import Name from 'app/atoms/Name';
 import { useAppEnv } from 'app/env';
 import Balance from 'app/templates/Balance';
-import InFiat from 'app/templates/InFiat';
+import { useFiatCurrency } from 'lib/fiat-curency';
 import { PropsWithChildren } from 'lib/props-with-children';
 
 const MainBanner = memo(() => {
@@ -15,28 +16,13 @@ const MainBanner = memo(() => {
 
 export default MainBanner;
 
-const BalanceBanner: FC<{ balance: BigNumber; assetSlug?: string | null }> = ({ balance, assetSlug }) => {
-  if (assetSlug) {
-    return (
-      <div className="mt-3 font-bold text-black flex" style={{ fontSize: `2.25rem`, lineHeight: '2.5rem' }}>
-        {balance.toString()}
-        <div className="flex flex-col justify-end ml-2" style={{ fontSize: `22px`, lineHeight: '32px' }}>
-          <span className="text-gray-4 font-normal uppercase" style={{ color: '#9E9E9E' }}>
-            {assetSlug}
-          </span>
-        </div>
-      </div>
-    );
-  }
+const BalanceBanner: FC<{ balance: BigNumber }> = ({ balance }) => {
+  const { selectedFiatCurrency } = useFiatCurrency();
   return (
-    <InFiat assetSlug={assetSlug || 'aleo'} volume={balance} smallFractionFont={false}>
-      {({ balance, symbol }) => (
-        <div className="mt-1 font-bold text-black flex" style={{ fontSize: `2.25rem`, lineHeight: '2.5rem' }}>
-          <span>{symbol}</span>
-          {balance}
-        </div>
-      )}
-    </InFiat>
+    <div className="mt-1 text-heading-gray flex text-[64px] leading-none font-bold">
+      <span>{selectedFiatCurrency.symbol}</span>
+      <Money fiat>{balance}</Money>
+    </div>
   );
 };
 
@@ -45,11 +31,7 @@ const AssetBanner: FC = () => {
 
   return (
     <BannerLayout name={<Name style={{ maxWidth: popup ? '11rem' : '13rem' }}>{'Miden'}</Name>}>
-      <div className=" w-full flex justify-center">
-        <div className="flex items-center">
-          <Balance>{balance => <BalanceBanner balance={balance} />}</Balance>
-        </div>
-      </div>
+      <Balance>{balance => <BalanceBanner balance={balance} />}</Balance>
     </BannerLayout>
   );
 };
@@ -59,7 +41,7 @@ interface BannerLayoutProps extends PropsWithChildren {
 }
 
 const BannerLayout: FC<BannerLayoutProps> = ({ name, children }) => (
-  <div className={classNames('w-full', 'flex flex-col justify-start max-w-sm px-3')}>
-    <div className={classNames('relative', 'w-full', 'pb-3', 'flex')}>{children}</div>
+  <div className={classNames('flex flex-col justify-start max-w-sm')}>
+    <div className={classNames('flex')}>{children}</div>
   </div>
 );

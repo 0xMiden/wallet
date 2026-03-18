@@ -2,18 +2,20 @@ import { FungibleAsset } from '@miden-sdk/miden-sdk';
 import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
-import { setTokensBaseMetadata } from '../../miden/front/assets';
+import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
 
 export interface FetchBalancesOptions {
   /** Callback to update asset metadata in the store */
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
-  /** Whether to fetch missing metadata inline (default: true) */
-  fetchMissingMetadata?: boolean;
+  /** Token prices from Binance API (symbol -> { price, change24h }) */
+  tokenPrices?: TokenPrices;
 }
 
 /**
@@ -30,7 +32,9 @@ export async function fetchBalances(
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
 ): Promise<TokenBalanceData[]> {
-  const { setAssetsMetadata, fetchMissingMetadata = true } = options;
+  const cachedMetadatas =
+    (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
+  const { setAssetsMetadata, tokenPrices = {} } = options;
   const balances: TokenBalanceData[] = [];
 
   // Local copy of metadata that we can add to during this fetch
@@ -52,9 +56,10 @@ export async function fetchBalances(
   });
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
-  const fetchedMetadatas: Record<string, AssetMetadata> = {};
+  const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
 
-  if (fetchMissingMetadata) {
+  // Fetch missing metadata for non-MIDEN tokens
+  {
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
@@ -76,12 +81,14 @@ export async function fetchBalances(
   // Handle case where account doesn't exist (outside the lock)
   if (!account) {
     console.warn(`Account not found: ${address}`);
+    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     return [
       {
         tokenId: midenFaucetId,
         tokenSlug: 'MIDEN',
         metadata: MIDEN_METADATA,
-        fiatPrice: 1,
+        fiatPrice: midenPrice.price,
+        change24h: midenPrice.change24h,
         balance: 0
       }
     ];
@@ -111,23 +118,27 @@ export async function fetchBalances(
     }
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
+    const priceInfo = getTokenPrice(tokenPrices, tokenMetadata.symbol);
 
     balances.push({
       tokenId,
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
-      fiatPrice: 1,
+      fiatPrice: priceInfo.price,
+      change24h: priceInfo.change24h,
       balance: balance.toNumber()
     });
   }
 
   // Always include MIDEN token (even if balance is 0)
   if (!hasMiden) {
+    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: 1,
+      fiatPrice: midenPrice.price,
+      change24h: midenPrice.change24h,
       balance: 0
     });
   }

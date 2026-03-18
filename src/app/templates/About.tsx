@@ -24,39 +24,14 @@ const About: FC = () => {
       <div className="flex flex-col w-full py-2">
         {/* eslint-disable i18next/no-literal-string */}
         {[
-          {
-            key: 'website',
-            link: 'https://miden.xyz',
-            insertHR: false
-          },
-          {
-            key: 'twitter',
-            link: 'https://x.com/0xMiden',
-            insertHR: false
-          },
-          {
-            key: 'privacyPolicy',
-            link: 'https://miden.fi/privacy',
-            insertHR: false
-          },
-          {
-            key: 'termsOfUse',
-            link: 'https://miden.fi/terms',
-            insertHR: false
-          }
+          { key: 'website', link: 'https://miden.xyz' },
+          { key: 'twitter', link: 'https://x.com/0xMiden' },
+          { key: 'privacyPolicy', link: 'https://miden.fi/privacy' },
+          { key: 'termsOfUse', link: 'https://miden.fi/terms' }
         ]
           /* eslint-enable i18next/no-literal-string */
-          .map(({ key, link, insertHR }) => {
-            return (
-              <MenuItem
-                key={key}
-                slug={link}
-                titleI18nKey={key}
-                testID={''}
-                insertHR={insertHR}
-                linksOutsideOfWallet={true}
-              />
-            );
+          .map(({ key, link }) => {
+            return <MenuItem key={key} slug={link} titleI18nKey={key} testID={''} linksOutsideOfWallet={true} />;
           })}
       </div>
     </div>

@@ -4,11 +4,14 @@ import { NoteToastProvider } from 'components/NoteToastProvider';
 import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { isExtension } from 'lib/platform';
+import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { getMidenClient } from '../sdk/miden-client';
 import { TokensMetadataProvider } from './assets';
+import { useSyncTrigger } from './useSyncTrigger';
 
 // Pre-create the modal container to avoid flash when first opening
 if (typeof document !== 'undefined' && document.body) {
@@ -35,7 +38,10 @@ if (typeof document !== 'undefined' && document.body) {
  */
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // Eagerly initialize the Miden client singleton when the app starts
+  // On extension, skip — the WASM client will lazy-init on first write operation
   useEffect(() => {
+    if (isExtension()) return;
+
     const initializeClient = async () => {
       try {
         await getMidenClient();
@@ -71,11 +77,15 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
 const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   const { ready } = useMidenContext();
 
+  // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
+  useSyncTrigger();
+
   return useMemo(
     () =>
       ready ? (
         <TokensMetadataProvider>
           <FiatCurrencyProvider>
+            <PriceProvider />
             {children}
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />

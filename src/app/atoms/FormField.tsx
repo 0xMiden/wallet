@@ -45,6 +45,8 @@ interface FormFieldProps extends FormFieldAttrs {
   labelPaddingClassName?: string;
   dropdownInner?: ReactNode;
   copyable?: boolean;
+  labelClassName?: string;
+  labelDescriptionClassName?: string;
 }
 
 const FormField = forwardRef<FormFieldRef, FormFieldProps>(
@@ -76,8 +78,10 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
       spellCheck = false,
       autoComplete = 'off',
       fieldWrapperBottomMargin = true,
-      labelPaddingClassName = 'mb-4',
+      labelPaddingClassName = '',
       copyable,
+      labelClassName,
+      labelDescriptionClassName,
       ...rest
     },
     ref
@@ -157,8 +161,9 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
           label={label}
           warning={labelWarning}
           description={labelDescription}
-          className={labelPaddingClassName}
+          className={classNames(labelPaddingClassName, labelClassName)}
           id={id}
+          descriptionClassName={labelDescriptionClassName}
         />
 
         {extraSection}
@@ -173,13 +178,12 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               'py-2 pl-4',
               getInnerClassName(isPasswordInput, extraInner),
               errorCaption ? 'border-red-500' : 'border-gray-100',
-              secretBannerDisplayed ? 'border border-gray-800' : 'border',
-              'bg-white focus:bg-transparent',
-              'focus:border-black active:border-black focus:ring-1 focus:ring-black',
+              secretBannerDisplayed ? 'border border-gray-600' : 'border',
+              'bg-gray-25 focus:bg-transparent',
               'outline-none',
               'transition ease-in-out duration-200',
-              'text-black leading-tight',
-              'placeholder-gray-400',
+              'leading-tight',
+              'placeholder:text-gray-600 placeholder:font-medium placeholder:text-sm',
               className
             )}
             style={{
@@ -253,20 +257,18 @@ const SecretBanner: React.FC<SecretBannerProps> = ({ secretBannerDisplayed, hand
 
   return (
     <div
-      className={classNames('absolute', 'bg-gray-800 rounded-lg', 'flex items-center justify-center', 'cursor-text')}
-      style={{
-        top: 2,
-        right: 2,
-        bottom: 2,
-        left: 2
-      }}
+      className={classNames(
+        'absolute inset-0.5 rounded-5',
+        'flex items-center justify-center',
+        'cursor-text',
+        'bg-pure-white/60 dark:bg-pure-black/60 backdrop-blur-sm'
+      )}
       onClick={handleSecretBannerClick}
     >
-      <div className="rounded-lg">
-        <EyeClosedIcon className={classNames('m-auto')} style={{ height: '20px', width: '20px' }} />
-        <p className={classNames('mb-1', 'flex items-center', 'text-black text-md font-semibold', 'uppercase')}></p>
+      <div className="rounded-lg flex flex-col items-center">
+        <EyeClosedIcon className="m-auto h-5 w-5 opacity-60" />
 
-        <p className={classNames('mb-1', 'flex items-center', 'text-black text-sm')}>
+        <p className="mt-1 flex items-center text-sm text-gray-600">
           <span>{t('clickToRevealField')}</span>
         </p>
       </div>
@@ -325,23 +327,24 @@ interface LabelComponentProps {
   label: ReactNode;
   description: ReactNode;
   warning: ReactNode;
+  descriptionClassName?: string;
   id?: string;
 }
 
-const LabelComponent: React.FC<LabelComponentProps> = ({ label, className, description, warning, id }) =>
+const LabelComponent: React.FC<LabelComponentProps> = ({
+  label,
+  className,
+  description,
+  warning,
+  id,
+  descriptionClassName
+}) =>
   label ? (
-    <label className={classNames(className, 'leading-tight', 'flex flex-col')} htmlFor={id}>
-      <span className="text-black font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
-        {label}
-      </span>
+    <label className={classNames('leading-tight', 'flex flex-col', 'mb-4')} htmlFor={id}>
+      <span className={classNames('text-heading-gray font-medium text-[20px]', className)}>{label}</span>
 
       {description && (
-        <span
-          className={classNames('mt-2', 'text-sm text-black')}
-          style={{ maxWidth: '90%', fontSize: '12px', lineHeight: '16px' }}
-        >
-          {description}
-        </span>
+        <span className={classNames('mt-2', 'text-sm text-black leading-4', descriptionClassName)}>{description}</span>
       )}
 
       {warning && <span className={classNames('mt-1', 'text-xs font-medium text-red-600')}>{warning}</span>}

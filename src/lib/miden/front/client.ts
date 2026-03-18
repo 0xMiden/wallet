@@ -4,6 +4,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
+import { isExtension } from 'lib/platform';
 import { WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -77,9 +78,11 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [status, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
-  // Update AutoSync when state changes
+  // Update AutoSync when state changes (mobile/desktop only — extension uses service worker sync)
   useEffect(() => {
-    AutoSync.updateState(state);
+    if (!isExtension()) {
+      AutoSync.updateState(state);
+    }
   }, [state]);
 
   // Derive convenience booleans
@@ -135,7 +138,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const revealMnemonic = useCallback(
-    async (password: string) => {
+    async (password?: string) => {
       return storeRevealMnemonic(password);
     },
     [storeRevealMnemonic]

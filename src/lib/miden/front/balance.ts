@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { fetchBalances } from 'lib/store/utils/fetchBalances';
 
@@ -12,6 +13,7 @@ export interface TokenBalanceData {
   metadata: AssetMetadata;
   balance: number;
   fiatPrice: number;
+  change24h: number;
 }
 
 const REFRESH_INTERVAL = 5_000;
@@ -27,6 +29,7 @@ const DEFAULT_ZERO_MIDEN_BALANCE: TokenBalanceData[] = [
     tokenSlug: 'MIDEN',
     metadata: MIDEN_METADATA,
     fiatPrice: 1,
+    change24h: 0,
     balance: 0
   }
 ];
@@ -60,7 +63,6 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
 
   // Use refs for values that shouldn't trigger callback recreation
   const tokenMetadatasRef = useRef(tokenMetadatas);
-
   // Keep refs in sync
   useEffect(() => {
     tokenMetadatasRef.current = tokenMetadatas;
@@ -68,7 +70,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
 
   // Fetch balances function that respects deduping
   // Uses global lock to prevent concurrent WASM client calls
+  // On extension, balances arrive via SyncCompleted broadcast — skip WASM polling
   const fetchBalancesWithDeduping = useCallback(async () => {
+    if (isExtension()) return;
+
     // Check global lock - prevents concurrent calls across all component instances
     if (fetchingAddresses.has(address)) return;
 
@@ -84,8 +89,10 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     try {
       // Fetch balances using the consolidated utility
       // Metadata is fetched inline, so all tokens appear together
+      const tokenPrices = useWalletStore.getState().tokenPrices;
       const fetchedBalances = await fetchBalances(address, tokenMetadatasRef.current, {
-        setAssetsMetadata
+        setAssetsMetadata,
+        tokenPrices
       });
 
       // Update store if still mounted

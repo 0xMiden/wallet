@@ -56,7 +56,7 @@ const Alert: FC<AlertProps> = ({
       {title && <h2 className="mb-1 text-lg font-semibold">{title}</h2>}
       {description && <div className={classNames('text-sm  break-words', 'overflow-y-auto')}>{description}</div>}
       {closable && (
-        <button className="absolute top-3 right-3" onClick={onClose} type="button">
+        <button className="absolute top-3 right-3 cursor-pointer" onClick={onClose} type="button">
           <CloseIcon className="w-auto h-5 stroke-current" style={{ strokeWidth: 2 }} />
         </button>
       )}

@@ -15,6 +15,9 @@ import { createRoot } from 'react-dom/client';
 import App from 'app/App';
 import { WindowType } from 'app/env';
 import { getDesktopIntercomAdapter } from 'lib/intercom/desktop-adapter';
+import { initTheme } from 'lib/settings/theme';
+
+initTheme();
 
 // Show error on screen for debugging
 function showError(message: string, error?: unknown) {

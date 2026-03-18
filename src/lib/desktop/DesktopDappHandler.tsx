@@ -8,8 +8,9 @@
  * also subscribes to dappConfirmationStore.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import { useEffect } from 'react';
+
+import { invoke } from '@tauri-apps/api/core';
 
 import { MidenDAppRequest } from 'lib/adapter/types';
 import { handleWebViewMessage, WebViewMessage } from 'lib/dapp-browser/message-handler';

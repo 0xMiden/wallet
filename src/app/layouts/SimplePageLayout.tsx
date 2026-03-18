@@ -35,10 +35,10 @@ const SimplePageLayout: FC<SimplePageLayoutProps> = ({ title, icon, children }) 
 
   return (
     <>
-      <DocBg bgClassName="bg-white" />
+      <DocBg bgClassName="bg-app-bg" />
 
       <ContentContainer
-        className={classNames('flex flex-col', 'bg-white', 'rounded-lg', `${containerClass}`)}
+        className={classNames('flex flex-col', 'bg-app-bg', 'rounded-lg', `${containerClass}`)}
         style={containerStyle}
       >
         <div className={classNames('flex flex-col items-center justify-center')}>
@@ -49,7 +49,7 @@ const SimplePageLayout: FC<SimplePageLayoutProps> = ({ title, icon, children }) 
                 paddingLeft: '32px',
                 paddingTop: '32px',
                 paddingBottom: '112px',
-                background: 'url(/misc/bg.svg) white center top / 200% no-repeat'
+                background: 'url(/misc/bg.svg) #F6F4F2 center top / 200% no-repeat'
               }}
             >
               {icon}
@@ -63,9 +63,9 @@ const SimplePageLayout: FC<SimplePageLayoutProps> = ({ title, icon, children }) 
           )}
         </div>
 
-        <div className={classNames('bg-white')}>{children}</div>
+        <div className={classNames('bg-app-bg')}>{children}</div>
 
-        <div className={classNames('flex-1', 'px-4 bg-white')} />
+        <div className={classNames('flex-1', 'px-4 bg-app-bg')} />
       </ContentContainer>
     </>
   );

@@ -49,7 +49,7 @@ const AddContactModal: FC<AddContactModalProps> = ({ address, onClose }) => {
       <form onSubmit={handleSubmit(onAddContactSubmit)}>
         <div className="mb-8">
           <div className="mb-4 flex items-stretch border rounded-md p-2">
-            <AnimalIdenticon publicKey={address ?? ''} size={32} className="flex-shrink-0 shadow-xs" />
+            <AnimalIdenticon publicKey={address ?? ''} size={32} className="shrink-0 shadow-xs" />
 
             <div className="ml-3 flex-1 flex items-center">
               <span className={classNames('text-black text-black')}>

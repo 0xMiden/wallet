@@ -1,11 +1,12 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
-import PageLayout from 'app/layouts/PageLayout';
+import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Message } from 'components/Message';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import { useAccount, useNetwork } from 'lib/miden/front';
@@ -55,25 +56,25 @@ const Faucet: FC = () => {
   }
 
   return (
-    <PageLayout pageTitle={<span>{t('faucet')}</span>}>
-      <div className="flex-1 flex flex-col">
-        <div className="flex-1 flex flex-col justify-center bg-white p-4 md:w-[460px] md:mx-auto">
-          <Message
-            className="flex-1"
-            title={t('midenFaucet')}
-            description={t('midenFaucetDescription')}
-            icon={IconName.Tokens}
-            iconSize="3xl"
-            iconClassName="mb-8"
-          />
+    <div className={clsx('flex flex-col h-full text-heading-gray')}>
+      <NavigationHeader mode="back" title={t('faucet')} onBack={goBack} showBorder />
+      <div className={clsx('flex flex-col flex-1 min-h-0 w-full', isMobile() ? 'px-8' : 'px-4')}>
+        <div className="flex flex-col flex-1 items-center justify-center">
+          <div className="flex items-center justify-center mb-6 w-[156px] h-[156px]">
+            <FaucetIcon className="text-primary-orange" style={{ width: 78, height: 78 }} />
+          </div>
+          <h1 className="font-semibold text-2xl">{t('midenFaucet')}</h1>
+          <p className="text-sm text-center mt-2">{t('faucetMessage')}</p>
         </div>
-        <div className="p-4 flex flex-col gap-y-4">
-          <Button onClick={openFaucet}>
-            <span className="text-base font-medium text-white">{copied ? t('copiedAddress') : t('goToFaucet')}</span>
+        <div className="shrink-0 pb-4">
+          <Button onClick={openFaucet} className="w-full">
+            <span className="text-base font-medium text-pure-white">
+              {copied ? t('copiedAddress') : t('goToFaucet')}
+            </span>
           </Button>
         </div>
       </div>
-    </PageLayout>
+    </div>
   );
 };
 

@@ -1,14 +1,19 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+
+import { type ConsumableNoteRecord } from '@miden-sdk/miden-sdk';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
-import { isIOS } from 'lib/platform';
+import { isExtension, isIOS } from 'lib/platform';
+import { SerializedConsumableNote, WalletMessageType } from 'lib/shared/types';
+import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { isMidenFaucet } from '../assets';
+import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { ConsumableNote } from '../types';
+import { ConsumableNote, NoteTypeEnum } from '../types';
 import { useTokensMetadata } from './assets';
 
 // Debug info for iOS troubleshooting
@@ -30,11 +35,12 @@ type ParsedNote = {
   amountBaseUnits: string;
   senderAddress: string;
   isBeingClaimed: boolean;
+  type: NoteTypeEnum | 'unknown';
 };
 
 // -------------------- Pure helpers (no side effects) --------------------
 
-function parseNotes(rawNotes: any[], notesBeingClaimed: Set<string>): ParsedNote[] {
+function parseNotes(rawNotes: ConsumableNoteRecord[], notesBeingClaimed: Set<string>): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
   for (const note of rawNotes) {
@@ -56,13 +62,14 @@ function parseNotes(rawNotes: any[], notesBeingClaimed: Set<string>): ParsedNote
       const faucetId = getBech32AddressFromAccountId(firstAsset.faucetId());
       const amountBaseUnits = firstAsset.amount().toString();
       const senderAddress = noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '';
-
+      const kind = noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown';
       parsed.push({
         id: noteId,
         faucetId,
         amountBaseUnits,
         senderAddress,
-        isBeingClaimed: notesBeingClaimed.has(noteId)
+        isBeingClaimed: notesBeingClaimed.has(noteId),
+        type: kind
       });
     } catch (err) {
       console.error('Error processing note:', err);
@@ -116,7 +123,8 @@ function attachMetadataToNotes(
       amount: n.amountBaseUnits, // base units
       metadata: metadataByFaucetId[n.faucetId]!,
       senderAddress: n.senderAddress,
-      isBeingClaimed: n.isBeingClaimed
+      isBeingClaimed: n.isBeingClaimed,
+      type: n.type
     }));
 }
 
@@ -131,9 +139,104 @@ async function persistMetadataIfAny(
   }
 }
 
-// -------------------- Hook (composes helpers) --------------------
+// -------------------- Data fetching --------------------
 
-export function useClaimableNotes(publicAddress: string, enabled: boolean = true) {
+async function fetchNotesFromLocalClient(
+  publicAddress: string,
+  debugInfoRef: React.MutableRefObject<ClaimableNotesDebugInfo>
+): Promise<ParsedNote[]> {
+  let rawNotes: any[] = [];
+  try {
+    rawNotes = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      return midenClient.getConsumableNotes(publicAddress);
+    });
+  } catch (e) {
+    debugInfoRef.current = {
+      ...debugInfoRef.current,
+      error: `getConsumableNotes failed: ${e}`,
+      lastFetchTime: new Date().toISOString()
+    };
+    throw e;
+  }
+
+  const uncompletedTxs = await getUncompletedTransactions(publicAddress);
+  const notesBeingClaimed = new Set(
+    uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
+  );
+
+  return parseNotes(rawNotes, notesBeingClaimed);
+}
+
+// -------------------- Extension hook (reads from Zustand) --------------------
+
+function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
+  const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
+  const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+
+  // Poll chrome.storage.local for notes on mount + every 3s.
+  // The SW writes miden_cached_consumable_notes on every sync cycle.
+  // This is the primary data channel — more reliable than intercom broadcasts
+  // which can be lost if any port in the forEach throws.
+  useEffect(() => {
+    if (!enabled) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = globalThis as any;
+    if (!g.chrome?.storage?.local) return;
+
+    const poll = () => {
+      g.chrome.storage.local.get('miden_cached_consumable_notes', (result: any) => {
+        const cached: SerializedConsumableNote[] = result?.miden_cached_consumable_notes || [];
+        useWalletStore.getState().setExtensionClaimableNotes(cached);
+      });
+    };
+
+    // Read immediately on mount
+    poll();
+
+    // Then poll every 3s (aligned with useSyncTrigger's SyncRequest interval)
+    const timer = setInterval(poll, 3_000);
+    return () => clearInterval(timer);
+  }, [enabled]);
+
+  // Map serialized notes to ConsumableNote with metadata
+  const computedData = useMemo(() => {
+    if (!enabled || extensionNotes === null) return undefined;
+
+    return extensionNotes
+      .filter(n => n.metadata || assetsMetadata[n.faucetId])
+      .map(n => ({
+        id: n.id,
+        faucetId: n.faucetId,
+        amount: n.amountBaseUnits,
+        metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
+        senderAddress: n.senderAddress,
+        isBeingClaimed: extensionClaimingNoteIds.has(n.id),
+        type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown'
+      }));
+  }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
+
+  const mutate = useCallback(() => {
+    // Trigger a SyncRequest to get fresh data
+    const intercom = getIntercom();
+    intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
+    return Promise.resolve(undefined);
+  }, []);
+
+  return {
+    data: computedData,
+    mutate,
+    isLoading: extensionNotes === null,
+    isValidating: false,
+    debugInfo: undefined
+  };
+}
+
+// -------------------- Local hook (WASM client, for mobile/desktop) --------------------
+
+function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
   const { allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata } = useTokensMetadata();
   const debugInfoRef = useRef<ClaimableNotesDebugInfo>({
     rawNotesCount: 0,
@@ -145,40 +248,16 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
   });
 
   const fetchClaimableNotes = useCallback(async () => {
-    // Note: getConsumableNotes is a read-only operation that doesn't need key/sign callbacks.
-    // Using getMidenClient() without options avoids disposing/recreating the client on every fetch,
-    // which caused issues on iOS due to constant WASM worker churn.
-    let rawNotes: any[] = [];
-    try {
-      rawNotes = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return midenClient.getConsumableNotes(publicAddress);
-      });
-    } catch (e) {
-      debugInfoRef.current = {
-        ...debugInfoRef.current,
-        error: `getConsumableNotes failed: ${e}`,
-        lastFetchTime: new Date().toISOString()
-      };
-      throw e;
-    }
+    const parsedNotes = await fetchNotesFromLocalClient(publicAddress, debugInfoRef);
 
-    const uncompletedTxs = await getUncompletedTransactions(publicAddress);
-
-    const notesBeingClaimed = new Set(
-      uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
-    );
-
-    // 1) Parse notes and collect faucet ids
-    const parsedNotes = parseNotes(rawNotes, notesBeingClaimed);
     // 2) Seed metadata map from cache (and baked-in MIDEN)
     const metadataByFaucetId = await buildMetadataMapFromCache(parsedNotes, allTokensBaseMetadataRef.current);
 
-    // 3) Schedule background fetch for any missing metadata (non-blocking)
-    // Notes without metadata will be filtered out initially but appear after SWR revalidates
+    // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
+    // This doesn't "warm up" the WASM client — it fetches token metadata (symbol, decimals)
+    // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
     const missingFaucetIds = await findMissingFaucetIds(parsedNotes, metadataByFaucetId);
     if (missingFaucetIds.length > 0) {
-      // Run when client is idle to avoid blocking critical operations
       runWhenClientIdle(async () => {
         const fetched: Record<string, AssetMetadata> = {};
         for (const id of missingFaucetIds) {
@@ -194,14 +273,12 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
         }
       });
     }
-
     // 4) Return notes with available metadata immediately
-    // Notes without metadata will appear after metadata fetch completes and SWR revalidates
     const result = attachMetadataToNotes(parsedNotes, metadataByFaucetId);
 
     // Update debug info
     debugInfoRef.current = {
-      rawNotesCount: rawNotes?.length ?? 0,
+      rawNotesCount: parsedNotes.length,
       parsedNotesCount: parsedNotes.length,
       notesWithMetadataCount: result.length,
       missingFaucetIds,
@@ -228,9 +305,18 @@ export function useClaimableNotes(publicAddress: string, enabled: boolean = true
     }
   });
 
-  // Return both SWR result and debug info (debug info only used on iOS)
   return {
     ...swrResult,
     debugInfo: isIOS() ? debugInfoRef.current : undefined
   };
+}
+
+// -------------------- Dispatch hook --------------------
+
+export function useClaimableNotes(publicAddress: string, enabled: boolean = true) {
+  const extensionMode = isExtension();
+  // Both hooks always called (React rules), but only the active one does work
+  const extensionResult = useExtensionClaimableNotes(publicAddress, enabled && extensionMode);
+  const localResult = useLocalClaimableNotes(publicAddress, enabled && !extensionMode);
+  return extensionMode ? extensionResult : localResult;
 }

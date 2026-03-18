@@ -48,7 +48,7 @@ export const QRCode: React.FC<QRCodeProps> = ({ address, size = 80, onCopy, clas
       )}
       aria-label={t('copyToClipboard')}
     >
-      <div className="bg-white p-2 rounded-md">
+      <div className="bg-pure-white p-2 rounded-md">
         <QRCodeSvg
           value={qrValue}
           style={{ width: size, height: size }}

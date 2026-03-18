@@ -86,7 +86,7 @@ export class Transaction implements ITransaction {
     this.delegateTransaction = delegateTransaction;
     this.secondaryAccountId = recipientAccountId;
     this.status = ITransactionStatus.Queued;
-    this.initiatedAt = Date.now();
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Executing';
   }
@@ -129,7 +129,7 @@ export class SendTransaction implements ITransaction {
     this.faucetId = faucetId;
     this.noteType = noteType;
     this.status = ITransactionStatus.Queued;
-    this.initiatedAt = Date.now();
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'SEND';
     this.displayMessage = 'Sending';
     this.extraInputs.recallBlocks = recallBlocks;
@@ -163,7 +163,7 @@ export class ConsumeTransaction implements ITransaction {
     this.secondaryAccountId = note.senderAddress;
     this.amount = note.amount !== '' ? BigInt(note.amount) : undefined;
     this.status = ITransactionStatus.Queued;
-    this.initiatedAt = Date.now();
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
