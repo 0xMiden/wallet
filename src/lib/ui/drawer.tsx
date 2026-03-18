@@ -57,7 +57,7 @@ function DrawerContent({ className, children }: DrawerContentProps) {
           <>
             <motion.div
               key="drawer-backdrop"
-              className="fixed inset-0 z-50 bg-[#E3E3E399] dark:bg-[#00000099]"
+              className="fixed inset-0 z-50 bg-black/30 dark:bg-black/50 backdrop-blur-sm"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
