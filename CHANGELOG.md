@@ -9,7 +9,16 @@
 
 ---
 
-## 1.13.2 (TBD)
+## 1.13.3 (2026-03-19)
+
+### Features
+
+* [FEATURE][arch][all] Moved to service-worker-first architecture. The WASM client now lives exclusively in the Chrome extension service worker, with the frontend communicating via intercom messaging. Eliminates duplicate WASM instances and fixes concurrency panics.
+* [FEATURE][all] Complete UI revamp with new design system, updated layouts, and refreshed components across all screens.
+
+---
+
+## 1.13.2 (2026-03-16)
 
 ### Features
 
