@@ -43,7 +43,7 @@ const mockGetInputNote = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue({ blockNum: () => 1 });
 const mockGetMidenClient = jest.fn((): any => ({
   syncState: mockSyncState,
-  webClient: { getInputNote: mockGetInputNote }
+  getInputNote: mockGetInputNote
 }));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),

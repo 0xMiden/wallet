@@ -194,12 +194,11 @@ export const Receive: React.FC<ReceiveProps> = () => {
               }
             }
           } else {
-            const { InputNoteState, NoteFilter, NoteFilterTypes, NoteId } = await import('@miden-sdk/miden-sdk');
-            const noteIds = safeClaimableNotes.map(n => NoteId.fromHex(n.id));
+            const { InputNoteState } = await import('@miden-sdk/miden-sdk');
+            const noteIds = safeClaimableNotes.map(n => n.id);
             const noteDetails = await withWasmClientLock(async () => {
               const midenClient = await getMidenClient();
-              const noteFilter = new NoteFilter(NoteFilterTypes.List, noteIds);
-              return await midenClient.getInputNoteDetails(noteFilter);
+              return await midenClient.getInputNoteDetails({ ids: noteIds });
             });
 
             for (const note of noteDetails) {

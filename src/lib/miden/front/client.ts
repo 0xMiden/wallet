@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { isExtension } from 'lib/platform';
 import { WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenState } from '../types';
-import { AutoSync } from './autoSync';
 
 let intercom: IIntercomClient | null;
 function getIntercom() {
@@ -78,12 +76,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [status, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
-  // Update AutoSync when state changes (mobile/desktop only — extension uses service worker sync)
-  useEffect(() => {
-    if (!isExtension()) {
-      AutoSync.updateState(state);
-    }
-  }, [state]);
+  // AutoSync is now handled by the React SDK's MidenProvider — no manual state push needed.
 
   // Derive convenience booleans
   const idle = status === WalletStatus.Idle;

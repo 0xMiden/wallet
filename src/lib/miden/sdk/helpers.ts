@@ -4,8 +4,3 @@ export function getBech32AddressFromAccountId(accountId: AccountId): string {
   const accountAddress = Address.fromAccountId(accountId, 'BasicWallet');
   return accountAddress.toBech32(NetworkId.testnet());
 }
-
-export function accountIdStringToSdk(accountId: string): AccountId {
-  const accountAddress = Address.fromBech32(accountId);
-  return accountAddress.accountId();
-}

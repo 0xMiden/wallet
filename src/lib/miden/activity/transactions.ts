@@ -121,7 +121,7 @@ export const initiateConsumeTransactionFromId = async (
   const sdkNote = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
 
-    return midenClient.webClient.getInputNote(noteId);
+    return midenClient.getInputNote(noteId);
   });
   if (!sdkNote) {
     throw new Error(`Note with id ${noteId} not found`);

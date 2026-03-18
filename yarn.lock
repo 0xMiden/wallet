@@ -2155,15 +2155,15 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@file:../miden-client/crates/web-client":
-  version "0.13.0"
+"@miden-sdk/miden-sdk@file:../miden-client-walletextensions/crates/web-client":
+  version "0.13.1"
   dependencies:
     "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
     glob "^11.0.0"
 
-"@miden-sdk/react@file:../miden-client/packages/react-sdk":
-  version "0.13.2"
+"@miden-sdk/react@file:../miden-client-walletextensions/packages/react-sdk":
+  version "0.13.4"
   dependencies:
     zustand "^5.0.0"
 

@@ -74,8 +74,7 @@ describe('MidenClientInterface', () => {
         ...overrides.transactions
       },
       sync: jest.fn(async () => ({ blockNum: () => 5 })),
-      exportStore: jest.fn(async () => ({ version: 1, data: 'dump' })),
-      importStore: jest.fn(),
+      storeIdentifier: jest.fn(() => 'test-store'),
       terminate: jest.fn(),
       defaultProver: null,
       ...overrides
@@ -95,7 +94,9 @@ describe('MidenClientInterface', () => {
       TransactionProver: {
         newRemoteProver: jest.fn(() => 'remote'),
         newLocalProver: jest.fn(() => 'local')
-      }
+      },
+      exportStore: jest.fn(async () => '{"version":1,"data":"dump"}'),
+      importStore: jest.fn()
     }));
     jest.doMock('lib/miden-chain/constants', () => ({
       MIDEN_NETWORK_ENDPOINTS: new Map([
@@ -159,7 +160,7 @@ describe('MidenClientInterface', () => {
     await client.exportNote('note', {} as any);
     await client.getTransactionsForAccount('id');
     await client.exportDb();
-    await client.importDb({ version: 1, data: 'dump' });
+    await client.importDb('{"version":1,"data":"dump"}');
     await client.sendTransaction({
       accountId: 'id',
       amount: BigInt(1),
@@ -249,7 +250,7 @@ describe('MidenClientInterface', () => {
     await client.sendPrivateNote(mockNote, 'recipient-bech32');
 
     expect(fakeMidenClient.notes.sendPrivate).toHaveBeenCalledWith({
-      noteId: mockNote,
+      note: mockNote,
       to: 'recipient-bech32'
     });
   });

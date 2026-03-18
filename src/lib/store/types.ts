@@ -1,6 +1,7 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
+import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
@@ -17,6 +18,15 @@ export interface WalletSlice {
   networks: MidenNetwork[];
   settings: WalletSettings | null;
   ownMnemonic: boolean | null;
+}
+
+/**
+ * Balance state (cached from IndexedDB via fetchBalances)
+ */
+export interface BalancesSlice {
+  balances: Record<string, TokenBalanceData[]>;
+  balancesLoading: Record<string, boolean>;
+  balancesLastFetched: Record<string, number>;
 }
 
 /**
@@ -132,6 +142,11 @@ export interface WalletActions {
 /**
  * Asset actions
  */
+export interface BalanceActions {
+  fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
+  setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
+}
+
 export interface AssetActions {
   setAssetsMetadata: (metadata: Record<string, AssetMetadata>) => void;
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;
@@ -203,6 +218,7 @@ export interface NoteToastActions {
 export interface WalletStore
   extends
     WalletSlice,
+    BalancesSlice,
     AssetsSlice,
     UISlice,
     FiatCurrencySlice,
@@ -211,6 +227,7 @@ export interface WalletStore
     NoteToastSlice,
     ExtensionSyncSlice,
     WalletActions,
+    BalanceActions,
     AssetActions,
     FiatCurrencyActions,
     SyncActions,

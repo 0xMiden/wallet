@@ -193,6 +193,31 @@ export function useAllTokensBaseMetadata() {
   return useWalletStore(s => s.assetsMetadata);
 }
 
+/**
+ * useTokensMetadata - Provides a ref to all metadata, a fetch function, and a setter.
+ * Used by claimable-notes to read metadata without triggering re-renders and to
+ * background-fetch metadata for unknown tokens.
+ */
+export function useTokensMetadata() {
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
+  const allTokensBaseMetadataRef = useRef(assetsMetadata);
+  allTokensBaseMetadataRef.current = assetsMetadata;
+
+  const fetchMetadata = useCallback(async (faucetId: string) => {
+    return fetchTokenMetadata(faucetId);
+  }, []);
+
+  const setTokensBaseMetadata = useCallback(
+    async (batch: Record<string, AssetMetadata>) => {
+      setAssetsMetadata(batch);
+    },
+    [setAssetsMetadata]
+  );
+
+  return { allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata };
+}
+
 export function searchAssets(
   searchValue: string,
   assets: { slug: string; id: string }[],

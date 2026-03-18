@@ -1,6 +1,8 @@
 import {
   Account,
   AccountFile,
+  exportStore,
+  importStore,
   InputNoteRecord,
   InputNoteState,
   MidenClient,
@@ -132,6 +134,10 @@ export class MidenClientInterface {
     return await this.client.accounts.list();
   }
 
+  async getInputNote(noteId: string): Promise<InputNoteRecord | null> {
+    return await this.client.notes.get(noteId);
+  }
+
   async getInputNotes(query?: NoteQuery): Promise<InputNoteRecord[]> {
     return await this.client.notes.list(query);
   }
@@ -174,7 +180,7 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    await this.client.notes.sendPrivate({ noteId: note, to });
+    await this.client.notes.sendPrivate({ note, to });
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
@@ -231,11 +237,13 @@ export class MidenClientInterface {
   }
 
   async exportDb() {
-    return await this.client.exportStore();
+    const storeName = this.client.storeIdentifier();
+    return await exportStore(storeName);
   }
 
-  async importDb(dump: any) {
-    await this.client.importStore(dump);
+  async importDb(dump: string) {
+    const storeName = this.client.storeIdentifier();
+    await importStore(storeName, dump);
   }
 
   async getTransactionsForAccount(accountId: string) {
