@@ -84,7 +84,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
         </>
       }
     >
-      <div className="flex flex-col items-center justify-center flex-grow px-8 py-8">
+      <div className="flex flex-col items-center justify-center grow px-8 py-8">
         {/* Biometric Icon */}
         <div
           className={classNames(

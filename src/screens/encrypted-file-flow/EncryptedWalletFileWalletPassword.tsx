@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -8,9 +8,9 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { Vault } from 'lib/miden/back/vault';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
-import { goBack } from 'lib/woozie';
+import { isMobile } from 'lib/platform';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 const LOCK_TIME = 60_000;
@@ -51,6 +51,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     formState: { errors, isSubmitting }
   } = useForm<FormData>();
   const [confirmed, setConfirmed] = useState(false);
+  const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useLocalStorage<number>('TridentSharedStorageKey.PasswordAttempts', 1);
   const [timelock, setTimeLock] = useLocalStorage<number>('TridentSharedStorageKey.TimeLock', 0);
   const lockLevel = LOCK_TIME * Math.floor(attempt / 3);
@@ -63,20 +64,27 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
 
+  useEffect(() => {
+    Vault.hasHardwareProtector().then(setHasHardwareProtector);
+  }, []);
+
   const onSubmit = useCallback(async () => {
     if (isSubmitting) return;
 
     clearErrors('password');
     try {
-      if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
-      await unlock(walletPassword!);
+      if (!hasHardwareProtector && attempt > LAST_ATTEMPT)
+        await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+      await unlock(hasHardwareProtector ? undefined : walletPassword!);
 
       setAttempt(1);
       onGoNext();
     } catch (err: any) {
-      if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
-      setAttempt(attempt + 1);
-      setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
+      if (!hasHardwareProtector) {
+        if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
+        setAttempt(attempt + 1);
+        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
+      }
 
       console.error(err);
 
@@ -84,7 +92,18 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
       await new Promise(res => setTimeout(res, 300));
       setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
     }
-  }, [isSubmitting, clearErrors, setError, unlock, attempt, setAttempt, setTimeLock, onGoNext, walletPassword]);
+  }, [
+    isSubmitting,
+    clearErrors,
+    setError,
+    unlock,
+    attempt,
+    setAttempt,
+    setTimeLock,
+    onGoNext,
+    walletPassword,
+    hasHardwareProtector
+  ]);
 
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -96,39 +115,47 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     [onSubmit, confirmed]
   );
 
+  if (hasHardwareProtector === null) {
+    return null;
+  }
+
   return (
-    <div className="flex-1 flex flex-col">
-      <NavigationHeader title={t('encryptedWalletFile')} onBack={goBack} mode="back" />
-      <div className="flex flex-col flex-1 p-4 md:w-[460px] md:mx-auto">
-        <div className="flex-1 flex flex-col justify-stretch gap-y-4">
-          <p className="text-sm">{t('encryptedWalletFileDescription')}</p>
-          <div className="flex flex-col gap-y-2">
-            <Input
-              type={isPasswordVisible ? 'text' : 'password'}
-              label={t('password')}
-              value={walletPassword}
-              disabled={isDisabled}
-              placeholder={t('enterPassword')}
-              icon={
-                <button className="flex-1" onClick={onPasswordVisibilityToggle}>
-                  <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="black" />
-                </button>
-              }
-              onChange={onPasswordChange}
-              onKeyDown={handleEnterKey}
-              autoFocus
-            />
-            {errors.password && <p className="h-4 text-red-500 text-xs">{errors.password.message}</p>}
-          </div>
-          <div className="flex gap-x-2 text-sm text-left">
+    <div className="flex flex-col flex-1 min-h-0 text-heading-gray pb-6">
+      <div className="flex flex-col">
+        <div className="flex flex-col justify-stretch gap-y-4">
+          <p className="text-base font-medium leading-[130%]">
+            {t(hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription')}
+          </p>
+          {!hasHardwareProtector && (
+            <div className="flex flex-col gap-y-4">
+              <Input
+                type={isPasswordVisible ? 'text' : 'password'}
+                label={t('password')}
+                value={walletPassword}
+                disabled={isDisabled}
+                placeholder={t('enterPassword')}
+                icon={
+                  <button className="flex-1" onClick={onPasswordVisibilityToggle}>
+                    <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
+                  </button>
+                }
+                onChange={onPasswordChange}
+                onKeyDown={handleEnterKey}
+                autoFocus={!isMobile()}
+                labelClassName="text-base! font-medium leading-[20px]"
+              />
+              {errors.password && <p className="h-4 text-red-500 text-xs">{errors.password.message}</p>}
+            </div>
+          )}
+          <div className="flex gap-x-2 text-sm text-left pb-8">
             <button className="flex mt-3 gap-x-2 text-left" onClick={() => setConfirmed(!confirmed)}>
               <Checkbox id="help-us" value={confirmed} />
-              <span className="text-black cursor-pointer text-left mt-[-4px]">
+              <span className="text-sm leading-[130%] cursor-pointer text-left -mt-1">
                 {t('encryptedWalletFileConfirmation')}
               </span>
             </button>
           </div>
-          {isDisabled && (
+          {!hasHardwareProtector && isDisabled && (
             <Alert
               type="error"
               title={t('error')}
@@ -137,12 +164,23 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
               style={{ width: '80%' }}
             />
           )}
+          {hasHardwareProtector && errors.password && (
+            <Alert
+              type="error"
+              title={t('error')}
+              description={errors.password.message || ''}
+              className="mt-4 rounded-lg text-black mx-auto"
+              style={{ width: '80%' }}
+            />
+          )}
         </div>
+      </div>
+      <div className="mt-auto">
         <Button
-          className="w-full justify-center mt-6"
+          className="w-full justify-center"
           variant={ButtonVariant.Primary}
-          title={t('continue')}
-          disabled={isDisabled || !confirmed}
+          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+          disabled={hasHardwareProtector ? !confirmed : isDisabled || !confirmed || !walletPassword}
           onClick={onSubmit}
           isLoading={isSubmitting}
         />

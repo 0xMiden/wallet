@@ -8,5 +8,6 @@ export enum GeneralSettingsSelectors {
   AutoCloseToggle = 'General Settings/AutoCloseToggle',
   AutoConsumeToggle = 'General Settings/AutoConsumeToggle',
   BiometricToggle = 'General Settings/BiometricToggle',
-  HapticFeedbackToggle = 'General Settings/HapticFeedbackToggle'
+  HapticFeedbackToggle = 'General Settings/HapticFeedbackToggle',
+  DarkModeToggle = 'General Settings/DarkModeToggle'
 }

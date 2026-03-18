@@ -43,7 +43,7 @@ const ContactsDropdownItem: FC<ContactsDropdownItemProps> = ({ active, testID, t
       {...rest}
     >
       {/* eslint-disable i18next/no-literal-string -- placeholder data, not user-facing text */}
-      <ColorIdenticon publicKey={'contact.address'} className="flex-shrink-0" />
+      <ColorIdenticon publicKey={'contact.address'} className="shrink-0" />
 
       <div className="ml-3 flex flex-1 w-full">
         <div className="flex flex-col justify-between flex-1">

@@ -54,7 +54,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
 
   return (
     <div
-      className={classNames('flex-1', 'flex flex-col justify-start items-center', 'bg-white p-6', className)}
+      className={classNames('flex-1', 'flex flex-col justify-start items-center', 'bg-app-bg px-4 pt-6', className)}
       data-testid="import-seed-phrase"
     >
       <h1 className="text-2xl font-semibold">{t('importWallet')}</h1>
@@ -79,13 +79,15 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       </div>
       {isError && <p className="text-red-500 text-xs mt-4">{t('importSeedPhraseError')}</p>}
 
-      <Button
-        id={'submit-button'}
-        title={t('continue')}
-        onClick={handleSubmit}
-        disabled={!isValid}
-        className="w-[360px] mt-8"
-      />
+      <div className="mt-auto w-full">
+        <Button
+          id={'submit-button'}
+          title={t('continue')}
+          onClick={handleSubmit}
+          disabled={!isValid}
+          className="w-full"
+        />
+      </div>
     </div>
   );
 };

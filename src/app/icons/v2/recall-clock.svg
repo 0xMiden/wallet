@@ -1,0 +1,15 @@
+<svg width="24" height="24" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_recall_clock)">
+<path d="M12.2415 4.37126V3.49689C12.2415 3.18769 12.1187 2.89116 11.9001 2.67252C11.6814 2.45388 11.3849 2.33105 11.0757 2.33105H2.91486C2.60566 2.33105 2.30912 2.45388 2.09049 2.67252C1.87185 2.89116 1.74902 3.18769 1.74902 3.49689V11.6577C1.74902 11.9669 1.87185 12.2635 2.09049 12.4821C2.30912 12.7007 2.60566 12.8236 2.91486 12.8236H4.95507" stroke="#FF6600" stroke-width="1.16583" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9.32715 1.16602V3.49837" stroke="#FF6600" stroke-width="1.16583" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M4.66309 1.16602V3.49837" stroke="#FF6600" stroke-width="1.16583" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1.74902 5.8291H4.66446" stroke="#FF6600" stroke-width="1.16583" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M10.2018 10.2019L9.32715 9.50223V8.16113" stroke="#FF6600" stroke-width="1.16583" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9.32672 12.8241C11.2583 12.8241 12.8242 11.2582 12.8242 9.3266C12.8242 7.39499 11.2583 5.8291 9.32672 5.8291C7.39511 5.8291 5.82922 7.39499 5.82922 9.3266C5.82922 11.2582 7.39511 12.8241 9.32672 12.8241Z" stroke="#FF6600" stroke-width="1.16583" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<defs>
+<clipPath id="clip0_recall_clock">
+<rect width="13.99" height="13.99" fill="white"/>
+</clipPath>
+</defs>
+</svg>

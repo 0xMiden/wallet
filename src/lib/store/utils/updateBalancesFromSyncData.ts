@@ -2,7 +2,8 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { TokenBalanceData } from 'lib/miden/front/balance';
-import { AssetMetadata, DEFAULT_TOKEN_METADATA, MIDEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
+import { AssetMetadata, DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
+import { getTokenPrice } from 'lib/prices';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
 import { setTokensBaseMetadata } from '../../miden/front/assets';
@@ -12,7 +13,8 @@ import { useWalletStore } from '../index';
  * Convert SerializedVaultAsset[] from the service worker's SyncCompleted broadcast
  * into TokenBalanceData[] and update the Zustand store.
  *
- * Reuses the same logic pattern as fetchBalances.ts but without touching the WASM client.
+ * Metadata is pre-fetched by the sync manager and included in each vault asset.
+ * No RPC calls needed — this is synchronous aside from the faucet ID lookup.
  */
 export async function updateBalancesFromSyncData(
   accountPublicKey: string,
@@ -20,60 +22,68 @@ export async function updateBalancesFromSyncData(
 ): Promise<void> {
   const store = useWalletStore.getState();
   const localMetadatas = { ...store.assetsMetadata };
+  const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
 
   const balances: TokenBalanceData[] = [];
   let hasMiden = false;
 
-  // Fetch missing metadata (RPC, no WASM needed)
-  const fetchedMetadatas: Record<string, AssetMetadata> = {};
-  const metadataFetchPromises = vaultAssets
-    .filter(asset => asset.faucetId !== midenFaucetId && !localMetadatas[asset.faucetId])
-    .map(async asset => {
-      try {
-        const tokenMetadata = await fetchTokenMetadata(asset.faucetId);
-        fetchedMetadatas[asset.faucetId] = tokenMetadata.base;
-      } catch (e) {
-        console.warn('[updateBalancesFromSyncData] Failed to fetch metadata for', asset.faucetId, e);
-        fetchedMetadatas[asset.faucetId] = DEFAULT_TOKEN_METADATA;
-      }
-    });
-  await Promise.all(metadataFetchPromises);
+  // Collect metadata from sync data to persist
+  const newMetadatas: Record<string, AssetMetadata> = {};
 
-  // Persist newly fetched metadata (batched)
-  if (Object.keys(fetchedMetadatas).length > 0) {
-    Object.assign(localMetadatas, fetchedMetadatas);
-    await setTokensBaseMetadata(fetchedMetadatas);
-    store.setAssetsMetadata(fetchedMetadatas);
-  }
-
-  // Build balance list
+  // Build balance list — metadata comes from the sync data (pre-fetched by SW)
   for (const asset of vaultAssets) {
     const isMiden = asset.faucetId === midenFaucetId;
     if (isMiden) hasMiden = true;
 
-    const tokenMetadata = isMiden ? MIDEN_METADATA : localMetadatas[asset.faucetId];
-    if (!tokenMetadata) continue;
+    let tokenMetadata: AssetMetadata;
+    if (isMiden) {
+      tokenMetadata = MIDEN_METADATA;
+    } else if (localMetadatas[asset.faucetId]) {
+      tokenMetadata = localMetadatas[asset.faucetId];
+    } else if (asset.metadata) {
+      // Use metadata from sync data (pre-fetched by SW)
+      tokenMetadata = {
+        decimals: asset.metadata.decimals,
+        symbol: asset.metadata.symbol,
+        name: asset.metadata.name,
+        thumbnailUri: asset.metadata.thumbnailUri
+      };
+      newMetadatas[asset.faucetId] = tokenMetadata;
+    } else {
+      tokenMetadata = DEFAULT_TOKEN_METADATA;
+      newMetadatas[asset.faucetId] = tokenMetadata;
+    }
 
     const balance = new BigNumber(asset.amountBaseUnits).div(10 ** tokenMetadata.decimals);
+    const priceInfo = getTokenPrice(tokenPrices, tokenMetadata.symbol);
 
     balances.push({
       tokenId: asset.faucetId,
       tokenSlug: tokenMetadata.symbol,
       metadata: tokenMetadata,
-      fiatPrice: 1,
-      balance: balance.toNumber()
+      fiatPrice: priceInfo.price,
+      balance: balance.toNumber(),
+      change24h: priceInfo.change24h
     });
+  }
+
+  // Persist newly discovered metadata
+  if (Object.keys(newMetadatas).length > 0) {
+    await setTokensBaseMetadata(newMetadatas);
+    store.setAssetsMetadata(newMetadatas);
   }
 
   // Always include MIDEN token (even if 0 balance)
   if (!hasMiden) {
+    const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,
       tokenSlug: 'MIDEN',
       metadata: MIDEN_METADATA,
-      fiatPrice: 1,
-      balance: 0
+      fiatPrice: midenPrice.price,
+      balance: 0,
+      change24h: midenPrice.change24h
     });
   }
 

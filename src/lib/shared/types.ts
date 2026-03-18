@@ -100,7 +100,17 @@ export enum WalletMessageType {
   SyncResponse = 'SYNC_RESPONSE',
   // Cross-tab claim coordination
   NoteClaimStarted = 'NOTE_CLAIM_STARTED',
-  NoteClaimStartedResponse = 'NOTE_CLAIM_STARTED_RESPONSE'
+  NoteClaimStartedResponse = 'NOTE_CLAIM_STARTED_RESPONSE',
+  // Transaction processing (popup → SW)
+  ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
+  ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // Note operations (popup → SW)
+  ImportNoteBytesRequest = 'IMPORT_NOTE_BYTES_REQUEST',
+  ImportNoteBytesResponse = 'IMPORT_NOTE_BYTES_RESPONSE',
+  ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
+  ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
+  GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -130,6 +140,12 @@ export interface StateUpdated extends WalletMessageBase {
 export interface SerializedVaultAsset {
   faucetId: string;
   amountBaseUnits: string;
+  metadata?: {
+    decimals: number;
+    symbol: string;
+    name: string;
+    thumbnailUri?: string;
+  };
 }
 
 export interface SyncData {
@@ -155,6 +171,7 @@ export interface SerializedConsumableNote {
   faucetId: string;
   amountBaseUnits: string;
   senderAddress: string;
+  noteType?: string; // 'public' | 'private' | 'unknown'
   metadata?: {
     decimals: number;
     symbol: string;
@@ -170,6 +187,52 @@ export interface NoteClaimStarted extends WalletMessageBase {
 
 export interface NoteClaimStartedResponse extends WalletMessageBase {
   type: WalletMessageType.NoteClaimStartedResponse;
+}
+
+export interface ProcessTransactionsRequest extends WalletMessageBase {
+  type: WalletMessageType.ProcessTransactionsRequest;
+}
+
+export interface ProcessTransactionsResponse extends WalletMessageBase {
+  type: WalletMessageType.ProcessTransactionsResponse;
+}
+
+export interface ImportNoteBytesRequest extends WalletMessageBase {
+  type: WalletMessageType.ImportNoteBytesRequest;
+  noteBytes: string; // base64 encoded
+}
+
+export interface ImportNoteBytesResponse extends WalletMessageBase {
+  type: WalletMessageType.ImportNoteBytesResponse;
+  noteId: string;
+}
+
+export interface ExportNoteRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportNoteRequest;
+  noteId: string;
+}
+
+export interface ExportNoteResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportNoteResponse;
+  noteBytes: string; // base64 encoded
+}
+
+export interface SerializedInputNoteDetail {
+  noteId: string;
+  state: string; // serialized InputNoteState — plain string, not SDK enum
+  senderAccountId?: string;
+  assets: Array<{ amount: string; faucetId: string }>;
+  nullifier: string;
+}
+
+export interface GetInputNoteDetailsRequest extends WalletMessageBase {
+  type: WalletMessageType.GetInputNoteDetailsRequest;
+  noteIds: string[];
+}
+
+export interface GetInputNoteDetailsResponse extends WalletMessageBase {
+  type: WalletMessageType.GetInputNoteDetailsResponse;
+  notes: SerializedInputNoteDetail[];
 }
 
 export interface GetStateRequest extends WalletMessageBase {
@@ -301,7 +364,7 @@ export interface RevealPrivateKeyResponse extends WalletMessageBase {
 
 export interface RevealMnemonicRequest extends WalletMessageBase {
   type: WalletMessageType.RevealMnemonicRequest;
-  password: string;
+  password?: string;
 }
 
 export interface RevealMnemonicResponse extends WalletMessageBase {
@@ -374,6 +437,7 @@ export interface WalletContact {
   name: string;
   addedAt?: number;
   accountInWallet?: boolean;
+  isPublic?: boolean;
   sharedSecret?: string;
 }
 
@@ -620,7 +684,11 @@ export type WalletRequest =
   | GetOwnedRecordsRequest
   | ImportFromClientRequest
   | SyncRequest
-  | NoteClaimStarted;
+  | NoteClaimStarted
+  | ProcessTransactionsRequest
+  | ImportNoteBytesRequest
+  | ExportNoteRequest
+  | GetInputNoteDetailsRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -664,4 +732,8 @@ export type WalletResponse =
   | GetOwnedRecordsResponse
   | ImportFromClientResponse
   | SyncResponse
-  | NoteClaimStartedResponse;
+  | NoteClaimStartedResponse
+  | ProcessTransactionsResponse
+  | ImportNoteBytesResponse
+  | ExportNoteResponse
+  | GetInputNoteDetailsResponse;

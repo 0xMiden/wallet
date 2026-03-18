@@ -37,7 +37,7 @@ export const GetTokens: React.FC<GetTokensProps> = ({ className, ...props }) => 
       hasBackAction={true}
     >
       <div {...props} className={classNames('flex-1 flex flex-col', className)}>
-        <div className="flex-1 flex flex-col justify-center bg-white p-4 md:w-[460px] md:mx-auto">
+        <div className="flex-1 flex flex-col justify-center bg-app-bg p-4 md:w-[460px] md:mx-auto">
           <Message
             className="flex-1"
             title={t('getTokens')}

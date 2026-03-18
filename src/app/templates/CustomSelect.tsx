@@ -124,7 +124,7 @@ const CustomSelectItem = <T extends {}, K extends string | number, A extends Act
     <ItemComponent
       type="button"
       className={classNames(
-        'w-full flex-shrink-0 overflow-hidden',
+        'w-full shrink-0 overflow-hidden',
         (() => {
           switch (true) {
             case active:

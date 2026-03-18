@@ -1,4 +1,3 @@
-import { NoteFilterTypes } from '@miden-sdk/miden-sdk';
 import {
   AllowedPrivateData,
   EventEmitter,
@@ -11,6 +10,7 @@ import {
   WalletAdapterNetwork
 } from '@demox-labs/miden-wallet-adapter-base';
 import { MidenWallet, MidenWalletEvents } from '@demox-labs/miden-wallet-adapter-miden';
+import { NoteFilterTypes } from '@miden-sdk/miden-sdk';
 
 import {
   importPrivateNote,

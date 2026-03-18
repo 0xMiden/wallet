@@ -311,7 +311,7 @@ const Browser: FC = () => {
       <div className="flex-none px-4 pt-4 pb-2">
         <form onSubmit={handleSubmit}>
           <div className="flex items-center gap-2">
-            <div className="flex-grow relative">
+            <div className="grow relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2">
                 <Icon name={IconName.Globe} size="sm" className="text-grey-400" />
               </div>
@@ -330,7 +330,7 @@ const Browser: FC = () => {
             <button
               type="submit"
               disabled={isLoading || !url || url === DEFAULT_URL}
-              className="px-4 py-3 bg-primary-500 text-white rounded-xl font-medium disabled:bg-grey-200 disabled:text-grey-400 hover:bg-primary-600 transition-colors"
+              className="px-4 py-3 bg-primary-500 text-pure-white rounded-xl font-medium disabled:bg-grey-200 disabled:text-grey-400 hover:bg-primary-600 transition-colors"
             >
               {isLoading ? <Icon name={IconName.Loader} size="sm" className="animate-spin" /> : t('go')}
             </button>
@@ -338,38 +338,8 @@ const Browser: FC = () => {
         </form>
       </div>
 
-      <main className="flex-grow flex flex-col px-4">
-        {/* Recent URLs */}
-        {recentUrls.length > 0 && (
-          <div className="mb-4">
-            <h3 className="text-sm font-medium text-grey-500 mb-2">{t('recentSites')}</h3>
-            <div className="space-y-2">
-              {recentUrls.map((recentUrl, index) => (
-                <button
-                  key={index}
-                  onClick={() => openBrowser(recentUrl)}
-                  className="w-full flex items-center gap-3 p-3 bg-grey-50 rounded-xl hover:bg-grey-100 transition-colors text-left"
-                >
-                  <Icon name={IconName.Globe} size="sm" className="text-grey-400 flex-shrink-0" />
-                  <span className="text-sm text-grey-700 truncate">{recentUrl}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Empty State */}
-        {recentUrls.length === 0 && (
-          <div className="flex-grow flex flex-col items-center justify-center">
-            <Icon name={IconName.Globe} size="3xl" className="text-grey-200 mb-4" />
-            <h2 className="text-lg font-semibold text-grey-600 mb-2">{t('dappBrowser')}</h2>
-            <p className="text-grey-400 text-center text-sm max-w-xs">{t('dappBrowserDescription')}</p>
-          </div>
-        )}
-      </main>
-
       {/* Favourites Section */}
-      <div className="flex-none px-4 pb-4">
+      <div className="flex-none px-4 pb-2">
         <h3 className="text-sm font-medium text-grey-500 mb-3">{t('favourites')}</h3>
         <div className="grid grid-cols-4 gap-4">
           {FAVOURITES.map(fav => (
@@ -386,6 +356,36 @@ const Browser: FC = () => {
           ))}
         </div>
       </div>
+
+      <main className="grow flex flex-col px-4 overflow-y-auto pb-20">
+        {/* Recent URLs */}
+        {recentUrls.length > 0 && (
+          <div className="mb-4">
+            <h3 className="text-sm font-medium text-grey-500 mb-2">{t('recentSites')}</h3>
+            <div className="space-y-2">
+              {recentUrls.map((recentUrl, index) => (
+                <button
+                  key={index}
+                  onClick={() => openBrowser(recentUrl)}
+                  className="w-full flex items-center gap-3 p-3 bg-grey-50 rounded-xl hover:bg-grey-100 transition-colors text-left"
+                >
+                  <Icon name={IconName.Globe} size="sm" className="text-grey-400 shrink-0" />
+                  <span className="text-sm text-grey-700 truncate">{recentUrl}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {recentUrls.length === 0 && (
+          <div className="grow flex flex-col items-center justify-center">
+            <Icon name={IconName.Globe} size="3xl" className="text-grey-200 mb-4" />
+            <h2 className="text-lg font-semibold text-grey-600 mb-2">{t('dappBrowser')}</h2>
+            <p className="text-grey-400 text-center text-sm max-w-xs">{t('dappBrowserDescription')}</p>
+          </div>
+        )}
+      </main>
     </>
   );
 };

@@ -168,7 +168,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       className={classNames(
         'flex-1 h-full',
         'flex flex-col justify-content items-center gap-y-2',
-        'bg-white p-6',
+        'bg-app-bg px-4 pt-6',
         className
       )}
       onSubmit={handleSubmit(handleImportSubmit)}
@@ -213,7 +213,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             <div className="flex items-center pl-4">{walletFile.name}</div>
           </div>
           <button type="button" onClick={handleClear}>
-            <Icon name={IconName.Close} fill="black" size="md" />
+            <Icon name={IconName.Close} fill="currentColor" size="md" />
           </button>
         </div>
       )}
@@ -237,14 +237,16 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         </div>
       )}
 
-      <FormSubmitButton
-        loading={isSubmitting}
-        className="w-[360px] text-base pt-4 mx-auto"
-        style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
-        disabled={!isValid || !walletFile}
-      >
-        {t('import')}
-      </FormSubmitButton>
+      <div className="mt-auto w-full pt-4">
+        <FormSubmitButton
+          loading={isSubmitting}
+          className="w-full text-base"
+          style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
+          disabled={!isValid || !walletFile}
+        >
+          {t('import')}
+        </FormSubmitButton>
+      </div>
     </form>
   );
 };

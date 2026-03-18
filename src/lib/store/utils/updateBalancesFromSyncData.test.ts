@@ -22,6 +22,10 @@ jest.mock('../../miden/front/assets', () => ({
   setTokensBaseMetadata: jest.fn(async () => {})
 }));
 
+jest.mock('lib/prices', () => ({
+  getTokenPrice: jest.fn(() => ({ price: 1, change24h: 0, percentageChange24h: 0 }))
+}));
+
 describe('updateBalancesFromSyncData', () => {
   beforeEach(() => {
     useWalletStore.setState({
@@ -58,17 +62,21 @@ describe('updateBalancesFromSyncData', () => {
     expect(balances[0].balance).toBe(0);
   });
 
-  it('fetches metadata for unknown tokens and includes them', async () => {
+  it('uses pre-fetched metadata from sync data for unknown tokens', async () => {
     const customFaucetId = 'custom-faucet-456';
-    mockFetchTokenMetadata.mockResolvedValueOnce({
-      base: { name: 'CustomToken', symbol: 'CTK', decimals: 6, thumbnailUri: '' }
-    });
 
-    const vaultAssets: SerializedVaultAsset[] = [{ faucetId: customFaucetId, amountBaseUnits: '2000000' }];
+    const vaultAssets: SerializedVaultAsset[] = [
+      {
+        faucetId: customFaucetId,
+        amountBaseUnits: '2000000',
+        metadata: { name: 'CustomToken', symbol: 'CTK', decimals: 6, thumbnailUri: '' }
+      }
+    ];
 
     await updateBalancesFromSyncData('account-1', vaultAssets);
 
-    expect(mockFetchTokenMetadata).toHaveBeenCalledWith(customFaucetId);
+    // Should NOT fetch via RPC — metadata comes from sync data
+    expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
 
     const balances = useWalletStore.getState().balances['account-1'];
     // Custom token + default MIDEN (0 balance)
@@ -99,18 +107,19 @@ describe('updateBalancesFromSyncData', () => {
     expect(cachedBalance!.balance).toBe(1); // 100000000 / 10^8
   });
 
-  it('handles metadata fetch failure gracefully with default metadata', async () => {
-    const failingFaucetId = 'failing-faucet';
-    mockFetchTokenMetadata.mockRejectedValueOnce(new Error('RPC error'));
+  it('uses default metadata when sync data has no metadata for a token', async () => {
+    const unknownFaucetId = 'unknown-faucet';
 
-    const vaultAssets: SerializedVaultAsset[] = [{ faucetId: failingFaucetId, amountBaseUnits: '1000' }];
+    // No metadata field — simulates SW metadata fetch failure
+    const vaultAssets: SerializedVaultAsset[] = [{ faucetId: unknownFaucetId, amountBaseUnits: '1000' }];
 
     await updateBalancesFromSyncData('account-1', vaultAssets);
 
     const balances = useWalletStore.getState().balances['account-1'];
     // Should still have the token (with default metadata) + MIDEN
     expect(balances.length).toBe(2);
-    const failedBalance = balances.find(b => b.tokenId === failingFaucetId);
-    expect(failedBalance).toBeDefined();
+    const unknownBalance = balances.find(b => b.tokenId === unknownFaucetId);
+    expect(unknownBalance).toBeDefined();
+    expect(unknownBalance!.tokenSlug).toBe('Unknown');
   });
 });

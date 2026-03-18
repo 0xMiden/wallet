@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
+import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -61,7 +62,8 @@ export async function doSync(): Promise<void> {
                 id: noteId,
                 faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
                 amountBaseUnits: firstAsset.amount().toString(),
-                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : ''
+                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
+                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
               };
             } catch {
               return null;
@@ -85,12 +87,17 @@ export async function doSync(): Promise<void> {
         return { parsedNotes: notes, vaultAssets: assets };
       });
 
-      // Fetch metadata for each faucet in parallel (RPC, outside lock — no WASM needed)
+      // Fetch metadata for all faucets in parallel (RPC, outside lock — no WASM needed)
+      // Collect all unique faucet IDs from both notes and vault assets
+      const allFaucetIds = new Set([...parsedNotes.map(n => n.faucetId), ...vaultAssets.map(a => a.faucetId)]);
+
+      const metadataCache: Record<string, { decimals: number; symbol: string; name: string; thumbnailUri?: string }> =
+        {};
       await Promise.all(
-        parsedNotes.map(async note => {
+        [...allFaucetIds].map(async faucetId => {
           try {
-            const { base } = await fetchTokenMetadata(note.faucetId);
-            note.metadata = {
+            const { base } = await fetchTokenMetadata(faucetId);
+            metadataCache[faucetId] = {
               decimals: base.decimals,
               symbol: base.symbol,
               name: base.name,
@@ -101,6 +108,20 @@ export async function doSync(): Promise<void> {
           }
         })
       );
+
+      // Attach metadata to notes
+      for (const note of parsedNotes) {
+        if (metadataCache[note.faucetId]) {
+          note.metadata = metadataCache[note.faucetId];
+        }
+      }
+
+      // Attach metadata to vault assets
+      for (const asset of vaultAssets) {
+        if (metadataCache[asset.faucetId]) {
+          asset.metadata = metadataCache[asset.faucetId];
+        }
+      }
 
       // Always update seenNoteIds for background dedup consistency
       const noteIds = parsedNotes.map(n => n.id);
@@ -213,12 +234,8 @@ export function setupSyncManager(): void {
   // Primary sync (3s) is driven by frontend SyncRequest when popup is open.
   browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
 
-  // Listen for alarm fires
-  browser.alarms.onAlarm.addListener(alarm => {
-    if (alarm.name === ALARM_NAME) {
-      doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));
-    }
-  });
+  // NOTE: The alarm listener is registered at the top level of background.ts
+  // (Chrome MV3 requires synchronous registration to catch events that wake the SW).
 
   // Run an initial sync immediately
   doSync().catch(err => console.warn('[SyncManager] Initial sync error:', err));

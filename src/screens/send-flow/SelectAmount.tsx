@@ -77,7 +77,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           <div className="min-h-[24px] w-full flex items-center justify-center">
             {error && (
               <span className="flex flex-row items-center gap-x-2">
-                <Icon name={IconName.InformationFill} fill={colors.red[500]} size={'xs'} />
+                <Icon name={IconName.InformationFill} size={'xs'} />
                 <p className="text-red-500 text-sm">{t(`${error}`)}</p>
               </span>
             )}

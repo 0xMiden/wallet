@@ -22,12 +22,12 @@ const CustomModal: FC<CustomModalProps> = props => {
       id={'custom-modal'}
       {...restProps}
       isOpen={isOpen}
-      className={classNames('bg-white rounded z-30 shadow-2xl', className)}
+      className={classNames('bg-surface-solid rounded z-30 shadow-2xl', className)}
       appElement={rootElement}
       closeTimeoutMS={isExtension() ? 0 : 200}
       overlayClassName={classNames(
         'fixed inset-0 z-30',
-        'bg-white/10 backdrop-blur-xl backdrop-saturate-150',
+        'bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150',
         'flex items-center justify-center',
         'p-6',
         overlayClassName

@@ -6,7 +6,9 @@ import {
   AUTO_CONSUME_STORAGE_KEY,
   DEFAULT_AUTO_CONSUME,
   HAPTIC_FEEDBACK_STORAGE_KEY,
-  DEFAULT_HAPTIC_FEEDBACK
+  DEFAULT_HAPTIC_FEEDBACK,
+  THEME_STORAGE_KEY,
+  DEFAULT_THEME
 } from './constants';
 
 function setSetting(key: string, value: boolean) {
@@ -50,4 +52,19 @@ export function setHapticFeedbackSetting(enabled: boolean) {
 
 export function isHapticFeedbackEnabled() {
   return getSetting(HAPTIC_FEEDBACK_STORAGE_KEY, DEFAULT_HAPTIC_FEEDBACK);
+}
+
+export function setThemeSetting(theme: 'light' | 'dark') {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {}
+}
+
+export function getThemeSetting(): 'light' | 'dark' {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    return stored === 'dark' ? 'dark' : DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
 }

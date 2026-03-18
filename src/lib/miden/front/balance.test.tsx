@@ -184,7 +184,8 @@ describe('useAllBalances infinite loop protection', () => {
               tokenSlug: 'test',
               metadata: { name: 'Test', symbol: 'T', decimals: 18 },
               balance: 100,
-              fiatPrice: 1
+              fiatPrice: 1,
+              change24h: 0
             }
           ]
         }
@@ -362,7 +363,8 @@ describe('instant balance loading', () => {
               tokenSlug: 'MIDEN',
               metadata: { name: 'Miden', symbol: 'MIDEN', decimals: 8 },
               fiatPrice: 1,
-              balance: 42
+              balance: 42,
+              change24h: 0
             }
           ]
         },
@@ -390,7 +392,8 @@ describe('instant balance loading', () => {
             tokenSlug: 'MIDEN',
             metadata: { name: 'Miden', symbol: 'MIDEN', decimals: 8 },
             fiatPrice: 1,
-            balance: 999
+            balance: 999,
+            change24h: 0
           }
         ]
       },

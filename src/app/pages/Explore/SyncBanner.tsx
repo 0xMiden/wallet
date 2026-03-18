@@ -25,7 +25,7 @@ const SyncBanner = memo<SyncBannerProps>(({ syncText, fullPage }: SyncBannerProp
       <div className="flex p-4 justify-between">
         <div className="h-12 flex flex-col items-stretch justify-center">
           <p
-            className="text-lg font-bold text-white flex items-center"
+            className="text-lg font-bold text-pure-white flex items-center"
             style={{
               fontSize: '14px',
               lineHeight: '20px'
@@ -36,7 +36,7 @@ const SyncBanner = memo<SyncBannerProps>(({ syncText, fullPage }: SyncBannerProp
           <div className="flex mt-1">
             <InformationIcon fill="orange" className="mr-1" height="16px" width="16px" />
             <p
-              className="text-sm text-white"
+              className="text-sm text-pure-white"
               style={{
                 fontSize: '12px',
                 lineHeight: '16px'
@@ -48,7 +48,7 @@ const SyncBanner = memo<SyncBannerProps>(({ syncText, fullPage }: SyncBannerProp
         </div>
         {fullPage && (
           <div
-            className="text-white font-semibold"
+            className="text-pure-white font-semibold"
             style={{
               fontSize: '22px',
               lineHeight: '24px',
@@ -61,7 +61,7 @@ const SyncBanner = memo<SyncBannerProps>(({ syncText, fullPage }: SyncBannerProp
         {!fullPage && (
           <div className="flex" style={{ marginTop: '5px' }}>
             <div
-              className="text-white font-semibold"
+              className="text-pure-white font-semibold"
               style={{
                 fontSize: '14px',
                 lineHeight: '20px'

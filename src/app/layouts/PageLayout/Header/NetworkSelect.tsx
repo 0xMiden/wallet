@@ -49,8 +49,8 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
           ref={ref}
           className={classNames(
             'text-black',
-            'hover:bg-gray-900',
-            'active:bg-gray-800',
+            'hover:bg-gray-100',
+            'active:bg-gray-200',
             'transition ease-in-out duration-200',
             'px-2',
             opened ? 'opacity-100' : 'opacity-90 hover:opacity-100 focus:opacity-100',

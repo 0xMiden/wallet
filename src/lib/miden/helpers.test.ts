@@ -4,12 +4,19 @@ import { isAddressValid, toNoteType, toNoteTypeString } from './helpers';
 import { NoteTypeEnum } from './types';
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
-  NoteType: { Public: 'public', Private: 'private' }
+  NoteType: { Public: 'public', Private: 'private' },
+  Address: {
+    fromBech32: jest.fn((addr: string) => {
+      if (addr === 'valid-bech32') return {};
+      throw new Error('Invalid');
+    })
+  }
 }));
 
 describe('miden helpers', () => {
-  it('validates addresses permissively for now', () => {
-    expect(isAddressValid('anything')).toBe(true);
+  it('validates addresses using Address.fromBech32', () => {
+    expect(isAddressValid('valid-bech32')).toBe(true);
+    expect(isAddressValid('anything')).toBe(false);
   });
 
   it('converts note type enum to string and back', () => {

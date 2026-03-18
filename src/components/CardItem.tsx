@@ -18,6 +18,10 @@ export interface CardItemProps extends React.ComponentProps<'div'> {
   titleRight?: string;
   subtitleRight?: string;
   hoverable?: boolean;
+  titleClassName?: string;
+  subtitleClassName?: string;
+  titleRightClassName?: string;
+  subtitleRightClassName?: string;
 }
 
 export const LeftIconOrComponent = ({
@@ -55,6 +59,10 @@ export const CardItem: React.FC<CardItemProps> = ({
   subtitleRight,
   hoverable = false,
   onClick,
+  titleClassName,
+  subtitleClassName,
+  titleRightClassName,
+  subtitleRightClassName,
   ...props
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -65,31 +73,60 @@ export const CardItem: React.FC<CardItemProps> = ({
   };
   const cardItemClasses = classNames(
     'flex items-center justify-evenly', // Layout classes
-    'h-[56px] p-2', // Size and padding classes
-    'gap-x-2 bg-white', // Gap and background classes
+    'p-2', // Size and padding classes
+    'gap-x-2 bg-app-bg', // Gap and background classes
     'rounded-lg transition', // Shape and transition classes
-    'duration-300 ease-in-out', // Transition duration and timing function classes
-    hoverable && 'hover:bg-grey-50 cursor-pointer', // Hover and cursor classes
-    'overflow-hidden',
+    'duration-300 ease-in-out cursor-pointer', // Transition duration and timing function classes
+    'overflow-hidden w-full',
     className // User-defined classes
   );
 
   return (
     <div {...props} className={cardItemClasses} onClick={handleClick}>
       <div className="shrink-0">{iconLeft && <LeftIconOrComponent icon={iconLeft} color="black" />}</div>
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex-col flex justify-center overflow-hidden">
-          {title && <p className="text-sm font-medium text-black truncate text-ellipsis text-left">{title}</p>}
-          {subtitle && <p className="text-xs text-grey-600 truncate text-ellipsis">{subtitle}</p>}
+      <div className="flex overflow-hidden w-full justify-between">
+        <div className="flex-col flex justify-center overflow-hidden gap-1">
+          {title && (
+            <p
+              className={classNames(
+                'text-base font-semidbold text-black truncate text-ellipsis text-left leading-[100%]',
+                titleClassName
+              )}
+            >
+              {title}
+            </p>
+          )}
+          {subtitle && (
+            <p
+              className={classNames(
+                'text-sm text-black truncate text-ellipsis leading-[100%] opacity-50 font-medium',
+                subtitleClassName
+              )}
+            >
+              {subtitle}
+            </p>
+          )}
         </div>
         {(titleRight || subtitleRight) && (
-          <div className="text-sm text-grey-600 flex flex-col justify-center items-end">
-            {titleRight && <div className="text-sm font-medium text-black">{titleRight}</div>}
-            {subtitleRight && <div className="text-xs text-grey-600">{subtitleRight}</div>}
+          <div className="text-sm text-grey-600 flex flex-col justify-center items-end gap-1">
+            {titleRight && (
+              <div className={classNames('text-base leading-[100%] font-medium text-black', titleRightClassName)}>
+                {titleRight}
+              </div>
+            )}
+            {subtitleRight && (
+              <div className={classNames('text-sm leading-[100%] text-black opacity-50', subtitleRightClassName)}>
+                {subtitleRight}
+              </div>
+            )}
           </div>
         )}
       </div>
-      <div className="shrink-0">{iconRight && <IconOrComponent icon={iconRight} color="black" />}</div>
+      {iconRight && (
+        <div className="shrink-0">
+          <IconOrComponent icon={iconRight} color="black" />
+        </div>
+      )}
     </div>
   );
 };

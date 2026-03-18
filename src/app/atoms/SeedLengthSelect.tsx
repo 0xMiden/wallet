@@ -58,7 +58,7 @@ export const SeedLengthSelect: FC<SeedLengthSelectProps> = ({
   return (
     <div
       ref={selectRef}
-      className={classNames('absolute right-0 z-10 text-black border-2 rounded-md bg-white cursor-pointer')}
+      className={classNames('absolute right-0 z-10 text-black border-2 rounded-md bg-surface-solid cursor-pointer')}
     >
       <div className={classNames('flex flex-row justify-around p-2')} onClick={() => setIsOpen(!isOpen)}>
         <span className="text-base">{t('seedInputNumberOfWords', { num: selectedOption })}</span>

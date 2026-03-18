@@ -1,28 +1,29 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React from 'react';
 
-import classNames from 'clsx';
+import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
-import ToggleSwitch from 'app/atoms/ToggleSwitch';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
+import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 import { truncateAddress } from 'utils/string';
 
-import { RecallBlocksModal } from './RecallBlocksModal';
-import { SendFlowAction, SendFlowActionId } from './types';
+import { SendFlowAction } from './types';
 
 export interface ReviewTransactionProps {
   amount: string;
   token: string;
   onAction: (action: SendFlowAction) => void;
   onGoBack: () => void;
+  onSubmit: () => void;
   sharePrivately: boolean;
   delegateTransaction: boolean;
   recipientAddress?: string;
   recallBlocks?: string;
+  recallDate?: Date;
+  recallTime: string;
 }
 
 export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
@@ -32,155 +33,88 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   sharePrivately,
   delegateTransaction,
   recallBlocks,
-  onAction,
-  onGoBack
+  recallDate,
+  recallTime,
+  onGoBack,
+  onSubmit
 }) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
-  const [recallBlocksModalIsOpen, setRecallBlocksModalIsOpen] = useState(false);
-  const [recallBlocksInput, setRecallBlocksInput] = useState<string>(recallBlocks || '');
-  const [recallBlocksDisplay, setRecallBlocksDisplay] = useState<string>(recallBlocks || ''); // TODO: remove workaround for SetFormValues not rerendering recallBlocks
-  const changingRef = useRef(false);
-  const delegateTransactionChangingRef = useRef(false);
 
-  const handleDelegateTransactionToggle = useCallback(
-    (evt: React.ChangeEvent<HTMLInputElement>) => {
-      if (delegateTransactionChangingRef.current) return;
-      delegateTransactionChangingRef.current = true;
+  const displayRecalLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
-      onAction({
-        id: SendFlowActionId.SetFormValues,
-        payload: { delegateTransaction: evt.target.checked }
-      });
-      delegateTransactionChangingRef.current = false;
-    },
-    [onAction]
-  );
-
-  const handleSharePrivatelyToggle = useCallback(
-    (evt: React.ChangeEvent<HTMLInputElement>) => {
-      if (changingRef.current) return;
-      changingRef.current = true;
-
-      onAction({
-        id: SendFlowActionId.SetFormValues,
-        payload: { sharePrivately: evt.target.checked }
-      });
-      changingRef.current = false;
-    },
-    [onAction]
-  );
-
-  const onBlocksChangeHandler = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setRecallBlocksInput(e.target.value);
-    },
-    [setRecallBlocksInput]
-  );
-
-  const onRecallBlocksCancel = useCallback(() => {
-    setRecallBlocksInput(recallBlocksDisplay);
-    setRecallBlocksModalIsOpen(false);
-  }, [setRecallBlocksInput, recallBlocksDisplay, setRecallBlocksModalIsOpen]);
-
-  const onRecallBlocksSubmit = useCallback(() => {
-    onAction?.({
-      id: SendFlowActionId.SetFormValues,
-      payload: {
-        recallBlocks: recallBlocksInput
-      },
-      triggerValidation: false
-    });
-    setRecallBlocksDisplay(recallBlocksInput);
-    setRecallBlocksModalIsOpen(false);
-  }, [onAction, recallBlocksInput, setRecallBlocksModalIsOpen]);
+  const hasRecall = !!recallBlocks && parseInt(recallBlocks) > 0;
 
   return (
-    <div className="flex-1 flex flex-col">
-      <NavigationHeader mode="back" title={t('review')} onBack={onGoBack} showBorder />
-      <div className="flex flex-col flex-1 p-4 gap-y-4 md:w-[460px] md:mx-auto">
-        <span className="flex flex-row items-end gap-x-2 justify-center p-6">
-          <p className="text-2xl leading-8">{`${amount} ${token}`}</p>
-        </span>
+    <div className="flex flex-col bg-app-bg h-full">
+      <NavigationHeader mode="back" title={t('reviewTransaction')} onBack={onGoBack} showBorder />
 
-        <div className="flex flex-col gap-y-2">
-          <span className="flex flex-row justify-between">
-            <label className="text-sm text-grey-600">{t('from')}</label>
-            <p className="text-sm">{truncateAddress(publicKey)}</p>
-          </span>
-          <span className="flex flex-row justify-between whitespace-pre-line">
-            <label className="text-sm text-grey-600">{t('to')}</label>
-            <p className="text-sm text-right">{truncateAddress(recipientAddress || '')}</p>
-          </span>
+      <div className="flex flex-col flex-1 min-h-0 px-4">
+        <div className="flex-1 overflow-y-auto no-scrollbar">
+          {/* Amount */}
+          <div className="flex items-center justify-center py-4">
+            <span className="text-3xl font-medium text-heading-gray/53 leading-none">
+              {amount} {token}
+            </span>
+          </div>
+
+          {/* Transfer Details Card */}
+          <DetailCard>
+            <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
+            <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
+            <DetailRow label={t('network')} badge={t('testnet')} isLast={!hasRecall} />
+            {hasRecall && <DetailRow label={t('recallBy')} value={displayRecalLabel || recallBlocks!} isLast />}
+          </DetailCard>
+
+          {/* Options Card */}
+          <div className="mt-3">
+            <DetailCard>
+              <DetailRow label={t('privatePayment')}>
+                <ToggleBadge enabled={sharePrivately} />
+              </DetailRow>
+              <DetailRow label={t('delegateProving')} isLast={!hasRecall}>
+                <ToggleBadge enabled={delegateTransaction} />
+              </DetailRow>
+              {hasRecall && (
+                <DetailRow label={t('recallEnabled')} isLast>
+                  <ToggleBadge enabled />
+                </DetailRow>
+              )}
+            </DetailCard>
+          </div>
         </div>
 
-        <hr className="h-px bg-grey-100" />
-
-        <div className="flex flex-col gap-y-2">
-          <span className="flex flex-row items-center justify-between py-2">
-            <label className="text-sm text-grey-600">{t('recallBlocks')}</label>
-            <div className="flex flex-row items-center">
-              <p className={classNames('text-sm text-right mr-4', recallBlocksDisplay ? 'opacity-100' : 'opacity-50')}>
-                {recallBlocksDisplay || t('none')}
-              </p>
-              <Icon
-                name={IconName.Settings}
-                fill="black"
-                className="cursor-pointer"
-                onClick={() => setRecallBlocksModalIsOpen(true)}
-              />
-            </div>
-          </span>
+        {/* Buttons */}
+        <div className="shrink-0 pt-4 pb-4 flex flex-col gap-y-2">
+          <Button
+            type="submit"
+            title={t('confirm')}
+            variant={ButtonVariant.Primary}
+            onClick={onSubmit}
+            className="w-full rounded-5 text-base font-semibold"
+          />
+          <Button
+            type="button"
+            onClick={onGoBack}
+            variant={ButtonVariant.Secondary}
+            className="w-full rounded-5"
+            title={t('cancel')}
+          />
         </div>
-
-        <hr className="h-px bg-grey-100" />
-
-        {/* Hide delegate transaction toggle on mobile - always delegated */}
-        {!isMobile() && (
-          <>
-            <div className="flex flex-col gap-y-2">
-              <span className="flex flex-row items-center justify-between py-2">
-                <label className="text-sm text-grey-600">{t('delegateTransaction')}</label>
-                <div className="flex flex-row items-center">
-                  <ToggleSwitch
-                    checked={delegateTransaction}
-                    onChange={handleDelegateTransactionToggle}
-                    name="delegateTransaction"
-                    containerClassName="my-1"
-                  />
-                </div>
-              </span>
-            </div>
-
-            <hr className="h-px bg-grey-100" />
-          </>
-        )}
-
-        <div className="flex flex-col gap-y-2">
-          <span className="flex flex-row items-center justify-between py-2">
-            <label className="text-sm text-grey-600">{t('shareTransactionPrivately')}</label>
-            <div className="flex flex-row items-center">
-              <ToggleSwitch
-                checked={sharePrivately}
-                onChange={handleSharePrivatelyToggle}
-                name="sharePrivately"
-                containerClassName="my-1"
-              />
-            </div>
-          </span>
-        </div>
-
-        <span className="flex-1" />
-        <Button type="submit" title={t('send')} variant={ButtonVariant.Primary} disabled={false} />
       </div>
-      <RecallBlocksModal
-        isOpen={recallBlocksModalIsOpen}
-        parentSelector={() => document.querySelector('#root [data-testid="send-flow"]')!}
-        onBlocksChangeHandler={onBlocksChangeHandler}
-        onCancel={onRecallBlocksCancel}
-        onSubmit={onRecallBlocksSubmit}
-        recallBlocksInput={recallBlocksInput}
-      />
     </div>
+  );
+};
+
+const ToggleBadge: React.FC<{ enabled: boolean }> = ({ enabled }) => {
+  const { t } = useTranslation();
+  return (
+    <span
+      className={`text-xs font-medium px-3 py-1 rounded-full ${
+        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
+      }`}
+    >
+      {enabled ? t('on') : t('off')}
+    </span>
   );
 };
