@@ -1807,6 +1807,34 @@
     "message": "You can add and manage multiple account types later within the wallet.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
   },
+  "chooseRecoveryMethod": {
+    "message": "Set Up Account Recovery",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Choose how you want to recover your account if you lose access.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Fully Private",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "default": {
+    "message": "Default",
+    "englishSource": "Default"
+  },
   "transactionFile": {
     "message": "Transaction file",
     "englishSource": "Transaction file"
