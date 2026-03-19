@@ -30,7 +30,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
@@ -600,8 +600,6 @@ export const generateTransaction = async (
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
-<<<<<<< HEAD
-=======
   console.log('Generating transaction', {
     txId: transaction.id,
     type: transaction.type,
