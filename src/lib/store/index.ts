@@ -123,6 +123,7 @@ export const useWalletStore = create<WalletStore>()(
 
     // Auth actions
     registerWallet: async (walletType, password, mnemonic, ownMnemonic) => {
+      console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
         walletType,

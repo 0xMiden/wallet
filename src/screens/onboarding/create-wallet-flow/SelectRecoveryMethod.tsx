@@ -3,7 +3,8 @@ import React, { useMemo } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as ArrowRightIcon } from 'app/icons/arrow-right.svg';
+import { Button } from 'components/Button';
+import { Badge } from 'lib/ui/badge';
 
 import { WalletType } from '../types';
 
@@ -38,36 +39,49 @@ export const SelectRecoveryMethodScreen = ({ onSubmit, ...props }: SelectRecover
     ],
     [t]
   );
+  const [selected, setSelected] = React.useState<WalletType>(options.find(o => o.isDefault)?.id || options[0].id);
+
+  const handleContinue = () => {
+    onSubmit?.(selected);
+  };
 
   return (
-    <div className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full" {...props}>
-      <div className="flex flex-col items-center">
+    <div
+      className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full px-4 text-heading-gray gap-6"
+      {...props}
+    >
+      <div className="flex flex-col items-center gap-2">
         <h1 className="font-semibold text-2xl lh-title">{t('chooseRecoveryMethod')}</h1>
-        <p className="text-base text-center lh-title">{t('chooseRecoveryMethodDescription')}</p>
+        <p className="text-xs text-center lh-title px-4">{t('chooseRecoveryMethodDescription')}</p>
       </div>
-      {options.map(option => (
-        <div
-          key={option.id}
-          className={classNames('flex flex-col border p-4 rounded-lg cursor-pointer', {
-            'mb-2': !option.isLast,
-            'mb-8': option.isLast
-          })}
-          onClick={() => onSubmit?.(option.id)}
-        >
-          <div className="flex flex-row justify-between items-center">
-            <div className="flex items-center gap-2">
-              <h2 className="font-medium text-base">{option.title}</h2>
-              {option.isDefault && (
-                <span className="bg-pure-black text-pure-white text-xs font-medium px-2 py-0.5 rounded-full">
-                  {t('default')}
-                </span>
-              )}
+      <div className="flex flex-col">
+        {options.map(option => (
+          <div
+            key={option.id}
+            className={classNames('flex flex-col p-4 rounded-lg cursor-pointer bg-white', {
+              'mb-2': !option.isLast,
+              'mb-8': option.isLast,
+              'opacity-50': selected !== option.id
+            })}
+            onClick={() => setSelected(option.id)}
+          >
+            <div className="flex flex-row justify-between items-center">
+              <div className="flex items-center gap-2">
+                <h2 className="font-medium text-base">{option.title}</h2>
+                {option.isDefault && (
+                  <Badge variant={'default'} className="bg-primary-500 text-white">
+                    {t('default')}
+                  </Badge>
+                )}
+              </div>
             </div>
-            <ArrowRightIcon fill="currentColor" height={'20px'} width={'20px'} />
+            <p className="text-grey-600">{option.description}</p>
           </div>
-          <p className="text-grey-600">{option.description}</p>
-        </div>
-      ))}
+        ))}
+      </div>
+      <div className="flex flex-col gap-2 self-center w-full mt-auto">
+        <Button title={t('continue')} onClick={handleContinue} className="text-base" />
+      </div>
     </div>
   );
 };

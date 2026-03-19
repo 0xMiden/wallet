@@ -191,6 +191,7 @@ export class Vault {
     mnemonic?: string,
     ownMnemonic?: boolean
   ): Promise<Vault> {
+    console.log('Spawning new vault with wallet type', walletType);
     return withError('Failed to create wallet', async (): Promise<Vault> => {
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
@@ -633,6 +634,8 @@ function getMainDerivationPath(walletType: WalletType, accIndex: number) {
     walletTypeIndex = 0;
   } else if (walletType === WalletType.OffChain) {
     walletTypeIndex = 1;
+  } else if (walletType === WalletType.Psm) {
+    walletTypeIndex = 2;
   } else {
     throw new Error('Invalid wallet type');
   }
@@ -665,6 +668,7 @@ async function withError<T>(errMessage: string, factory: (doThrow: () => void) =
       throw new Error('<stub>');
     });
   } catch (err: any) {
+    console.log('Error in vault operation', err);
     throw err instanceof PublicError ? err : new PublicError(errMessage);
   }
 }

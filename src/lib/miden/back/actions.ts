@@ -74,6 +74,14 @@ export async function isDAppEnabled() {
 }
 
 export function registerNewWallet(walletType: WalletType, password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+  console.log(
+    '[Actions.registerNewWallet] Called with walletType:',
+    walletType,
+    'mnemonic provided:',
+    Boolean(mnemonic),
+    'ownMnemonic flag:',
+    ownMnemonic
+  );
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
     // Password may be undefined for hardware-only wallets (mobile/desktop with Secure Enclave)

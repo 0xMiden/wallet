@@ -102,6 +102,7 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         state
       };
     case WalletMessageType.NewWalletRequest:
+      console.log('[Background] NewWalletRequest received with walletType:', req.walletType);
       await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.ImportFromClientRequest:

@@ -28,6 +28,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { ConsumeTransaction, SendTransaction } from '../db/types';
 import { toNoteType } from '../helpers';
+import { createPsmAccount } from '../psm/account';
 import { NoteExportType } from './constants';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from './helpers';
 
@@ -108,6 +109,11 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
+    if (walletType === WalletType.Psm) {
+      const account = await createPsmAccount(this.webClient, seed);
+      return getBech32AddressFromAccountId(account.id());
+    }
+
     // Create a new wallet
     const accountStorageMode =
       walletType === WalletType.OnChain ? AccountStorageMode.public() : AccountStorageMode.private();
