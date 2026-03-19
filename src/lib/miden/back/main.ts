@@ -183,6 +183,18 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         type: WalletMessageType.SignTransactionResponse,
         signature
       };
+    case WalletMessageType.SignWordRequest:
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      return {
+        type: WalletMessageType.SignWordResponse,
+        signature: wordSignature
+      };
+    case WalletMessageType.GetPublicKeyForCommitmentRequest:
+      const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
+      return {
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey: commitmentPublicKey
+      };
     case WalletMessageType.GetAuthSecretKeyRequest:
       const key = await Actions.getAuthSecretKey(req.key);
       return {

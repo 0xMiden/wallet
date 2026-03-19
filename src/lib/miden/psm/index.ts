@@ -12,7 +12,6 @@ import {
 import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
-import { useWalletStore } from 'lib/store';
 
 import { fetchFromStorage } from '../front';
 import { accountIdStringToSdk } from '../sdk/helpers';
@@ -43,25 +42,13 @@ export class MultisigService {
     account: Account,
     publicKey: string,
     signerCommitment: string,
-    signCallback?: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+    signWordFn: SignWordFunction
   ): Promise<MultisigService> {
     try {
-      const signer = new WalletSigner(publicKey, signerCommitment, useWalletStore.getState().signWord);
+      const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
       const psmEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
 
-      const webClient = (
-        await MidenClientInterface.create(
-          signCallback
-            ? {
-                signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-                  const keyString = Buffer.from(publicKey).toString('hex');
-                  const signingInputsString = Buffer.from(signingInputs).toString('hex');
-                  return await signCallback(keyString, signingInputsString);
-                }
-              }
-            : {}
-        )
-      ).webClient;
+      const webClient = (await MidenClientInterface.create({})).webClient;
 
       const client = new MultisigClient(webClient, { psmEndpoint });
       const { psmCommitment } = await client.initialize('falcon');

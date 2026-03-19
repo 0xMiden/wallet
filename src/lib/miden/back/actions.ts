@@ -208,6 +208,18 @@ export function signTransaction(publicKey: string, signingInputs: string) {
   });
 }
 
+export function signWord(publicKey: string, wordHex: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.signWord(publicKey, wordHex);
+  });
+}
+
+export function getPublicKeyForCommitment(commitment: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.getPublicKeyForCommitment(commitment);
+  });
+}
+
 export function getAuthSecretKey(key: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.getAuthSecretKey(key);

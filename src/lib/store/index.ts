@@ -265,6 +265,25 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
+    signWord: async (publicKey, wordHex) => {
+      const res = await request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey,
+        wordHex
+      });
+      assertResponse(res.type === WalletMessageType.SignWordResponse);
+      return res.signature;
+    },
+
+    getPublicKeyForCommitment: async commitment => {
+      const res = await request({
+        type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+        commitment
+      });
+      assertResponse(res.type === WalletMessageType.GetPublicKeyForCommitmentResponse);
+      return res.publicKey;
+    },
+
     getAuthSecretKey: async key => {
       const res = await request({
         type: WalletMessageType.GetAuthSecretKeyRequest,

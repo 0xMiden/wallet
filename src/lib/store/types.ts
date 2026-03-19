@@ -119,6 +119,8 @@ export interface WalletActions {
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
+  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 
   // DApp actions

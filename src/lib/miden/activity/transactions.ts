@@ -13,7 +13,7 @@ import { liveQuery } from 'dexie';
 import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
 import { sendTransaction } from 'lib/miden-worker/sendTransaction';
 import { submitTransaction } from 'lib/miden-worker/submitTransaction';
-import { getOrCreateMultisigService, isPsmAccount } from 'lib/miden/front/psm-manager';
+import { getOrCreateMultisigService, isPsmAccount, type PsmAccountProvider } from 'lib/miden/front/psm-manager';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -584,7 +584,8 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  useWorker: boolean = true,
+  psmProvider?: PsmAccountProvider
 ) => {
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
@@ -606,9 +607,9 @@ export const generateTransaction = async (
     accountId: transaction.accountId
   });
   // Route PSM accounts through PSM service
-  if (isPsmAccount(transaction.accountId)) {
+  if (await isPsmAccount(transaction.accountId, psmProvider)) {
     try {
-      await generatePsmTransaction(transaction, signCallback);
+      await generatePsmTransaction(transaction, signCallback, psmProvider);
     } catch (error) {
       await cancelTransaction(transaction, error);
     }
@@ -689,9 +690,11 @@ export const generateTransaction = async (
  */
 const generatePsmTransaction = async (
   transaction: ITransaction,
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  psmProvider?: PsmAccountProvider
 ): Promise<void> => {
-  const multisigService = await getOrCreateMultisigService(transaction.accountId, signCallback);
+  console.log('Generating PSM transaction');
+  const multisigService = await getOrCreateMultisigService(transaction.accountId, psmProvider);
 
   let proposalResult;
 
@@ -792,7 +795,8 @@ export const getTransactionById = async (id: string) => {
 
 export const generateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  useWorker: boolean = true,
+  psmProvider?: PsmAccountProvider
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
@@ -818,7 +822,7 @@ export const generateTransactionsLoop = async (
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
-    await generateTransaction(nextTransaction, signCallback, useWorker);
+    await generateTransaction(nextTransaction, signCallback, useWorker, psmProvider);
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
@@ -831,13 +835,14 @@ export const generateTransactionsLoop = async (
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  useWorker: boolean = true,
+  psmProvider?: PsmAccountProvider
 ) => {
   return navigator.locks
     .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return;
 
-      const result = await generateTransactionsLoop(signCallback, useWorker);
+      const result = await generateTransactionsLoop(signCallback, useWorker, psmProvider);
       if (result === false) {
         return false;
       }
@@ -859,7 +864,8 @@ export const safeGenerateTransactionsLoop = async (
  */
 export const startBackgroundTransactionProcessing = (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = false
+  useWorker: boolean = false,
+  psmProvider?: PsmAccountProvider
 ) => {
   // Process transactions in a loop until none are left
   const processLoop = async () => {
@@ -869,7 +875,7 @@ export const startBackgroundTransactionProcessing = (
 
     while (hasMore && attempts < maxAttempts) {
       attempts++;
-      await safeGenerateTransactionsLoop(signCallback, useWorker);
+      await safeGenerateTransactionsLoop(signCallback, useWorker, psmProvider);
 
       // Check if there are more transactions to process
       const remaining = await getAllUncompletedTransactions();
