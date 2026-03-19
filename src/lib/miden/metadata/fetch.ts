@@ -1,5 +1,6 @@
-import { Address, BasicFungibleFaucetComponent, Endpoint, RpcClient } from '@miden-sdk/miden-sdk';
+import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk';
 
+import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 
@@ -26,7 +27,7 @@ export async function fetchTokenMetadata(
   }
 
   try {
-    const endpoint = Endpoint.testnet();
+    const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
     const account = await rpcClient.getAccountDetails(Address.fromBech32(assetId).accountId());
     const underlyingAccount = account.account();

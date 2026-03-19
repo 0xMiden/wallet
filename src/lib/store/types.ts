@@ -1,13 +1,12 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
+import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
-
-import { TokenBalanceData } from '../miden/front/balance';
 
 /**
  * Core wallet state (synced from backend)
@@ -22,7 +21,7 @@ export interface WalletSlice {
 }
 
 /**
- * Balance state (previously separate SWR cache)
+ * Balance state (cached from IndexedDB via fetchBalances)
  */
 export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
@@ -141,16 +140,13 @@ export interface WalletActions {
 }
 
 /**
- * Balance actions
+ * Asset actions
  */
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
 }
 
-/**
- * Asset actions
- */
 export interface AssetActions {
   setAssetsMetadata: (metadata: Record<string, AssetMetadata>) => void;
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;

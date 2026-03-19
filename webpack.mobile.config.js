@@ -352,4 +352,4 @@ const mobileWorkerConfig = {
   }
 };
 
-module.exports = [mobileAppConfig, mobileWorkerConfig];
+module.exports = [mobileAppConfig];

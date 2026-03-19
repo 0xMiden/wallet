@@ -29,15 +29,16 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
   RpcClient: function (...args: unknown[]) {
     return mockRpcClient();
   },
-  Endpoint: {
-    testnet: jest.fn(() => 'testnet-endpoint')
-  },
   Address: {
     fromBech32: (...args: unknown[]) => mockFromBech32(...args)
   },
   BasicFungibleFaucetComponent: {
     fromAccount: (account: unknown) => mockFromAccount(account)
   }
+}));
+
+jest.mock('lib/miden-chain/constants', () => ({
+  getRpcEndpoint: jest.fn(() => 'mock-endpoint')
 }));
 
 const mockIsMidenAsset = isMidenAsset as unknown as jest.Mock;

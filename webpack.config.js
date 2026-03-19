@@ -68,6 +68,8 @@ const appConfig = {
       components: path.resolve(__dirname, 'src', 'components'),
       screens: path.resolve(__dirname, 'src', 'screens'),
       utils: path.resolve(__dirname, 'src', 'utils'),
+      react: path.resolve(__dirname, 'node_modules', 'react'),
+      'react-dom': path.resolve(__dirname, 'node_modules', 'react-dom'),
       'process/browser': require.resolve('process/browser.js')
     },
     fallback: {
@@ -260,6 +262,8 @@ const backgroundConfig = {
       components: path.resolve(__dirname, 'src', 'components'),
       screens: path.resolve(__dirname, 'src', 'screens'),
       utils: path.resolve(__dirname, 'src', 'utils'),
+      react: path.resolve(__dirname, 'node_modules', 'react'),
+      'react-dom': path.resolve(__dirname, 'node_modules', 'react-dom'),
       'process/browser': require.resolve('process/browser.js')
     },
     fallback: {
@@ -506,4 +510,4 @@ const workerConfig = {
   }
 };
 
-module.exports = [appConfig, backgroundConfig, workerConfig];
+module.exports = [appConfig, backgroundConfig];
