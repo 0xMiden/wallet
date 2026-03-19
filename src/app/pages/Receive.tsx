@@ -25,6 +25,7 @@ import {
 import { AssetMetadata, useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { InputNoteState } from '@miden-sdk/miden-sdk';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
@@ -194,7 +195,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
               }
             }
           } else {
-            const { InputNoteState } = await import('@miden-sdk/miden-sdk');
             const noteIds = safeClaimableNotes.map(n => n.id);
             const noteDetails = await withWasmClientLock(async () => {
               const midenClient = await getMidenClient();
