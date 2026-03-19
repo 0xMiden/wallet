@@ -7,7 +7,8 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NetworkId, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk';
+import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk';
+import { getNetworkId } from 'lib/miden-chain/constants';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
@@ -645,13 +646,13 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
             .fungibleAssets()
             .map(asset => ({
               amount: asset.amount().toString(),
-              faucetId: asset.faucetId().toBech32(NetworkId.testnet(), AccountInterface.BasicWallet)
+              faucetId: asset.faucetId().toBech32(getNetworkId(), AccountInterface.BasicWallet)
             }));
           return {
             noteId: note.id().toString(),
             noteType: note.metadata()?.noteType(),
             senderAccountId:
-              note.metadata()?.sender()?.toBech32(NetworkId.testnet(), AccountInterface.BasicWallet) || undefined,
+              note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
             nullifier: note.nullifier(),
             state: note.state(),
             assets: assets

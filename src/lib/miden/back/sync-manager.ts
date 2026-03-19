@@ -31,6 +31,12 @@ export async function doSync(): Promise<void> {
         const client = await getMidenClient();
         if (!client) return;
         await client.syncState();
+        // Fetch private notes from NTL (if configured)
+        try {
+          await client.client.notes.fetchPrivate();
+        } catch {
+          // NTL may not be configured or reachable — that's fine
+        }
       }),
       SYNC_TIMEOUT_MS
     );
@@ -64,7 +70,8 @@ export async function doSync(): Promise<void> {
                 senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
                 noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
               };
-            } catch {
+            } catch (err) {
+              console.error('[SyncManager] Error parsing note:', err, 'note keys:', Object.getOwnPropertyNames(note));
               return null;
             }
           })
@@ -86,6 +93,11 @@ export async function doSync(): Promise<void> {
         return { parsedNotes: notes, vaultAssets: assets };
       });
 
+      console.log('[SyncManager] Parsed notes:', parsedNotes.length, 'vault assets:', vaultAssets.length);
+      if (parsedNotes.length > 0) {
+        console.log('[SyncManager] First note:', JSON.stringify(parsedNotes[0]));
+      }
+
       // Fetch metadata for all faucets in parallel (RPC, outside lock — no WASM needed)
       // Collect all unique faucet IDs from both notes and vault assets
       const allFaucetIds = new Set([...parsedNotes.map(n => n.faucetId), ...vaultAssets.map(a => a.faucetId)]);
@@ -102,8 +114,8 @@ export async function doSync(): Promise<void> {
               name: base.name,
               thumbnailUri: base.thumbnailUri
             };
-          } catch {
-            // Leave metadata undefined — frontend will handle
+          } catch (err) {
+            console.warn('[SyncManager] Metadata fetch failed for', faucetId, err);
           }
         })
       );
