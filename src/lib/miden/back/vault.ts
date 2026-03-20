@@ -241,12 +241,28 @@ export class Vault {
       const hdAccIndex = 0;
       const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
 
+      // Helper to sign words using the vault key (needed for PSM import)
+      const signWordFn = async (pk: string, wordHex: string) => {
+        const word = Word.fromHex(wordHex);
+        const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pk), vaultKey);
+        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKey, 'hex')));
+        const signature = wasmSecretKey.sign(word);
+        return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+      };
+
+      // Helper to get public key from commitment (needed for PSM import)
+      const getPublicKeyForCommitment = async (pkc: string) => {
+        const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), vaultKey);
+        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(sk, 'hex')));
+        return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
+      };
+
       // Wrap WASM client operations in a lock to prevent concurrent access
       const accPublicKey = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient(options);
         if (ownMnemonic && midenClient.network !== 'mock') {
           try {
-            return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
+            return await midenClient.importAccountBySeed(walletType, walletSeed, signWordFn, getPublicKeyForCommitment);
           } catch (e) {
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
             return await midenClient.createMidenWallet(walletType, walletSeed);
@@ -261,7 +277,7 @@ export class Vault {
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
-        isPublic: true,
+        isPublic: walletType === WalletType.OnChain,
         type: walletType,
         hdIndex: hdAccIndex
       };

@@ -1,4 +1,4 @@
-import { Account, TransactionRequest } from '@miden-sdk/miden-sdk';
+import { Account, TransactionRequest, WebClient } from '@miden-sdk/miden-sdk';
 import {
   Multisig,
   MultisigClient,
@@ -74,6 +74,32 @@ export class MultisigService {
     } catch (error) {
       console.log('Error initializing MultisigService:', error);
       throw error;
+    }
+  }
+
+  static async importAccountFromPsm(
+    publicKey: string,
+    signerCommitment: string,
+    signWordFn: SignWordFunction,
+    accountId: string,
+    webClient: WebClient
+  ) {
+    const psmEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
+    const psm = new PsmHttpClient(psmEndpoint);
+    const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
+    psm.setSigner(signer);
+    try {
+      const { stateJson } = await psm.getState(accountId);
+      const accountBase64 = stateJson.data;
+      const binaryString = atob(accountBase64);
+      const accountBytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        accountBytes[i] = binaryString.charCodeAt(i);
+      }
+      const account = Account.deserialize(accountBytes);
+      await webClient.newAccount(account, true);
+    } catch (error) {
+      console.log('Error fetching account state from PSM:', error);
     }
   }
 

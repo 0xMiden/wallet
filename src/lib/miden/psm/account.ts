@@ -15,6 +15,27 @@ export const MULTISIG_SLOT_NAMES = {
 } as const;
 
 /**
+ * Extract signer commitment and public key from a PSM account's storage.
+ */
+export async function getSignerDetailsFromAccount(
+  account: Account,
+  getPublicKeyForCommitment: (commitment: string) => Promise<string>
+): Promise<{ commitment: string; publicKey: string }> {
+  const mapEntries = account.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
+  if (!mapEntries) {
+    throw new Error('No signer public keys found in account storage');
+  }
+
+  const commitment = mapEntries[0].value.slice(2);
+  if (!commitment) {
+    throw new Error('Commitment not found in account storage');
+  }
+
+  const publicKey = await getPublicKeyForCommitment(commitment);
+  return { commitment, publicKey };
+}
+
+/**
  * Create a PSM (Private State Manager) account using the MultisigClient.
  *
  * This creates a 1-of-1 multisig account with PSM signature verification enabled.
@@ -48,7 +69,7 @@ export async function createPsmAccount(webClient: WebClient, seed?: Uint8Array):
       psmCommitment,
       psmPublicKey,
       psmEnabled: true,
-      storageMode: 'public',
+      storageMode: 'private',
       signatureScheme: 'falcon'
     });
 

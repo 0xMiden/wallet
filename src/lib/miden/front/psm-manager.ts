@@ -3,7 +3,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
-import { MULTISIG_SLOT_NAMES } from '../psm/account';
+import { getSignerDetailsFromAccount } from '../psm/account';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle
@@ -61,19 +61,8 @@ export async function getOrCreateMultisigService(
     throw new Error('Account not found in local storage');
   }
 
-  const mapEntries = sdkAccount.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
-  if (!mapEntries) {
-    throw new Error('No signer public keys found in account storage');
-  }
-
-  const commitment = mapEntries[0].value.slice(2);
-  if (!commitment) {
-    throw new Error('Commitment not found in account storage');
-  }
-  console.log('[PSM Manager] Retrieved commitment from account storage:', commitment);
-  // Get the actual public key from the public key commitment
-  const publicKey = await provider.getPublicKeyForCommitment(commitment);
-  console.log('[PSM Manager] Retrieved public key for commitment:', publicKey);
+  const { commitment, publicKey } = await getSignerDetailsFromAccount(sdkAccount, provider.getPublicKeyForCommitment);
+  console.log('[PSM Manager] Retrieved signer details - commitment:', commitment, 'publicKey:', publicKey);
   // Initialize MultisigService with the account, public key, commitment, and signWord function
   const service = await MultisigService.init(sdkAccount, `0x${publicKey}`, `0x${commitment}`, provider.signWord);
 

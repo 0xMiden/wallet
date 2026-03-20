@@ -148,9 +148,9 @@ const Welcome: FC = () => {
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
           if (hardwareAvailable) {
-            // Hardware-only mode: skip password, go directly to confirmation
+            // Hardware-only mode: skip password, go to recovery method selection
             setPassword('__HARDWARE_ONLY__');
-            navigate('/#confirmation');
+            navigate('/#select-recovery-method');
           } else {
             navigate('/#create-password');
           }
@@ -181,11 +181,7 @@ const Welcome: FC = () => {
         setPassword(action.payload.password);
         eventCategory = AnalyticsEventCategory.FormSubmit;
         // Hardware protection is automatically set up in Vault.spawn() when available
-        if (onboardingType === OnboardingType.Create) {
-          navigate('/#select-recovery-method');
-        } else {
-          navigate('/#confirmation');
-        }
+        navigate('/#select-recovery-method');
         break;
       case 'select-recovery-method':
         setWalletType(action.payload);
@@ -241,7 +237,11 @@ const Welcome: FC = () => {
             }
           }
         } else if (step === OnboardingStep.SelectRecoveryMethod) {
-          navigate('/#create-password');
+          if (onboardingType === OnboardingType.Import && password === '__HARDWARE_ONLY__') {
+            navigate('/#import-from-seed');
+          } else {
+            navigate('/#create-password');
+          }
         } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
           navigate('/#select-import-type');
         }

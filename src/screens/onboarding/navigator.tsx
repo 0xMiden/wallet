@@ -2,7 +2,6 @@ import React, { FC, useCallback, useState } from 'react';
 
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
-
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
@@ -15,7 +14,7 @@ import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import { WelcomeScreen } from './common/Welcome';
 import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
-import { SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
+import { RecoveryOption, SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
 import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransactionType';
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
@@ -184,8 +183,28 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <ImportWalletFileScreen onSubmit={onImportFileSubmit} />;
       case OnboardingStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
-      case OnboardingStep.SelectRecoveryMethod:
-        return <SelectRecoveryMethodScreen onSubmit={onSelectRecoveryMethodSubmit} />;
+      case OnboardingStep.SelectRecoveryMethod: {
+        const importRecoveryOptions: RecoveryOption[] = [
+          {
+            id: WalletType.Psm,
+            title: t('guardianRecovery'),
+            description: t('guardianRecoveryDescription'),
+            isDefault: true
+          },
+          {
+            id: WalletType.OnChain,
+            title: t('publicAccountRecovery'),
+            description: t('publicAccountRecoveryDescription'),
+            isLast: true
+          }
+        ];
+        return (
+          <SelectRecoveryMethodScreen
+            onSubmit={onSelectRecoveryMethodSubmit}
+            options={onboardingType === OnboardingType.Import ? importRecoveryOptions : undefined}
+          />
+        );
+      }
       case OnboardingStep.SelectTransactionType:
         return <SelectTransactionTypeScreen onSubmit={onSelectTransactionTypeSubmit} />;
       case OnboardingStep.Confirmation:
@@ -212,7 +231,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     isHardwareSecurityAvailable,
     onBiometricChange,
     biometricAttempts,
-    biometricError
+    biometricError,
+    onboardingType,
+    t
   ]);
 
   const onBack = () => {

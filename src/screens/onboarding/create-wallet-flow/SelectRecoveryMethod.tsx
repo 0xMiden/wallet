@@ -8,11 +8,7 @@ import { Badge } from 'lib/ui/badge';
 
 import { WalletType } from '../types';
 
-export interface SelectRecoveryMethodScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
-  onSubmit?: (payload: WalletType) => void;
-}
-
-type RecoveryOption = {
+export type RecoveryOption = {
   id: WalletType;
   title: string;
   description: string;
@@ -20,9 +16,18 @@ type RecoveryOption = {
   isLast?: boolean;
 };
 
-export const SelectRecoveryMethodScreen = ({ onSubmit, ...props }: SelectRecoveryMethodScreenProps) => {
+export interface SelectRecoveryMethodScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
+  onSubmit?: (payload: WalletType) => void;
+  options?: RecoveryOption[];
+}
+
+export const SelectRecoveryMethodScreen = ({
+  onSubmit,
+  options: optionsProp,
+  ...props
+}: SelectRecoveryMethodScreenProps) => {
   const { t } = useTranslation();
-  const options: RecoveryOption[] = useMemo(
+  const defaultOptions: RecoveryOption[] = useMemo(
     () => [
       {
         id: WalletType.Psm,
@@ -39,6 +44,7 @@ export const SelectRecoveryMethodScreen = ({ onSubmit, ...props }: SelectRecover
     ],
     [t]
   );
+  const options = optionsProp || defaultOptions;
   const [selected, setSelected] = React.useState<WalletType>(options.find(o => o.isDefault)?.id || options[0].id);
 
   const handleContinue = () => {
