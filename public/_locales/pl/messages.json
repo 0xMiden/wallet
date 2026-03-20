@@ -1716,6 +1716,42 @@
     "message": "Możesz później dodać wiele typów kont i zarządzać nimi w portfelu.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
   },
+  "chooseRecoveryMethod": {
+    "message": "Skonfiguruj odzyskiwanie konta",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Wybierz sposób odzyskania konta w przypadku utraty dostępu.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Opiekun",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Zalecony. Odzyskiwanie konta na podstawie opiekuna, ale operator strażnika może zobaczyć Twój stan.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Całkowicie prywatny",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Tylko lokalnie, nikt poza Tobą nie widzi Twojego stanu, ale nie ma możliwości odzyskania urządzenia. Utrata urządzenia spowoduje trwałą utratę środków.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Publiczny",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Odzyskaj publiczne konto w sieci.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "default": {
+    "message": "Domyślny",
+    "englishSource": "Default"
+  },
   "transactionFile": {
     "message": "Plik transakcyjny",
     "englishSource": "Transaction file"

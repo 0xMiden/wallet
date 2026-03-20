@@ -5,6 +5,7 @@ import {
   NoteFilter,
   NoteFilterTypes,
   NoteId,
+  TransactionRequest,
   TransactionResult
 } from '@miden-sdk/miden-sdk';
 import { liveQuery } from 'dexie';
@@ -12,6 +13,7 @@ import { liveQuery } from 'dexie';
 import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
 import { sendTransaction } from 'lib/miden-worker/sendTransaction';
 import { submitTransaction } from 'lib/miden-worker/submitTransaction';
+import { getOrCreateMultisigService, isPsmAccount, type PsmAccountProvider } from 'lib/miden/front/psm-manager';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -28,7 +30,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
@@ -582,7 +584,8 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  useWorker: boolean = true,
+  psmProvider?: PsmAccountProvider
 ) => {
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
@@ -598,6 +601,20 @@ export const generateTransaction = async (
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
+  console.log('Generating transaction', {
+    txId: transaction.id,
+    type: transaction.type,
+    accountId: transaction.accountId
+  });
+  // Route PSM accounts through PSM service
+  if (await isPsmAccount(transaction.accountId, psmProvider)) {
+    try {
+      await generatePsmTransaction(transaction, signCallback, psmProvider);
+    } catch (error) {
+      await cancelTransaction(transaction, error);
+    }
+    return;
+  }
 
   // Process transaction
   let result: TransactionResult;
@@ -667,6 +684,93 @@ export const generateTransaction = async (
   }
 };
 
+/**
+ * Generate a transaction for a PSM account using the MultisigService.
+ * Routes the transaction through MultisigService proposal methods.
+ */
+const generatePsmTransaction = async (
+  transaction: ITransaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  psmProvider?: PsmAccountProvider
+): Promise<void> => {
+  console.log('Generating PSM transaction');
+  const multisigService = await getOrCreateMultisigService(transaction.accountId, psmProvider);
+
+  let proposalResult;
+
+  switch (transaction.type) {
+    case 'send': {
+      const sendTx = transaction as SendTransaction;
+      proposalResult = await multisigService.createSendProposal(
+        sendTx.secondaryAccountId,
+        sendTx.faucetId,
+        BigInt(sendTx.amount)
+      );
+      break;
+    }
+    case 'consume': {
+      const consumeTx = transaction as ConsumeTransaction;
+      proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
+      break;
+    }
+    case 'execute':
+    default: {
+      // For custom transactions, get TransactionSummary and create a custom proposal
+      const summaryBytes = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
+        return (
+          await midenClient.webClient.executeForSummary(accountIdStringToSdk(transaction.accountId), txRequest)
+        ).serialize();
+      });
+      proposalResult = await multisigService.createCustomProposal(summaryBytes);
+      break;
+    }
+  }
+
+  // Get the proposal commitment for signing and execution
+  const proposalCommitment = proposalResult.proposal.commitment;
+
+  // Sign and execute the proposal
+  const tr = await multisigService.signAndCreateTransactionRequest(proposalCommitment);
+
+  const options: MidenClientCreateOptions = {
+    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+      const keyString = Buffer.from(publicKey).toString('hex');
+      const signingInputsString = Buffer.from(signingInputs).toString('hex');
+      return await signCallback(keyString, signingInputsString);
+    }
+  };
+
+  // Wrap WASM client operations in a lock to prevent concurrent access
+  const transactionResultBytes = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient(options);
+    return await midenClient.newTransaction(transaction.accountId, tr.serialize());
+  });
+
+  const transactionResult = TransactionResult.deserialize(transactionResultBytes);
+
+  await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    await midenClient.submitTransaction(transactionResultBytes, transaction.delegateTransaction);
+  });
+
+  switch (transaction.type) {
+    case 'send':
+      await completeSendTransaction(transaction as SendTransaction, transactionResult);
+      break;
+    case 'consume':
+      await completeConsumeTransaction(transaction.id, transactionResult);
+      break;
+    case 'execute':
+    default:
+      await completeCustomTransaction(transaction, transactionResult);
+      break;
+  }
+
+  await multisigService.sync();
+};
+
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
   // Cancel the transaction
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
@@ -691,7 +795,8 @@ export const getTransactionById = async (id: string) => {
 
 export const generateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  useWorker: boolean = true,
+  psmProvider?: PsmAccountProvider
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
@@ -717,7 +822,7 @@ export const generateTransactionsLoop = async (
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
-    await generateTransaction(nextTransaction, signCallback, useWorker);
+    await generateTransaction(nextTransaction, signCallback, useWorker, psmProvider);
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
@@ -730,13 +835,14 @@ export const generateTransactionsLoop = async (
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  useWorker: boolean = true,
+  psmProvider?: PsmAccountProvider
 ) => {
   return navigator.locks
     .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return;
 
-      const result = await generateTransactionsLoop(signCallback, useWorker);
+      const result = await generateTransactionsLoop(signCallback, useWorker, psmProvider);
       if (result === false) {
         return false;
       }
@@ -758,7 +864,8 @@ export const safeGenerateTransactionsLoop = async (
  */
 export const startBackgroundTransactionProcessing = (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = false
+  useWorker: boolean = false,
+  psmProvider?: PsmAccountProvider
 ) => {
   // Process transactions in a loop until none are left
   const processLoop = async () => {
@@ -768,7 +875,7 @@ export const startBackgroundTransactionProcessing = (
 
     while (hasMore && attempts < maxAttempts) {
       attempts++;
-      await safeGenerateTransactionsLoop(signCallback, useWorker);
+      await safeGenerateTransactionsLoop(signCallback, useWorker, psmProvider);
 
       // Check if there are more transactions to process
       const remaining = await getAllUncompletedTransactions();

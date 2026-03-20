@@ -1780,6 +1780,42 @@
     "message": "Позже вы сможете добавлять и управлять несколькими типами учетных записей в кошельке.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
   },
+  "chooseRecoveryMethod": {
+    "message": "Настройка восстановления учетной записи",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Выберите, как вы хотите восстановить свою учетную запись, если вы потеряете доступ.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Хранитель",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Рекомендуется. Восстановление вашей учетной записи на основе Guardian, но оператор Guardian может видеть ваше состояние.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Полностью приватный",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Только локально, никто, кроме вас, не видит ваше состояние, но восстановления нет, потеря устройства приведет к безвозвратной потере ваших средств.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Общественный",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Восстановите общедоступную учетную запись в сети.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "default": {
+    "message": "По умолчанию",
+    "englishSource": "Default"
+  },
   "transactionFile": {
     "message": "Файл транзакции",
     "englishSource": "Transaction file"

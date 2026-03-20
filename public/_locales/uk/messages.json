@@ -1780,6 +1780,42 @@
     "message": "Пізніше в гаманці можна додати кілька типів облікових записів і керувати ними.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
   },
+  "chooseRecoveryMethod": {
+    "message": "Налаштувати відновлення облікового запису",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Виберіть спосіб відновлення облікового запису, якщо ви втратите доступ.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Опікун",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Рекомендовано. Відновлення вашого облікового запису на основі опікуна, але оператор-охоронець може бачити ваш стан.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Повністю приватний",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Лише локально, ніхто не бачить ваш стан, крім вас, але відновлення не відбувається, втрата пристрою призведе до остаточної втрати ваших коштів.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Громадський",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Відновіть загальнодоступний обліковий запис у мережі.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "default": {
+    "message": "За замовчуванням",
+    "englishSource": "Default"
+  },
   "transactionFile": {
     "message": "Файл транзакцій",
     "englishSource": "Transaction file"

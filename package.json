@@ -83,6 +83,8 @@
     "@miden-sdk/miden-sdk": "^0.13.0",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
     "@noble/hashes": "^1.4.0",
+    "@openzeppelin/miden-multisig-client": "^0.13.1",
+    "@openzeppelin/psm-client": "^0.13.0",
     "@peculiar/webcrypto": "1.1.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@segment/analytics-node": "^2.3.0",

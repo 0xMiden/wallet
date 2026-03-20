@@ -102,7 +102,8 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         state
       };
     case WalletMessageType.NewWalletRequest:
-      await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
+      console.log('[Background] NewWalletRequest received with walletType:', req.walletType);
+      await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.ImportFromClientRequest:
       await Actions.registerImportedWallet(req.password, req.mnemonic);
@@ -181,6 +182,18 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
       return {
         type: WalletMessageType.SignTransactionResponse,
         signature
+      };
+    case WalletMessageType.SignWordRequest:
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      return {
+        type: WalletMessageType.SignWordResponse,
+        signature: wordSignature
+      };
+    case WalletMessageType.GetPublicKeyForCommitmentRequest:
+      const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
+      return {
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey: commitmentPublicKey
       };
     case WalletMessageType.GetAuthSecretKeyRequest:
       const key = await Actions.getAuthSecretKey(req.key);

@@ -8,6 +8,7 @@
 * [FIX][all] Removed stale "Download Generated Files" button and output notes storage. The `useExportNotes` hook, `registerOutputNote`, and related storage key were unused dead code. Simplifies the transaction completion screen and its auto-close logic. (#160)
 * [FIX][all] Removed the "Upload File" button and drag-and-drop note import from the Receive page. The freed space is now used by the notes list, making it taller. (#161)
 * [FEATURE][all] Complete UI revamp across the wallet.
+* [FEATURE][all] Integrate gaurdian for private state management for the wallet.
 
 ---
 
