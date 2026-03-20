@@ -1803,6 +1803,14 @@
     "message": "로컬에서만 가능하며 귀하 외에는 누구도 귀하의 상태를 볼 수 없지만 복구할 수는 없습니다. 장치를 분실하면 자금이 영구적으로 손실됩니다.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
+  "publicAccountRecovery": {
+    "message": "공공의",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "공개 온체인 계정을 복구하세요.",
+    "englishSource": "Recover a public on-chain account."
+  },
   "default": {
     "message": "기본",
     "englishSource": "Default"

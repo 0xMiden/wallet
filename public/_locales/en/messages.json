@@ -1767,6 +1767,14 @@
     "message": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
+  "publicAccountRecovery": {
+    "message": "Public",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Recover a public on-chain account.",
+    "englishSource": "Recover a public on-chain account."
+  },
   "default": {
     "message": "Default",
     "englishSource": "Default"

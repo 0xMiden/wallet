@@ -1801,6 +1801,14 @@
     "message": "Somente local, ninguém vê seu estado, exceto você, mas não há recuperação. A perda do seu dispositivo resultará na perda permanente de seus fundos.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
+  "publicAccountRecovery": {
+    "message": "Público",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Recupere uma conta pública na rede.",
+    "englishSource": "Recover a public on-chain account."
+  },
   "default": {
     "message": "Padrão",
     "englishSource": "Default"

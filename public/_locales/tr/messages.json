@@ -1803,6 +1803,14 @@
     "message": "Yalnızca yerel, durumunuzu sizden başka kimse göremez ancak iyileşme olmaz, cihazınızı kaybetmek, paranızın kalıcı olarak kaybolmasına neden olur.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
+  "publicAccountRecovery": {
+    "message": "Halk",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Herkese açık bir zincir içi hesabı kurtarın.",
+    "englishSource": "Recover a public on-chain account."
+  },
   "default": {
     "message": "Varsayılan",
     "englishSource": "Default"

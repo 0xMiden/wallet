@@ -1804,6 +1804,14 @@
     "message": "Только локально, никто, кроме вас, не видит ваше состояние, но восстановления нет, потеря устройства приведет к безвозвратной потере ваших средств.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
+  "publicAccountRecovery": {
+    "message": "Общественный",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Восстановите общедоступную учетную запись в сети.",
+    "englishSource": "Recover a public on-chain account."
+  },
   "default": {
     "message": "По умолчанию",
     "englishSource": "Default"
