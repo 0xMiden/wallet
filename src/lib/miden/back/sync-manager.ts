@@ -102,8 +102,7 @@ export async function doSync(): Promise<void> {
               name: base.name,
               thumbnailUri: base.thumbnailUri
             };
-          } catch {
-          }
+          } catch {}
         })
       );
 

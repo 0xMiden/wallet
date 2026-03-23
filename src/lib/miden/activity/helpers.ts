@@ -1,9 +1,8 @@
-import { TransactionResult } from '@miden-sdk/miden-sdk';
+import { TransactionRecord } from '@miden-sdk/miden-sdk';
 import BigNumber from 'bignumber.js';
 
 import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { compareAccountIds } from './utils';
 
 export function tryParseTokenTransfers(
   parameters: any,
@@ -88,49 +87,41 @@ const checkIfIntString = (x: any) => (typeof x.int === 'string' ? x.int : undefi
 const checkDestination = (x: any, destination: string) =>
   typeof x.int === 'string' ? toTokenId(destination, x.int) : undefined;
 
-export const interpretTransactionResult = <K extends keyof ITransaction>(
+export const interpretTransactionRecord = <K extends keyof ITransaction>(
   transaction: ITransaction,
-  result: TransactionResult
+  txRecord: TransactionRecord
 ): Pick<ITransaction, K> => {
   let type = transaction.type;
   let displayMessage = transaction.displayMessage;
   let displayIcon = transaction.displayIcon;
   let secondaryAccountId = transaction.secondaryAccountId;
-  const inputNotes = result.executedTransaction().inputNotes().notes();
-  const outputNotes = result.executedTransaction().outputNotes().notes();
+  const outputNotes = txRecord.outputNotes().notes();
 
-  const inputFaucetIds: string[] = [];
   const outputFaucetIds: string[] = [];
-  let faucetId: string | undefined;
-  let inputAmount = BigInt(0);
   let outputAmount = BigInt(0);
-  inputNotes.forEach(inputNote => {
-    const assets = inputNote.note().assets().fungibleAssets();
-    inputAmount = assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
-    const faucetIds = [...new Set(assets.map(asset => getBech32AddressFromAccountId(asset.faucetId())))];
-    inputFaucetIds.push(...faucetIds);
-  });
   outputNotes.forEach(outputNote => {
-    const assets = outputNote.assets()!.fungibleAssets();
-    outputAmount = assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
-    const faucetIds = [...new Set(assets.map(asset => getBech32AddressFromAccountId(asset.faucetId())))];
-    outputFaucetIds.push(...faucetIds);
-  });
-  const transactionAmount = inputAmount - outputAmount;
-  const absoluteTransactionAmount = transactionAmount > 0n ? transactionAmount : -transactionAmount;
-
-  if (inputFaucetIds.length === 1 && outputFaucetIds.length === 0) {
-    type = 'consume';
-    const sender = getBech32AddressFromAccountId(inputNotes[0].note().metadata().sender());
-    const isReclaimed = compareAccountIds(sender, transaction.accountId);
-    displayMessage = isReclaimed ? 'Reclaimed' : 'Received';
-    if (!isReclaimed) {
-      secondaryAccountId = sender;
+    const assets = outputNote.assets();
+    if (assets) {
+      const fungible = assets.fungibleAssets();
+      outputAmount = fungible.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
+      const faucetIds = [...new Set(fungible.map(asset => getBech32AddressFromAccountId(asset.faucetId())))];
+      outputFaucetIds.push(...faucetIds);
     }
+  });
 
-    faucetId = inputFaucetIds[0];
+  let faucetId: string | undefined;
+
+  // Use input note info from DB transaction (inputNoteIds) since TransactionRecord
+  // only provides input note nullifiers, not full input note details
+  const hasInputNotes = transaction.inputNoteIds && transaction.inputNoteIds.length > 0;
+  const hasOutputNotes = outputFaucetIds.length > 0;
+
+  if (hasInputNotes && !hasOutputNotes) {
+    type = 'consume';
+    displayMessage = 'Received';
     displayIcon = 'RECEIVE';
-  } else if (outputFaucetIds.length === 1 && inputFaucetIds.length === 0) {
+    faucetId = transaction.faucetId;
+  } else if (hasOutputNotes && !hasInputNotes) {
     type = 'send';
     displayMessage = 'Sent';
     displayIcon = 'SEND';
@@ -144,12 +135,11 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
     displayMessage,
     displayIcon,
     secondaryAccountId,
-    transactionId: result.executedTransaction().id().toHex(),
-    inputNoteIds: inputNotes.map(note => note.id().toString()),
-    amount: absoluteTransactionAmount !== BigInt(0) ? absoluteTransactionAmount : undefined,
+    transactionId: txRecord.id().toHex(),
+    inputNoteIds: transaction.inputNoteIds,
+    amount: outputAmount !== BigInt(0) ? outputAmount : transaction.amount,
     outputNoteIds: outputNotes.map(note => note.id().toString()),
-    faucetId,
-    resultBytes: result.serialize()
+    faucetId
   };
 
   return Object.assign(transaction, updates);

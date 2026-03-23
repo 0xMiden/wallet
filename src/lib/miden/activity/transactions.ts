@@ -1,4 +1,4 @@
-import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk';
+import { InputNoteState } from '@miden-sdk/miden-sdk';
 import { liveQuery } from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
@@ -20,8 +20,8 @@ import { toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
-import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
-import { interpretTransactionResult } from './helpers';
+import { ConsumableNote, NoteType as NoteTypeString } from '../types';
+import { interpretTransactionRecord } from './helpers';
 import { importAllNotes, queueNoteImport } from './notes';
 import { compareAccountIds } from './utils';
 
@@ -53,64 +53,25 @@ export const requestCustomTransaction = async (
   return transaction.id;
 };
 
-export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
-  const executedTx = result.executedTransaction();
-  const outputNotes = executedTx.outputNotes().notes();
+export const completeCustomTransaction = async (transaction: ITransaction, txIdHex: string) => {
+  // Look up the TransactionRecord from SDK for output note details
+  const txRecord = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    return midenClient.getTransactionRecord(txIdHex);
+  });
 
-  for (const note of outputNotes) {
-    // Only care about private notes
-    if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
-      continue;
-    }
-
-    if (!transaction.secondaryAccountId) {
-      console.error('Missing recipient account id for private note', { txId: transaction.id });
-      continue;
-    }
-
-    let fullNote: Note;
-
-    // intoFull() can throw or return undefined
-    try {
-      const maybeFullNote = note.intoFull();
-      if (!maybeFullNote) {
-        console.error('intoFull() returned undefined for output note');
-        continue;
-      }
-      fullNote = maybeFullNote;
-    } catch (error) {
-      console.error('Failed to convert output note into full note', { error });
-      continue;
-    }
-
-    // Get client + send private note (wrapped in lock to prevent concurrent WASM access)
-    try {
-      await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-
-        try {
-          await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-          await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
-        } catch (error) {
-          console.error('Failed to send private note through the transport layer', {
-            txId: transaction.id,
-            secondaryAccountId: transaction.secondaryAccountId,
-            error
-          });
-        }
-      });
-    } catch (error) {
-      console.error('Failed to initialize Miden client for private note send', {
-        txId: transaction.id,
-        error
-      });
-    }
+  if (txRecord) {
+    const updatedTransaction = interpretTransactionRecord(transaction, txRecord);
+    updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
+    await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
+  } else {
+    // Fallback: no TransactionRecord found, use basic info
+    await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+      transactionId: txIdHex,
+      displayMessage: 'Executed',
+      completedAt: Math.floor(Date.now() / 1000)
+    });
   }
-
-  const updatedTransaction = interpretTransactionResult(transaction, result);
-  updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
-
-  await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
 };
 
 export const initiateConsumeTransactionFromId = async (
@@ -208,28 +169,56 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
   });
 };
 
-export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const note = result.executedTransaction().inputNotes().notes()[0].note();
-  const sender = getBech32AddressFromAccountId(note.metadata().sender());
-  const executedTransaction = result.executedTransaction();
-
+export const completeConsumeTransaction = async (id: string, txIdHex: string) => {
   const dbTransaction = await Repo.transactions.where({ id }).first();
-  const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
+
+  // Look up the consumed input note from SDK to get sender and asset details
+  const noteId = (dbTransaction as ConsumeTransaction)?.noteId;
+  let sender: string | undefined;
+  let faucetId: string | undefined;
+  let amount: bigint | undefined;
+  let noteType: NoteTypeString | undefined;
+
+  if (noteId) {
+    try {
+      const inputNote = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        return midenClient.getInputNote(noteId);
+      });
+      if (inputNote) {
+        const noteMeta = inputNote.metadata();
+        if (noteMeta) {
+          sender = getBech32AddressFromAccountId(noteMeta.sender());
+          noteType = toNoteTypeString(noteMeta.noteType()) as NoteTypeString;
+        }
+        const assets = inputNote.details().assets().fungibleAssets();
+        if (assets.length > 0) {
+          faucetId = getBech32AddressFromAccountId(assets[0].faucetId());
+          amount = assets[0].amount();
+        }
+      }
+    } catch (error) {
+      console.error('Failed to look up input note details for consume transaction', { id, noteId, error });
+    }
+  }
+
+  // Fall back to DB data if SDK lookup failed
+  sender = sender ?? dbTransaction?.secondaryAccountId;
+  faucetId = faucetId ?? dbTransaction?.faucetId;
+  amount = amount ?? dbTransaction?.amount;
+
+  const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender ?? '');
   const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
   const secondaryAccountId = reclaimed ? undefined : sender;
-  const asset = note.assets().fungibleAssets()[0];
-  const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  const amount = asset.amount();
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
-    transactionId: executedTransaction.id().toHex(),
+    transactionId: txIdHex,
     secondaryAccountId,
     faucetId,
     amount,
-    noteType: toNoteTypeString(note.metadata().noteType()),
-    completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
-    resultBytes: result.serialize()
+    noteType,
+    completedAt: Math.floor(Date.now() / 1000)
   });
 };
 
@@ -256,97 +245,30 @@ export const initiateSendTransaction = async (
   return dbTransaction.id;
 };
 
-const extractFullNote = (result: TransactionResult): Note | undefined => {
+export const completeSendTransaction = async (tx: SendTransaction, txIdHex: string) => {
+  // Look up TransactionRecord from SDK for output note details
+  let outputNoteIds: string[] = [];
   try {
-    const outputNotes = result.executedTransaction().outputNotes().notes();
-
-    if (!outputNotes || outputNotes.length === 0) {
-      console.error('No output notes found for executed transaction');
-      return undefined;
-    }
-
-    const fullNote = outputNotes[0].intoFull();
-
-    if (!fullNote) {
-      console.error('intoFull() returned undefined for first output note');
-      return undefined;
-    }
-
-    return fullNote;
-  } catch (error) {
-    console.error('Failed to extract full note from transaction result', { error });
-    return undefined;
-  }
-};
-
-export const completeSendTransaction = async (tx: SendTransaction, result: TransactionResult) => {
-  const executedTx = result.executedTransaction();
-  const note = extractFullNote(result);
-  const noteId = note?.id().toString();
-  const outputNoteIds = noteId ? [noteId] : [];
-
-  if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
-    // Wrap all WASM client operations in a lock to prevent concurrent access
-    type SendResult = { success: true } | { success: false; errorType: 'init' | 'transport'; error: unknown };
-    const sendResult = await withWasmClientLock<SendResult>(async () => {
-      try {
-        const midenClient = await getMidenClient();
-        await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-        await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
-        return { success: true };
-      } catch (error) {
-        return { success: false, errorType: 'transport', error };
-      }
-    }).catch(error => ({ success: false, errorType: 'init' as const, error }));
-
-    if (!sendResult.success) {
-      if (sendResult.errorType === 'transport') {
-        console.error('Failed to send private note through the transport layer', {
-          txId: tx.id,
-          secondaryAccountId: tx.secondaryAccountId,
-          error: sendResult.error
-        });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport error',
-          displayIcon: 'FAILED',
-          transactionId: executedTx.id().toHex(),
-          outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
-        });
-      } else {
-        console.error('Failed to initialize Miden client for private note send', {
-          txId: tx.id,
-          error: sendResult.error
-        });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport init error',
-          displayIcon: 'FAILED',
-          transactionId: executedTx.id().toHex(),
-          outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
-        });
-      }
-      return;
-    }
-  } else if (tx.noteType === NoteTypeEnum.Private && (!note || !noteId)) {
-    console.error('Missing full note for private send', { txId: tx.id });
-    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Send failed: note unavailable',
-      displayIcon: 'FAILED',
-      transactionId: executedTx.id().toHex(),
-      outputNoteIds,
-      completedAt: Math.floor(Date.now() / 1000) // seconds
+    const txRecord = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      return midenClient.getTransactionRecord(txIdHex);
     });
-    return;
+    if (txRecord) {
+      outputNoteIds = txRecord
+        .outputNotes()
+        .notes()
+        .map(note => note.id().toString());
+    }
+  } catch (error) {
+    console.error('Failed to look up transaction record for send', { txId: tx.id, error });
   }
 
   try {
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Sent',
-      transactionId: executedTx.id().toHex(),
+      transactionId: txIdHex,
       outputNoteIds,
-      completedAt: Math.floor(Date.now() / 1000), // seconds
-      resultBytes: result.serialize()
+      completedAt: Math.floor(Date.now() / 1000)
     });
   } catch (error) {
     console.error('Failed to update transaction status', {
@@ -757,9 +679,8 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
     };
 
     subscription = liveQuery(() => Repo.transactions.where({ id: transactionId }).first()).subscribe({
-      next: tx => {
+      next: async tx => {
         if (!tx) {
-          // Transaction not found - resolve with error
           cleanup();
           resolve({ errorMessage: 'Transaction not found' });
           return;
@@ -767,18 +688,34 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
 
         if (tx.status === ITransactionStatus.Completed) {
           cleanup();
-          const txResult = TransactionResult.deserialize(tx.resultBytes!);
-          const res = {
-            txHash: tx.transactionId!,
-            outputNotes: txResult
-              .executedTransaction()
-              .outputNotes()
-              .notes()
-              .map(no => no.intoFull())
-              .filter(no => !!no)
-              .map(fullNote => u8ToB64(fullNote.serialize()))
-          };
-          resolve(res);
+          try {
+            // Look up TransactionRecord from SDK to get output notes
+            const txRecord = await withWasmClientLock(async () => {
+              const midenClient = await getMidenClient();
+              return midenClient.getTransactionRecord(tx.transactionId!);
+            });
+
+            const outputNotes: string[] = [];
+            if (txRecord) {
+              for (const outputNote of txRecord.outputNotes().notes()) {
+                const fullNote = outputNote.intoFull();
+                if (fullNote) {
+                  outputNotes.push(u8ToB64(fullNote.serialize()));
+                }
+              }
+            }
+
+            resolve({
+              txHash: tx.transactionId!,
+              outputNotes
+            });
+          } catch (error) {
+            // If we can't look up the record, still return success with what we have
+            resolve({
+              txHash: tx.transactionId!,
+              outputNotes: []
+            });
+          }
         } else if (tx.status === ITransactionStatus.Failed) {
           cleanup();
           resolve({ errorMessage: tx.error || 'Transaction failed' });
