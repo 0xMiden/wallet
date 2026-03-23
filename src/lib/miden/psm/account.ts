@@ -1,5 +1,5 @@
 import { Account, AuthSecretKey, WebClient } from '@miden-sdk/miden-sdk';
-import { createMultisigAccount, MultisigClient } from '@openzeppelin/miden-multisig-client';
+import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -56,32 +56,33 @@ export async function createPsmAccount(webClient: WebClient, seed?: Uint8Array):
     const signerCommitment = sk.publicKey().toCommitment();
 
     // Get PSM endpoint and initialize client
-    const psmEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
-    const client = new MultisigClient(webClient, { psmEndpoint });
-    const { psmCommitment, psmPublicKey } = await client.initialize('falcon');
-
-    console.log('Creating PSM account with PSM commitment:', psmCommitment);
-
+    const guardianEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
+    const client = new MultisigClient(webClient, { guardianEndpoint });
+    const { commitment, pubkey } = await client.guardianClient.getPubkey();
     // Create the multisig account using the package utility
-    const { account } = await createMultisigAccount(webClient, {
-      threshold: 1,
-      signerCommitments: [signerCommitment.toHex()],
-      psmCommitment,
-      psmPublicKey,
-      psmEnabled: true,
-      storageMode: 'private',
-      signatureScheme: 'falcon'
-    });
-
+    const multisig = await client.create(
+      {
+        threshold: 1,
+        signerCommitments: [signerCommitment.toHex()],
+        guardianCommitment: commitment,
+        guardianPublicKey: pubkey,
+        guardianEnabled: true,
+        storageMode: 'private',
+        signatureScheme: 'falcon',
+        seed
+      },
+      new FalconSigner(sk)
+    );
+    await multisig.registerOnGuardian();
     // Sync state with the node
     await webClient.syncState();
 
     // Store the secret key in WebStore for signing
-    await webClient.addAccountSecretKeyToWebStore(account.id(), sk);
+    await webClient.addAccountSecretKeyToWebStore(multisig.account.id(), sk);
 
-    console.log('PSM account created:', account.id().toString());
+    console.log('PSM account created:', multisig.account.id().toString());
 
-    return account;
+    return multisig.account;
   } catch (e) {
     console.error('Error creating PSM account:', e);
     throw new Error('Failed to create PSM account');

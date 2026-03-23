@@ -2155,7 +2155,7 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@^0.13.0":
+"@miden-sdk/miden-sdk@0.13.0", "@miden-sdk/miden-sdk@^0.13.0":
   version "0.13.0"
   resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.13.0.tgz#df7f639f90931d279761a62bb513374366d755e4"
   integrity sha512-N0qUCZW9Dvk3Oqj37IrGmm0b0v3Nq5qHsX3BtQIzZIwDXKXKPBxy/0lO40oCwDtwI8AfriZQyMLbJR81Fo4Vpg==
@@ -2190,7 +2190,14 @@
     "@svgr/webpack" "8.1.0"
     new-url-loader "0.1.1"
 
-"@noble/hashes@^1.4.0":
+"@noble/curves@^1.9.7":
+  version "1.9.7"
+  resolved "https://registry.yarnpkg.com/@noble/curves/-/curves-1.9.7.tgz#79d04b4758a43e4bca2cbdc62e7771352fa6b951"
+  integrity sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==
+  dependencies:
+    "@noble/hashes" "1.8.0"
+
+"@noble/hashes@1.8.0", "@noble/hashes@^1.4.0":
   version "1.8.0"
   resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.8.0.tgz#cee43d801fcef9644b11b8194857695acd5f815a"
   integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
@@ -2221,24 +2228,20 @@
     "@nodelib/fs.scandir" "2.1.5"
     fastq "^1.6.0"
 
-"@openzeppelin/miden-multisig-client@^0.13.1":
-  version "0.13.1"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.13.1.tgz#da78637e0fb1397a5ba264a4a849ec9bfb094708"
-  integrity sha512-+potgpQgl4VE5CsXwqPyDuEHM0UY6ZvSATY8LBn0+3ZW8t4udIdLmsr7DzKDoUly6GSQWy8zNveCss/Buj/T8w==
+"@openzeppelin/guardian-client@^0.13.3":
+  version "0.13.3"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.13.3.tgz#49f56d59c1aa20593cc201992ddbeaadd45b010c"
+  integrity sha512-YypaFbTh6WR5xjhn4hFRDUqvDDCHoMhf+cIsbpBF/t1AD3rpw1FkpkLaEYXSF7YQG42yYMKxtv+voX2XjihKTg==
+
+"@openzeppelin/miden-multisig-client@^0.13.3":
+  version "0.13.3"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.13.3.tgz#1adf757a3d6dcc16ec1b1ffb5b7dacb8715d9fd6"
+  integrity sha512-Jolr9VREpv6xxLm639Cx8relQu6Bf2WipSLGRpw85M11IgbYZ0E0aSpLkEJ2YwUfvW6QZ+3ItVVIVdS2nz/0Fg==
   dependencies:
-    "@miden-sdk/miden-sdk" "^0.13.0"
+    "@miden-sdk/miden-sdk" "0.13.0"
+    "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/psm-client" "^0.13.1"
-
-"@openzeppelin/psm-client@^0.13.0":
-  version "0.13.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/psm-client/-/psm-client-0.13.0.tgz#fe4df2282ddede6af451fdfe728e5733bf85f4c0"
-  integrity sha512-pf/b5CpWfVDbYBSXCDxyuRgbgrKNCB8Y/Bw9U2vW3DteUmfGdsCeCX+PprwVbTvNo1thfja1NzbEfkAvO9XLIw==
-
-"@openzeppelin/psm-client@^0.13.1":
-  version "0.13.1"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/psm-client/-/psm-client-0.13.1.tgz#c7131e3eb9286edb3e156fc6847e17140d0a63f6"
-  integrity sha512-uUVw7qI7MtW3SUemX0a2JActTjCXojRPtIYPF7OQC7eIu01H9fpY/yqo8DBgQvkUS1wOssPueVVqVBqZEy6PHA==
+    "@openzeppelin/guardian-client" "^0.13.3"
 
 "@peculiar/asn1-schema@^2.0.27", "@peculiar/asn1-schema@^2.3.13":
   version "2.6.0"

@@ -1,43 +1,35 @@
-import { AccountId, Felt, FeltArray, Rpo256, Word } from '@miden-sdk/miden-sdk';
-import { SignatureScheme, Signer } from '@openzeppelin/psm-client';
+import { RequestAuthPayload, SignatureScheme, Signer } from '@openzeppelin/guardian-client';
 
+import { AuthDigest } from './digest';
 export type SignWordFunction = (publicKey: string, wordHex: string) => Promise<string>;
 
 export class WalletSigner implements Signer {
   readonly commitment: string;
   readonly publicKey: string;
   readonly scheme: SignatureScheme = 'falcon';
-  private signWordFn: SignWordFunction;
-  readonly commitmentForStorageRetrieval: string;
+  private signWordFn: (wordHex: string) => Promise<string>;
 
   constructor(publicKey: string, commitment: string, signWordFn: SignWordFunction) {
     this.publicKey = publicKey;
     this.commitment = commitment;
-    this.commitmentForStorageRetrieval = commitment.slice(2);
-    this.signWordFn = signWordFn;
+    this.signWordFn = (wordHex: string) => signWordFn(commitment.slice(2), wordHex);
   }
 
   async signAccountIdWithTimestamp(accountId: string, timestamp: number): Promise<string> {
-    const digest = WalletSigner.computeAccountDigest(accountId, timestamp);
-    console.log('Signing account digest for storage retrieval', accountId);
-    const sig = await this.signWordFn(this.commitmentForStorageRetrieval, digest.toHex());
+    const digest = AuthDigest.fromAccountIdWithTimestamp(accountId, timestamp);
+    const sig = await this.signWordFn(digest.toHex());
+    console.log('Signature for accountId and timestamp:', sig);
     return sig;
+  }
+
+  async signRequest(accountId: string, timestamp: number, requestPayload: RequestAuthPayload): Promise<string> {
+    const digest = AuthDigest.fromRequest(accountId, timestamp, requestPayload);
+    return this.signWordFn(digest.toHex());
   }
 
   async signCommitment(commitmentHex: string): Promise<string> {
     const paddedHex = commitmentHex.startsWith('0x') ? commitmentHex : `0x${commitmentHex}`;
-    const sig = await this.signWordFn(this.commitmentForStorageRetrieval, paddedHex);
+    const sig = await this.signWordFn(paddedHex);
     return sig;
-  }
-
-  static computeAccountDigest(accountId: string, timestamp: number): Word {
-    const paddedHex = accountId.startsWith('0x') ? accountId : `0x${accountId}`;
-    const parsedAccountId = AccountId.fromHex(paddedHex);
-    const prefix = parsedAccountId.prefix();
-    const suffix = parsedAccountId.suffix();
-
-    const feltArray = new FeltArray([prefix, suffix, new Felt(BigInt(timestamp)), new Felt(BigInt(0))]);
-
-    return Rpo256.hashElements(feltArray);
   }
 }

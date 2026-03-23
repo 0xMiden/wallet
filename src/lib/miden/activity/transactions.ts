@@ -8,6 +8,7 @@ import {
   TransactionRequest,
   TransactionResult
 } from '@miden-sdk/miden-sdk';
+import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
 import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
@@ -696,7 +697,7 @@ const generatePsmTransaction = async (
   console.log('Generating PSM transaction');
   const multisigService = await getOrCreateMultisigService(transaction.accountId, psmProvider);
 
-  let proposalResult;
+  let proposalResult: Proposal;
 
   switch (transaction.type) {
     case 'send': {
@@ -729,44 +730,44 @@ const generatePsmTransaction = async (
   }
 
   // Get the proposal commitment for signing and execution
-  const proposalCommitment = proposalResult.proposal.commitment;
+  await multisigService.signAndExecuteProposal(proposalResult.id);
 
   // Sign and execute the proposal
-  const tr = await multisigService.signAndCreateTransactionRequest(proposalCommitment);
+  // const tr = await multisigService.signAndCreateTransactionRequest(proposalCommitment);
 
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
-    }
-  };
+  // const options: MidenClientCreateOptions = {
+  //   signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+  //     const keyString = Buffer.from(publicKey).toString('hex');
+  //     const signingInputsString = Buffer.from(signingInputs).toString('hex');
+  //     return await signCallback(keyString, signingInputsString);
+  //   }
+  // };
 
-  // Wrap WASM client operations in a lock to prevent concurrent access
-  const transactionResultBytes = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient(options);
-    return await midenClient.newTransaction(transaction.accountId, tr.serialize());
-  });
+  // // Wrap WASM client operations in a lock to prevent concurrent access
+  // const transactionResultBytes = await withWasmClientLock(async () => {
+  //   const midenClient = await getMidenClient(options);
+  //   return await midenClient.newTransaction(transaction.accountId, tr.serialize());
+  // });
 
-  const transactionResult = TransactionResult.deserialize(transactionResultBytes);
+  // const transactionResult = TransactionResult.deserialize(transactionResultBytes);
 
-  await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    await midenClient.submitTransaction(transactionResultBytes, transaction.delegateTransaction);
-  });
+  // await withWasmClientLock(async () => {
+  //   const midenClient = await getMidenClient();
+  //   await midenClient.submitTransaction(transactionResultBytes, transaction.delegateTransaction);
+  // });
 
-  switch (transaction.type) {
-    case 'send':
-      await completeSendTransaction(transaction as SendTransaction, transactionResult);
-      break;
-    case 'consume':
-      await completeConsumeTransaction(transaction.id, transactionResult);
-      break;
-    case 'execute':
-    default:
-      await completeCustomTransaction(transaction, transactionResult);
-      break;
-  }
+  // switch (transaction.type) {
+  //   case 'send':
+  //     await completeSendTransaction(transaction as SendTransaction, transactionResult);
+  //     break;
+  //   case 'consume':
+  //     await completeConsumeTransaction(transaction.id, transactionResult);
+  //     break;
+  //   case 'execute':
+  //   default:
+  //     await completeCustomTransaction(transaction, transactionResult);
+  //     break;
+  // }
 
   await multisigService.sync();
 };

@@ -3,10 +3,10 @@ import {
   Multisig,
   MultisigClient,
   MultisigConfig,
-  PsmHttpClient,
+  GuardianHttpClient,
   type ProposalMetadata,
   type TransactionProposal,
-  type TransactionProposalResult
+  type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
@@ -46,30 +46,13 @@ export class MultisigService {
   ): Promise<MultisigService> {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-      const psmEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
+      const guardianEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
 
       const webClient = (await MidenClientInterface.create({})).webClient;
 
-      const client = new MultisigClient(webClient, { psmEndpoint });
-      const { psmCommitment } = await client.initialize('falcon');
+      const client = new MultisigClient(webClient, { guardianEndpoint });
+      const multisig = await client.load(account.id().toString(), signer);
 
-      // Load the existing multisig account
-      let multisig: Multisig;
-      if (account.isNew()) {
-        console.log('Creating new Multisig for account:', account.id().toString());
-        const config: MultisigConfig = {
-          threshold: 1,
-          signerCommitments: [signerCommitment],
-          psmCommitment: psmCommitment,
-          psmEnabled: true
-        };
-        const psmClient = new PsmHttpClient(psmEndpoint);
-        psmClient.setSigner(signer);
-        multisig = new Multisig(account, config, psmClient, signer, webClient);
-        await multisig.registerOnPsm();
-      } else {
-        multisig = await client.load(account.id().toString(), signer);
-      }
       return new MultisigService(multisig, client);
     } catch (error) {
       console.log('Error initializing MultisigService:', error);
@@ -85,7 +68,7 @@ export class MultisigService {
     webClient: WebClient
   ) {
     const psmEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
-    const psm = new PsmHttpClient(psmEndpoint);
+    const psm = new GuardianHttpClient(psmEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
     psm.setSigner(signer);
     try {
@@ -113,8 +96,8 @@ export class MultisigService {
   /**
    * Create a send (P2ID) transaction proposal.
    */
-  async createSendProposal(recipientId: string, faucetId: string, amount: bigint): Promise<TransactionProposalResult> {
-    return this.multisig.createSendProposal(
+  async createSendProposal(recipientId: string, faucetId: string, amount: bigint): Promise<Proposal> {
+    return this.multisig.createP2idProposal(
       accountIdStringToSdk(recipientId).toString(),
       accountIdStringToSdk(faucetId).toString(),
       amount
@@ -124,7 +107,7 @@ export class MultisigService {
   /**
    * Create a consume notes transaction proposal.
    */
-  async createConsumeNotesProposal(noteIds: string[]): Promise<TransactionProposalResult> {
+  async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
     return this.multisig.createConsumeNotesProposal(noteIds);
   }
 
@@ -132,7 +115,7 @@ export class MultisigService {
    * Create a custom transaction proposal from a TransactionSummary.
    * This is used for 'execute' type transactions.
    */
-  async createCustomProposal(summaryBytes: Uint8Array): Promise<TransactionProposalResult> {
+  async createCustomProposal(summaryBytes: Uint8Array): Promise<Proposal> {
     const txSummaryBase64 = u8ToB64(summaryBytes);
 
     // Sync state to ensure we have the latest nonce
@@ -151,24 +134,23 @@ export class MultisigService {
     };
 
     const proposal = await this.multisig.createProposal(nonce, txSummaryBase64, metadata);
-    const proposals = await this.multisig.syncTransactionProposals();
 
-    return { proposal, proposals };
+    return proposal;
   }
 
-  async signAndExecuteProposal(commitment: string): Promise<void> {
-    await this.multisig.signTransactionProposal(commitment);
-    await this.multisig.executeTransactionProposal(commitment);
+  async signAndExecuteProposal(id: string): Promise<void> {
+    await this.multisig.signProposal(id);
+    await this.multisig.executeProposal(id);
   }
 
-  async signAndCreateTransactionRequest(commitment: string): Promise<TransactionRequest> {
-    await this.multisig.signTransactionProposal(commitment);
-    return await this.multisig.createTransactionProposalRequest(commitment);
-  }
+  // async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
+  //   await this.multisig.signProposal(id);
+  //   return await this.multisig.
+  // }
 
   async sync(): Promise<void> {
     try {
-      await this.multisig.syncAll();
+      await this.multisig.syncState();
       this.syncRetryCount = 0; // Reset retry count on successful sync
     } catch (error) {
       const isNonceTooLow =
@@ -196,4 +178,4 @@ export class MultisigService {
 }
 
 // Re-export types that may be needed by consumers
-export type { TransactionProposal, TransactionProposalResult, ProposalMetadata };
+export type { TransactionProposal, ProposalMetadata };
