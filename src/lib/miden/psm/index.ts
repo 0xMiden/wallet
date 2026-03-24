@@ -143,10 +143,10 @@ export class MultisigService {
     await this.multisig.executeProposal(id);
   }
 
-  // async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
-  //   await this.multisig.signProposal(id);
-  //   return await this.multisig.
-  // }
+  async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
+    await this.multisig.signProposal(id);
+    return await this.multisig.createTransactionProposalRequest(id);
+  }
 
   async sync(): Promise<void> {
     try {
