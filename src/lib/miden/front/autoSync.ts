@@ -1,6 +1,7 @@
 import { isMobile } from 'lib/platform';
 import { WalletState, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { syncPsmAccounts } from './psm-manager';
@@ -114,8 +115,14 @@ export class Sync {
 
         // Sync PSM state after chain sync (runs outside WASM lock — HTTP calls only)
         try {
-          console.log('[AutoSync] Syncing PSM accounts...');
-          await syncPsmAccounts();
+          const psmAccountKeys = useWalletStore
+            .getState()
+            .accounts.filter(acc => acc.type === WalletType.Psm)
+            .map(acc => acc.publicKey);
+          if (psmAccountKeys.length > 0) {
+            console.log('[AutoSync] Syncing PSM accounts...');
+            await syncPsmAccounts(psmAccountKeys);
+          }
         } catch (psmError) {
           console.error('[AutoSync] PSM sync error:', psmError);
         }
