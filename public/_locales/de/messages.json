@@ -1803,6 +1803,14 @@
     "message": "Nur lokal, niemand außer Ihnen sieht Ihren Status, aber keine Wiederherstellung. Der Verlust Ihres Geräts führt zum dauerhaften Verlust Ihres Geldes.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
+  "publicAccountRecovery": {
+    "message": "Öffentlich",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Stellen Sie ein öffentliches On-Chain-Konto wieder her.",
+    "englishSource": "Recover a public on-chain account."
+  },
   "default": {
     "message": "Standard",
     "englishSource": "Default"
