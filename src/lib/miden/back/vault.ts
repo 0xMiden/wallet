@@ -185,7 +185,13 @@ export class Vault {
     return passKey;
   }
 
-  static async spawn(password: string, mnemonic?: string, ownMnemonic?: boolean): Promise<Vault> {
+  static async spawn(
+    walletType: WalletType,
+    password: string,
+    mnemonic?: string,
+    ownMnemonic?: boolean
+  ): Promise<Vault> {
+    console.log('Spawning new vault with wallet type', walletType);
     return withError('Failed to create wallet', async (): Promise<Vault> => {
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
@@ -233,30 +239,46 @@ export class Vault {
         insertKeyCallback
       };
       const hdAccIndex = 0;
-      const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
+      const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
+
+      // Helper to sign words using the vault key (needed for PSM import)
+      const signWordFn = async (pk: string, wordHex: string) => {
+        const word = Word.fromHex(wordHex);
+        const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pk), vaultKey);
+        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKey, 'hex')));
+        const signature = wasmSecretKey.sign(word);
+        return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+      };
+
+      // Helper to get public key from commitment (needed for PSM import)
+      const getPublicKeyForCommitment = async (pkc: string) => {
+        const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), vaultKey);
+        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(sk, 'hex')));
+        return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
+      };
 
       // Wrap WASM client operations in a lock to prevent concurrent access
       const accPublicKey = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient(options);
         if (ownMnemonic && midenClient.network !== 'mock') {
           try {
-            return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
+            return await midenClient.importAccountBySeed(walletType, walletSeed, signWordFn, getPublicKeyForCommitment);
           } catch (e) {
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+            return await midenClient.createMidenWallet(walletType, walletSeed);
           }
         } else {
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           await midenClient.syncState();
-          return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+          return await midenClient.createMidenWallet(walletType, walletSeed);
         }
       });
 
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
-        isPublic: true,
-        type: WalletType.OnChain,
+        isPublic: walletType === WalletType.OnChain,
+        type: walletType,
         hdIndex: hdAccIndex
       };
       const newAccounts = [initialAccount];
@@ -503,6 +525,31 @@ export class Vault {
     return Buffer.from(signature.serialize()).toString('hex');
   }
 
+  async signWord(publicKey: string, wordHex: string): Promise<string> {
+    const word = Word.fromHex(wordHex);
+    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
+      accAuthSecretKeyStrgKey(publicKey),
+      this.vaultKey
+    );
+    let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
+    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+    const signature = wasmSecretKey.sign(word);
+    return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+  }
+
+  async getPublicKeyForCommitment(pkc: string): Promise<string> {
+    try {
+      const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), this.vaultKey);
+      let secretKeyBytes = new Uint8Array(Buffer.from(sk, 'hex'));
+      const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+      // Skip first byte (type prefix) from serialized public key
+      return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
+    } catch (e) {
+      console.error('Error in getPublicKeyForCommitment', e);
+      throw new PublicError('Failed to get public key for commitment');
+    }
+  }
+
   async getAuthSecretKey(key: string) {
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
     return secretKey;
@@ -603,6 +650,8 @@ function getMainDerivationPath(walletType: WalletType, accIndex: number) {
     walletTypeIndex = 0;
   } else if (walletType === WalletType.OffChain) {
     walletTypeIndex = 1;
+  } else if (walletType === WalletType.Psm) {
+    walletTypeIndex = 2;
   } else {
     throw new Error('Invalid wallet type');
   }
@@ -635,6 +684,7 @@ async function withError<T>(errMessage: string, factory: (doThrow: () => void) =
       throw new Error('<stub>');
     });
   } catch (err: any) {
+    console.log('Error in vault operation', err);
     throw err instanceof PublicError ? err : new PublicError(errMessage);
   }
 }

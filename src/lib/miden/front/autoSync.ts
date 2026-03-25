@@ -1,8 +1,10 @@
 import { isMobile } from 'lib/platform';
 import { WalletState, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { syncPsmAccounts } from './psm-manager';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -98,6 +100,7 @@ export class Sync {
             syncDebugInfo.lastError = 'getMidenClient returned null';
             return null;
           }
+          console.log('[AutoSync] Starting sync with Miden client...');
           const syncSummary = await client.syncState();
           return syncSummary.blockNum();
         });
@@ -109,6 +112,20 @@ export class Sync {
         }
         syncDebugInfo.syncCount++;
         syncDebugInfo.lastSyncTime = new Date().toLocaleTimeString();
+
+        // Sync PSM state after chain sync (runs outside WASM lock — HTTP calls only)
+        try {
+          const psmAccountKeys = useWalletStore
+            .getState()
+            .accounts.filter(acc => acc.type === WalletType.Psm)
+            .map(acc => acc.publicKey);
+          if (psmAccountKeys.length > 0) {
+            console.log('[AutoSync] Syncing PSM accounts...');
+            await syncPsmAccounts(psmAccountKeys);
+          }
+        } catch (psmError) {
+          console.error('[AutoSync] PSM sync error:', psmError);
+        }
       } catch (error) {
         console.error('[AutoSync] Error during sync:', error);
         syncDebugInfo.lastError = String(error);

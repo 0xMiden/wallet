@@ -98,7 +98,12 @@ export interface WalletActions {
   syncFromBackend: (state: MidenState) => void;
 
   // Auth actions
-  registerWallet: (password: string | undefined, mnemonic?: string, ownMnemonic?: boolean) => Promise<void>;
+  registerWallet: (
+    walletType: WalletType,
+    password: string | undefined,
+    mnemonic: string,
+    ownMnemonic: boolean
+  ) => Promise<void>;
   importWalletFromClient: (password: string | undefined, mnemonic: string) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 
@@ -114,6 +119,8 @@ export interface WalletActions {
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
+  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 
   // DApp actions

@@ -1779,6 +1779,42 @@
     "message": "나중에 지갑 내에서 여러 계정 유형을 추가하고 관리할 수 있습니다.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
   },
+  "chooseRecoveryMethod": {
+    "message": "계정 복구 설정",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "액세스 권한을 상실한 경우 계정을 복구할 방법을 선택하세요.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "보호자",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "추천합니다. 귀하의 계정에 대한 보호자 기반 복구가 가능하지만 보호자 운영자는 귀하의 상태를 볼 수 있습니다.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "완전 비공개",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "로컬에서만 가능하며 귀하 외에는 누구도 귀하의 상태를 볼 수 없지만 복구할 수는 없습니다. 장치를 분실하면 자금이 영구적으로 손실됩니다.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "공공의",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "공개 온체인 계정을 복구하세요.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "default": {
+    "message": "기본",
+    "englishSource": "Default"
+  },
   "transactionFile": {
     "message": "거래 파일",
     "englishSource": "Transaction file"

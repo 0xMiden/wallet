@@ -1779,6 +1779,42 @@
     "message": "後からウォレット内で複数のアカウント タイプを追加および管理できます。",
     "englishSource": "You can add and manage multiple account types later within the wallet."
   },
+  "chooseRecoveryMethod": {
+    "message": "アカウント回復のセットアップ",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "アクセスできなくなった場合にアカウントを回復する方法を選択します。",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "ガーディアン",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "推奨。アカウントは Guardian ベースで回復されますが、Guurdian オペレーターはお客様の状態を確認できます。",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "完全プライベート",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "ローカルのみ、あなた以外の誰もあなたの状態を見ることはできませんが、回復はできません。デバイスを失うと資金が永久に失われます。",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "公共",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "公開オンチェーン アカウントを回復します。",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "default": {
+    "message": "デフォルト",
+    "englishSource": "Default"
+  },
   "transactionFile": {
     "message": "トランザクションファイル",
     "englishSource": "Transaction file"

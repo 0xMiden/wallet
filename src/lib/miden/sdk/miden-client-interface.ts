@@ -28,6 +28,9 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { ConsumeTransaction, SendTransaction } from '../db/types';
 import { toNoteType } from '../helpers';
+import { createPsmAccount, getSignerDetailsFromAccount } from '../psm/account';
+import { MultisigService } from '../psm/index';
+import { SignWordFunction } from '../psm/signer';
 import { NoteExportType } from './constants';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from './helpers';
 
@@ -108,6 +111,11 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
+    if (walletType === WalletType.Psm) {
+      const account = await createPsmAccount(this.webClient, seed);
+      return getBech32AddressFromAccountId(account.id());
+    }
+
     // Create a new wallet
     const accountStorageMode =
       walletType === WalletType.OnChain ? AccountStorageMode.public() : AccountStorageMode.private();
@@ -130,6 +138,30 @@ export class MidenClientInterface {
     const account = await this.webClient.importPublicAccountFromSeed(seed, true, 0);
 
     return getBech32AddressFromAccountId(account.id());
+  }
+
+  async importAccountBySeed(
+    walletType: WalletType,
+    seed: Uint8Array,
+    signWordFn: SignWordFunction,
+    getPublicKeyForCommitment: (commitment: string) => Promise<string>
+  ): Promise<string> {
+    if (walletType === WalletType.Psm) {
+      const account = await createPsmAccount(this.webClient, seed);
+      console.log('[MidenClientInterface] Imported PSM account from seed with ID:', account.id().toString());
+      const accountId = account.id().toString();
+      const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
+      await MultisigService.importAccountFromPsm(
+        `0x${publicKey}`,
+        `0x${commitment}`,
+        signWordFn,
+        accountId,
+        this.webClient
+      );
+      return getBech32AddressFromAccountId(account.id());
+    }
+
+    return await this.importPublicMidenWalletFromSeed(seed);
   }
 
   // TODO: is this method even used?

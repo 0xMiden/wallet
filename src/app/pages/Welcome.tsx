@@ -13,7 +13,7 @@ import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { ImportType, OnboardingAction, OnboardingStep, OnboardingType } from 'screens/onboarding/types';
+import { ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 /**
  * Check if hardware security is available for vault key protection.
@@ -71,6 +71,7 @@ const Welcome: FC = () => {
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [importType, setImportType] = useState<ImportType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
+  const [walletType, setWalletType] = useState<WalletType>(WalletType.Psm);
   const [importedWithFile, setImportedWithFile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
@@ -94,14 +95,14 @@ const Welcome: FC = () => {
       // For hardware-only wallets, pass undefined as password
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
       if (!importedWithFile) {
-        await registerWallet(actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
+        await registerWallet(walletType, actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
       } else {
         await importWalletFromClient(actualPassword, seedPhraseFormatted);
       }
     } else {
       throw new Error('Missing password or seed phrase');
     }
-  }, [password, seedPhrase, importedWithFile, registerWallet, onboardingType, importWalletFromClient]);
+  }, [password, seedPhrase, importedWithFile, registerWallet, onboardingType, importWalletFromClient, walletType]);
 
   const onAction = async (action: OnboardingAction) => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;
@@ -147,9 +148,9 @@ const Welcome: FC = () => {
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
           if (hardwareAvailable) {
-            // Hardware-only mode: skip password, go directly to confirmation
+            // Hardware-only mode: skip password, go to recovery method selection
             setPassword('__HARDWARE_ONLY__');
-            navigate('/#confirmation');
+            navigate('/#select-recovery-method');
           } else {
             navigate('/#create-password');
           }
@@ -180,6 +181,10 @@ const Welcome: FC = () => {
         setPassword(action.payload.password);
         eventCategory = AnalyticsEventCategory.FormSubmit;
         // Hardware protection is automatically set up in Vault.spawn() when available
+        navigate('/#select-recovery-method');
+        break;
+      case 'select-recovery-method':
+        setWalletType(action.payload);
         navigate('/#confirmation');
         break;
       case 'confirmation':
@@ -231,6 +236,12 @@ const Welcome: FC = () => {
               navigate('/#import-from-seed');
             }
           }
+        } else if (step === OnboardingStep.SelectRecoveryMethod) {
+          if (onboardingType === OnboardingType.Import && password === '__HARDWARE_ONLY__') {
+            navigate('/#import-from-seed');
+          } else {
+            navigate('/#create-password');
+          }
         } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
           navigate('/#select-import-type');
         }
@@ -270,6 +281,9 @@ const Welcome: FC = () => {
         break;
       case '#create-password':
         setStep(OnboardingStep.CreatePassword);
+        break;
+      case '#select-recovery-method':
+        setStep(OnboardingStep.SelectRecoveryMethod);
         break;
       case '#confirmation':
         if (!password) {

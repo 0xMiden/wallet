@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 
 import { getAllUncompletedTransactions, hasQueuedTransactions, safeGenerateTransactionsLoop } from 'lib/miden/activity';
+import { type PsmAccountProvider } from 'lib/miden/front/psm-manager';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
@@ -21,6 +22,28 @@ async function swSignCallback(publicKey: string, signingInputs: string): Promise
 }
 
 /**
+ * Vault-backed PSM account provider for service worker context.
+ * Uses the Vault directly instead of the Zustand store.
+ */
+const vaultPsmProvider: PsmAccountProvider = {
+  getAccounts: async () => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.fetchAccounts();
+    });
+  },
+  getPublicKeyForCommitment: async (commitment: string) => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.getPublicKeyForCommitment(commitment);
+    });
+  },
+  signWord: async (publicKey: string, wordHex: string) => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.signWord(publicKey, wordHex);
+    });
+  }
+};
+
+/**
  * Start processing queued transactions in the service worker.
  * Deduplicates via isProcessing flag + navigator.locks in safeGenerateTransactionsLoop.
  */
@@ -38,7 +61,7 @@ export async function startTransactionProcessing(): Promise<void> {
     while (attempts < maxAttempts) {
       attempts++;
       console.log('[TransactionProcessor] Loop attempt', attempts);
-      const result = await safeGenerateTransactionsLoop(swSignCallback, false);
+      const result = await safeGenerateTransactionsLoop(swSignCallback, false, vaultPsmProvider);
       console.log('[TransactionProcessor] Loop result:', result);
 
       // Broadcast progress so popup UI can update

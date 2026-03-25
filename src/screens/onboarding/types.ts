@@ -5,6 +5,7 @@ export enum OnboardingType {
 
 export enum WalletType {
   OffChain = 'off-chain',
+  Psm = 'psm',
   OnChain = 'on-chain'
 }
 
@@ -24,6 +25,7 @@ export enum OnboardingStep {
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
   SelectTransactionType = 'select-transaction-type',
+  SelectRecoveryMethod = 'select-recovery-method',
   Confirmation = 'confirmation'
 }
 export type OnboardingActionId =
@@ -37,6 +39,7 @@ export type OnboardingActionId =
   | 'create-password-submit'
   | 'biometric-setup-submit'
   | 'select-transaction-type'
+  | 'select-recovery-method'
   | 'confirmation'
   | 'import-from-file'
   | 'import-from-seed';
@@ -80,6 +83,11 @@ export type SelectTransactionTypeAction = {
   payload: string;
 };
 
+export type SelectRecoveryMethodAction = {
+  id: 'select-recovery-method';
+  payload: WalletType;
+};
+
 export type ConfirmationAction = {
   id: 'confirmation';
 };
@@ -116,6 +124,7 @@ export type OnboardingAction =
   | CreatePasswordSubmitAction
   | BiometricSetupSubmitAction
   | SelectTransactionTypeAction
+  | SelectRecoveryMethodAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction
   | BackAction

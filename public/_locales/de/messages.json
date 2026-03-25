@@ -1779,6 +1779,42 @@
     "message": "Sie können später im Wallet mehrere Kontotypen hinzufügen und verwalten.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
   },
+  "chooseRecoveryMethod": {
+    "message": "Richten Sie die Kontowiederherstellung ein",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Wählen Sie aus, wie Sie Ihr Konto wiederherstellen möchten, wenn Sie den Zugriff verlieren.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Wächter",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Empfohlen. Wächterbasierte Wiederherstellung für Ihr Konto, aber der Wächterbetreiber kann Ihren Status sehen.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Völlig privat",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Nur lokal, niemand außer Ihnen sieht Ihren Status, aber keine Wiederherstellung. Der Verlust Ihres Geräts führt zum dauerhaften Verlust Ihres Geldes.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Öffentlich",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Stellen Sie ein öffentliches On-Chain-Konto wieder her.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "default": {
+    "message": "Standard",
+    "englishSource": "Default"
+  },
   "transactionFile": {
     "message": "Transaktionsdatei",
     "englishSource": "Transaction file"

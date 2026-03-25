@@ -56,6 +56,10 @@ export enum WalletMessageType {
   SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
+  SignWordRequest = 'SIGN_WORD_REQUEST',
+  SignWordResponse = 'SIGN_WORD_RESPONSE',
+  GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
+  GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
   GetAuthSecretKeyResponse = 'GET_AUTH_SECRET_KEY_RESPONSE',
   SubmitTransactionRequest = 'SUBMIT_TRANSACTION_REQUEST',
@@ -288,6 +292,7 @@ export interface NewWalletRequest extends WalletMessageBase {
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic?: string;
   ownMnemonic?: boolean;
+  walletType: WalletType;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {
@@ -465,6 +470,27 @@ export interface SignTransactionRequest extends WalletMessageBase {
 export interface SignTransactionResponse extends WalletMessageBase {
   type: WalletMessageType.SignTransactionResponse;
   signature: string;
+}
+
+export interface SignWordRequest extends WalletMessageBase {
+  type: WalletMessageType.SignWordRequest;
+  publicKey: string;
+  wordHex: string;
+}
+
+export interface SignWordResponse extends WalletMessageBase {
+  type: WalletMessageType.SignWordResponse;
+  signature: string;
+}
+
+export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
+  type: WalletMessageType.GetPublicKeyForCommitmentRequest;
+  commitment: string;
+}
+
+export interface GetPublicKeyForCommitmentResponse extends WalletMessageBase {
+  type: WalletMessageType.GetPublicKeyForCommitmentResponse;
+  publicKey: string;
 }
 
 export interface GetAuthSecretKeyRequest extends WalletMessageBase {
@@ -665,6 +691,8 @@ export type WalletRequest =
   | UpdateSettingsRequest
   | SignDataRequest
   | SignTransactionRequest
+  | SignWordRequest
+  | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
   | DAppGetPayloadRequest
@@ -713,6 +741,8 @@ export type WalletResponse =
   | UpdateSettingsResponse
   | SignDataResponse
   | SignTransactionResponse
+  | SignWordResponse
+  | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse
   //   | DAppGetPayloadResponse
