@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Miden Wallet",
+  "name": "Miden Wallet (Devnet)",
   "version": "1.14.0",
 
   "icons": {
@@ -14,10 +14,7 @@
   "short_name": "Miden Wallet",
 
   "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms"],
-  "host_permissions": [
-    "http://localhost/*",
-    "https://*.miden.fi/*"
-  ],
+  "host_permissions": ["http://localhost/*", "https://*.miden.fi/*"],
 
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

@@ -16,14 +16,7 @@ describe('MidenClientInterface', () => {
     errorSpy.mockRestore();
   });
 
-  const fakeTransactionResult = {
-    executedTransaction: () => ({
-      id: () => ({ toHex: () => 'tx-hex' }),
-      outputNotes: () => ({ notes: () => [] }),
-      inputNotes: () => ({ notes: () => [] })
-    }),
-    serialize: () => new Uint8Array([7])
-  };
+  const fakeTxId = { toHex: () => 'tx-hex' };
 
   function buildFakeMidenClient(overrides: Record<string, any> = {}) {
     return {
@@ -63,18 +56,19 @@ describe('MidenClientInterface', () => {
         ...overrides.notes
       },
       transactions: {
-        send: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
-        consume: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
-        submit: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
+        send: jest.fn(async () => fakeTxId),
+        consume: jest.fn(async () => fakeTxId),
+        submit: jest.fn(async () => fakeTxId),
         list: jest.fn(async () => [
-          { accountId: () => 'id', serialize: () => new Uint8Array([9]) },
-          { accountId: () => 'other', serialize: () => new Uint8Array([9]) }
+          { accountId: () => 'id', id: () => fakeTxId, serialize: () => new Uint8Array([9]) },
+          { accountId: () => 'other', id: () => fakeTxId, serialize: () => new Uint8Array([9]) }
         ]),
         waitFor: jest.fn(async () => {}),
         ...overrides.transactions
       },
       sync: jest.fn(async () => ({ blockNum: () => 5 })),
-      storeIdentifier: jest.fn(() => 'test-store'),
+      exportStore: jest.fn(async () => ({ version: 1, data: 'dump' })),
+      importStore: jest.fn(async () => {}),
       terminate: jest.fn(),
       defaultProver: null,
       ...overrides
@@ -94,9 +88,7 @@ describe('MidenClientInterface', () => {
       TransactionProver: {
         newRemoteProver: jest.fn(() => 'remote'),
         newLocalProver: jest.fn(() => 'local')
-      },
-      exportStore: jest.fn(async () => '{"version":1,"data":"dump"}'),
-      importStore: jest.fn()
+      }
     }));
     jest.doMock('lib/miden-chain/constants', () => ({
       MIDEN_NETWORK_ENDPOINTS: new Map([
@@ -160,8 +152,8 @@ describe('MidenClientInterface', () => {
     await client.exportNote('note', {} as any);
     await client.getTransactionsForAccount('id');
     await client.exportDb();
-    await client.importDb('{"version":1,"data":"dump"}');
-    await client.sendTransaction({
+    await client.importDb({ version: 1, data: 'dump' } as any);
+    const sendResult = await client.sendTransaction({
       accountId: 'id',
       amount: BigInt(1),
       secondaryAccountId: 'recip',
@@ -173,13 +165,16 @@ describe('MidenClientInterface', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       displayIcon: 'SEND'
     } as any);
-    await client.consumeNoteId({
+    expect(sendResult).toBe('tx-hex');
+    const consumeResult = await client.consumeNoteId({
       accountId: 'id',
       noteId: 'note',
       faucetId: 'f',
       type: 'consume'
     } as any);
-    await client.newTransaction('acc-id', new Uint8Array([1, 2]));
+    expect(consumeResult).toBe('tx-hex');
+    const txResult = await client.newTransaction('acc-id', new Uint8Array([1, 2]));
+    expect(txResult).toBe('tx-hex');
   });
 
   it('creates client from existing MidenClient using fromClient', async () => {
@@ -246,16 +241,16 @@ describe('MidenClientInterface', () => {
     const { MidenClientInterface } = await import('./miden-client-interface');
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const mockNote = { id: () => 'note-id', assets: () => [] } as any;
+    const mockNote = { id: () => ({ toString: () => 'note-id' }), assets: () => [] } as any;
     await client.sendPrivateNote(mockNote, 'recipient-bech32');
 
     expect(fakeMidenClient.notes.sendPrivate).toHaveBeenCalledWith({
-      note: mockNote,
+      noteId: 'note-id',
       to: 'recipient-bech32'
     });
   });
 
-  it('executes new transaction and returns TransactionResult', async () => {
+  it('executes new transaction and returns transaction ID hex', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('@miden-sdk/miden-sdk', () => ({
@@ -275,7 +270,7 @@ describe('MidenClientInterface', () => {
     const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
     const result = await client.newTransaction('acc-id', new Uint8Array([1, 2]));
-    expect(result).toBe(fakeTransactionResult);
+    expect(result).toBe('tx-hex');
     expect(fakeMidenClient.transactions.submit).toHaveBeenCalled();
   });
 
@@ -344,11 +339,11 @@ describe('MidenClientInterface', () => {
       extraInputs: {}
     } as any);
 
-    expect(result).toBe(fakeTransactionResult);
+    expect(result).toBe('tx-hex');
     expect(fakeMidenClient.transactions.send).toHaveBeenCalled();
   });
 
-  it('consumeNoteId returns TransactionResult', async () => {
+  it('consumeNoteId returns transaction ID hex', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('@miden-sdk/miden-sdk', () => ({
@@ -369,7 +364,38 @@ describe('MidenClientInterface', () => {
       type: 'consume'
     } as any);
 
-    expect(result).toBe(fakeTransactionResult);
+    expect(result).toBe('tx-hex');
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
+  });
+
+  it('gets transaction record by ID', async () => {
+    const fakeTxRecord = {
+      id: () => fakeTxId,
+      accountId: () => 'id',
+      outputNotes: () => ({ notes: () => [] })
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        list: jest.fn(async () => [fakeTxRecord]),
+        send: jest.fn(async () => fakeTxId),
+        consume: jest.fn(async () => fakeTxId),
+        submit: jest.fn(async () => fakeTxId),
+        waitFor: jest.fn(async () => {})
+      }
+    });
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+      addConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const record = await client.getTransactionRecord('tx-hex');
+    expect(record).toBe(fakeTxRecord);
+    expect(fakeMidenClient.transactions.list).toHaveBeenCalledWith({ ids: ['tx-hex'] });
   });
 });

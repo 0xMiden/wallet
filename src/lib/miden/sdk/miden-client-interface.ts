@@ -1,8 +1,6 @@
 import {
   Account,
   AccountFile,
-  exportStore,
-  importStore,
   InputNoteRecord,
   InputNoteState,
   MidenClient,
@@ -11,9 +9,10 @@ import {
   NoteFile,
   NoteQuery,
   NoteType,
+  StoreSnapshot,
   TransactionProver,
-  TransactionRequest,
-  TransactionResult
+  TransactionRecord,
+  TransactionRequest
 } from '@miden-sdk/miden-sdk';
 
 import {
@@ -166,6 +165,7 @@ export class MidenClientInterface {
   }
 
   async syncState() {
+    await this.client.notes.fetchPrivate({ mode: 'incremental' });
     return await this.client.sync();
   }
 
@@ -180,14 +180,14 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    await this.client.notes.sendPrivate({ note, to });
+    await this.client.notes.sendPrivate({ noteId: note.id().toString(), to });
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
-    return await this.client.notes.listAvailable({ account: accountId });
+    return (await this.client.notes.listAvailable({ account: accountId })).map(note => note.inputNoteRecord());
   }
 
-  async sendTransaction(dbTransaction: SendTransaction): Promise<TransactionResult> {
+  async sendTransaction(dbTransaction: SendTransaction): Promise<string> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
 
     let reclaimAfter: number | undefined;
@@ -197,7 +197,7 @@ export class MidenClientInterface {
     }
 
     return this.withProverFallback(async prover => {
-      const { result } = await this.client.transactions.send({
+      const id = await this.client.transactions.send({
         account: accountId,
         to: secondaryAccountId,
         token: faucetId,
@@ -206,49 +206,48 @@ export class MidenClientInterface {
         reclaimAfter,
         prover
       });
-      return result;
+      return id.toHex();
     }, dbTransaction.delegateTransaction);
   }
 
-  async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
+  async consumeNoteId(transaction: ConsumeTransaction): Promise<string> {
     const { accountId, noteId } = transaction;
 
     return this.withProverFallback(async prover => {
-      const { result } = await this.client.transactions.consume({
+      const id = await this.client.transactions.consume({
         account: accountId,
         notes: [noteId],
         prover
       });
-      return result;
+      return id.toHex();
     }, transaction.delegateTransaction);
   }
 
-  async newTransaction(
-    accountId: string,
-    requestBytes: Uint8Array,
-    delegateTransaction?: boolean
-  ): Promise<TransactionResult> {
+  async newTransaction(accountId: string, requestBytes: Uint8Array, delegateTransaction?: boolean): Promise<string> {
     const transactionRequest = TransactionRequest.deserialize(requestBytes);
 
     return this.withProverFallback(async prover => {
-      const { result } = await this.client.transactions.submit(accountId, transactionRequest, { prover });
-      return result;
+      const id = await this.client.transactions.submit(accountId, transactionRequest, { prover });
+      return id.toHex();
     }, delegateTransaction);
   }
 
   async exportDb() {
-    const storeName = this.client.storeIdentifier();
-    return await exportStore(storeName);
+    return await this.client.exportStore();
   }
 
-  async importDb(dump: string) {
-    const storeName = this.client.storeIdentifier();
-    await importStore(storeName, dump);
+  async importDb(snapShote: StoreSnapshot) {
+    await this.client.importStore(snapShote);
   }
 
   async getTransactionsForAccount(accountId: string) {
     const transactions = await this.client.transactions.list();
     return transactions.filter(tx => getBech32AddressFromAccountId(tx.accountId()) === accountId);
+  }
+
+  async getTransactionRecord(txIdHex: string): Promise<TransactionRecord | undefined> {
+    const records = await this.client.transactions.list({ ids: [txIdHex] });
+    return records[0];
   }
 
   async waitForTransactionCommit(

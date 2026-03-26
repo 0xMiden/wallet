@@ -516,20 +516,14 @@ describe('transactions utilities', () => {
       });
 
       // Mock the WASM client for the actual transaction execution
-      // sendTransaction now returns TransactionResult directly (no worker)
+      // sendTransaction now returns transaction ID hex string
       mockGetMidenClient.mockResolvedValue({
         syncState: mockSyncState,
         sendTransaction: jest.fn().mockImplementation(() => {
           callOrder.push('sendTransaction');
-          return {
-            executedTransaction: () => ({
-              id: () => ({ toHex: () => 'tx-hex' }),
-              outputNotes: () => ({ notes: () => [] }),
-              inputNotes: () => ({ notes: () => [] })
-            }),
-            serialize: () => new Uint8Array([7])
-          };
-        })
+          return 'tx-hex';
+        }),
+        getTransactionRecord: jest.fn().mockResolvedValue(undefined)
       });
 
       // Verify syncState is called and the order is correct by catching the error
@@ -545,7 +539,7 @@ describe('transactions utilities', () => {
       try {
         await generateTransaction(transaction, signCallback);
       } catch {
-        // Expected to fail on TransactionResult.deserialize — that's fine
+        // May fail due to missing mocks for completion functions
       }
 
       // Verify syncState was called BEFORE updateStatus
@@ -600,13 +594,12 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       return { blockNum: () => 42 };
     });
 
-    const mockNewTransaction = jest.fn(async () => ({
-      executedTransaction: () => ({
-        id: () => ({ toHex: () => 'mock-tx-hash' }),
-        outputNotes: () => ({ notes: () => [] }),
-        inputNotes: () => ({ notes: () => [] })
-      }),
-      serialize: () => new Uint8Array([1, 2, 3])
+    const mockNewTransaction = jest.fn(async () => 'mock-tx-hash');
+    const mockGetTransactionRecord = jest.fn(async () => ({
+      outputNotes: () => ({ notes: () => [] }),
+      id: () => ({ toHex: () => 'mock-tx-hash' }),
+      accountId: () => 'acc-1',
+      inputNoteNullifiers: () => []
     }));
 
     jest.doMock('lib/miden/repo', () => repoMock);
@@ -614,7 +607,8 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     jest.doMock('../sdk/miden-client', () => ({
       getMidenClient: jest.fn(async () => ({
         syncState: mockSyncState,
-        newTransaction: mockNewTransaction
+        newTransaction: mockNewTransaction,
+        getTransactionRecord: mockGetTransactionRecord
       })),
       withWasmClientLock: jest.fn((cb: () => any) => cb())
     }));

@@ -45,7 +45,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
 
     const filePayload: DecryptedWalletFile = {
       seedPhrase,
-      midenClientDbContent: midenClientDbDump as string,
+      midenClientDbContent: JSON.stringify(midenClientDbDump),
       walletDbContent: walletDbDump
     };
 
