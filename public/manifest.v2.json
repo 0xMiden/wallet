@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
-  "name": "Miden Wallet",
-  "version": "1.13.2",
+  "name": "Miden Wallet (Devnet)",
+  "version": "1.14.0",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
