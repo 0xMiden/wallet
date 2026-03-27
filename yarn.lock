@@ -1018,6 +1018,11 @@
   resolved "https://registry.yarnpkg.com/@capacitor/app/-/app-8.0.0.tgz#47c2a90302919d71cef8a7297fb1d6ee439d1250"
   integrity sha512-OwzIkUs4w433Bu9WWAEbEYngXEfJXZ9Wmdb8eoaqzYBgB0W9/3Ed/mh6sAYPNBAZlpyarmewgP7Nb+d3Vrh+xA==
 
+"@capacitor/browser@^8.0.3":
+  version "8.0.3"
+  resolved "https://registry.yarnpkg.com/@capacitor/browser/-/browser-8.0.3.tgz#21c3543981c67196c08a74dc622eda96e548700b"
+  integrity sha512-WJWPHEPbweiFoHYmVlCbZf5yrqJ2Rchx2Xvbmd+3Lf+Zkpq3nXBThThY2CF69lYEg1NINGF9BcHThIOEU1gZlQ==
+
 "@capacitor/cli@^8.0.1":
   version "8.0.1"
   resolved "https://registry.yarnpkg.com/@capacitor/cli/-/cli-8.0.1.tgz#34acb86b2920fa6d2ab1abb79e66c061863413fd"
@@ -2164,7 +2169,7 @@
     dexie "^4.0.1"
     glob "^11.0.0"
 
-"@miden-sdk/react@0.14.0-alpha.2":
+"@miden-sdk/react@0.14.0-alpha":
   version "0.14.0-alpha"
   resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.0-alpha.tgz#80c9d22db7c417a07f98a8cecbf53f488fcc74d2"
   integrity sha512-mDglifz4P2SaH8kA0i1j28o0t6KFLqh6yvLR3dicno+WLqyMASovLCLWSl4zMxXC4bI2s6xZIFnIXRjq/IaJMg==

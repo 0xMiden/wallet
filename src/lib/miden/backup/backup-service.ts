@@ -7,13 +7,11 @@ import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK } from 'screens/shared';
 import { CloudBackupContent, CloudProvider, EncryptedCloudBackup, serializeEncryptedBackup } from './types';
 
 /**
- * Collect wallet data, encrypt it, and upload to the cloud provider.
- *
- * The WASM lock is held only during exportStore(). Encryption runs after
- * the lock is released to avoid blocking other SDK operations.
+ * Collect wallet data, encrypt, and upload via the given provider.
+ * Runs entirely on the backend.
  */
 export async function createCloudBackup(backupPassword: string, provider: CloudProvider): Promise<void> {
-  // 1. Collect data
+  // 1. Collect data (WASM lock only for exportStore)
   const sdkStoreSnapshot = await withWasmClientLock(async () => {
     const client = await getMidenClient();
     return client.exportDb();
@@ -46,12 +44,12 @@ export async function createCloudBackup(backupPassword: string, provider: CloudP
   const encryptedPasswordCheck = await encryptBytes(passwordCheckBytes, derivedKey);
   const encryptedPayload = await encryptBytes(contentBytes, derivedKey);
 
-  // 4. Serialize and upload
   const backup: EncryptedCloudBackup = {
     salt,
     passwordCheck: encryptedPasswordCheck,
     payload: encryptedPayload
   };
 
+  // 4. Upload
   await provider.write(serializeEncryptedBackup(backup));
 }

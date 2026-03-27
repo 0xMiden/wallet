@@ -1,20 +1,17 @@
 import { decrypt, decryptBytes, deriveKey, generateKey } from 'lib/miden/passworder';
+import { importDb } from 'lib/miden/repo';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK } from 'screens/shared';
 
 import { CloudBackupContent, CloudProvider, deserializeEncryptedBackup } from './types';
 
 /**
- * Download and decrypt a cloud backup, returning the parsed content.
+ * Download backup from provider, decrypt, and import into the wallet.
+ * Runs entirely on the backend.
  *
- * The caller is responsible for importing the data into the SDK store,
- * Dexie DB, and Vault (similar to the existing ImportWalletFile flow).
- *
- * @throws If no backup exists, the password is wrong, or the format version is unsupported.
+ * @throws If no backup exists, the password is wrong, or import fails.
  */
-export async function restoreFromCloudBackup(
-  backupPassword: string,
-  provider: CloudProvider
-): Promise<CloudBackupContent> {
+export async function restoreCloudBackup(backupPassword: string, provider: CloudProvider): Promise<CloudBackupContent> {
   // 1. Download
   const raw = await provider.read();
   if (!raw) {
@@ -42,6 +39,16 @@ export async function restoreFromCloudBackup(
   // 4. Decrypt payload
   const contentBytes = await decryptBytes(payload, derivedKey);
   const content: CloudBackupContent = JSON.parse(new TextDecoder().decode(contentBytes));
+
+  // 5. Import SDK store
+  await withWasmClientLock(async () => {
+    const client = await getMidenClient();
+    const snapshot = JSON.parse(content.sdkStoreSnapshot);
+    await client.importDb(snapshot);
+  });
+
+  // 6. Import transaction DB
+  await importDb(content.transactionDbDump);
 
   return content;
 }
