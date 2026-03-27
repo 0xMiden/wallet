@@ -48,6 +48,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
+  const storeCreateCloudBackup = useWalletStore(s => s.createCloudBackup);
+  const storeRestoreCloudBackup = useWalletStore(s => s.restoreCloudBackup);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
@@ -142,6 +144,20 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       await storeUpdateSettings(newSettings);
     },
     [storeUpdateSettings]
+  );
+
+  const createCloudBackup = useCallback(
+    async (accessToken: string, backupPassword: string) => {
+      await storeCreateCloudBackup(accessToken, backupPassword);
+    },
+    [storeCreateCloudBackup]
+  );
+
+  const restoreCloudBackup = useCallback(
+    async (accessToken: string, backupPassword: string) => {
+      await storeRestoreCloudBackup(accessToken, backupPassword);
+    },
+    [storeRestoreCloudBackup]
   );
 
   const signData = useCallback(
@@ -309,7 +325,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     removeDAppSession,
     decryptCiphertexts,
     getOwnedRecords,
-    importWalletFromClient
+    importWalletFromClient,
+    createCloudBackup,
+    restoreCloudBackup
   };
 });
 

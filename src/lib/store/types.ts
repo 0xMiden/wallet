@@ -133,6 +133,10 @@ export interface WalletActions {
   getAllDAppSessions: () => Promise<MidenDAppSessions>;
   removeDAppSession: (origin: string) => Promise<void>;
 
+  // Cloud backup actions
+  createCloudBackup: (accessToken: string, backupPassword: string) => Promise<void>;
+  restoreCloudBackup: (accessToken: string, backupPassword: string) => Promise<void>;
+
   // UI actions
   setSelectedNetworkId: (networkId: string) => void;
   setConfirmation: (confirmation: { id: string; error?: any } | null) => void;

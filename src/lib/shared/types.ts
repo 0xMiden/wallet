@@ -110,7 +110,12 @@ export enum WalletMessageType {
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
-  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
+  // Cloud backup
+  CloudBackupCreateRequest = 'CLOUD_BACKUP_CREATE_REQUEST',
+  CloudBackupCreateResponse = 'CLOUD_BACKUP_CREATE_RESPONSE',
+  CloudBackupRestoreRequest = 'CLOUD_BACKUP_RESTORE_REQUEST',
+  CloudBackupRestoreResponse = 'CLOUD_BACKUP_RESTORE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -637,6 +642,26 @@ export interface ImportFromClientResponse extends WalletMessageBase {
   type: WalletMessageType.ImportFromClientResponse;
 }
 
+export interface CloudBackupCreateRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupCreateRequest;
+  accessToken: string;
+  backupPassword: string;
+}
+
+export interface CloudBackupCreateResponse extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupCreateResponse;
+}
+
+export interface CloudBackupRestoreRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRestoreRequest;
+  accessToken: string;
+  backupPassword: string;
+}
+
+export interface CloudBackupRestoreResponse extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRestoreResponse;
+}
+
 export enum WalletStatus {
   Idle,
   Locked,
@@ -688,7 +713,9 @@ export type WalletRequest =
   | ProcessTransactionsRequest
   | ImportNoteBytesRequest
   | ExportNoteRequest
-  | GetInputNoteDetailsRequest;
+  | GetInputNoteDetailsRequest
+  | CloudBackupCreateRequest
+  | CloudBackupRestoreRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -736,4 +763,6 @@ export type WalletResponse =
   | ProcessTransactionsResponse
   | ImportNoteBytesResponse
   | ExportNoteResponse
-  | GetInputNoteDetailsResponse;
+  | GetInputNoteDetailsResponse
+  | CloudBackupCreateResponse
+  | CloudBackupRestoreResponse;

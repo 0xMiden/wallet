@@ -346,6 +346,7 @@
   "importWithEncryptedWalletFileDescription": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain",
   "twitter": "X (Twitter)",
   "encryptedWalletFile": "Encrypted Wallet File",
+  "cloudBackup": "Cloud Backup",
   "encryptedWalletFileDescription": "Enter your password to access your Encrypted Wallet File.",
   "encryptedWalletFileDescriptionHardware": "Unlock with your passcode to access your Encrypted Wallet File.",
   "encryptedWalletFileConfirmation": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet.",

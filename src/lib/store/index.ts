@@ -241,6 +241,25 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    // Cloud backup actions
+    createCloudBackup: async (accessToken, backupPassword) => {
+      const res = await request({
+        type: WalletMessageType.CloudBackupCreateRequest,
+        accessToken,
+        backupPassword
+      });
+      assertResponse(res.type === WalletMessageType.CloudBackupCreateResponse);
+    },
+
+    restoreCloudBackup: async (accessToken, backupPassword) => {
+      const res = await request({
+        type: WalletMessageType.CloudBackupRestoreRequest,
+        accessToken,
+        backupPassword
+      });
+      assertResponse(res.type === WalletMessageType.CloudBackupRestoreResponse);
+    },
+
     // Signing actions
     signData: async (publicKey, signingInputs) => {
       const res = await request({

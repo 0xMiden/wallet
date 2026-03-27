@@ -7,6 +7,9 @@ import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
+import { createCloudBackup } from '../backup/backup-service';
+import { GoogleDriveProvider } from '../backup/google-drive-provider';
+import { restoreCloudBackup } from '../backup/restore-service';
 import { NoteExportType } from '../sdk/constants';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -222,5 +225,15 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
     //   type: WalletMessageType.GetOwnedRecordsResponse,
     //   records
     // };
+    case WalletMessageType.CloudBackupCreateRequest: {
+      const provider = new GoogleDriveProvider(req.accessToken);
+      await createCloudBackup(req.backupPassword, provider);
+      return { type: WalletMessageType.CloudBackupCreateResponse };
+    }
+    case WalletMessageType.CloudBackupRestoreRequest: {
+      const provider = new GoogleDriveProvider(req.accessToken);
+      await restoreCloudBackup(req.backupPassword, provider);
+      return { type: WalletMessageType.CloudBackupRestoreResponse };
+    }
   }
 }
