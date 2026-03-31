@@ -1,5 +1,7 @@
 import React, { FC, useCallback, useMemo, useState } from 'react';
 
+import { WalletAccount, WalletSettings } from 'lib/shared/types';
+
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import OnboardingHeader from './common/OnboardingHeader';
@@ -8,6 +10,7 @@ import { WelcomeScreen } from './common/Welcome';
 import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
 import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransactionType';
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
+import { ImportFromCloudScreen } from './import-wallet-flow/ImportFromCloud';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
 import { ImportWalletFileScreen } from './import-wallet-flow/ImportWalletFile';
 import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
@@ -49,7 +52,11 @@ export const ForgotPasswordFlow: FC<ForgotPasswordFlowProps> = ({
     } else {
       if (step === ForgotPasswordStep.SelectImportType) {
         return 1;
-      } else if (step === ForgotPasswordStep.ImportFromSeed || step === ForgotPasswordStep.ImportFromFile) {
+      } else if (
+        step === ForgotPasswordStep.ImportFromSeed ||
+        step === ForgotPasswordStep.ImportFromFile ||
+        step === ForgotPasswordStep.ImportFromCloud
+      ) {
         return 2;
       } else if (step === ForgotPasswordStep.CreatePassword) {
         return 3;
@@ -116,6 +123,11 @@ export const ForgotPasswordFlow: FC<ForgotPasswordFlowProps> = ({
             id: 'import-from-file'
           });
           break;
+        case ImportType.CloudBackup:
+          onForwardAction?.({
+            id: 'import-from-cloud'
+          });
+          break;
         default:
           break;
       }
@@ -148,6 +160,10 @@ export const ForgotPasswordFlow: FC<ForgotPasswordFlowProps> = ({
       onForwardAction?.({ id: 'import-wallet-file-submit', payload: seedPhrase });
     };
 
+    const onImportFromCloudSubmit = (payload: { walletAccounts: WalletAccount[]; walletSettings: WalletSettings }) => {
+      onForwardAction?.({ id: 'import-from-cloud-submit', payload });
+    };
+
     const onSelectTransactionTypeSubmit = () =>
       onForwardAction?.({ id: 'select-transaction-type', payload: 'private' });
 
@@ -164,6 +180,8 @@ export const ForgotPasswordFlow: FC<ForgotPasswordFlowProps> = ({
         return <ImportSeedPhraseScreen wordslist={wordsList} onSubmit={onImportSeedPhraseSubmit} />;
       case ForgotPasswordStep.ImportFromFile:
         return <ImportWalletFileScreen onSubmit={onImportFileSubmit} />;
+      case ForgotPasswordStep.ImportFromCloud:
+        return <ImportFromCloudScreen onSubmit={onImportFromCloudSubmit} />;
       case ForgotPasswordStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case ForgotPasswordStep.SelectTransactionType:

@@ -135,7 +135,16 @@ export interface WalletActions {
 
   // Cloud backup actions
   createCloudBackup: (accessToken: string, backupPassword: string) => Promise<void>;
-  restoreCloudBackup: (accessToken: string, backupPassword: string) => Promise<void>;
+  restoreCloudBackup: (
+    accessToken: string,
+    backupPassword: string
+  ) => Promise<{ walletAccounts: WalletAccount[]; walletSettings: WalletSettings }>;
+  registerFromCloudBackup: (
+    password: string | undefined,
+    mnemonic: string,
+    walletAccounts: WalletAccount[],
+    walletSettings: WalletSettings
+  ) => Promise<void>;
 
   // UI actions
   setSelectedNetworkId: (networkId: string) => void;

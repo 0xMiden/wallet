@@ -232,8 +232,16 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
     }
     case WalletMessageType.CloudBackupRestoreRequest: {
       const provider = new GoogleDriveProvider(req.accessToken);
-      await restoreCloudBackup(req.backupPassword, provider);
-      return { type: WalletMessageType.CloudBackupRestoreResponse };
+      const content = await restoreCloudBackup(req.backupPassword, provider);
+      return {
+        type: WalletMessageType.CloudBackupRestoreResponse,
+        walletAccounts: content.walletAccounts,
+        walletSettings: content.walletSettings
+      };
+    }
+    case WalletMessageType.CloudBackupRegisterRequest: {
+      await Actions.registerFromCloudBackup(req.password ?? '', req.mnemonic, req.walletAccounts, req.walletSettings);
+      return { type: WalletMessageType.CloudBackupRegisterResponse };
     }
   }
 }

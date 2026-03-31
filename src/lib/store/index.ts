@@ -258,6 +258,18 @@ export const useWalletStore = create<WalletStore>()(
         backupPassword
       });
       assertResponse(res.type === WalletMessageType.CloudBackupRestoreResponse);
+      return { walletAccounts: res.walletAccounts, walletSettings: res.walletSettings };
+    },
+
+    registerFromCloudBackup: async (password, mnemonic, walletAccounts, walletSettings) => {
+      const res = await request({
+        type: WalletMessageType.CloudBackupRegisterRequest,
+        password,
+        mnemonic,
+        walletAccounts,
+        walletSettings
+      });
+      assertResponse(res.type === WalletMessageType.CloudBackupRegisterResponse);
     },
 
     // Signing actions

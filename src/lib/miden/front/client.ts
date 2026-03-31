@@ -4,7 +4,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
+import { WalletAccount, WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -50,6 +50,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeCreateCloudBackup = useWalletStore(s => s.createCloudBackup);
   const storeRestoreCloudBackup = useWalletStore(s => s.restoreCloudBackup);
+  const storeRegisterFromCloudBackup = useWalletStore(s => s.registerFromCloudBackup);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
@@ -155,9 +156,21 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
   const restoreCloudBackup = useCallback(
     async (accessToken: string, backupPassword: string) => {
-      await storeRestoreCloudBackup(accessToken, backupPassword);
+      return await storeRestoreCloudBackup(accessToken, backupPassword);
     },
     [storeRestoreCloudBackup]
+  );
+
+  const registerFromCloudBackup = useCallback(
+    async (
+      password: string | undefined,
+      mnemonic: string,
+      walletAccounts: WalletAccount[],
+      walletSettings: WalletSettings
+    ) => {
+      await storeRegisterFromCloudBackup(password, mnemonic, walletAccounts, walletSettings);
+    },
+    [storeRegisterFromCloudBackup]
   );
 
   const signData = useCallback(
@@ -327,7 +340,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     getOwnedRecords,
     importWalletFromClient,
     createCloudBackup,
-    restoreCloudBackup
+    restoreCloudBackup,
+    registerFromCloudBackup
   };
 });
 

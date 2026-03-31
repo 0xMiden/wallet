@@ -15,7 +15,7 @@ import {
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { WalletSettings, WalletState } from 'lib/shared/types';
+import { WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
@@ -100,6 +100,22 @@ export function registerImportedWallet(password?: string, mnemonic?: string) {
     const currentAccount = await vault.getCurrentAccount();
     const ownMnemonicFlag = await vault.isOwnMnemonic();
     unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+  });
+}
+
+export function registerFromCloudBackup(
+  password: string,
+  mnemonic: string,
+  accounts: WalletAccount[],
+  settings: WalletSettings
+) {
+  return withInited(async () => {
+    const vault = await Vault.spawnFromCloudBackup(password, mnemonic, accounts, settings);
+    const vaultAccounts = await vault.fetchAccounts();
+    const vaultSettings = await vault.fetchSettings();
+    const currentAccount = await vault.getCurrentAccount();
+    const ownMnemonicFlag = await vault.isOwnMnemonic();
+    unlocked({ vault, accounts: vaultAccounts, settings: vaultSettings, currentAccount, ownMnemonic: ownMnemonicFlag });
   });
 }
 

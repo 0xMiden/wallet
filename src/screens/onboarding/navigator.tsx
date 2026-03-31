@@ -10,6 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { CircleButton } from 'components/CircleButton';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
+import { WalletAccount, WalletSettings } from 'lib/shared/types';
 
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
@@ -17,6 +18,7 @@ import { WelcomeScreen } from './common/Welcome';
 import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
 import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransactionType';
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
+import { ImportFromCloudScreen } from './import-wallet-flow/ImportFromCloud';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
 import { ImportWalletFileScreen } from './import-wallet-flow/ImportWalletFile';
 import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
@@ -52,7 +54,11 @@ const Header: React.FC<{
     currentStep = 1;
   } else if (step === OnboardingStep.CreatePassword) {
     currentStep = 3;
-  } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
+  } else if (
+    step === OnboardingStep.ImportFromSeed ||
+    step === OnboardingStep.ImportFromFile ||
+    step === OnboardingStep.ImportFromCloud
+  ) {
     currentStep = 2;
   } else if (step === OnboardingStep.Confirmation) {
     currentStep = 4;
@@ -122,6 +128,11 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             id: 'import-from-file'
           });
           break;
+        case ImportType.CloudBackup:
+          onForwardAction?.({
+            id: 'import-from-cloud'
+          });
+          break;
         default:
           break;
       }
@@ -155,6 +166,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       onForwardAction?.({ id: 'import-wallet-file-submit', payload: seedPhrase });
     };
 
+    const onImportFromCloudSubmit = (payload: { walletAccounts: WalletAccount[]; walletSettings: WalletSettings }) => {
+      onForwardAction?.({ id: 'import-from-cloud-submit', payload });
+    };
+
     switch (step) {
       case OnboardingStep.Welcome:
         return <WelcomeScreen onSubmit={onWelcomeAction} />;
@@ -176,6 +191,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <ImportSeedPhraseScreen wordslist={wordslist} onSubmit={onImportSeedPhraseSubmit} />;
       case OnboardingStep.ImportFromFile:
         return <ImportWalletFileScreen onSubmit={onImportFileSubmit} />;
+      case OnboardingStep.ImportFromCloud:
+        return <ImportFromCloudScreen onSubmit={onImportFromCloudSubmit} />;
       case OnboardingStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectTransactionType:

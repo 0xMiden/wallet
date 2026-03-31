@@ -12,7 +12,8 @@ import {
   StoreSnapshot,
   TransactionProver,
   TransactionRecord,
-  TransactionRequest
+  TransactionRequest,
+  WasmWebClient
 } from '@miden-sdk/miden-sdk';
 
 import {
@@ -237,7 +238,8 @@ export class MidenClientInterface {
   }
 
   async importDb(snapShote: StoreSnapshot) {
-    await this.client.importStore(snapShote);
+    const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+    await client.forceImportStore(snapShote.data, '');
   }
 
   async getTransactionsForAccount(accountId: string) {

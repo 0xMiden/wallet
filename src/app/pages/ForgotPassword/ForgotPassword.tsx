@@ -7,32 +7,45 @@ import { formatMnemonic } from 'app/defaults';
 import { useMidenContext } from 'lib/miden/front';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { WalletAccount, WalletSettings } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { ForgotPasswordFlow } from 'screens/onboarding/forgot-password-navigator';
-import { ForgotPasswordAction, ForgotPasswordStep, OnboardingType } from 'screens/onboarding/types';
+import { ForgotPasswordAction, ForgotPasswordStep, ImportType, OnboardingType } from 'screens/onboarding/types';
 
 const ForgotPassword: FC = () => {
   const [step, setStep] = useState(ForgotPasswordStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
+  const [importType, setImportType] = useState<ImportType | null>(null);
   const [importedWithFile, setImportedWithFile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const { registerWallet, importWalletFromClient } = useMidenContext();
+  const { registerWallet, importWalletFromClient, registerFromCloudBackup } = useMidenContext();
+  const [cloudBackupData, setCloudBackupData] = useState<{
+    walletAccounts: WalletAccount[];
+    walletSettings: WalletSettings;
+  } | null>(null);
 
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       clearClientStorage();
 
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
-      if (!importedWithFile) {
+      if (cloudBackupData) {
         try {
-          await registerWallet(
+          await registerFromCloudBackup(
             password,
             seedPhraseFormatted,
-            onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general
+            cloudBackupData.walletAccounts,
+            cloudBackupData.walletSettings
           );
+        } catch (e) {
+          console.error(e);
+        }
+      } else if (!importedWithFile) {
+        try {
+          await registerWallet(password, seedPhraseFormatted, onboardingType === OnboardingType.Import);
         } catch (e) {
           console.error(e);
         }
@@ -44,7 +57,16 @@ const ForgotPassword: FC = () => {
         }
       }
     }
-  }, [password, seedPhrase, importedWithFile, registerWallet, onboardingType, importWalletFromClient]);
+  }, [
+    password,
+    seedPhrase,
+    importedWithFile,
+    cloudBackupData,
+    registerWallet,
+    registerFromCloudBackup,
+    onboardingType,
+    importWalletFromClient
+  ]);
 
   const onAction = useCallback(
     async (action: ForgotPasswordAction) => {
@@ -60,6 +82,14 @@ const ForgotPassword: FC = () => {
           break;
         case 'import-from-file':
           setStep(ForgotPasswordStep.ImportFromFile);
+          break;
+        case 'import-from-cloud':
+          setImportType(ImportType.CloudBackup);
+          setStep(ForgotPasswordStep.ImportFromCloud);
+          break;
+        case 'import-from-cloud-submit':
+          setCloudBackupData(action.payload);
+          setStep(ForgotPasswordStep.ImportFromSeed);
           break;
         case 'import-wallet-file-submit':
           const seedPhrase = action.payload.split(' ');
@@ -107,8 +137,14 @@ const ForgotPassword: FC = () => {
             } else {
               setStep(ForgotPasswordStep.ImportFromSeed);
             }
-          } else if (step === ForgotPasswordStep.ImportFromFile || step === ForgotPasswordStep.ImportFromSeed) {
+          } else if (step === ForgotPasswordStep.ImportFromCloud) {
             setStep(ForgotPasswordStep.SelectImportType);
+          } else if (step === ForgotPasswordStep.ImportFromFile || step === ForgotPasswordStep.ImportFromSeed) {
+            if (importType === ImportType.CloudBackup) {
+              setStep(ForgotPasswordStep.ImportFromCloud);
+            } else {
+              setStep(ForgotPasswordStep.SelectImportType);
+            }
           }
           break;
         default:

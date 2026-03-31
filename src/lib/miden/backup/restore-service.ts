@@ -44,6 +44,7 @@ export async function restoreCloudBackup(backupPassword: string, provider: Cloud
   await withWasmClientLock(async () => {
     const client = await getMidenClient();
     const snapshot = JSON.parse(content.sdkStoreSnapshot);
+    console.log('[Restore] Importing SDK store snapshot:', snapshot);
     await client.importDb(snapshot);
   });
 
