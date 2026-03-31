@@ -115,7 +115,9 @@ export enum WalletMessageType {
   CloudBackupCreateRequest = 'CLOUD_BACKUP_CREATE_REQUEST',
   CloudBackupCreateResponse = 'CLOUD_BACKUP_CREATE_RESPONSE',
   CloudBackupRestoreRequest = 'CLOUD_BACKUP_RESTORE_REQUEST',
-  CloudBackupRestoreResponse = 'CLOUD_BACKUP_RESTORE_RESPONSE'
+  CloudBackupRestoreResponse = 'CLOUD_BACKUP_RESTORE_RESPONSE',
+  CloudBackupRegisterRequest = 'CLOUD_BACKUP_REGISTER_REQUEST',
+  CloudBackupRegisterResponse = 'CLOUD_BACKUP_REGISTER_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -661,6 +663,20 @@ export interface CloudBackupRestoreRequest extends WalletMessageBase {
 
 export interface CloudBackupRestoreResponse extends WalletMessageBase {
   type: WalletMessageType.CloudBackupRestoreResponse;
+  walletAccounts: WalletAccount[];
+  walletSettings: WalletSettings;
+}
+
+export interface CloudBackupRegisterRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRegisterRequest;
+  password?: string;
+  mnemonic: string;
+  walletAccounts: WalletAccount[];
+  walletSettings: WalletSettings;
+}
+
+export interface CloudBackupRegisterResponse extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRegisterResponse;
 }
 
 export enum WalletStatus {
@@ -716,7 +732,8 @@ export type WalletRequest =
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
   | CloudBackupCreateRequest
-  | CloudBackupRestoreRequest;
+  | CloudBackupRestoreRequest
+  | CloudBackupRegisterRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -766,4 +783,5 @@ export type WalletResponse =
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
   | CloudBackupCreateResponse
-  | CloudBackupRestoreResponse;
+  | CloudBackupRestoreResponse
+  | CloudBackupRegisterResponse;

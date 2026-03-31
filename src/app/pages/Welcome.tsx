@@ -8,7 +8,7 @@ import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { useMidenContext } from 'lib/miden/front';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
-import { WalletStatus, WalletAccount } from 'lib/shared/types';
+import { WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { navigate, useLocation } from 'lib/woozie';
@@ -78,7 +78,11 @@ const Welcome: FC = () => {
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
-  const { registerWallet, importWalletFromClient } = useMidenContext();
+  const { registerWallet, importWalletFromClient, registerFromCloudBackup } = useMidenContext();
+  const [cloudBackupData, setCloudBackupData] = useState<{
+    walletAccounts: WalletAccount[];
+    walletSettings: WalletSettings;
+  } | null>(null);
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
@@ -123,7 +127,14 @@ const Welcome: FC = () => {
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       // For hardware-only wallets, pass undefined as password
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      if (!importedWithFile) {
+      if (cloudBackupData) {
+        await registerFromCloudBackup(
+          actualPassword,
+          seedPhraseFormatted,
+          cloudBackupData.walletAccounts,
+          cloudBackupData.walletSettings
+        );
+      } else if (!importedWithFile) {
         await registerWallet(actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
       } else {
         try {
@@ -140,7 +151,9 @@ const Welcome: FC = () => {
     password,
     seedPhrase,
     importedWithFile,
+    cloudBackupData,
     registerWallet,
+    registerFromCloudBackup,
     onboardingType,
     importWalletFromClient,
     importedWalletAccounts
@@ -180,6 +193,14 @@ const Welcome: FC = () => {
             navigate('/#create-password');
           }
         }
+        break;
+      case 'import-from-cloud':
+        setImportType(ImportType.CloudBackup);
+        navigate('/#import-from-cloud');
+        break;
+      case 'import-from-cloud-submit':
+        setCloudBackupData(action.payload);
+        navigate('/#import-from-seed');
         break;
       case 'import-from-seed':
         setImportType(ImportType.SeedPhrase);
@@ -275,8 +296,14 @@ const Welcome: FC = () => {
               navigate('/#import-from-seed');
             }
           }
-        } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
+        } else if (step === OnboardingStep.ImportFromCloud) {
           navigate('/#select-import-type');
+        } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
+          if (importType === ImportType.CloudBackup) {
+            navigate('/#import-from-cloud');
+          } else {
+            navigate('/#select-import-type');
+          }
         }
         break;
       default:
@@ -304,6 +331,9 @@ const Welcome: FC = () => {
         break;
       case '#import-from-file':
         setStep(OnboardingStep.ImportFromFile);
+        break;
+      case '#import-from-cloud':
+        setStep(OnboardingStep.ImportFromCloud);
         break;
       case '#backup-seed-phrase':
         setOnboardingType(OnboardingType.Create);

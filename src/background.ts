@@ -5,6 +5,7 @@ import browser, { tabs, runtime } from 'webextension-polyfill';
 import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
+import { handleExtensionOAuthInBackground } from 'lib/miden/backup/google-drive-auth';
 
 // NOTE: onInstalled and other synchronous MV3 listeners are registered in
 // background-entry.ts (the actual SW entry point) before this module loads.
@@ -63,3 +64,12 @@ function openFullPage() {
     url: runtime.getURL('fullpage.html')
   });
 }
+
+// Handle Google OAuth flow from popup — runs in SW so tab listeners persist
+runtime.onMessage.addListener((message: { type: string }) => {
+  if (message.type === 'GOOGLE_OAUTH_START') {
+    handleExtensionOAuthInBackground().catch(err => {
+      console.warn('[Background] OAuth flow failed:', err);
+    });
+  }
+});
