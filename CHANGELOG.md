@@ -22,6 +22,14 @@
 
 ### Features
 
+* [FEATURE][extension] Chrome Side Panel mode with popup toggle. Users can switch between popup (default) and side panel via the maximize/minimize icon in the header. Preference persists across sessions. (#176)
+* [FEATURE][extension] Pin extension prompt shown once after fresh install, guiding users to pin the extension to the toolbar. (#176)
+* [FEATURE][all] Color-coded Send (blue) and Receive (green) action buttons on the home page, matching the token detail page. (#176)
+
+### Fixes
+
+* [FIX][extension] Fixed `onInstalled` event handler not firing on Chrome MV3 due to webpack async module loading delaying listener registration. Handler moved to `sw.js` for synchronous registration. (#176)
+* [FIX][all] Fixed `ConsumingNote` page using raw UA sniffing instead of `isMobile()` platform detection. (#176)
 * [FIX][all] Fixed transaction recovery after network outages. Private accounts could enter a permanently broken state where all transactions fail with "initial state commitment does not match". Root causes: AutoSync loop died on the generating-transaction page, transactions were built against stale local state, and the transaction modal blocked on stale tx failures. Now syncs state before executing transactions, keeps AutoSync alive during transaction generation, cancels crashed/stale transactions properly, and shows correct "Failed" status instead of misleading "Executing". (#150)
 * [FIX][all] Removed stale "Download Generated Files" button and output notes storage. The `useExportNotes` hook, `registerOutputNote`, and related storage key were unused dead code. Simplifies the transaction completion screen and its auto-close logic. (#160)
 * [FIX][all] Removed the "Upload File" button and drag-and-drop note import from the Receive page. The freed space is now used by the notes list, making it taller. (#161)
