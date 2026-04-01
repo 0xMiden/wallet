@@ -8,7 +8,11 @@ const test = base.extend({
   mockWebClient: async ({ sdk }: any, use: any) => {
     const client = await sdk.MockWebClient.createClient(undefined, undefined, TEST_SEED);
     await use(client);
-    client.free();
+    try {
+      client.free();
+    } catch {
+      // free() may not be classified in SDK's WASM method proxy
+    }
   }
 });
 

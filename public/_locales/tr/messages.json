@@ -2599,5 +2599,17 @@
   "advancedOptions": {
     "message": "Gelişmiş Seçenekler",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Miden Cüzdanını Pinle",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Araç çubuğunuzdan hızlı erişim için bulmaca simgesine tıklayın ve Miden Cüzdanını sabitleyin.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Anladım",
+    "englishSource": "Got it"
   }
 }

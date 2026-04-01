@@ -1,5 +1,15 @@
 /* eslint-disable */
 
+// IMPORTANT: Register onInstalled BEFORE importScripts so it fires synchronously.
+// Webpack's async module loading in background.js can delay listener registration,
+// causing Chrome MV3 to miss the install event.
+chrome.runtime.onInstalled.addListener(function (details) {
+  if (details.reason === 'install') {
+    chrome.storage.local.set({ 'fresh_install': true });
+    chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') });
+  }
+});
+
 try {
   const window = globalThis;
   // This is the file produced by webpack

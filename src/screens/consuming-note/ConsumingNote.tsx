@@ -4,12 +4,14 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import CircularProgress from 'app/atoms/CircularProgress';
+import { useAppEnv } from 'app/env';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { Button, ButtonVariant } from 'components/Button';
 import { safeGenerateTransactionsLoop as dbTransactionsLoop, initiateConsumeTransaction } from 'lib/miden/activity';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { truncateHash } from 'utils/string';
@@ -101,11 +103,9 @@ export const ConsumingNotePage: FC<ConsumingNotePageProps> = ({ noteId }) => {
     }
   }, [tryConsumeNote, status, generateTransaction, onClose, noteToConsume, noteConsumeTimeoutId]);
 
-  // On mobile, use h-full to inherit from parent chain (body has safe area padding)
-  const isMobileDevice = typeof window !== 'undefined' && /Android|iPhone|iPad/i.test(navigator.userAgent);
-  const containerClass = isMobileDevice
-    ? 'h-full w-full'
-    : 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl';
+  const { sidePanel } = useAppEnv();
+  const containerClass =
+    isMobile() || sidePanel ? 'h-full w-full' : 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl';
 
   return (
     <div

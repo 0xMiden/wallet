@@ -13,7 +13,7 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Miden Wallet",
 
-  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms"],
+  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "sidePanel"],
   "host_permissions": [
     "http://localhost:4180/",
     "http://localhost:3000/",
@@ -41,10 +41,14 @@
     }
   },
 
-  "__chrome__minimum_chrome_version": "88",
+  "__chrome__minimum_chrome_version": "114",
   "__opera__minimum_opera_version": "36",
 
   "default_locale": "en",
+
+  "__chrome__side_panel": {
+    "default_path": "sidepanel.html"
+  },
 
   "action": {
     "__chrome|firefox|opera__default_popup": "popup.html",

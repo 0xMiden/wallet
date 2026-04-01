@@ -2612,5 +2612,17 @@
   "advancedOptions": {
     "message": "Дополнительные параметры",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "кошелек Miden с булавками",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Нажмите на значок головоломки и закрепите Miden Wallet для быстрого доступа с панели инструментов.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Понятно",
+    "englishSource": "Got it"
   }
 }

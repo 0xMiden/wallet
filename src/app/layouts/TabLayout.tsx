@@ -16,7 +16,7 @@ import { useLocation } from 'lib/woozie';
  */
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const historyBadge = useHistoryBadge();
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -54,9 +54,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     ? { height: '100%', width: '100%' }
     : isDesktop()
       ? { height: '100%', width: '100%', maxWidth: '600px' }
-      : fullPage
-        ? { height: '640px', width: '600px' }
-        : { height: '600px', width: '360px' };
+      : sidePanel
+        ? { height: '100%', width: '100%' }
+        : fullPage
+          ? { height: '640px', width: '600px' }
+          : { height: '600px', width: '360px' };
 
   return (
     <div

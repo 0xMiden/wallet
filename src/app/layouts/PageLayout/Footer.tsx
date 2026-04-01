@@ -47,7 +47,7 @@ const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badg
         {active && (
           <motion.div
             layoutId={PILL_LAYOUT_ID}
-            className="absolute inset-0 rounded-full bg-pill-active/18"
+            className="absolute inset-0 rounded-full bg-pill-active/18 dark:bg-pill-active/10"
             transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
           />
         )}
@@ -95,14 +95,7 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
 
   return (
     <footer className="w-full px-4 pb-3 pt-2 md:px-6" style={mobileBottomPadding}>
-      <div
-        className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]"
-        style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.6)',
-          backdropFilter: 'blur(6px)',
-          WebkitBackdropFilter: 'blur(6px)'
-        }}
-      >
+      <div className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] bg-pure-white/60 dark:bg-[#1e1e1e] backdrop-blur-md dark:backdrop-blur-none">
         <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
         <FooterNavButton
           Icon={ActivityIcon}

@@ -31,7 +31,7 @@ const PageLayout: FC<PageLayoutProps> = ({
   showBottomBorder = true,
   ...toolbarProps
 }) => {
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
 
   // Platform-specific sizing:
   // - Mobile: 100% to inherit from parent chain (body has safe area padding)
@@ -41,9 +41,11 @@ const PageLayout: FC<PageLayoutProps> = ({
     ? { height: '100%', width: '100%' }
     : isDesktop()
       ? { height: '100%', width: '100%', maxWidth: '600px' }
-      : fullPage
-        ? { height: '640px', width: '600px' }
-        : { height: '600px', width: '360px' };
+      : sidePanel
+        ? { height: '100%', width: '100%' }
+        : fullPage
+          ? { height: '640px', width: '600px' }
+          : { height: '600px', width: '360px' };
 
   return (
     <>
