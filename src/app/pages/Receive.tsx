@@ -56,7 +56,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   const safeClaimableNotes = useMemo(
     () => (claimableNotes ?? []).filter((n): n is NonNullable<typeof n> => n != null),
     [claimableNotes]
@@ -327,11 +327,12 @@ export const Receive: React.FC<ReceiveProps> = () => {
   ]);
 
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
-  const containerClass = isMobile()
-    ? 'h-full w-full'
-    : fullPage
-      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl'
-      : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  const containerClass =
+    isMobile() || sidePanel
+      ? 'h-full w-full'
+      : fullPage
+        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl'
+        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   const [isQRSheetOpen, setIsQRSheetOpen] = useState(false);
 

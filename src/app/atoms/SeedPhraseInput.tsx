@@ -36,7 +36,7 @@ export const SeedPhraseInput: FC<SeedPhraseInputProps> = ({
   reset
 }) => {
   const { t } = useTranslation();
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
 
   const [pasteFailed, setPasteFailed] = useState(false);
   const [draftSeed, setDraftSeed] = useState(new Array(defaultNumberOfWords).fill(''));
@@ -122,7 +122,7 @@ export const SeedPhraseInput: FC<SeedPhraseInputProps> = ({
     <div>
       <div className={classNames('flex justify-between', 'mb-6')}>
         <h1 className={classNames('flex text-base self-center text-black', 'font-medium')}>{label}</h1>
-        <div className={classNames('relative w-64 h-10')} style={{ width: popup ? 220 : undefined }}>
+        <div className={classNames('relative w-64 h-10')} style={{ width: compact ? 220 : undefined }}>
           <SeedLengthSelect
             options={numberOfWordsOptions}
             currentOption={draftSeed.length.toString()}

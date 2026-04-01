@@ -40,7 +40,7 @@ type TokenDetailProps = {
 
 const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const { t } = useTranslation();
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   const account = useAccount();
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const allTokensMetadata = useAllTokensBaseMetadata();
@@ -56,11 +56,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
   const handleBack = () => goBack();
 
-  const containerClass = isMobile()
-    ? 'h-full w-full'
-    : fullPage
-      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-      : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  const containerClass =
+    isMobile() || sidePanel
+      ? 'h-full w-full'
+      : fullPage
+        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
+        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>

@@ -28,8 +28,15 @@ interface ActionButtonProps extends TestIDProps {
   isActive?: boolean;
 }
 
-function getActionBgColor(_type: 'send' | 'receive' | 'faucet') {
-  return 'bg-[#777487]';
+function getActionBgColor(type: 'send' | 'receive' | 'faucet') {
+  switch (type) {
+    case 'send':
+      return 'bg-send-blue';
+    case 'receive':
+      return 'bg-receive-green';
+    default:
+      return 'bg-[#777487]';
+  }
 }
 
 const ActionButton: FC<ActionButtonProps> = ({

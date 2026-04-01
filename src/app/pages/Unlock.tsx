@@ -42,7 +42,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { t } = useTranslation();
   const { unlock } = useMidenContext();
   const formAnalytics = useFormAnalytics('UnlockWallet');
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
   const [timelock, setTimeLock] = useLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
@@ -182,13 +182,13 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     if (openForgotPasswordInFullPage) {
       navigate('/forgot-password-info');
       openInFullPage();
-      if (popup) {
+      if (compact) {
         window.close();
       }
     } else {
       navigate('/forgot-password-info');
     }
-  }, [openForgotPasswordInFullPage, popup]);
+  }, [openForgotPasswordInFullPage, compact]);
 
   // Retry hardware unlock for hardware-only wallets
   const onRetryHardwareUnlock = useCallback(async () => {

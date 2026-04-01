@@ -609,5 +609,8 @@
   "date": "Date",
   "details": "Details",
   "addANote": "Add a note",
-  "advancedOptions": "Advanced Options"
+  "advancedOptions": "Advanced Options",
+  "pinExtensionTitle": "Pin Miden Wallet",
+  "pinExtensionDescription": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar.",
+  "gotIt": "Got it"
 }
