@@ -27,10 +27,10 @@ const BalanceBanner: FC<{ balance: BigNumber }> = ({ balance }) => {
 };
 
 const AssetBanner: FC = () => {
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
 
   return (
-    <BannerLayout name={<Name style={{ maxWidth: popup ? '11rem' : '13rem' }}>{'Miden'}</Name>}>
+    <BannerLayout name={<Name style={{ maxWidth: compact ? '11rem' : '13rem' }}>{'Miden'}</Name>}>
       <Balance>{balance => <BalanceBanner balance={balance} />}</Balance>
     </BannerLayout>
   );

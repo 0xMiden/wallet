@@ -79,7 +79,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
   const { navigateTo, goBack, cardStack } = useNavigator();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
@@ -459,11 +459,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
 
   // On mobile, use h-full to inherit from parent chain (body has safe area padding)
   const isMobileDevice = isMobile();
-  const containerClass = isMobileDevice
-    ? 'h-full w-full'
-    : fullPage
-      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-      : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  const containerClass =
+    isMobileDevice || sidePanel
+      ? 'h-full w-full'
+      : fullPage
+        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
+        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   return (
     <div

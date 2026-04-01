@@ -24,7 +24,7 @@ type HistoryItemProps = {
 
 const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry }) => {
   const { t } = useTranslation();
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
   const isReceive = entry.transactionIcon === 'RECEIVE' || entry.message === 'Consuming';
   const isFaucet = isFaucetRequest(entry);
 
@@ -61,7 +61,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         {entry.secondaryAddress && (
           <span className="text-xs text-grey-500 truncate flex gap-0.5">
             <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
-            <AddressShortView address={entry.secondaryAddress} trim={isMobile() || popup} />
+            <AddressShortView address={entry.secondaryAddress} trim={isMobile() || compact} />
           </span>
         )}
       </div>

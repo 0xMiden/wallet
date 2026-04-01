@@ -8,6 +8,8 @@ import Name from 'app/atoms/Name';
 import { openInFullPage, useAppEnv } from 'app/env';
 import { ReactComponent as ChevronDownIcon } from 'app/icons/chevron-down.svg';
 import { ReactComponent as MaximiseIcon } from 'app/icons/maximise.svg';
+import { ReactComponent as MinimiseIcon } from 'app/icons/minimise.svg';
+import { isExtension } from 'lib/platform';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
 import AddressChip from 'app/templates/AddressChip';
@@ -53,7 +55,7 @@ const SyncSpinner: FC<{ visible: boolean }> = ({ visible }) => (
 
 const Control: FC = () => {
   const account = useAccount();
-  const { popup } = useAppEnv();
+  const { popup, sidePanel, compact } = useAppEnv();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { isLoading: isLoadingBalances } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const hasCompletedInitialSync = useWalletStore(s => s.hasCompletedInitialSync);
@@ -70,9 +72,34 @@ const Control: FC = () => {
     return () => clearTimeout(hideTimeout);
   }, [isSyncing]);
 
-  const handleMaximiseViewClick = () => {
+  const handleMaximiseViewClick = async () => {
+    const chrome = (globalThis as any).chrome;
+    const hasSidePanel = isExtension() && chrome?.sidePanel?.open;
+
+    if (sidePanel && hasSidePanel) {
+      // Switch back to popup mode
+      chrome.storage.local.set({ sidepanel_mode: false });
+      chrome.action.setPopup({ popup: 'popup.html' });
+      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+      window.close();
+      return;
+    }
+    if (popup && hasSidePanel) {
+      // Switch to side panel mode
+      try {
+        chrome.storage.local.set({ sidepanel_mode: true });
+        chrome.action.setPopup({ popup: '' });
+        chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+        const win = await chrome.windows.getLastFocused();
+        await chrome.sidePanel.open({ windowId: win.id });
+        window.close();
+        return;
+      } catch {
+        // Fall through to fullpage
+      }
+    }
     openInFullPage();
-    if (popup) {
+    if (compact) {
       window.close();
     }
   };
@@ -103,7 +130,7 @@ const Control: FC = () => {
         </div>
         <div className="flex items-center gap-1">
           {showSpinner && <SyncSpinner visible={isSyncing} />}
-          {popup && (
+          {compact && (
             <Button
               className={classNames(
                 'flex items-center justify-center',
@@ -111,21 +138,29 @@ const Control: FC = () => {
                 'transition ease-in-out duration-200',
                 'cursor-pointer',
                 'opacity-90 hover:opacity-100',
-                'h-6 w-6'
+                'h-7 w-7'
               )}
               onClick={handleMaximiseViewClick}
             >
-              <MaximiseIcon className="w-4 h-4 stroke-black" />
+              {sidePanel ? (
+                <MinimiseIcon className="w-5 h-5 stroke-heading-gray" />
+              ) : (
+                <MaximiseIcon className="w-5 h-5 stroke-heading-gray" />
+              )}
             </Button>
           )}
           <Button
-            className="flex items-center justify-center cursor-pointer h-5 w-5"
+            className="flex items-center justify-center cursor-pointer h-7 w-7"
             onClick={() => {
               hapticLight();
               navigate('/settings');
             }}
           >
-            <Icon name={IconName.SettingsNew} className="w-5 h-5 stroke-black fill-black" fill="currentColor" />
+            <Icon
+              name={IconName.SettingsNew}
+              className="w-6 h-6 stroke-heading-gray fill-heading-gray"
+              fill="currentColor"
+            />
           </Button>
         </div>
       </div>

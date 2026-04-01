@@ -7,7 +7,18 @@ import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
 
-runtime.onInstalled.addListener(({ reason }) => (reason === 'install' ? openFullPage() : null));
+// NOTE: onInstalled is handled in sw.js (must be synchronous for MV3)
+
+// Chrome: restore side panel preference on startup
+if (process.env.TARGET_BROWSER === 'chrome') {
+  const chrome = (globalThis as any).chrome;
+  chrome.storage.local.get('sidepanel_mode', (result: { sidepanel_mode?: boolean }) => {
+    if (result.sidepanel_mode) {
+      chrome.action.setPopup({ popup: '' });
+      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+    }
+  });
+}
 
 runtime.onUpdateAvailable.addListener(details => {
   // Swaps in the new version immediately

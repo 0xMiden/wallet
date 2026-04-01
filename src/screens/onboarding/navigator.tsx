@@ -213,7 +213,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   };
 
   return (
-    <div className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}>
+    <div
+      className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}
+      style={{ maxWidth: 420 }}
+    >
       <div className="flex flex-col flex-1 min-h-0">
         <AnimatePresence mode={'wait'} initial={false}>
           {step !== OnboardingStep.Welcome && (
