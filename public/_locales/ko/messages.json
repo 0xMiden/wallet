@@ -2611,5 +2611,17 @@
   "advancedOptions": {
     "message": "고급 옵션",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "핀 미덴 지갑",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "도구 모음에서 빠르게 액세스하려면 퍼즐 아이콘을 클릭하고 Miden Wallet을 고정하세요.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "알았어요",
+    "englishSource": "Got it"
   }
 }

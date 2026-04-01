@@ -2536,5 +2536,17 @@
   "advancedOptions": {
     "message": "Opciones avanzadas",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Cartera Pin Miden",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Haga clic en el ícono del rompecabezas y fije Miden Wallet para acceder rápidamente desde su barra de herramientas.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Entiendo",
+    "englishSource": "Got it"
   }
 }
