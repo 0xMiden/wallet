@@ -73,29 +73,35 @@ const Control: FC = () => {
   }, [isSyncing]);
 
   const handleMaximiseViewClick = async () => {
-    const chrome = (globalThis as any).chrome;
-    const hasSidePanel = isExtension() && chrome?.sidePanel?.open;
+    const chromeApi = (globalThis as any).chrome;
+    const hasSidePanel = isExtension() && chromeApi?.sidePanel?.open;
 
     if (sidePanel && hasSidePanel) {
       // Switch back to popup mode
-      chrome.storage.local.set({ sidepanel_mode: false });
-      chrome.action.setPopup({ popup: 'popup.html' });
-      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+      chromeApi.storage.local.set({ sidepanel_mode: false });
+      chromeApi.action.setPopup({ popup: 'popup.html' });
+      chromeApi.sidePanel
+        .setPanelBehavior({ openPanelOnActionClick: false })
+        .catch((err: Error) => console.warn('[Header] setPanelBehavior error:', err));
       window.close();
       return;
     }
     if (popup && hasSidePanel) {
       // Switch to side panel mode
       try {
-        chrome.storage.local.set({ sidepanel_mode: true });
-        chrome.action.setPopup({ popup: '' });
-        chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
-        const win = await chrome.windows.getLastFocused();
-        await chrome.sidePanel.open({ windowId: win.id });
+        await chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+        chromeApi.action.setPopup({ popup: '' });
+        chromeApi.storage.local.set({ sidepanel_mode: true });
+        const win = await chromeApi.windows.getLastFocused();
+        await chromeApi.sidePanel.open({ windowId: win.id });
         window.close();
         return;
-      } catch {
-        // Fall through to fullpage
+      } catch (err) {
+        // Restore popup mode on failure
+        chromeApi.action.setPopup({ popup: 'popup.html' });
+        chromeApi.storage.local.set({ sidepanel_mode: false });
+        chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+        console.warn('[Header] Side panel open failed, falling back to fullpage:', err);
       }
     }
     openInFullPage();
