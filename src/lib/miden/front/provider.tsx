@@ -9,7 +9,7 @@ import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
-import { getMidenClient } from '../sdk/miden-client';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { TokensMetadataProvider } from './assets';
 import { useSyncTrigger } from './useSyncTrigger';
 
@@ -44,7 +44,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
 
     const initializeClient = async () => {
       try {
-        await getMidenClient();
+        await withWasmClientLock(async () => {
+          await getMidenClient();
+        });
       } catch (err) {
         console.error('Failed to initialize Miden client singleton:', err);
       }
