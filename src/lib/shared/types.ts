@@ -116,6 +116,8 @@ export enum WalletMessageType {
   CloudBackupCreateResponse = 'CLOUD_BACKUP_CREATE_RESPONSE',
   CloudBackupRestoreRequest = 'CLOUD_BACKUP_RESTORE_REQUEST',
   CloudBackupRestoreResponse = 'CLOUD_BACKUP_RESTORE_RESPONSE',
+  CloudBackupProbeRequest = 'CLOUD_BACKUP_PROBE_REQUEST',
+  CloudBackupProbeResponse = 'CLOUD_BACKUP_PROBE_RESPONSE',
   CloudBackupRegisterRequest = 'CLOUD_BACKUP_REGISTER_REQUEST',
   CloudBackupRegisterResponse = 'CLOUD_BACKUP_REGISTER_RESPONSE'
 }
@@ -645,10 +647,28 @@ export interface ImportFromClientResponse extends WalletMessageBase {
   type: WalletMessageType.ImportFromClientResponse;
 }
 
+// Cloud backup encryption arg types (reused across intercom messages, store, and frontend)
+
+export type CloudBackupCreateEncryption =
+  | { method: 'password'; backupPassword: string }
+  | { method: 'passkey'; keyMaterial: string; credentialId: string; prfSalt: string };
+
+export type CloudBackupRestoreEncryption =
+  | { method: 'password'; backupPassword: string }
+  | { method: 'passkey'; keyMaterial: string };
+
+export interface CloudBackupProbeResult {
+  encryptionMethod: 'password' | 'passkey' | null;
+  credentialId?: string;
+  prfSalt?: string;
+}
+
+// Cloud backup intercom messages
+
 export interface CloudBackupCreateRequest extends WalletMessageBase {
   type: WalletMessageType.CloudBackupCreateRequest;
   accessToken: string;
-  backupPassword: string;
+  encryption: CloudBackupCreateEncryption;
 }
 
 export interface CloudBackupCreateResponse extends WalletMessageBase {
@@ -658,13 +678,22 @@ export interface CloudBackupCreateResponse extends WalletMessageBase {
 export interface CloudBackupRestoreRequest extends WalletMessageBase {
   type: WalletMessageType.CloudBackupRestoreRequest;
   accessToken: string;
-  backupPassword: string;
+  encryption: CloudBackupRestoreEncryption;
 }
 
 export interface CloudBackupRestoreResponse extends WalletMessageBase {
   type: WalletMessageType.CloudBackupRestoreResponse;
   walletAccounts: WalletAccount[];
   walletSettings: WalletSettings;
+}
+
+export interface CloudBackupProbeRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupProbeRequest;
+  accessToken: string;
+}
+
+export interface CloudBackupProbeResponse extends WalletMessageBase, CloudBackupProbeResult {
+  type: WalletMessageType.CloudBackupProbeResponse;
 }
 
 export interface CloudBackupRegisterRequest extends WalletMessageBase {
@@ -733,6 +762,7 @@ export type WalletRequest =
   | GetInputNoteDetailsRequest
   | CloudBackupCreateRequest
   | CloudBackupRestoreRequest
+  | CloudBackupProbeRequest
   | CloudBackupRegisterRequest;
 
 export type WalletResponse =
@@ -784,4 +814,5 @@ export type WalletResponse =
   | GetInputNoteDetailsResponse
   | CloudBackupCreateResponse
   | CloudBackupRestoreResponse
+  | CloudBackupProbeResponse
   | CloudBackupRegisterResponse;

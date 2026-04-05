@@ -245,23 +245,32 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Cloud backup actions
-    createCloudBackup: async (accessToken, backupPassword) => {
+    createCloudBackup: async (accessToken, encryption) => {
       const res = await request({
         type: WalletMessageType.CloudBackupCreateRequest,
         accessToken,
-        backupPassword
+        encryption
       });
       assertResponse(res.type === WalletMessageType.CloudBackupCreateResponse);
     },
 
-    restoreCloudBackup: async (accessToken, backupPassword) => {
+    restoreCloudBackup: async (accessToken, encryption) => {
       const res = await request({
         type: WalletMessageType.CloudBackupRestoreRequest,
         accessToken,
-        backupPassword
+        encryption
       });
       assertResponse(res.type === WalletMessageType.CloudBackupRestoreResponse);
       return { walletAccounts: res.walletAccounts, walletSettings: res.walletSettings };
+    },
+
+    probeCloudBackup: async accessToken => {
+      const res = await request({
+        type: WalletMessageType.CloudBackupProbeRequest,
+        accessToken
+      });
+      assertResponse(res.type === WalletMessageType.CloudBackupProbeResponse);
+      return { encryptionMethod: res.encryptionMethod, credentialId: res.credentialId, prfSalt: res.prfSalt };
     },
 
     registerFromCloudBackup: async (password, mnemonic, walletAccounts, walletSettings) => {

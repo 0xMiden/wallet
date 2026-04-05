@@ -5,7 +5,15 @@ import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
-import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
+import {
+  CloudBackupCreateEncryption,
+  CloudBackupProbeResult,
+  CloudBackupRestoreEncryption,
+  SerializedConsumableNote,
+  WalletAccount,
+  WalletSettings,
+  WalletStatus
+} from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 /**
@@ -158,11 +166,12 @@ export interface WalletActions {
   removeDAppSession: (origin: string) => Promise<void>;
 
   // Cloud backup actions
-  createCloudBackup: (accessToken: string, backupPassword: string) => Promise<void>;
+  createCloudBackup: (accessToken: string, encryption: CloudBackupCreateEncryption) => Promise<void>;
   restoreCloudBackup: (
     accessToken: string,
-    backupPassword: string
+    encryption: CloudBackupRestoreEncryption
   ) => Promise<{ walletAccounts: WalletAccount[]; walletSettings: WalletSettings }>;
+  probeCloudBackup: (accessToken: string) => Promise<CloudBackupProbeResult>;
   registerFromCloudBackup: (
     password: string | undefined,
     mnemonic: string,
