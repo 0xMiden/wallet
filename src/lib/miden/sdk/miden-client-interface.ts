@@ -1,6 +1,8 @@
 import {
   Account,
   AccountFile,
+  exportStore,
+  importStore,
   InputNoteRecord,
   InputNoteState,
   MidenClient,
@@ -181,11 +183,11 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    await this.client.notes.sendPrivate({ noteId: note.id().toString(), to });
+    await this.client.notes.sendPrivate({ note: note.id().toString(), to });
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
-    return (await this.client.notes.listAvailable({ account: accountId })).map(note => note.inputNoteRecord());
+    return await this.client.notes.listAvailable({ account: accountId });
   }
 
   async sendTransaction(dbTransaction: SendTransaction): Promise<string> {
@@ -198,7 +200,7 @@ export class MidenClientInterface {
     }
 
     return this.withProverFallback(async prover => {
-      const id = await this.client.transactions.send({
+      const { txId } = await this.client.transactions.send({
         account: accountId,
         to: secondaryAccountId,
         token: faucetId,
@@ -207,7 +209,7 @@ export class MidenClientInterface {
         reclaimAfter,
         prover
       });
-      return id.toHex();
+      return txId.toHex();
     }, dbTransaction.delegateTransaction);
   }
 
@@ -215,12 +217,12 @@ export class MidenClientInterface {
     const { accountId, noteId } = transaction;
 
     return this.withProverFallback(async prover => {
-      const id = await this.client.transactions.consume({
+      const { txId } = await this.client.transactions.consume({
         account: accountId,
         notes: [noteId],
         prover
       });
-      return id.toHex();
+      return txId.toHex();
     }, transaction.delegateTransaction);
   }
 
@@ -228,18 +230,17 @@ export class MidenClientInterface {
     const transactionRequest = TransactionRequest.deserialize(requestBytes);
 
     return this.withProverFallback(async prover => {
-      const id = await this.client.transactions.submit(accountId, transactionRequest, { prover });
-      return id.toHex();
+      const { txId } = await this.client.transactions.submit(accountId, transactionRequest, { prover });
+      return txId.toHex();
     }, delegateTransaction);
   }
 
   async exportDb() {
-    return await this.client.exportStore();
+    return await exportStore('MidenClientDb_mdev');
   }
 
   async importDb(snapShote: StoreSnapshot) {
-    const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
-    await client.forceImportStore(snapShote.data, '');
+    await importStore('MidenClientDb_mdev', snapShote.data as string);
   }
 
   async getTransactionsForAccount(accountId: string) {

@@ -7,13 +7,17 @@ import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
-import { createCloudBackup } from '../backup/backup-service';
+import { BackupEncryptionArgs, createCloudBackup } from '../backup/backup-service';
 import { GoogleDriveProvider } from '../backup/google-drive-provider';
-import { restoreCloudBackup } from '../backup/restore-service';
+import { probeCloudBackup, restoreCloudBackup, RestoreEncryptionArgs } from '../backup/restore-service';
 import { NoteExportType } from '../sdk/constants';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
+
+function fromBase64(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
 
 const frontStore = store.map(toFront);
 
@@ -227,17 +231,35 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
     // };
     case WalletMessageType.CloudBackupCreateRequest: {
       const provider = new GoogleDriveProvider(req.accessToken);
-      await createCloudBackup(req.backupPassword, provider);
+      const backupArgs: BackupEncryptionArgs =
+        req.encryption.method === 'password'
+          ? { type: 'password', backupPassword: req.encryption.backupPassword }
+          : {
+              type: 'passkey',
+              keyMaterial: fromBase64(req.encryption.keyMaterial),
+              credentialId: fromBase64(req.encryption.credentialId),
+              prfSalt: fromBase64(req.encryption.prfSalt)
+            };
+      await createCloudBackup(backupArgs, provider);
       return { type: WalletMessageType.CloudBackupCreateResponse };
     }
     case WalletMessageType.CloudBackupRestoreRequest: {
       const provider = new GoogleDriveProvider(req.accessToken);
-      const content = await restoreCloudBackup(req.backupPassword, provider);
+      const restoreArgs: RestoreEncryptionArgs =
+        req.encryption.method === 'password'
+          ? { type: 'password', backupPassword: req.encryption.backupPassword }
+          : { type: 'passkey', keyMaterial: fromBase64(req.encryption.keyMaterial) };
+      const content = await restoreCloudBackup(restoreArgs, provider);
       return {
         type: WalletMessageType.CloudBackupRestoreResponse,
         walletAccounts: content.walletAccounts,
         walletSettings: content.walletSettings
       };
+    }
+    case WalletMessageType.CloudBackupProbeRequest: {
+      const provider = new GoogleDriveProvider(req.accessToken);
+      const probe = await probeCloudBackup(provider);
+      return { type: WalletMessageType.CloudBackupProbeResponse, ...probe };
     }
     case WalletMessageType.CloudBackupRegisterRequest: {
       await Actions.registerFromCloudBackup(req.password ?? '', req.mnemonic, req.walletAccounts, req.walletSettings);

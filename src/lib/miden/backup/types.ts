@@ -1,3 +1,4 @@
+import { BackupEncryptionMethod } from 'lib/passkey/types';
 import { WalletAccount, WalletSettings } from 'lib/shared/types';
 
 // ---- Backup Content (decrypted payload, no seed phrase) ----
@@ -17,19 +18,23 @@ export interface CloudBackupContent {
 
 // ---- Encrypted Backup (binary wire format) ----
 //
-// The encrypted backup is a single Uint8Array with the layout:
-//   [salt: 32 bytes]
-//   [passwordCheck length: 4 bytes (uint32 big-endian)]
-//   [passwordCheck: N bytes (iv 16 + ciphertext)]
-//   [payload: remaining bytes (iv 16 + ciphertext)]
-//
-// Both passwordCheck and payload are raw AES-GCM output: first 16 bytes
-// are the IV, the rest is ciphertext.
+// Layout:
+//   [method:       1 byte ]  — 0x01 = password, 0x02 = passkey
+//   [credIdLen:    2 bytes]  — uint16 big-endian (0 for password)
+//   [credId:       N bytes]  — WebAuthn credential ID (empty for password)
+//   [salt:        32 bytes]  — PBKDF2 salt (password) or HKDF salt (passkey)
+//   [checkLen:     4 bytes]  — uint32 big-endian
+//   [check:        N bytes]  — encrypted verification token (iv 16 + ciphertext)
+//   [payload:      rest    ] — encrypted backup payload (iv 16 + ciphertext)
 
 export interface EncryptedCloudBackup {
-  /** PBKDF2 salt (32 bytes) */
+  /** How the encryption key was derived */
+  method: BackupEncryptionMethod;
+  /** WebAuthn credential ID (empty for password-based backups) */
+  credentialId: Uint8Array<ArrayBuffer>;
+  /** PBKDF2 salt (password) or HKDF salt (passkey) — always 32 bytes */
   salt: Uint8Array<ArrayBuffer>;
-  /** Encrypted password verification token (iv + ciphertext) */
+  /** Encrypted verification token (iv + ciphertext) */
   passwordCheck: Uint8Array<ArrayBuffer>;
   /** Encrypted backup payload (iv + ciphertext) */
   payload: Uint8Array<ArrayBuffer>;
@@ -37,20 +42,36 @@ export interface EncryptedCloudBackup {
 
 /** Serialize an EncryptedCloudBackup to a single Uint8Array for storage */
 export function serializeEncryptedBackup(backup: EncryptedCloudBackup): Uint8Array {
+  const credIdLen = backup.credentialId.byteLength;
   const checkLen = backup.passwordCheck.byteLength;
-  const totalLen = 32 + 4 + checkLen + backup.payload.byteLength;
+  const totalLen = 1 + 2 + credIdLen + 32 + 4 + checkLen + backup.payload.byteLength;
   const out = new Uint8Array(totalLen);
+  const view = new DataView(out.buffer);
   let offset = 0;
 
+  // method
+  out[offset] = backup.method;
+  offset += 1;
+
+  // credentialId length + data
+  view.setUint16(offset, credIdLen, false);
+  offset += 2;
+  if (credIdLen > 0) {
+    out.set(backup.credentialId, offset);
+    offset += credIdLen;
+  }
+
+  // salt
   out.set(backup.salt, offset);
   offset += 32;
 
-  new DataView(out.buffer).setUint32(offset, checkLen, false);
+  // passwordCheck length + data
+  view.setUint32(offset, checkLen, false);
   offset += 4;
-
   out.set(backup.passwordCheck, offset);
   offset += checkLen;
 
+  // payload
   out.set(backup.payload, offset);
 
   return out;
@@ -58,20 +79,33 @@ export function serializeEncryptedBackup(backup: EncryptedCloudBackup): Uint8Arr
 
 /** Deserialize a Uint8Array back into an EncryptedCloudBackup */
 export function deserializeEncryptedBackup(data: Uint8Array): EncryptedCloudBackup {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   let offset = 0;
 
+  // method
+  const method = data[offset] as BackupEncryptionMethod;
+  offset += 1;
+
+  // credentialId
+  const credIdLen = view.getUint16(offset, false);
+  offset += 2;
+  const credentialId = new Uint8Array(data.subarray(offset, offset + credIdLen));
+  offset += credIdLen;
+
+  // salt
   const salt = new Uint8Array(data.subarray(offset, offset + 32));
   offset += 32;
 
-  const checkLen = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0, false);
+  // passwordCheck
+  const checkLen = view.getUint32(offset, false);
   offset += 4;
-
   const passwordCheck = new Uint8Array(data.subarray(offset, offset + checkLen));
   offset += checkLen;
 
+  // payload
   const payload = new Uint8Array(data.subarray(offset));
 
-  return { salt, passwordCheck, payload };
+  return { method, credentialId, salt, passwordCheck, payload };
 }
 
 // ---- Cloud Provider Interface ----

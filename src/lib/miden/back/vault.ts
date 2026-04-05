@@ -187,94 +187,99 @@ export class Vault {
 
   static async spawn(password: string, mnemonic?: string, ownMnemonic?: boolean): Promise<Vault> {
     return withError('Failed to create wallet', async (): Promise<Vault> => {
-      // Generate random vault key (256-bit)
-      const vaultKeyBytes = Passworder.generateVaultKey();
-      const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
+      try {
+        // Generate random vault key (256-bit)
+        const vaultKeyBytes = Passworder.generateVaultKey();
+        const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
 
-      if (!mnemonic) {
-        mnemonic = Bip39.generateMnemonic(128);
-      }
-
-      // Clear storage before any inserts to avoid wiping newly inserted keys later
-      await clearStorage();
-
-      // Determine security model: hardware-only or password-based
-      // If password is provided (user opted out of biometrics), use password protection
-      // If no password (hardware-only mode), use hardware protection
-      const useHardwareOnly = !password;
-      const hardwareAvailable = await isHardwareSecurityAvailableForVault();
-
-      if (useHardwareOnly && hardwareAvailable) {
-        // Try hardware-only mode (user chose biometric authentication)
-        const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
-        if (!hardwareSetupSuccess) {
-          // Hardware setup failed - this shouldn't happen if user chose biometric
-          throw new PublicError('Hardware security setup failed. Please try again.');
+        if (!mnemonic) {
+          mnemonic = Bip39.generateMnemonic(128);
         }
-        // If hardware succeeded, we don't store password protector (hardware-only mode)
-      } else {
-        // Password-based protection (user opted out of biometrics or hardware not available)
-        const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
-        await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
-      }
 
-      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
-        const pubKeyHex = Buffer.from(key).toString('hex');
-        const secretKeyHex = Buffer.from(secretKey).toString('hex');
+        // Clear storage before any inserts to avoid wiping newly inserted keys later
+        await clearStorage();
+
+        // Determine security model: hardware-only or password-based
+        // If password is provided (user opted out of biometrics), use password protection
+        // If no password (hardware-only mode), use hardware protection
+        const useHardwareOnly = !password;
+        const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+
+        if (useHardwareOnly && hardwareAvailable) {
+          // Try hardware-only mode (user chose biometric authentication)
+          const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
+          if (!hardwareSetupSuccess) {
+            // Hardware setup failed - this shouldn't happen if user chose biometric
+            throw new PublicError('Hardware security setup failed. Please try again.');
+          }
+          // If hardware succeeded, we don't store password protector (hardware-only mode)
+        } else {
+          // Password-based protection (user opted out of biometrics or hardware not available)
+          const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
+          await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
+        }
+
+        const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
+          const pubKeyHex = Buffer.from(key).toString('hex');
+          const secretKeyHex = Buffer.from(secretKey).toString('hex');
+          await encryptAndSaveMany(
+            [
+              [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
+              [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+            ],
+            vaultKey
+          );
+        };
+        const options: MidenClientCreateOptions = {
+          insertKeyCallback
+        };
+        const hdAccIndex = 0;
+        const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
+
+        // Wrap WASM client operations in a lock to prevent concurrent access
+        const accPublicKey = await withWasmClientLock(async () => {
+          const midenClient = await getMidenClient(options);
+          if (ownMnemonic && midenClient.network !== 'mock') {
+            try {
+              return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
+            } catch (e) {
+              console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
+              return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+            }
+          } else {
+            // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
+            await midenClient.syncState();
+            return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+          }
+        });
+
+        const initialAccount: WalletAccount = {
+          publicKey: accPublicKey,
+          name: 'Miden Account 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: hdAccIndex
+        };
+        const newAccounts = [initialAccount];
+
         await encryptAndSaveMany(
           [
-            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
-            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+            [checkStrgKey, generateCheck()],
+            [mnemonicStrgKey, mnemonic],
+            [accPubKeyStrgKey(accPublicKey), accPublicKey],
+            [accountsStrgKey, newAccounts]
           ],
           vaultKey
         );
-      };
-      const options: MidenClientCreateOptions = {
-        insertKeyCallback
-      };
-      const hdAccIndex = 0;
-      const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
+        await savePlain(currentAccPubKeyStrgKey, accPublicKey);
+        await savePlain(ownMnemonicStrgKey, ownMnemonic ?? false);
 
-      // Wrap WASM client operations in a lock to prevent concurrent access
-      const accPublicKey = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient(options);
-        if (ownMnemonic && midenClient.network !== 'mock') {
-          try {
-            return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
-          } catch (e) {
-            console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
-          }
-        } else {
-          // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
-          await midenClient.syncState();
-          return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
-        }
-      });
-
-      const initialAccount: WalletAccount = {
-        publicKey: accPublicKey,
-        name: 'Miden Account 1',
-        isPublic: true,
-        type: WalletType.OnChain,
-        hdIndex: hdAccIndex
-      };
-      const newAccounts = [initialAccount];
-
-      await encryptAndSaveMany(
-        [
-          [checkStrgKey, generateCheck()],
-          [mnemonicStrgKey, mnemonic],
-          [accPubKeyStrgKey(accPublicKey), accPublicKey],
-          [accountsStrgKey, newAccounts]
-        ],
-        vaultKey
-      );
-      await savePlain(currentAccPubKeyStrgKey, accPublicKey);
-      await savePlain(ownMnemonicStrgKey, ownMnemonic ?? false);
-
-      // Return the vault instance so caller doesn't need to call unlock() separately
-      return new Vault(vaultKey);
+        // Return the vault instance so caller doesn't need to call unlock() separately
+        return new Vault(vaultKey);
+      } catch (e) {
+        console.error('Error in Vault.spawn:', e);
+        throw e;
+      }
     });
   }
 
