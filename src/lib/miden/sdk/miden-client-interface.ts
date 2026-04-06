@@ -11,11 +11,9 @@ import {
   NoteFile,
   NoteQuery,
   NoteType,
-  StoreSnapshot,
   TransactionProver,
   TransactionRecord,
-  TransactionRequest,
-  WasmWebClient
+  TransactionRequest
 } from '@miden-sdk/miden-sdk';
 
 import {
@@ -236,11 +234,11 @@ export class MidenClientInterface {
   }
 
   async exportDb() {
-    return await exportStore('MidenClientDb_mdev');
+    return await exportStore(this.client.storeIdentifier());
   }
 
-  async importDb(snapShote: StoreSnapshot) {
-    await importStore('MidenClientDb_mdev', snapShote.data as string);
+  async importDb(data: string) {
+    await importStore(this.client.storeIdentifier(), data);
   }
 
   async getTransactionsForAccount(accountId: string) {

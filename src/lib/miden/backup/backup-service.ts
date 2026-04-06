@@ -1,8 +1,8 @@
 import { withUnlocked } from 'lib/miden/back/store';
-import { BackupEncryptionMethod } from 'lib/passkey/types';
 import { deriveKey, encrypt, encryptBytes, generateKey, generateSalt, importVaultKey } from 'lib/miden/passworder';
 import { exportDb } from 'lib/miden/repo';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { BackupEncryptionMethod } from 'lib/passkey/types';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK } from 'screens/shared';
 
 import { CloudBackupContent, CloudProvider, EncryptedCloudBackup, serializeEncryptedBackup } from './types';
@@ -61,7 +61,7 @@ async function collectBackupContent(): Promise<CloudBackupContent> {
     const client = await getMidenClient();
     return client.exportDb();
   });
-
+  console.log('Exported SDK store snapshot:', sdkStoreSnapshot);
   const [walletAccounts, walletSettings] = await withUnlocked(async ({ vault }) => {
     return Promise.all([vault.fetchAccounts(), vault.fetchSettings()]);
   });

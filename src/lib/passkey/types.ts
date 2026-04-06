@@ -1,6 +1,6 @@
 export enum BackupEncryptionMethod {
   Password = 0x01,
-  Passkey = 0x02,
+  Passkey = 0x02
 }
 
 /** Result of WebAuthn PRF key derivation */

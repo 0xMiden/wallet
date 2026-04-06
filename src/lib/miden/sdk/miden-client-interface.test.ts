@@ -152,7 +152,7 @@ describe('MidenClientInterface', () => {
     await client.exportNote('note', {} as any);
     await client.getTransactionsForAccount('id');
     await client.exportDb();
-    await client.importDb({ version: 1, data: 'dump' } as any);
+    await client.importDb('dump');
     const sendResult = await client.sendTransaction({
       accountId: 'id',
       amount: BigInt(1),
