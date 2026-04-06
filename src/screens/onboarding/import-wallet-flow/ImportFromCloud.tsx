@@ -105,6 +105,7 @@ export const ImportFromCloudScreen: React.FC<ImportFromCloudScreenProps> = ({ cl
       });
       onSubmit({ walletAccounts, walletSettings });
     } catch (err) {
+      console.log('Passkey restore error:', err);
       setRestoreError(err instanceof Error ? err.message : String(err));
     }
   }, [auth, probeResult, restoreCloudBackup, onSubmit]);
