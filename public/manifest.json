@@ -13,8 +13,13 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Miden Wallet",
 
-  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms"],
-  "host_permissions": ["http://localhost/*", "https://*.miden.fi/*"],
+  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "identity"],
+  "host_permissions": ["http://localhost/*", "https://*.miden.fi/*", "https://accounts.google.com/*", "https://www.googleapis.com/*"],
+
+  "oauth2": {
+    "client_id": "849882985138-egh1ol1n5clvlvb2th2f6njdrg7v8de9.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/drive.appdata"]
+  },
 
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

@@ -190,6 +190,28 @@ export async function generateKeyFromHash(keyHash: string): Promise<CryptoKey> {
 }
 
 // ============================================================================
+// Binary Encryption (for cloud backup payloads)
+// ============================================================================
+
+/** AES-GCM encrypt raw bytes. Returns iv (16 bytes) + ciphertext. */
+export async function encryptBytes(data: Uint8Array<ArrayBuffer>, key: CryptoKey): Promise<Uint8Array<ArrayBuffer>> {
+  const iv = crypto.getRandomValues(new Uint8Array(16));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+  const out = new Uint8Array(16 + ciphertext.byteLength);
+  out.set(iv, 0);
+  out.set(new Uint8Array(ciphertext), 16);
+  return out;
+}
+
+/** Decrypt bytes produced by encryptBytes. Expects iv (16 bytes) + ciphertext. */
+export async function decryptBytes(data: Uint8Array<ArrayBuffer>, key: CryptoKey): Promise<Uint8Array<ArrayBuffer>> {
+  const iv = data.subarray(0, 16);
+  const ciphertext = data.subarray(16);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new Uint8Array(plaintext);
+}
+
+// ============================================================================
 // Vault Key Model
 // ============================================================================
 

@@ -30,6 +30,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer'
 import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 
+import CloudBackupSettings from '../templates/CloudBackupSettings';
 import pkg from '../../../package.json';
 import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
@@ -124,6 +125,13 @@ const TAB_GROUPS: TabGroup[] = [
         Component: EncryptedFileFlow,
         testID: SettingsSelectors.EncryptedWalletFile,
         hasOwnLayout: true
+      },
+      {
+        slug: 'cloud-backup',
+        titleI18nKey: 'cloudBackup',
+        Icon: EncryptedWalletIcon,
+        Component: CloudBackupSettings,
+        isDrawer: true
       }
     ]
   },

@@ -110,7 +110,16 @@ export enum WalletMessageType {
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
-  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
+  // Cloud backup
+  CloudBackupCreateRequest = 'CLOUD_BACKUP_CREATE_REQUEST',
+  CloudBackupCreateResponse = 'CLOUD_BACKUP_CREATE_RESPONSE',
+  CloudBackupRestoreRequest = 'CLOUD_BACKUP_RESTORE_REQUEST',
+  CloudBackupRestoreResponse = 'CLOUD_BACKUP_RESTORE_RESPONSE',
+  CloudBackupProbeRequest = 'CLOUD_BACKUP_PROBE_REQUEST',
+  CloudBackupProbeResponse = 'CLOUD_BACKUP_PROBE_RESPONSE',
+  CloudBackupRegisterRequest = 'CLOUD_BACKUP_REGISTER_REQUEST',
+  CloudBackupRegisterResponse = 'CLOUD_BACKUP_REGISTER_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -637,6 +646,67 @@ export interface ImportFromClientResponse extends WalletMessageBase {
   type: WalletMessageType.ImportFromClientResponse;
 }
 
+// Cloud backup encryption arg types (reused across intercom messages, store, and frontend)
+
+export type CloudBackupCreateEncryption =
+  | { method: 'password'; backupPassword: string }
+  | { method: 'passkey'; keyMaterial: string; credentialId: string; prfSalt: string };
+
+export type CloudBackupRestoreEncryption =
+  | { method: 'password'; backupPassword: string }
+  | { method: 'passkey'; keyMaterial: string };
+
+export interface CloudBackupProbeResult {
+  encryptionMethod: 'password' | 'passkey' | null;
+  credentialId?: string;
+  prfSalt?: string;
+}
+
+// Cloud backup intercom messages
+
+export interface CloudBackupCreateRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupCreateRequest;
+  accessToken: string;
+  encryption: CloudBackupCreateEncryption;
+}
+
+export interface CloudBackupCreateResponse extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupCreateResponse;
+}
+
+export interface CloudBackupRestoreRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRestoreRequest;
+  accessToken: string;
+  encryption: CloudBackupRestoreEncryption;
+}
+
+export interface CloudBackupRestoreResponse extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRestoreResponse;
+  walletAccounts: WalletAccount[];
+  walletSettings: WalletSettings;
+}
+
+export interface CloudBackupProbeRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupProbeRequest;
+  accessToken: string;
+}
+
+export interface CloudBackupProbeResponse extends WalletMessageBase, CloudBackupProbeResult {
+  type: WalletMessageType.CloudBackupProbeResponse;
+}
+
+export interface CloudBackupRegisterRequest extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRegisterRequest;
+  password?: string;
+  mnemonic: string;
+  walletAccounts: WalletAccount[];
+  walletSettings: WalletSettings;
+}
+
+export interface CloudBackupRegisterResponse extends WalletMessageBase {
+  type: WalletMessageType.CloudBackupRegisterResponse;
+}
+
 export enum WalletStatus {
   Idle,
   Locked,
@@ -688,7 +758,11 @@ export type WalletRequest =
   | ProcessTransactionsRequest
   | ImportNoteBytesRequest
   | ExportNoteRequest
-  | GetInputNoteDetailsRequest;
+  | GetInputNoteDetailsRequest
+  | CloudBackupCreateRequest
+  | CloudBackupRestoreRequest
+  | CloudBackupProbeRequest
+  | CloudBackupRegisterRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -736,4 +810,8 @@ export type WalletResponse =
   | ProcessTransactionsResponse
   | ImportNoteBytesResponse
   | ExportNoteResponse
-  | GetInputNoteDetailsResponse;
+  | GetInputNoteDetailsResponse
+  | CloudBackupCreateResponse
+  | CloudBackupRestoreResponse
+  | CloudBackupProbeResponse
+  | CloudBackupRegisterResponse;
