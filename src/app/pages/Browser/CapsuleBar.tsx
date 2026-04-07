@@ -90,6 +90,20 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   const fallbackLetter = getFallbackLetter(session.origin);
   const faviconUrl = session.favicon ?? getFaviconUrl(session.origin);
 
+  // Prefer a hostname-only presentation so the tabs badge, minimize,
+  // overflow, and close buttons fit without truncating the URL. When
+  // the session has a real page title (captured from the <title> tag
+  // after load) we show it; otherwise fall back to the hostname with
+  // `www.` stripped. The secondary line always shows the hostname.
+  const hostname = (() => {
+    try {
+      return new URL(session.url).hostname.replace(/^www\./, '');
+    } catch {
+      return session.origin;
+    }
+  })();
+  const displayTitle = session.title && !session.title.startsWith('http') ? session.title : hostname;
+
   return (
     <header
       className="fixed left-0 right-0 top-0 z-[60] flex flex-col"
@@ -156,17 +170,19 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           )}
         </motion.div>
 
-        {/* Title + origin — title is the layoutId target so the tile name
-            morphs into the capsule title. */}
+        {/* Title + hostname — title is the layoutId target so the tile
+            name morphs into the capsule title. The secondary line shows
+            the bare hostname so the tabs badge, minimize, overflow, and
+            close buttons all fit without URL truncation. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <motion.span
             layoutId={`dapp-name-${session.url}`}
             transition={springs.morph}
             className="truncate text-base font-semibold text-black"
           >
-            {session.title}
+            {displayTitle}
           </motion.span>
-          <span className="truncate text-xs text-grey-500">{session.origin}</span>
+          <span className="truncate text-xs text-grey-500">{hostname}</span>
         </div>
 
         {/* PR-5 card switcher button — appears when there are 2+ open
