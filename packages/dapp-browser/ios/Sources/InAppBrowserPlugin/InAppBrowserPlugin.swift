@@ -695,6 +695,31 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // We don't use the toolbar anymore, always hide it
             self.navigationWebViewController?.setToolbarHidden(true, animated: false)
 
+            // Miden patch (PR-4 chunk 2): also register this newly-opened
+            // webview in the WebViewRegistry under the id from the call,
+            // defaulting to "default" if no id was provided. The single-
+            // instance code path is unchanged — `self.webViewController` and
+            // `self.navigationWebViewController` are still the canonical
+            // references for legacy methods. Multi-instance methods added in
+            // chunks 3+ read from the registry instead.
+            let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
+            if let wvc = self.webViewController, let navController = self.navigationWebViewController {
+                let instance = WKWebViewInstance(
+                    id: instanceId,
+                    controller: wvc,
+                    navigationController: navController
+                )
+                if let w = width, let h = height {
+                    instance.rect = CGRect(
+                        x: CGFloat(xPos ?? 0),
+                        y: CGFloat(yPos ?? 0),
+                        width: CGFloat(w),
+                        height: CGFloat(h)
+                    )
+                }
+                WebViewRegistry.shared.register(instance)
+            }
+
             if !self.isPresentAfterPageLoad {
                 self.presentView(isAnimated: isAnimated)
             }
@@ -864,6 +889,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func close(_ call: CAPPluginCall) {
         let isAnimated = call.getBool("isAnimated", true)
+        // Miden patch (PR-4 chunk 2): read the optional id parameter so a
+        // multi-instance caller can target a specific instance. Defaults to
+        // "default" for legacy single-instance callers.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
 
         DispatchQueue.main.async {
             let currentUrl = self.webViewController?.url?.absoluteString ?? ""
@@ -880,11 +909,14 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 navController.dismiss(animated: isAnimated) {
                     self.webViewController = nil
                     self.navigationWebViewController = nil
+                    // Mirror in the registry.
+                    WebViewRegistry.shared.remove(id: instanceId)
                     self.notifyListeners("closeEvent", data: ["url": currentUrl])
                     call.resolve()
                 }
             } else {
                 self.webViewController = nil
+                WebViewRegistry.shared.remove(id: instanceId)
                 self.notifyListeners("closeEvent", data: ["url": currentUrl])
                 call.resolve()
             }
