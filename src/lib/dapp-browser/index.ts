@@ -14,3 +14,20 @@ export {
 } from './featured-dapps';
 export { CATEGORIES, type CategoryDescriptor } from './category-data';
 export { getRecentDapps, recordRecentDapp, forgetRecentDapp, type RecentDapp } from './recent-dapps';
+// PR-6: persistence for cold-bubble restore across app restart.
+export {
+  loadPersistedSessions,
+  savePersistedSessions,
+  upsertPersistedSession,
+  removePersistedSession,
+  clearAllPersistedSessions,
+  toPersisted,
+  fromPersisted,
+  type PersistedSession
+} from './session-persistence';
+export {
+  writeSnapshotToDisk,
+  readSnapshotFromDisk,
+  removeSnapshotFromDisk,
+  clearAllSnapshotsFromDisk
+} from './snapshot-persistence';

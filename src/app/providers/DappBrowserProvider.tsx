@@ -59,17 +59,30 @@ import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
 import {
   INJECTION_SCRIPT,
   type DappSession,
+  type PersistedSession,
   type WebViewMessage,
+  fromPersisted,
   handleWebViewMessage,
-  useDappConfirmation
+  loadPersistedSessions,
+  readSnapshotFromDisk,
+  removePersistedSession,
+  removeSnapshotFromDisk,
+  toPersisted,
+  upsertPersistedSession,
+  useDappConfirmation,
+  writeSnapshotToDisk
 } from 'lib/dapp-browser';
-import { captureSnapshot, clearSnapshot } from 'lib/dapp-browser/snapshot-store';
+// PR-6 cold-bubble rehydration uses `snapshotStoreInternals.setRaw` to
+// hand a disk-loaded snapshot to the in-memory store without going
+// through the native plugin.
+import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { useWalletStore } from 'lib/store';
+import { navigate } from 'lib/woozie';
 
 /**
  * Where the foreground webview should be drawn:
@@ -99,6 +112,14 @@ export interface DappSessionState {
   origin: string;
   /** True between openWebView and the first browserPageLoaded event. */
   isLoading: boolean;
+  /**
+   * PR-6: "cold" means this session was rehydrated from persistence at
+   * app launch but no native WKWebView exists for it yet. The bubble
+   * renders from the cached disk snapshot, and the first restore tap
+   * lazy-instantiates the webview via `openInternal` — saving memory
+   * for dApps the user hasn't touched since the last app session.
+   */
+  isCold: boolean;
 }
 
 interface DappBrowserContextValue {
@@ -350,6 +371,64 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ─── PR-6 cold-bubble rehydration ───────────────────────────────────────
+  //
+  // On first mount, load any sessions that were parked in the previous
+  // app lifetime and render them as bubbles. Each gets a null instance +
+  // isCold=true; tapping the bubble will lazy-instantiate the native
+  // WKWebView via `openInternal`. Snapshots come from disk so bubbles
+  // look correct immediately, well before any webview is opened.
+  useEffect(() => {
+    if (!isMobile()) return;
+    let cancelled = false;
+
+    const rehydrate = async () => {
+      let persisted: PersistedSession[] = [];
+      try {
+        persisted = await loadPersistedSessions();
+      } catch (error) {
+        console.warn('[DappBrowserProvider] failed to load persisted sessions:', error);
+        return;
+      }
+      if (cancelled || persisted.length === 0) return;
+
+      // Load snapshots from disk in parallel. Missing files fall back to
+      // the favicon tile in DappBubble — not fatal.
+      await Promise.all(
+        persisted.map(async p => {
+          const dataUrl = await readSnapshotFromDisk(p.id);
+          if (dataUrl) {
+            snapshotStoreInternals.setRaw(p.id, dataUrl);
+          }
+        })
+      );
+      if (cancelled) return;
+
+      // Materialize the cold session states. Most-recently-parked-last
+      // so the bubble stack order matches the live-session order.
+      const coldStates: DappSessionState[] = persisted
+        .slice()
+        .sort((a, b) => a.parkedAt - b.parkedAt)
+        .map(p => ({
+          session: fromPersisted(p),
+          instance: null,
+          status: 'parked' as DappInstanceStatus,
+          origin: p.origin,
+          isLoading: false,
+          isCold: true
+        }));
+
+      // Merge into state — this path assumes there are no live sessions
+      // yet (which is correct on first mount), so we can just set.
+      setSessionStates(prev => (prev.length === 0 ? coldStates : prev));
+    };
+
+    void rehydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ─── Public API ─────────────────────────────────────────────────────────
 
   const openInternal = useCallback(
@@ -384,8 +463,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const state = getSessionStateById(id);
       if (!state?.instance) return;
       // Snapshot first so the bubble has a frozen preview to render.
+      let snapshotDataUrl: string | null = null;
       try {
-        await captureSnapshot(id, 0.5, 0.7);
+        snapshotDataUrl = await captureSnapshot(id, 0.5, 0.7);
       } catch (e) {
         console.warn('[DappBrowserProvider] snapshot capture failed:', e);
       }
@@ -395,6 +475,21 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
       }
       updateSession(id, s => ({ ...s, status: 'parked' }));
+
+      // PR-6 cold-bubble persistence: write both the session metadata and
+      // the freshly-captured snapshot to disk so the bubble can be
+      // rehydrated on the next cold app launch. Both writes are
+      // best-effort — the user never blocks on them.
+      const persistedSession = {
+        ...toPersisted(state.session),
+        // Keep the live origin (may differ from session.origin after
+        // cross-origin navigation).
+        origin: state.origin
+      };
+      void upsertPersistedSession(persistedSession);
+      if (snapshotDataUrl) {
+        void writeSnapshotToDisk(id, snapshotDataUrl);
+      }
     },
     [getSessionStateById, updateSession]
   );
@@ -427,7 +522,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           instance: null,
           status: 'loading',
           origin: next.origin,
-          isLoading: true
+          isLoading: true,
+          isCold: false
         }
       ]);
       setForegroundId(next.id);
@@ -454,6 +550,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         setForegroundId(null);
         setActiveDappSession(null);
       }
+      // PR-6: drop the persisted session + snapshot so it doesn't reappear
+      // as a cold bubble on the next app launch.
+      void removePersistedSession(id);
+      void removeSnapshotFromDisk(id);
       markReturningFromWebview();
       await resetViewportAfterWebview();
     },
@@ -477,7 +577,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const restore = useCallback(
     async (sessionId: string) => {
       const state = getSessionStateById(sessionId);
-      if (!state?.instance) return;
+      if (!state) return;
       // Park the current foreground (if any and different from the restore
       // target) so its bubble appears while the restored session takes the
       // active slot.
@@ -485,11 +585,36 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (currentForeground && currentForeground !== sessionId) {
         await parkInternal(currentForeground);
       }
-      // Flip mode: the effect below will see foregroundId + slotRect and
-      // drive setVisible(true) + setRect on the instance.
-      updateSession(sessionId, s => ({ ...s, status: 'active' }));
+      // PR-6 cold-bubble lifecycle: if this session has no live native
+      // instance yet (rehydrated from persistence at app launch), mark
+      // it 'loading' so the foreground-driving effect calls openInternal
+      // once the slot rect is reported. The bubble's cached snapshot
+      // stays visible under the loading state until browserPageLoaded
+      // fires — see DappActive for the crossfade.
+      if (!state.instance || state.isCold) {
+        updateSession(sessionId, s => ({
+          ...s,
+          status: 'loading',
+          isLoading: true,
+          isCold: false
+        }));
+      } else {
+        // Warm restore — flip mode so the effect drives setVisible(true)
+        // + setRect on the existing instance.
+        updateSession(sessionId, s => ({ ...s, status: 'active' }));
+      }
       setForegroundId(sessionId);
       setActiveDappSession(sessionId);
+
+      // PR-6: if the user tapped a bubble while on HOME/ACTIVITY (not
+      // /browser), the `<DappActive>` visual surface isn't mounted so
+      // the foreground effect can't trigger openInternal — there's no
+      // slot rect. Navigate to /browser so DappActive mounts, reports
+      // the rect, and the webview comes up. For warm restores this is
+      // a no-op if the user is already on /browser.
+      if (typeof window !== 'undefined' && !window.location.hash.startsWith('#/browser')) {
+        navigate('/browser');
+      }
     },
     [getSessionStateById, parkInternal, setActiveDappSession, updateSession]
   );

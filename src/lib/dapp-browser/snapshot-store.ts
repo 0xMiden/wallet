@@ -16,16 +16,23 @@ import { InAppBrowser } from '@miden/dapp-browser';
 const snapshots = new Map<string, string>();
 const listeners = new Set<() => void>();
 
-/** Take a snapshot via the patched plugin method and store it. */
+/** Take a snapshot via the patched plugin method and store it.
+ *
+ * PR-6: the native `snapshot` call is now id-aware (PR-4 chunk 4), so
+ * this forwards the sessionId as the native instance id. Without this
+ * fix the call would always target the legacy "default" slot, which
+ * would either return an empty snapshot or the wrong dApp's image
+ * when multiple instances are open.
+ */
 export async function captureSnapshot(sessionId: string, scale = 0.5, quality = 0.7): Promise<string | null> {
   try {
     // The native method was added by patches/@capgo+inappbrowser+8.0.6.patch.
     // It's not in the upstream .d.ts, so we cast to call it.
     const result = await (
       InAppBrowser as unknown as {
-        snapshot: (opts: { scale: number; quality: number }) => Promise<{ data: string }>;
+        snapshot: (opts: { id?: string; scale: number; quality: number }) => Promise<{ data: string }>;
       }
-    ).snapshot({ scale, quality });
+    ).snapshot({ id: sessionId, scale, quality });
     if (result?.data) {
       snapshots.set(sessionId, result.data);
       notify();
@@ -54,6 +61,18 @@ export function clearAllSnapshots(): void {
     notify();
   }
 }
+
+/**
+ * PR-6 cold-bubble rehydration: insert a snapshot into the in-memory
+ * store without going through the native plugin. Used by the provider
+ * to populate bubble previews from disk at app launch.
+ */
+export const snapshotStoreInternals = {
+  setRaw(sessionId: string, dataUrl: string): void {
+    snapshots.set(sessionId, dataUrl);
+    notify();
+  }
+};
 
 /** React-friendly subscription. */
 export function subscribeSnapshots(listener: () => void): () => void {
