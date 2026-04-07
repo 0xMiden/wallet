@@ -19,7 +19,13 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useSprings } from 'lib/animation';
-import { type DappSession, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
+import {
+  type DappSession,
+  getDappDisplayName,
+  getDappHostname,
+  getFallbackColor,
+  getFallbackLetter
+} from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
@@ -144,33 +150,43 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
   const snapshot = getSnapshot(session.id);
   const fallbackColor = getFallbackColor(session.origin);
   const fallbackLetter = getFallbackLetter(session.origin);
-  const displayName = session.title || session.origin;
+  // Shared display-name helper drops the `https://` prefix the
+  // session.title falls back to before the page loads, so the card
+  // title and aria-label both read as the friendly hostname.
+  const displayName = getDappDisplayName(session);
+  const hostname = getDappHostname(session.url);
 
   return (
+    // The card is a `listitem` rather than a `button` so the per-card
+    // close ✕ stays its own first-class accessibility element. iOS
+    // VoiceOver collapses the children of role="button" into the
+    // parent's accessible name, which used to hide the close X
+    // entirely from the a11y tree. The tap-to-restore action lives on
+    // a child button that fills the card.
     <motion.div
       layout
       initial={{ opacity: 0, y: 24, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 24, scale: 0.96 }}
       transition={springs.sheetPresent}
-      className="relative flex aspect-[3/4] cursor-pointer flex-col overflow-hidden rounded-2xl bg-pure-white shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
-      onClick={() => onTap(session)}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onTap(session);
-        }
-      }}
-      tabIndex={0}
-      role="button"
-      aria-label={`${displayName}. Activate to switch to this dApp.`}
+      className="relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl bg-pure-white shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
+      role="listitem"
     >
+      {/* Tap-to-restore button — fills the card and sits behind the
+          per-card close X so the close X stays independently tappable
+          and is its own a11y element. */}
+      <button
+        type="button"
+        className="absolute inset-0 cursor-pointer"
+        onClick={() => onTap(session)}
+        aria-label={`${displayName}. Activate to switch to this dApp.`}
+      />
       {/* Snapshot or fallback. `background-position: top center` makes
           the card show the TOP of the page (favicon / header / hero)
           rather than a middle slice — the default `center` position
           cropped the Miden logo to "DEN" and similar on tall pages. */}
       <div
-        className="absolute inset-0"
+        className="pointer-events-none absolute inset-0"
         style={
           snapshot
             ? {
@@ -189,21 +205,23 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
         )}
       </div>
 
-      {/* Top gradient with title */}
+      {/* Top gradient with title — pointer-events-none so the
+          tap-to-restore button beneath stays clickable; the close X
+          re-enables pointer events on itself. */}
       <div
-        className="relative flex items-start justify-between p-3"
+        className="pointer-events-none relative flex items-start justify-between p-3"
         style={{
           background: 'linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0))'
         }}
       >
         <div className="min-w-0 flex-1 pr-2">
-          <div className="truncate text-sm font-semibold text-pure-white">{session.title || session.origin}</div>
-          <div className="truncate text-xs text-pure-white/80">{session.origin.replace(/^https?:\/\//, '')}</div>
+          <div className="truncate text-sm font-semibold text-pure-white">{displayName}</div>
+          {displayName !== hostname && <div className="truncate text-xs text-pure-white/80">{hostname}</div>}
         </div>
         <button
           type="button"
           aria-label={`Close ${displayName}`}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40"
+          className="pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40"
           onClick={e => onClose(e, session)}
           onKeyDown={e => {
             // Stop the card's keyboard activation from firing when the
@@ -219,7 +237,7 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
 
       {/* Loading indicator (bottom-left) */}
       {state.isLoading && (
-        <div className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-pure-white">
+        <div className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-0.5 text-[10px] text-pure-white">
           Loading…
         </div>
       )}
