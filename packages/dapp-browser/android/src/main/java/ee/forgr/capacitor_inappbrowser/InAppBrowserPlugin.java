@@ -672,6 +672,13 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             options.setY(y);
         }
 
+        // Miden patch (PR-4 chunk 5): read the optional id param so multi-
+        // instance callers can target a specific instance. Defaults to
+        // "default" for legacy single-instance callers.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+
         this.getActivity().runOnUiThread(
             new Runnable() {
                 @Override
@@ -685,6 +692,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     );
                     webViewDialog.activity = InAppBrowserPlugin.this.getActivity();
                     webViewDialog.presentWebView();
+                    // Mirror in the multi-instance registry. Unlike iOS,
+                    // Android Dialog already supports multiple concurrent
+                    // instances natively (each Dialog has its own Window),
+                    // so we don't need a separate UIWindow refactor.
+                    WebViewRegistry.getShared().register(instanceId, webViewDialog);
                     call.resolve();
                 }
             }
@@ -826,7 +838,19 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void close(PluginCall call) {
-        if (webViewDialog == null) {
+        // Miden patch (PR-4 chunk 5): id-aware. Defaults to "default" so
+        // legacy single-instance callers still work.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        // For multi-instance callers, look up the dialog from the registry
+        // instead of using the legacy webViewDialog field. The legacy field
+        // tracks only the most recently opened dialog, which would close
+        // the wrong instance for multi-instance callers.
+        final WebViewDialog dialog = WebViewRegistry.getShared().get(instanceId);
+        final boolean isLegacyDefault = instanceId.equals(WebViewRegistry.DEFAULT_INSTANCE_ID);
+
+        if (dialog == null && webViewDialog == null) {
             // Fallback: try to bring main activity to foreground
             try {
                 Intent intent = new Intent(getContext(), getBridge().getActivity().getClass());
@@ -845,10 +869,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (webViewDialog != null) {
+                        WebViewDialog targetDialog = (dialog != null) ? dialog : webViewDialog;
+                        if (targetDialog != null) {
                             String currentUrl = "";
                             try {
-                                currentUrl = webViewDialog.getUrl();
+                                currentUrl = targetDialog.getUrl();
                                 if (currentUrl == null) {
                                     currentUrl = "";
                                 }
@@ -860,8 +885,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                             // Notify listeners about the close event
                             notifyListeners("closeEvent", new JSObject().put("url", currentUrl));
 
-                            webViewDialog.dismiss();
-                            webViewDialog = null;
+                            targetDialog.dismiss();
+                            WebViewRegistry.getShared().remove(instanceId);
+                            if (isLegacyDefault) {
+                                webViewDialog = null;
+                            }
                             call.resolve();
                         } else {
                             // Secondary fallback inside UI thread
@@ -992,10 +1020,17 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
      * Miden patch: take a JPEG snapshot of the current webview content as a
      * base64 data URL. Used by the embedded dApp browser to show frozen
      * previews on minimized bubbles and card-switcher cards.
+     *
+     * PR-4 chunk 5: id-aware. Defaults to "default" so the legacy single-
+     * instance call signature still works.
      */
     @PluginMethod
     public void snapshot(PluginCall call) {
-        if (webViewDialog == null) {
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        final WebViewDialog dialog = WebViewRegistry.getShared().get(instanceId);
+        if (dialog == null) {
             call.reject("WebView is not initialized");
             return;
         }
@@ -1010,11 +1045,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (webViewDialog == null) {
-                            call.reject("WebView is not initialized");
-                            return;
-                        }
-                        String dataUrl = webViewDialog.takeSnapshotData(scale, quality);
+                        String dataUrl = dialog.takeSnapshotData(scale, quality);
                         if (dataUrl == null) {
                             call.reject("snapshot failed");
                             return;
@@ -1026,6 +1057,102 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         Log.e("InAppBrowser", "Error taking snapshot: " + e.getMessage());
                         call.reject("snapshot failed: " + e.getMessage());
                     }
+                }
+            }
+        );
+    }
+
+    /**
+     * Miden plugin method (PR-4 chunk 5): toggle a specific instance's
+     * visibility WITHOUT tearing down its WebView. The JS context, page
+     * state, scroll position, and any in-flight network requests survive
+     * across the hide/show cycle.
+     *
+     * Required params: id, visible.
+     */
+    @PluginMethod
+    public void setVisible(PluginCall call) {
+        final String instanceId = call.getString("id");
+        if (instanceId == null) {
+            call.reject("id required");
+            return;
+        }
+        final boolean visible = Boolean.TRUE.equals(call.getBoolean("visible", true));
+        final WebViewDialog dialog = WebViewRegistry.getShared().get(instanceId);
+        if (dialog == null) {
+            call.reject("instance not found: " + instanceId);
+            return;
+        }
+
+        this.getActivity().runOnUiThread(
+            new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (visible) {
+                            // Dialog.show() is the right primitive — it
+                            // re-attaches the existing Window without
+                            // recreating the WebView.
+                            if (!dialog.isShowing()) {
+                                dialog.show();
+                            }
+                        } else {
+                            // Dialog.hide() detaches the Window from the
+                            // screen but keeps the Dialog instance + its
+                            // WebView alive in memory. State preservation
+                            // works the same way as iOS UIWindow.isHidden.
+                            if (dialog.isShowing()) {
+                                dialog.hide();
+                            }
+                        }
+                        call.resolve();
+                    } catch (Exception e) {
+                        Log.e("InAppBrowser", "setVisible failed: " + e.getMessage());
+                        call.reject("setVisible failed: " + e.getMessage());
+                    }
+                }
+            }
+        );
+    }
+
+    /**
+     * Miden plugin method (PR-4 chunk 5): list every currently registered
+     * instance id. Used by the wallet's PR-6 cold-bubble restore logic and
+     * the LRU eviction in PR-4 §memory-budget.
+     */
+    @PluginMethod
+    public void listInstances(PluginCall call) {
+        JSArray ids = new JSArray();
+        for (String id : WebViewRegistry.getShared().allIds()) {
+            ids.put(id);
+        }
+        JSObject ret = new JSObject();
+        ret.put("ids", ids);
+        call.resolve(ret);
+    }
+
+    /**
+     * Miden plugin method (PR-4 chunk 5): close every registered instance.
+     * Used on app shutdown / wallet reset. Each dialog is dismissed and the
+     * registry is cleared. Individual closeEvent listeners are NOT fired —
+     * callers know they're tearing everything down.
+     */
+    @PluginMethod
+    public void closeAll(PluginCall call) {
+        this.getActivity().runOnUiThread(
+            new Runnable() {
+                @Override
+                public void run() {
+                    for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
+                        try {
+                            entry.getValue().dismiss();
+                        } catch (Exception e) {
+                            Log.w("InAppBrowser", "closeAll: dismiss failed for " + entry.getKey() + ": " + e.getMessage());
+                        }
+                    }
+                    WebViewRegistry.getShared().clear();
+                    webViewDialog = null;
+                    call.resolve();
                 }
             }
         );
