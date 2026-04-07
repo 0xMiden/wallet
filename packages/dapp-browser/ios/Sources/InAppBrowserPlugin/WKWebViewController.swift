@@ -2007,18 +2007,43 @@ class PassThroughView: UIView {
         if let frame = targetFrame {
             if !frame.contains(point) {
                 // Miden patch: returning nil from a modally-presented view's
-                // hitTest does NOT cause iOS 17+ to fall through to the
-                // presenting view controller — the touch is dropped entirely.
-                // Explicitly walk to the host window's rootViewController.view
-                // (which is the Capacitor host webview's container, since the
-                // dApp modal is presented OVER it) and forward the hit-test
-                // there so the wallet's React UI (capsule, tabbar, bubble
-                // overlay) remains interactive while a positioned dApp webview
-                // is open.
-                if let host = self.window?.rootViewController?.view, host !== self {
-                    let hostPoint = self.convert(point, to: host)
-                    if let hit = host.hitTest(hostPoint, with: event), hit !== self {
-                        return hit
+                // hitTest (or from a non-key UIWindow's root view) does NOT
+                // cause iOS 17+ to fall through to the underlying view — the
+                // touch is dropped entirely. We have to walk explicitly to
+                // the host (Capacitor wallet WKWebView) and forward the
+                // hit-test there.
+                //
+                // Two cases:
+                //
+                // 1. PR-1 / PR-3 modal-presentation path: this view IS the
+                //    rootViewController.view of the modally-presented
+                //    navigation controller, in the SAME UIWindow as the host.
+                //    The host is `window.rootViewController?.view`.
+                //
+                // 2. PR-4 chunk 3 UIWindow-per-instance path: this view is
+                //    inside its OWN UIWindow at a higher level than the host
+                //    window. `self.window?.rootViewController?.view` would
+                //    loop back to this same PassThroughView. We need to find
+                //    the OTHER window in the same scene and walk to its
+                //    rootViewController.view instead.
+                if let myWindow = self.window {
+                    // Case 2: scan for other windows in the same scene first.
+                    if let scene = myWindow.windowScene {
+                        for hostWindow in scene.windows where hostWindow !== myWindow && !hostWindow.isHidden {
+                            if let host = hostWindow.rootViewController?.view, host !== self {
+                                let hostPoint = self.convert(point, to: host)
+                                if let hit = host.hitTest(hostPoint, with: event), hit !== self {
+                                    return hit
+                                }
+                            }
+                        }
+                    }
+                    // Case 1: same window as host, walk to its rootViewController.view.
+                    if let host = myWindow.rootViewController?.view, host !== self {
+                        let hostPoint = self.convert(point, to: host)
+                        if let hit = host.hitTest(hostPoint, with: event), hit !== self {
+                            return hit
+                        }
                     }
                 }
                 return nil  // No host found; drop the touch.

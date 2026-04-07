@@ -703,6 +703,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // references for legacy methods. Multi-instance methods added in
             // chunks 3+ read from the registry instead.
             let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
+            var registeredInstance: WKWebViewInstance?
             if let wvc = self.webViewController, let navController = self.navigationWebViewController {
                 let instance = WKWebViewInstance(
                     id: instanceId,
@@ -718,9 +719,37 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                     )
                 }
                 WebViewRegistry.shared.register(instance)
+                registeredInstance = instance
             }
 
-            if !self.isPresentAfterPageLoad {
+            // Miden patch (PR-4 chunk 3): Architecture A — present positioned
+            // webviews in their own UIWindow at windowLevel above the
+            // Capacitor host. This unlocks state-preserving switching
+            // (chunk 4 setVisible toggles window.isHidden), keeps multiple
+            // dApps alive in parallel, and works around iOS 17+'s broken
+            // modal-presentation hit-test fall-through (window-level
+            // hit-test naturally falls through to lower windows when the
+            // PassThroughView returns nil for outside-rect touches).
+            //
+            // Non-positioned webviews (faucet-webview, native-notifications,
+            // anything that doesn't pass width/height) keep using the
+            // legacy modal presentation path so backwards compat is
+            // preserved without code changes in those callers.
+            var presentedInWindow = false
+            if width != nil || height != nil,
+               let instance = registeredInstance,
+               let scene = self.bridge?.viewController?.view?.window?.windowScene {
+                let window = UIWindow(windowScene: scene)
+                window.frame = scene.coordinateSpace.bounds
+                window.windowLevel = UIWindow.Level.normal + 100
+                window.backgroundColor = .clear
+                window.rootViewController = instance.navigationController
+                window.isHidden = false
+                instance.containerWindow = window
+                presentedInWindow = true
+            }
+
+            if !self.isPresentAfterPageLoad && !presentedInWindow {
                 self.presentView(isAnimated: isAnimated)
             }
             call.resolve()
@@ -899,17 +928,33 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
 
             self.webViewController?.cleanupWebView()
 
-            // Miden patch: resolve the call ONLY after dismissal completes,
-            // so the JS caller can safely call openWebView immediately after
-            // close. The original code resolved synchronously before the
-            // animation finished, leaving the navigation controller mid-
-            // dismissal — subsequent openWebView calls would then race the
-            // half-torn-down state and silently fail to display anything.
+            // Miden patch (PR-4 chunk 3): if this instance was presented in
+            // its own UIWindow (Architecture A), tear the window down. This
+            // releases the navController + WKWebView since UIWindow holds
+            // them via rootViewController. The closeEvent listeners + call
+            // resolve happen here, NOT in a dismiss completion handler,
+            // because windows aren't presented modally.
+            if let instance = WebViewRegistry.shared.get(id: instanceId),
+               let window = instance.containerWindow {
+                window.isHidden = true
+                window.rootViewController = nil
+                instance.containerWindow = nil
+                self.webViewController = nil
+                self.navigationWebViewController = nil
+                WebViewRegistry.shared.remove(id: instanceId)
+                self.notifyListeners("closeEvent", data: ["url": currentUrl])
+                call.resolve()
+                return
+            }
+
+            // Legacy modal presentation path (non-positioned webviews like
+            // faucet-webview). Resolve only after dismissal completes so the
+            // JS caller can safely call openWebView immediately after close
+            // — see the PR-1 part 2 patch comment for the race that fixed.
             if let navController = self.navigationWebViewController {
                 navController.dismiss(animated: isAnimated) {
                     self.webViewController = nil
                     self.navigationWebViewController = nil
-                    // Mirror in the registry.
                     WebViewRegistry.shared.remove(id: instanceId)
                     self.notifyListeners("closeEvent", data: ["url": currentUrl])
                     call.resolve()
