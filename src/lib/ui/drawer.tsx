@@ -3,6 +3,8 @@ import { createContext, useCallback, useContext, useEffect } from 'react';
 
 import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 
+import { durations, easings, springs } from 'lib/animation';
+
 import Portal from './Portal';
 import { cn } from './util';
 
@@ -61,7 +63,7 @@ function DrawerContent({ className, children }: DrawerContentProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.3, ease: 'easeInOut' }}
+              transition={{ duration: durations.normal, ease: easings.easeInOut }}
               onClick={onClose}
             />
             <motion.div
@@ -74,7 +76,7 @@ function DrawerContent({ className, children }: DrawerContentProps) {
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
+              transition={springs.sheetPresent}
             >
               <motion.div
                 className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing"

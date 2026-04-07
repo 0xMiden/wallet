@@ -8,6 +8,7 @@ import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
 import { ReactComponent as GlobeIcon } from 'app/icons/globe-new.svg';
 import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
+import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isDesktop, isMobile } from 'lib/platform';
 import { Link, useLocation } from 'lib/woozie';
@@ -48,7 +49,7 @@ const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badg
           <motion.div
             layoutId={PILL_LAYOUT_ID}
             className="absolute inset-0 rounded-full bg-pill-active/18"
-            transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
+            transition={springs.pill}
           />
         )}
         <Icon
