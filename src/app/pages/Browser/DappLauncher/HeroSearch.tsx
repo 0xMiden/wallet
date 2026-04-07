@@ -61,6 +61,12 @@ export const HeroSearch: FC<HeroSearchProps> = ({ onSubmit }) => {
           value={value}
           onChange={e => setValue(e.target.value)}
           placeholder={t('searchDapps')}
+          // VoiceOver/TalkBack announce the placeholder as the value
+          // when no aria-label is set, leaving the field with an empty
+          // accessible name. The aria-label gives screen readers a
+          // proper announce string while the placeholder still acts as
+          // the visual hint inside the empty input.
+          aria-label={t('searchDapps')}
           className="grow bg-transparent text-base text-grey-800 placeholder:text-grey-400 focus:outline-none"
           autoCapitalize="none"
           autoCorrect="off"
