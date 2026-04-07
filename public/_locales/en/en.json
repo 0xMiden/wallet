@@ -539,6 +539,8 @@
   "exploreCta": "Explore the Miden ecosystem",
   "minimize": "Minimize",
   "switchDapps": "Switch dApps",
+  "reload": "Reload",
+  "moreOptions": "More options",
   "dappLoadFailed": "Can't load this dApp",
   "dappLoadFailedHint": "Check your connection and try again.",
   "retry": "Retry",
