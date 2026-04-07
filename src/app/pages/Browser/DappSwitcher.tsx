@@ -107,11 +107,21 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
             </button>
           </div>
 
-          {/* Card grid */}
-          <div className="mt-6 grid w-full grid-cols-2 gap-3 px-4" onClick={e => e.stopPropagation()} role="list">
-            {sessionStates.map(state => (
-              <SwitcherCard key={state.session.id} state={state} onTap={handleCardTap} onClose={handleCardClose} />
-            ))}
+          {/* Card grid — scrollable so 6+ cards don't overflow. The
+              grid's own click handler stops propagation so taps
+              inside a card don't bubble to the backdrop's dismiss
+              handler. */}
+          <div
+            className="mt-6 w-full flex-1 overflow-y-auto px-4"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)' }}
+            onClick={e => e.stopPropagation()}
+            role="list"
+          >
+            <div className="grid grid-cols-2 gap-3">
+              {sessionStates.map(state => (
+                <SwitcherCard key={state.session.id} state={state} onTap={handleCardTap} onClose={handleCardClose} />
+              ))}
+            </div>
           </div>
         </motion.div>
       )}
