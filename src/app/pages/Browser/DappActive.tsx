@@ -13,11 +13,13 @@
  * the webview — the bubble takes over.
  */
 
-import React, { type FC, useCallback, useEffect, useRef } from 'react';
+import React, { type FC, useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { InAppBrowser } from '@miden/dapp-browser';
+import { useTranslation } from 'react-i18next';
 
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
+import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
 import { CapsuleBar } from './CapsuleBar';
@@ -26,7 +28,17 @@ import { ProgressBar } from './ProgressBar';
 
 export const DappActive: FC = () => {
   const { session, isLoading, close, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
+  const { t } = useTranslation();
   const slotRef = useRef<HTMLDivElement>(null);
+
+  // PR-6: read this session's full state so we can surface error and
+  // cold-load overlays.
+  const sessionState = useMemo(
+    () => (session ? sessionStates.find(s => s.session.id === session.id) : undefined),
+    [session, sessionStates]
+  );
+  const error = sessionState?.error ?? null;
+  const cachedSnapshot = session ? getSnapshot(session.id) : undefined;
 
   // Hardware back from `<DappActive>`: park (not close) so the session
   // stays alive as a bubble. The user can drag-down or tap ✕ for a hard
@@ -38,9 +50,12 @@ export const DappActive: FC = () => {
   }, [park]);
 
   // The capsule's "Reload" overflow action calls the plugin reload directly.
+  // PR-6: id-aware so we reload the correct instance when multiple dApps
+  // are open in parallel.
   const handleReload = useCallback(() => {
-    InAppBrowser.reload().catch(err => console.warn('[DappActive] reload failed:', err));
-  }, []);
+    if (!session) return;
+    InAppBrowser.reload({ id: session.id }).catch(err => console.warn('[DappActive] reload failed:', err));
+  }, [session]);
 
   // Drive the provider's slotRect via a ResizeObserver on the slot div.
   useEffect(() => {
@@ -94,14 +109,50 @@ export const DappActive: FC = () => {
           space at the bottom matching the floating tabbar (88px content +
           safe-area-inset-bottom) so the native webview rect doesn't overlap
           the React tabbar — otherwise the dApp's PassThroughView captures
-          touches in the tabbar region. */}
-      <NativeWebViewSlot
-        ref={slotRef}
-        style={{
-          flex: 'none',
-          height: 'calc(100vh - env(safe-area-inset-top) - 81px - env(safe-area-inset-bottom) - 88px)'
-        }}
-      />
+          touches in the tabbar region.
+
+          PR-6: while isLoading is true (either a first open or a cold-
+          bubble restore), we overlay the cached snapshot behind the
+          native webview. This gives the user something to look at
+          besides a blank rect during the lazy-load, and the snapshot
+          fades out naturally once the real content is live underneath
+          because the overlay is inside the slot but keyed to isLoading. */}
+      <div
+        className="relative flex-none"
+        style={{ height: 'calc(100vh - env(safe-area-inset-top) - 81px - env(safe-area-inset-bottom) - 88px)' }}
+      >
+        <NativeWebViewSlot ref={slotRef} style={{ position: 'absolute', inset: 0 }} />
+        {isLoading && cachedSnapshot && (
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundImage: `url(${cachedSnapshot})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'top center',
+              opacity: isLoading ? 1 : 0,
+              transition: 'opacity 0.3s ease-out'
+            }}
+            aria-hidden="true"
+          />
+        )}
+        {error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-pure-white px-6 text-center">
+            <div className="mb-2 text-lg font-semibold text-grey-900">
+              {t('dappLoadFailed') ?? "Can't load this dApp"}
+            </div>
+            <div className="mb-6 text-sm text-grey-600">
+              {t('dappLoadFailedHint') ?? 'Check your connection and try again.'}
+            </div>
+            <button
+              type="button"
+              onClick={handleReload}
+              className="rounded-full bg-orange-500 px-6 py-3 text-sm font-semibold text-pure-white"
+            >
+              {t('retry') ?? 'Retry'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

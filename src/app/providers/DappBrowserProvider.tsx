@@ -75,6 +75,7 @@ import {
 // PR-6 cold-bubble rehydration uses `snapshotStoreInternals.setRaw` to
 // hand a disk-loaded snapshot to the in-memory store without going
 // through the native plugin.
+import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
@@ -120,6 +121,13 @@ export interface DappSessionState {
    * for dApps the user hasn't touched since the last app session.
    */
   isCold: boolean;
+  /**
+   * PR-6: non-null when the last page load for this session failed
+   * (e.g. offline, DNS, TLS). `<DappActive>` renders an error overlay
+   * with a retry action when this is set. Cleared on successful load
+   * or explicit reload.
+   */
+  error: string | null;
 }
 
 interface DappBrowserContextValue {
@@ -294,7 +302,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         const id = (event as { id?: string })?.id ?? 'default';
         const state = getSessionStateById(id);
         if (!state?.instance) return;
-        updateSession(id, s => ({ ...s, isLoading: false }));
+        // PR-6: clear any error state on successful load.
+        updateSession(id, s => ({ ...s, isLoading: false, error: null }));
         // Inject the bridge + fetch the document title.
         try {
           await state.instance.executeScript(INJECTION_SCRIPT);
@@ -333,8 +342,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
       const errL = await InAppBrowser.addListener('pageLoadError', event => {
         const id = (event as { id?: string })?.id ?? 'default';
-        updateSession(id, s => ({ ...s, isLoading: false }));
-        console.error('[DappBrowserProvider] Page load error for instance', id);
+        // PR-6: surface the failure to `<DappActive>` so the user can
+        // see an error overlay + retry button instead of a blank page.
+        const errorMessage = (event as { error?: string })?.error ?? 'Failed to load page';
+        updateSession(id, s => ({ ...s, isLoading: false, error: errorMessage }));
+        console.error('[DappBrowserProvider] Page load error for instance', id, errorMessage);
       });
       listenerRemovers.push(() => errL.remove());
 
@@ -415,7 +427,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           status: 'parked' as DappInstanceStatus,
           origin: p.origin,
           isLoading: false,
-          isCold: true
+          isCold: true,
+          error: null
         }));
 
       // Merge into state — this path assumes there are no live sessions
@@ -523,7 +536,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           status: 'loading',
           origin: next.origin,
           isLoading: true,
-          isCold: false
+          isCold: false,
+          error: null
         }
       ]);
       setForegroundId(next.id);
@@ -673,6 +687,41 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     setActiveDappSession(foregroundId);
   }, [foregroundId, setActiveDappSession]);
+
+  // PR-6: auto-restore parked sessions that receive a confirmation request.
+  //
+  // Flow: a parked dApp's WKWebView is still alive and JS keeps running
+  // (`setVisible(false)` only hides the UIWindow). When it posts a
+  // wallet message that requires user confirmation, the backend writes
+  // an entry into `dappConfirmationStore` keyed by sessionId. If that
+  // sessionId belongs to a parked session, `<DappConfirmationModal>`
+  // (which reads the request for the foreground session only) won't
+  // see it — the user would be stuck with no prompt to act on.
+  //
+  // Fix: subscribe to the store and whenever a pending request exists
+  // for a non-foreground session, restore that session so the modal
+  // can render. Restore is idempotent for sessions already foreground.
+  useEffect(() => {
+    if (!isMobile()) return;
+    const tryAutoRestore = () => {
+      const pending = dappConfirmationStore.getAllPendingRequests();
+      for (const req of pending) {
+        if (!req.sessionId) continue; // legacy default slot — not ours
+        if (req.sessionId === foregroundIdRef.current) continue;
+        const state = sessionStatesRef.current.find(s => s.session.id === req.sessionId);
+        if (state && state.status !== 'closing') {
+          void restore(req.sessionId);
+          // Restore one at a time — subsequent requests (if any) will
+          // be picked up once the user clears this one.
+          break;
+        }
+      }
+    };
+    // Run once at mount in case a request landed before the subscription
+    // was attached.
+    tryAutoRestore();
+    return dappConfirmationStore.subscribe(tryAutoRestore);
+  }, [restore]);
 
   // PR-5: when the switcher opens, hide every active native dApp window
   // so the React-rendered switcher can be the topmost visible layer.
