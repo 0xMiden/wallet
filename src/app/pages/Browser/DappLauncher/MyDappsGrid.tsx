@@ -31,15 +31,20 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ recents, category, onOpen })
     [category]
   );
 
-  // Recents should not appear duplicated in the featured list — drop any
-  // featured entry whose URL is already a recent.
+  // When a category filter is active recents are hidden (they have no
+  // category metadata so we can't tell which ones belong), and we MUST
+  // skip the recent-vs-featured dedup in that case — otherwise a
+  // featured Zoro that the user has already visited would be hidden by
+  // the recent zoroswap which is itself hidden, and the DeFi filter
+  // would show "No dApps in this category yet" even though Zoro is
+  // right there. With no category active we keep the dedup so the
+  // user doesn't see the same dApp twice in one grid.
   const featuredFiltered = useMemo(() => {
+    if (category) return featured;
     const recentUrls = new Set(recents.map(r => r.url));
     return featured.filter(f => !recentUrls.has(f.url));
-  }, [featured, recents]);
+  }, [category, featured, recents]);
 
-  // When a category filter is active, hide recents that don't match either
-  // (they have no category metadata, so we always show them).
   const visibleRecents = category ? [] : recents;
 
   if (visibleRecents.length === 0 && featuredFiltered.length === 0) {
