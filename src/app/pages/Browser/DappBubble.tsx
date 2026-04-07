@@ -35,18 +35,26 @@ interface DappBubbleProps {
    * starting layout. Defaults to 0 (no offset) for single-bubble cases.
    */
   stackIndex?: number;
+  /**
+   * Overflow badge count. When > 0 the bubble renders a "+N" badge in
+   * its top-right corner and its aria-label is updated to indicate it's
+   * a group of parked dApps. Set by `<DappBubbleHost>` when the number
+   * of parked sessions exceeds the visible cascade cap.
+   */
+  overflowCount?: number;
   onTap: () => void;
 }
 
 const SIZE = 64;
 const EDGE_PADDING = 16;
 /**
- * PR-5 multi-bubble polish: when N bubbles share a corner, each gets a
- * 12px diagonal offset from the next so they're all visible. The drag
- * gesture is unaffected — once a bubble is dragged it snaps to whichever
- * corner it ends up nearest.
+ * When multiple bubbles share a corner, each gets a diagonal offset from
+ * the next so they're all visible. 18pt is the smallest value where 3
+ * overlapping 64pt circles remain visually distinguishable — tighter
+ * offsets blur into a single unreadable pile. Beyond 3 bubbles the
+ * `<DappBubbleHost>` switches to overflow-badge mode instead.
  */
-const STACK_OFFSET = 12;
+const STACK_OFFSET = 18;
 
 interface Corner {
   x: number;
@@ -99,7 +107,14 @@ function computeStackedInitialPosition(footerHeight: number, stackIndex: number)
   };
 }
 
-export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeight, stackIndex = 0, onTap }) => {
+export const DappBubble: FC<DappBubbleProps> = ({
+  session,
+  snapshot,
+  footerHeight,
+  stackIndex = 0,
+  overflowCount = 0,
+  onTap
+}) => {
   const controls = useAnimationControls();
   const [iconBroken, setIconBroken] = useState(false);
   const dragStartedAt = useRef<{ x: number; y: number; time: number } | null>(null);
@@ -204,7 +219,10 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
   // reader users map "activate" (double-tap) to the button role
   // automatically, so we just state what the button does.
   const displayName = session.title || session.origin;
-  const ariaLabel = `${displayName}, parked dApp. Activate to restore.`;
+  const ariaLabel =
+    overflowCount > 0
+      ? `${overflowCount + 1} parked dApps. Activate to open switcher.`
+      : `${displayName}, parked dApp. Activate to restore.`;
 
   return (
     <motion.div
@@ -250,6 +268,17 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
             <span className="text-xl font-semibold text-pure-white">{fallbackLetter}</span>
           )}
         </>
+      )}
+      {overflowCount > 0 && (
+        // "+N" overflow badge. Positioned absolutely in the top-right
+        // corner. aria-hidden because the parent bubble's aria-label
+        // already mentions the count.
+        <span
+          aria-hidden="true"
+          className="absolute -right-1 -top-1 flex h-6 min-w-[24px] items-center justify-center rounded-full bg-orange-500 px-1 text-[11px] font-bold text-pure-white shadow-[0_2px_6px_rgba(15,23,42,0.25)]"
+        >
+          +{overflowCount}
+        </span>
       )}
     </motion.div>
   );
