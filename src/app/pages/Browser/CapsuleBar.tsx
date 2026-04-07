@@ -19,9 +19,11 @@
 import React, { type FC, useState } from 'react';
 
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { springs } from 'lib/animation';
 import { type DappSession, getFallbackColor, getFallbackLetter, getFaviconUrl } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -77,8 +79,10 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({ session, onClose, onReload }) 
 
       {/* 56px content row */}
       <div className="flex h-14 items-center gap-3 px-4">
-        {/* Favicon */}
-        <div
+        {/* Favicon — layoutId target for the launcher tile morph (PR-2). */}
+        <motion.div
+          layoutId={`dapp-favicon-${session.url}`}
+          transition={springs.morph}
           className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md"
           style={{ background: faviconBroken || !faviconUrl ? fallbackColor : 'transparent' }}
         >
@@ -92,11 +96,18 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({ session, onClose, onReload }) 
               onError={() => setFaviconBroken(true)}
             />
           )}
-        </div>
+        </motion.div>
 
-        {/* Title + origin */}
+        {/* Title + origin — title is the layoutId target so the tile name
+            morphs into the capsule title. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-base font-semibold text-black">{session.title}</span>
+          <motion.span
+            layoutId={`dapp-name-${session.url}`}
+            transition={springs.morph}
+            className="truncate text-base font-semibold text-black"
+          >
+            {session.title}
+          </motion.span>
           <span className="truncate text-xs text-grey-500">{session.origin}</span>
         </div>
 

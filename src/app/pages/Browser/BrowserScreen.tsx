@@ -18,19 +18,18 @@
 
 import React, { type FC, useCallback, useState } from 'react';
 
-import { type DappSession, createDappSession } from 'lib/dapp-browser';
+import { LayoutGroup } from 'framer-motion';
+
+import { type DappSession, createDappSession, recordRecentDapp } from 'lib/dapp-browser';
 import { isDesktop } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 
 import { DappActive } from './DappActive';
 import { DappLauncher } from './DappLauncher';
 
-const RECENT_URLS_LIMIT = 10;
-
 export const BrowserScreen: FC = () => {
   const setActiveDappSession = useWalletStore(s => s.setActiveDappSession);
   const [session, setSession] = useState<DappSession | null>(null);
-  const [recentUrls, setRecentUrls] = useState<string[]>([]);
 
   const handleOpen = useCallback(
     async (url: string) => {
@@ -49,10 +48,17 @@ export const BrowserScreen: FC = () => {
       const next = createDappSession(url);
       setSession(next);
       setActiveDappSession(next.id);
-      setRecentUrls(prev => {
-        const filtered = prev.filter(u => u !== url);
-        return [url, ...filtered].slice(0, RECENT_URLS_LIMIT);
-      });
+
+      // Record into recents storage so the launcher's MyDappsGrid shows it
+      // next time. The session's title gets updated by useDappWebView once
+      // browserPageLoaded fires; for the recents entry we save a best-effort
+      // initial name based on the origin.
+      recordRecentDapp({
+        url,
+        name: next.title || next.origin.replace(/^https?:\/\//, ''),
+        origin: next.origin,
+        favicon: next.favicon
+      }).catch(() => {});
     },
     [setActiveDappSession]
   );
@@ -62,9 +68,12 @@ export const BrowserScreen: FC = () => {
     setActiveDappSession(null);
   }, [setActiveDappSession]);
 
-  if (session) {
-    return <DappActive session={session} onClose={handleClose} />;
-  }
-
-  return <DappLauncher onOpen={handleOpen} recentUrls={recentUrls} />;
+  // The shared LayoutGroup id ties the tile's `layoutId={`dapp-tile-${url}`}`
+  // (and child favicon/name layoutIds) to the matching ones on `<CapsuleBar>`,
+  // so opening a dApp from the launcher morphs the tile into the capsule.
+  return (
+    <LayoutGroup id="dapp-browser">
+      {session ? <DappActive session={session} onClose={handleClose} /> : <DappLauncher onOpen={handleOpen} />}
+    </LayoutGroup>
+  );
 };

@@ -5,4 +5,12 @@ export { createDappSession, parseOrigin, type DappSession, type DappSessionStatu
 export { buildFaviconUrl, getFaviconUrl, setFavicon, getFallbackColor, getFallbackLetter } from './favicon-cache';
 export { rectFromDOMRect, rectsEqual, type WebViewRect } from './webview-rect';
 export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-confirmation';
-export { FEATURED_DAPPS, type FeaturedDapp } from './featured-dapps';
+export {
+  FEATURED_DAPPS,
+  CAROUSEL_DAPPS,
+  type FeaturedDapp,
+  type FeaturedDappBadge,
+  type FeaturedDappCategory
+} from './featured-dapps';
+export { CATEGORIES, type CategoryDescriptor } from './category-data';
+export { getRecentDapps, recordRecentDapp, forgetRecentDapp, type RecentDapp } from './recent-dapps';
