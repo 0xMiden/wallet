@@ -1,30 +1,42 @@
 /**
  * Top-of-screen capsule chrome shown while a dApp is foregrounded.
  *
- * Layout (PR-1 visual spec):
- * - 24px drag affordance strip at the top (PR-3 makes this draggable;
- *   PR-1 ships it as a static visual cue)
- * - 56px content row with favicon, title, origin, ⋯ menu, ✕ close
+ * Layout:
+ * - 24px drag affordance strip at the top (draggable for minimize)
+ * - 56px content row with favicon, title, origin, action buttons
  *
  * Total height: 80px + safe-area-top.
  *
  * Background: matches the existing Footer style — translucent white with
  * a heavy backdrop blur — so the dApp content peeks through subtly.
  *
- * The "⋯" menu in PR-1 just exposes Reload + Close. PR-2 adds Share, Copy
- * URL, and Open in System Browser; PR-5 adds the "Switch dApps" entry that
- * opens the card switcher.
+ * Action buttons in the content row (right-aligned):
+ *   [Switch dApps badge?]  [Minimize?]  [Reload]  [Close]
+ *
+ * NOTE: this row uses ONLY top-level buttons. There used to be a `⋯`
+ * dropdown that wrapped Reload, but the dropdown rendered into the
+ * vertical strip immediately below the capsule — i.e. directly into
+ * native-WKWebView territory — and the WKWebView paints over it, so
+ * the menu was completely invisible to the user. Reload became
+ * unreachable. The fix is to lift Reload up into a first-class capsule
+ * button so the user can tap it without opening anything.
  */
 
 import React, { type FC, useState } from 'react';
 
-import classNames from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { useSprings } from 'lib/animation';
-import { type DappSession, getFallbackColor, getFallbackLetter, getFaviconUrl } from 'lib/dapp-browser';
+import {
+  type DappSession,
+  getDappDisplayName,
+  getDappHostname,
+  getFallbackColor,
+  getFallbackLetter,
+  getFaviconUrl
+} from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
 interface CapsuleBarProps {
@@ -58,7 +70,6 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   // PR-7: reduce-motion aware springs. When the user has reduce-motion
   // on, every transition below collapses to `{ duration: 0.001 }`.
   const springs = useSprings();
-  const [menuOpen, setMenuOpen] = useState(false);
   const [faviconBroken, setFaviconBroken] = useState(false);
 
   const handleClose = () => {
@@ -77,13 +88,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
 
   const handleReload = () => {
     hapticLight();
-    setMenuOpen(false);
     onReload();
-  };
-
-  const toggleMenu = () => {
-    hapticLight();
-    setMenuOpen(prev => !prev);
   };
 
   const fallbackColor = getFallbackColor(session.origin);
@@ -91,18 +96,16 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   const faviconUrl = session.favicon ?? getFaviconUrl(session.origin);
 
   // Prefer a hostname-only presentation so the tabs badge, minimize,
-  // overflow, and close buttons fit without truncating the URL. When
+  // reload, and close buttons fit without truncating the URL. When
   // the session has a real page title (captured from the <title> tag
   // after load) we show it; otherwise fall back to the hostname with
-  // `www.` stripped. The secondary line always shows the hostname.
-  const hostname = (() => {
-    try {
-      return new URL(session.url).hostname.replace(/^www\./, '');
-    } catch {
-      return session.origin;
-    }
-  })();
-  const displayTitle = session.title && !session.title.startsWith('http') ? session.title : hostname;
+  // `www.` stripped. We hide the secondary hostname line when it
+  // would just repeat the title — that happened constantly because
+  // many dApps set <title> to the bare hostname, so the capsule
+  // showed e.g. "miden.xyz / miden.xyz" stacked.
+  const hostname = getDappHostname(session.url);
+  const displayTitle = getDappDisplayName(session);
+  const showHostnameRow = displayTitle !== hostname;
 
   return (
     <header
@@ -172,8 +175,11 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
 
         {/* Title + hostname — title is the layoutId target so the tile
             name morphs into the capsule title. The secondary line shows
-            the bare hostname so the tabs badge, minimize, overflow, and
-            close buttons all fit without URL truncation. */}
+            the bare hostname so the tabs badge, minimize, reload, and
+            close buttons all fit without URL truncation. The secondary
+            line is hidden when the title already matches the hostname
+            (common case: <title> is just "miden.xyz") so we don't
+            stack two identical strings. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <motion.span
             layoutId={`dapp-name-${session.url}`}
@@ -182,7 +188,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           >
             {displayTitle}
           </motion.span>
-          <span className="truncate text-xs text-grey-500">{hostname}</span>
+          {showHostnameRow && <span className="truncate text-xs text-grey-500">{hostname}</span>}
         </div>
 
         {/* PR-5 card switcher button — appears when there are 2+ open
@@ -206,9 +212,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
         )}
 
         {/* Minimize button — drag handle is the gesture path on real devices,
-            this button is the discoverable + accessible alternative. Calling
-            it via the menu doesn't work because the menu drops below the
-            capsule into native-webview territory and gets covered. */}
+            this button is the discoverable + accessible alternative. */}
         {onMinimize && (
           <button
             type="button"
@@ -223,17 +227,16 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           </button>
         )}
 
-        {/* Overflow menu trigger */}
+        {/* Reload button — promoted from a hidden dropdown to a top-level
+            action because the dropdown anchored below the capsule rendered
+            into native-WKWebView territory and was completely invisible. */}
         <button
           type="button"
-          onClick={toggleMenu}
-          aria-label={t('moreOptions') ?? 'More options'}
-          className={classNames(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
-            menuOpen ? 'bg-grey-200' : 'hover:bg-grey-100'
-          )}
+          onClick={handleReload}
+          aria-label={t('reload') ?? 'Reload'}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
         >
-          <Icon name={IconName.Settings} size="sm" className="text-grey-700" />
+          <Icon name={IconName.Refresh} size="sm" className="text-grey-700" />
         </button>
 
         {/* Close button */}
@@ -249,24 +252,6 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
 
       {/* Hairline at the bottom edge */}
       <div className="h-px w-full bg-grey-100" />
-
-      {/* Overflow menu (anchored absolutely so it doesn't shift the capsule layout) */}
-      {menuOpen && (
-        <div
-          className="absolute right-2 top-full mt-1 w-44 rounded-xl border border-grey-100 bg-pure-white shadow-lg"
-          role="menu"
-        >
-          <button
-            type="button"
-            onClick={handleReload}
-            className="flex w-full items-center gap-2 rounded-xl px-4 py-3 text-sm text-grey-800 hover:bg-grey-50"
-            role="menuitem"
-          >
-            <Icon name={IconName.Refresh} size="sm" className="text-grey-600" />
-            <span>{t('reload') ?? 'Reload'}</span>
-          </button>
-        </div>
-      )}
     </header>
   );
 };
