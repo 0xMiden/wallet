@@ -410,6 +410,13 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
+            // Miden patch (PR-4 chunk 7): tell the controller its instance id
+            // so every notifyListeners call from inside the controller (page
+            // load events, message dispatch, url changes, etc.) includes the
+            // id and the JS-side multi-instance handler can route the event
+            // to the matching session.
+            webViewController.instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
+
             // Set dimensions if provided
             if let width = width {
                 webViewController.customWidth = CGFloat(width)
@@ -761,8 +768,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func goBack(_ call: CAPPluginCall) {
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         DispatchQueue.main.async {
-            guard let webViewController = self.webViewController else {
+            let controller = WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
+            guard let webViewController = controller else {
                 call.resolve(["canGoBack": false])
                 return
             }
@@ -773,7 +783,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func reload(_ call: CAPPluginCall) {
-        self.webViewController?.reload()
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
+        let controller = WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
+        controller?.reload()
         call.resolve()
     }
 
@@ -788,7 +801,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        self.webViewController?.load(remote: url)
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
+        let controller = WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
+        controller?.load(remote: url)
         call.resolve()
     }
 
@@ -797,8 +813,15 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Cannot get script to execute")
             return
         }
+        // Miden patch (PR-4 chunk 7): route to a specific instance by id when
+        // present, falling back to the legacy single-instance webViewController.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         DispatchQueue.main.async {
-            self.webViewController?.executeScript(script: script)
+            if let controller = WebViewRegistry.shared.get(id: instanceId)?.controller {
+                controller.executeScript(script: script)
+            } else {
+                self.webViewController?.executeScript(script: script)
+            }
             call.resolve()
         }
     }
@@ -812,8 +835,14 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         print("Event data: \(eventData)")
 
+        // Miden patch (PR-4 chunk 7): route to a specific instance by id.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         DispatchQueue.main.async {
-            self.webViewController?.postMessageToJS(message: eventData)
+            if let controller = WebViewRegistry.shared.get(id: instanceId)?.controller {
+                controller.postMessageToJS(message: eventData)
+            } else {
+                self.webViewController?.postMessageToJS(message: eventData)
+            }
         }
         call.resolve()
     }
@@ -865,6 +894,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             }
 
             self.webViewController = WKWebViewController.init(url: url, headers: headers, isInspectable: isInspectable, credentials: credentials, preventDeeplink: preventDeeplink, blankNavigationTab: true, enabledSafeBottomMargin: false)
+
+            // Miden patch (PR-4 chunk 7): tag the legacy `open()` flow with
+            // the instance id from the call (or "default") so its
+            // notifyListeners events also carry the id field.
+            self.webViewController?.instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
 
             guard let webViewController = self.webViewController else {
                 call.reject("Failed to initialize WebViewController")
@@ -946,7 +980,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.webViewController = nil
                 self.navigationWebViewController = nil
                 WebViewRegistry.shared.remove(id: instanceId)
-                self.notifyListeners("closeEvent", data: ["url": currentUrl])
+                self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
                 call.resolve()
                 return
             }
@@ -960,13 +994,13 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                     self.webViewController = nil
                     self.navigationWebViewController = nil
                     WebViewRegistry.shared.remove(id: instanceId)
-                    self.notifyListeners("closeEvent", data: ["url": currentUrl])
+                    self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
                     call.resolve()
                 }
             } else {
                 self.webViewController = nil
                 WebViewRegistry.shared.remove(id: instanceId)
-                self.notifyListeners("closeEvent", data: ["url": currentUrl])
+                self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
                 call.resolve()
             }
         }
@@ -1032,9 +1066,14 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let height = call.getFloat("height")
         let xPos = call.getFloat("x")
         let yPos = call.getFloat("y")
+        // Miden patch (PR-4 chunk 7): id-aware. Defaults to "default" so the
+        // legacy single-instance call signature still works.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
 
         DispatchQueue.main.async {
-            guard let webViewController = self.webViewController else {
+            let controller =
+                WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
+            guard let webViewController = controller else {
                 call.reject("WebView is not initialized")
                 return
             }
@@ -1045,6 +1084,27 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 xPos: xPos.map { CGFloat($0) },
                 yPos: yPos.map { CGFloat($0) }
             )
+
+            // Miden patch (PR-4 chunk 7): if this instance has its own
+            // UIWindow (Architecture A), the WKWebViewController's frame
+            // updates need to be reflected on the window too — otherwise the
+            // window stays at the original size and clipping/touch bounds
+            // don't follow the resize.
+            if let instance = WebViewRegistry.shared.get(id: instanceId),
+               let window = instance.containerWindow,
+               let scene = window.windowScene {
+                // The instance's WebView is positioned in scene coordinates,
+                // so the host window itself should remain full-screen and let
+                // the inner navigation controller's view do the actual
+                // positioning. Just record the rect for bookkeeping.
+                _ = scene
+                instance.rect = CGRect(
+                    x: CGFloat(xPos ?? 0),
+                    y: CGFloat(yPos ?? 0),
+                    width: CGFloat(width ?? 0),
+                    height: CGFloat(height ?? 0)
+                )
+            }
 
             call.resolve()
         }

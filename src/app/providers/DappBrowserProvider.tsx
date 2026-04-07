@@ -1,29 +1,40 @@
 /**
- * App-level provider that owns the embedded dApp browser webview lifecycle.
+ * App-level provider that owns the embedded dApp browser webview lifecycles.
  *
  * Mounted by `<TabLayout>` so it sits ABOVE the route switcher in the
- * React tree. PR-3 §3.4a calls this out as load-bearing: in PR-1 the
- * webview was owned by `<DappActive>` inside the `/browser` route, which
- * meant navigating away from `/browser` unmounted the webview. PR-3
- * needs the webview to survive tab navigation so a parked dApp's bubble
- * stays interactive from any tab.
+ * React tree. This lets a parked dApp's bubble stay interactive from any
+ * tab — navigating to /home doesn't unmount the provider, which doesn't
+ * unmount the bubble portal.
+ *
+ * PR-4 chunk 7 — multi-instance migration:
+ *  - PR-3 held a single `DappSession` at a time and re-opened the native
+ *    WKWebView on every park/restore cycle. PR-4's vendored
+ *    `@miden/dapp-browser` fork adds a registry of parallel WKWebView
+ *    instances (iOS: UIWindow per instance; Android: Dialog per
+ *    instance), so the provider can now keep N dApps alive in parallel
+ *    with their JS context preserved across park/restore (state survives
+ *    because we only toggle the native window's visibility — the WKWebView
+ *    itself is never torn down).
+ *  - `session` / `mode` are kept as derived backwards-compat fields so
+ *    existing consumers (`BrowserScreen`, `DappActive`) don't need to
+ *    know about the multi-session model yet; they read the foregrounded
+ *    session via the singular fields. `<DappBubbleHost>` reads the full
+ *    `parkedSessions` array to render one bubble per parked dApp.
+ *  - The `useDappBrowserWebView` hook is gone — its responsibilities
+ *    (listener wiring, bridge injection, lifecycle) moved into the
+ *    provider so multi-session bookkeeping can be centralized.
  *
  * Responsibilities owned by this provider:
- *  - The active dApp `<DappSession>` (in PR-3 we still cap at one
- *    session — PR-4 promotes this to a list)
- *  - The `useDappWebView` hook lifecycle (open / track rect / close)
- *  - The current "mode" — `'launcher' | 'active' | 'parked'`
- *  - The slot rect computed by `<NativeWebViewSlot>` (consumed by the
- *    lifecycle hook to drive `updateDimensions`)
- *  - Park / restore orchestration: capture snapshot, move webview off-
- *    screen via `updateDimensions(-2000, ...)`, animate bubble to corner
+ *  - The map of live dApp sessions keyed by session id
+ *  - The foreground session id (which session occupies the slot rect) —
+ *    null when no session is foregrounded (launcher visible)
+ *  - Opening, parking, restoring, closing individual sessions
+ *  - Listening to plugin events (messageFromWebview, browserPageLoaded,
+ *    urlChangeEvent, closeEvent, pageLoadError) and routing them to the
+ *    matching session by `event.id`
  *  - The `<DappBubbleHost>` portal (rendered as a sibling of children)
  *  - The `<DappConfirmationModal>` portal (also rendered as a sibling
- *    so it survives tab navigation per PR-6's "confirmation flow for
- *    parked dApps")
- *
- * Consumers (`BrowserScreen`, `DappActive`, `DappBubble`) read state via
- * the `useDappBrowser()` hook and call methods on the returned context.
+ *    so it survives tab navigation)
  */
 
 import React, {
@@ -38,40 +49,76 @@ import React, {
   useState
 } from 'react';
 
+import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } from '@miden/dapp-browser';
 import { AnimatePresence } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import { DappBubbleHost } from 'app/pages/Browser/DappBubbleHost';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
-import { useDappBrowserWebView } from 'app/pages/Browser/useDappBrowserWebView';
-import { type DappSession, useDappConfirmation } from 'lib/dapp-browser';
+import {
+  INJECTION_SCRIPT,
+  type DappSession,
+  type WebViewMessage,
+  handleWebViewMessage,
+  useDappConfirmation
+} from 'lib/dapp-browser';
 import { captureSnapshot, clearSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
+import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
+import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { useWalletStore } from 'lib/store';
 
 /**
  * Where the foreground webview should be drawn:
- *  - 'launcher' — no session, the launcher is showing
- *  - 'active'   — webview is on screen, occupying the slot rect
- *  - 'parked'   — session alive but webview moved offscreen; bubble visible
+ *  - 'launcher' — no foregrounded session, the launcher is showing
+ *  - 'active'   — a session is foregrounded and occupying the slot rect
+ *  - 'parked'   — legacy single-session mode; no longer emitted as a
+ *                 distinct provider-level mode in PR-4 (each session has
+ *                 its own status). Preserved in the type for any lingering
+ *                 callers still switching on it.
  */
 export type DappMode = 'launcher' | 'active' | 'parked';
 
-interface DappBrowserContextValue {
-  /** The currently held session, or null when on the launcher. */
-  session: DappSession | null;
-  mode: DappMode;
+/**
+ * Provider-internal lifecycle status for a single session. Distinct from
+ * `DappSessionStatus` in `lib/dapp-browser/dapp-session.ts`, which tracks
+ * the public session model. We use a smaller set here keyed off the
+ * native instance lifecycle.
+ */
+export type DappInstanceStatus = 'loading' | 'active' | 'parked' | 'closing';
+
+export interface DappSessionState {
+  session: DappSession;
+  /** The native-side multi-instance handle. Null briefly while opening. */
+  instance: DappWebViewInstance | null;
+  status: DappInstanceStatus;
+  /** Live origin — updated by urlChangeEvent so cross-origin nav is tracked. */
+  origin: string;
   /** True between openWebView and the first browserPageLoaded event. */
   isLoading: boolean;
-  /** Open a brand-new dApp session. Closes any prior session first. */
+}
+
+interface DappBrowserContextValue {
+  /** The foregrounded session, or null if the launcher is showing. */
+  session: DappSession | null;
+  /** Convenience — 'active' if a session is foregrounded, 'launcher' otherwise. */
+  mode: DappMode;
+  /** True if the foreground session is still loading its first page. */
+  isLoading: boolean;
+  /** All sessions currently in the parked state (bubble should show for each). */
+  parkedSessions: DappSessionState[];
+  /** Every live session (foreground + parked), keyed by id. */
+  sessionStates: DappSessionState[];
+  /** Open a brand-new dApp session; parks the current foreground if any. */
   open: (session: DappSession) => void;
-  /** Close the current dApp session entirely. */
-  close: () => Promise<void>;
-  /** Park the active session — snapshot, hide webview, show bubble. */
-  park: () => Promise<void>;
-  /** Restore a parked session back to active. */
-  restore: () => Promise<void>;
+  /** Close a session entirely. Defaults to the foreground session. */
+  close: (sessionId?: string) => Promise<void>;
+  /** Park a session — snapshot, hide native window, show bubble. */
+  park: (sessionId?: string) => Promise<void>;
+  /** Restore a parked session to the foreground. */
+  restore: (sessionId: string) => Promise<void>;
   /** Set the slot rect — `<NativeWebViewSlot>` calls this on every layout. */
   setSlotRect: (rect: WebViewRect | null) => void;
   /** The most recent slot rect, used by minimize-animation hooks. */
@@ -89,97 +136,418 @@ export function useDappBrowser(): DappBrowserContextValue {
 }
 
 /**
+ * Send a JSON response back to the injected bridge in a specific instance.
+ * Mirrors the PR-3 helper in `useDappBrowserWebView`; the retry loop protects
+ * against the rare case where executeScript races the injection of
+ * `window.__midenWalletResponse`.
+ */
+async function sendResponseToInstance(instance: DappWebViewInstance, response: unknown, retries = 3): Promise<void> {
+  const code = `window.__midenWalletResponse(${JSON.stringify(JSON.stringify(response))});`;
+  // Small delay before the first attempt to give the bridge time to settle
+  // after an awaited user confirmation.
+  await new Promise(resolve => setTimeout(resolve, 100));
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await instance.executeScript(code);
+      return;
+    } catch (error) {
+      console.warn(`[DappBrowserProvider] executeScript attempt ${attempt} failed:`, error);
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
+/**
  * The provider — mounted at the TabLayout level (above the route switcher).
  */
 export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
-  const [session, setSession] = useState<DappSession | null>(null);
-  const [mode, setMode] = useState<DappMode>('launcher');
+  const { t } = useTranslation();
+
+  // Sessions live as an array of DappSessionState plus a foregroundId
+  // pointer. We use an array for easy rendering in the bubble host and a
+  // ref mirror for stable closure access inside plugin listeners.
+  const [sessionStates, setSessionStates] = useState<DappSessionState[]>([]);
+  const [foregroundId, setForegroundId] = useState<string | null>(null);
   const [slotRect, setSlotRect] = useState<WebViewRect | null>(null);
+
+  const sessionStatesRef = useRef<DappSessionState[]>(sessionStates);
+  const foregroundIdRef = useRef<string | null>(foregroundId);
+  const slotRectRef = useRef<WebViewRect | null>(slotRect);
+  // Tracks the most recent foregroundId for which `<DappActive>` actually
+  // reported a non-null slot rect. The auto-park-on-tab-leave effect uses
+  // this to avoid mistakenly parking a freshly opened session whose
+  // DappActive hasn't even mounted yet (slotRect is null on the first
+  // render after open() — that's a "not yet" state, not a "just left"
+  // state, and parking it would deadlock the open path).
+  const slotRectShownForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    sessionStatesRef.current = sessionStates;
+  }, [sessionStates]);
+  useEffect(() => {
+    foregroundIdRef.current = foregroundId;
+  }, [foregroundId]);
+  useEffect(() => {
+    slotRectRef.current = slotRect;
+  }, [slotRect]);
+
   const setActiveDappSession = useWalletStore(s => s.setActiveDappSession);
 
-  // Track the rect we're driving the webview to. Park moves it offscreen;
-  // restore moves it back to the slot rect.
-  const targetRectRef = useRef<WebViewRect | null>(null);
+  // Mutation helper — updates a single session by id via a functional updater.
+  const updateSession = useCallback((id: string, updater: (s: DappSessionState) => DappSessionState) => {
+    setSessionStates(prev => {
+      const idx = prev.findIndex(s => s.session.id === id);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = updater(next[idx]);
+      return next;
+    });
+  }, []);
 
-  // The lifecycle hook lives here in the provider so opening a dApp here
-  // doesn't depend on `<DappActive>` being mounted. The hook resolves
-  // `targetRect` lazily so the same instance is reused across mode changes.
-  const {
-    isLoading,
-    open: openWebView,
-    close: closeWebView
-  } = useDappBrowserWebView({
-    session,
-    targetRect: mode === 'parked' ? offscreenRect() : slotRect,
-    onPageLoaded: title => {
-      setSession(prev => (prev && title ? { ...prev, title, status: 'active' } : prev));
+  const removeSession = useCallback((id: string) => {
+    setSessionStates(prev => prev.filter(s => s.session.id !== id));
+  }, []);
+
+  const getSessionStateById = useCallback((id: string): DappSessionState | undefined => {
+    return sessionStatesRef.current.find(s => s.session.id === id);
+  }, []);
+
+  // ─── Plugin event listeners ─────────────────────────────────────────────
+  //
+  // Instead of wiring a fresh set of listeners per session (as PR-3 did),
+  // we wire ONE set at provider mount time and demux by the `id` field the
+  // native side now includes in every event (PR-4 chunk 7 native patch).
+  // This scales to N sessions without handler churn.
+  useEffect(() => {
+    if (!isMobile()) return;
+
+    const listenerRemovers: Array<() => void> = [];
+    let mounted = true;
+
+    const wire = async () => {
+      const messageL = await InAppBrowser.addListener('messageFromWebview', async event => {
+        const id = (event as { id?: string })?.id ?? 'default';
+        const state = getSessionStateById(id);
+        if (!state?.instance) return;
+        try {
+          const eventData = (event as { detail?: unknown })?.detail ?? event;
+          const parsed = typeof eventData === 'string' ? JSON.parse(eventData) : (eventData as WebViewMessage);
+          const walletMessage = parsed as WebViewMessage;
+          const response = await handleWebViewMessage(walletMessage, state.origin);
+          await sendResponseToInstance(state.instance, response);
+        } catch (error) {
+          console.error('[DappBrowserProvider] Error handling WebView message:', error);
+        }
+      });
+      listenerRemovers.push(() => messageL.remove());
+
+      const loadL = await InAppBrowser.addListener('browserPageLoaded', async event => {
+        const id = (event as { id?: string })?.id ?? 'default';
+        const state = getSessionStateById(id);
+        if (!state?.instance) return;
+        updateSession(id, s => ({ ...s, isLoading: false }));
+        // Inject the bridge + fetch the document title.
+        try {
+          await state.instance.executeScript(INJECTION_SCRIPT);
+        } catch (e) {
+          console.error('[DappBrowserProvider] Error injecting bridge:', e);
+        }
+        try {
+          await state.instance.executeScript(`
+            (function() {
+              try {
+                var t = document.title || '';
+                if (window.mobileApp && window.mobileApp.postMessage) {
+                  window.mobileApp.postMessage({ __midenInternal: 'title', title: t, __midenInstanceId: '${id}' });
+                }
+              } catch (e) { /* ignore */ }
+            })();
+          `);
+        } catch {
+          // best-effort title fetch
+        }
+      });
+      listenerRemovers.push(() => loadL.remove());
+
+      const urlL = await InAppBrowser.addListener('urlChangeEvent', event => {
+        const id = (event as { id?: string })?.id ?? 'default';
+        const newUrl = (event as { url?: string })?.url;
+        if (!newUrl) return;
+        try {
+          const origin = new URL(newUrl).origin;
+          updateSession(id, s => ({ ...s, origin }));
+        } catch {
+          /* ignore */
+        }
+      });
+      listenerRemovers.push(() => urlL.remove());
+
+      const errL = await InAppBrowser.addListener('pageLoadError', event => {
+        const id = (event as { id?: string })?.id ?? 'default';
+        updateSession(id, s => ({ ...s, isLoading: false }));
+        console.error('[DappBrowserProvider] Page load error for instance', id);
+      });
+      listenerRemovers.push(() => errL.remove());
+
+      const closeL = await InAppBrowser.addListener('closeEvent', async event => {
+        const id = (event as { id?: string })?.id ?? 'default';
+        const state = getSessionStateById(id);
+        if (!state) return;
+        // Native plugin closed itself (e.g. user backed out, or our own
+        // close() triggered this event as part of its teardown). Remove
+        // the session from state.
+        clearSnapshot(id);
+        removeSession(id);
+        if (foregroundIdRef.current === id) {
+          setForegroundId(null);
+        }
+        markReturningFromWebview();
+        await resetViewportAfterWebview();
+      });
+      listenerRemovers.push(() => closeL.remove());
+
+      if (!mounted) {
+        // If we already unmounted while awaiting, tear down immediately.
+        listenerRemovers.forEach(fn => fn());
+      }
+    };
+
+    void wire();
+
+    return () => {
+      mounted = false;
+      listenerRemovers.forEach(fn => fn());
+    };
+    // getSessionStateById / updateSession / removeSession are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── Public API ─────────────────────────────────────────────────────────
+
+  const openInternal = useCallback(
+    async (session: DappSession, rect: WebViewRect) => {
+      try {
+        const instance = await dappWebViewManager.open({
+          id: session.id,
+          url: session.url,
+          title: t('dappBrowser'),
+          toolbarType: ToolBarType.BLANK,
+          showReloadButton: false,
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height
+        });
+        updateSession(session.id, s => ({
+          ...s,
+          instance,
+          status: 'active'
+        }));
+      } catch (error) {
+        console.error('[DappBrowserProvider] Error opening webview:', error);
+        updateSession(session.id, s => ({ ...s, isLoading: false, status: 'closing' }));
+      }
     },
-    onClose: () => {
-      // Native plugin closed itself (e.g. user backed out). Treat as full close.
-      hardClose();
-    }
-  });
-
-  const hardClose = useCallback(() => {
-    if (session) clearSnapshot(session.id);
-    setSession(null);
-    setMode('launcher');
-    setSlotRect(null);
-    targetRectRef.current = null;
-    setActiveDappSession(null);
-  }, [session, setActiveDappSession]);
-
-  // open() is the entry point. It tears down any prior session, sets the
-  // new session into state, then the effect below picks up the change and
-  // calls openWebView() once a slot rect arrives.
-  const open = useCallback(
-    (next: DappSession) => {
-      // Close any prior session first
-      void closeWebView();
-      if (session) clearSnapshot(session.id);
-      setSession(next);
-      setMode('active');
-      setActiveDappSession(next.id);
-    },
-    [closeWebView, session, setActiveDappSession]
+    [t, updateSession]
   );
 
-  const close = useCallback(async () => {
-    await closeWebView();
-    hardClose();
-  }, [closeWebView, hardClose]);
+  const parkInternal = useCallback(
+    async (id: string) => {
+      const state = getSessionStateById(id);
+      if (!state?.instance) return;
+      // Snapshot first so the bubble has a frozen preview to render.
+      try {
+        await captureSnapshot(id, 0.5, 0.7);
+      } catch (e) {
+        console.warn('[DappBrowserProvider] snapshot capture failed:', e);
+      }
+      try {
+        await state.instance.setVisible(false);
+      } catch (e) {
+        console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
+      }
+      updateSession(id, s => ({ ...s, status: 'parked' }));
+    },
+    [getSessionStateById, updateSession]
+  );
 
-  // Park: capture snapshot, then HARD CLOSE the native webview. The session
-  // metadata stays in state so the bubble can show, and restore() reopens
-  // the webview at the slot rect when the user taps the bubble.
+  const open = useCallback(
+    (next: DappSession) => {
+      // If the same session is already in state, treat this as a restore.
+      const existing = getSessionStateById(next.id);
+      if (existing) {
+        // Re-foreground it.
+        setForegroundId(next.id);
+        updateSession(next.id, s => ({ ...s, status: 'active' }));
+        return;
+      }
+
+      // Park the current foreground (if any) so its bubble will appear
+      // alongside the new session while the new one loads.
+      const currentForeground = foregroundIdRef.current;
+      if (currentForeground) {
+        void parkInternal(currentForeground);
+      }
+
+      // Add the new session to state in the 'loading' phase. The effect
+      // below will pick up foregroundId + slotRect and call openInternal
+      // once the layout has reported a target rect.
+      setSessionStates(prev => [
+        ...prev,
+        {
+          session: next,
+          instance: null,
+          status: 'loading',
+          origin: next.origin,
+          isLoading: true
+        }
+      ]);
+      setForegroundId(next.id);
+      setActiveDappSession(next.id);
+    },
+    [getSessionStateById, parkInternal, setActiveDappSession, updateSession]
+  );
+
+  const close = useCallback(
+    async (sessionId?: string) => {
+      const id = sessionId ?? foregroundIdRef.current;
+      if (!id) return;
+      const state = getSessionStateById(id);
+      if (!state) return;
+      updateSession(id, s => ({ ...s, status: 'closing' }));
+      try {
+        await state.instance?.close();
+      } catch (e) {
+        console.warn('[DappBrowserProvider] instance.close() failed:', e);
+      }
+      clearSnapshot(id);
+      removeSession(id);
+      if (foregroundIdRef.current === id) {
+        setForegroundId(null);
+        setActiveDappSession(null);
+      }
+      markReturningFromWebview();
+      await resetViewportAfterWebview();
+    },
+    [getSessionStateById, removeSession, setActiveDappSession, updateSession]
+  );
+
+  const park = useCallback(
+    async (sessionId?: string) => {
+      const id = sessionId ?? foregroundIdRef.current;
+      if (!id) return;
+      await parkInternal(id);
+      // If parking the foreground, clear the foregroundId so the launcher
+      // shows again (with the bubble overlay).
+      if (foregroundIdRef.current === id) {
+        setForegroundId(null);
+      }
+    },
+    [parkInternal]
+  );
+
+  const restore = useCallback(
+    async (sessionId: string) => {
+      const state = getSessionStateById(sessionId);
+      if (!state?.instance) return;
+      // Park the current foreground (if any and different from the restore
+      // target) so its bubble appears while the restored session takes the
+      // active slot.
+      const currentForeground = foregroundIdRef.current;
+      if (currentForeground && currentForeground !== sessionId) {
+        await parkInternal(currentForeground);
+      }
+      // Flip mode: the effect below will see foregroundId + slotRect and
+      // drive setVisible(true) + setRect on the instance.
+      updateSession(sessionId, s => ({ ...s, status: 'active' }));
+      setForegroundId(sessionId);
+      setActiveDappSession(sessionId);
+    },
+    [getSessionStateById, parkInternal, setActiveDappSession, updateSession]
+  );
+
+  // ─── Effects that drive the native side ─────────────────────────────────
+
+  // When a session becomes foreground AND a slot rect is reported, either
+  // open it for the first time (status === 'loading') or setVisible(true)
+  // + setRect on a previously parked instance (status === 'active').
+  useEffect(() => {
+    if (!foregroundId || !slotRect) return;
+    const state = getSessionStateById(foregroundId);
+    if (!state) return;
+
+    if (state.status === 'loading' && !state.instance) {
+      void openInternal(state.session, slotRect);
+      return;
+    }
+    if (state.instance) {
+      void state.instance.setVisible(true);
+      void state.instance.setRect(slotRect);
+    }
+    // openInternal is stable-ish; intentionally not in deps to avoid
+    // re-running on every state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foregroundId, slotRect?.x, slotRect?.y, slotRect?.width, slotRect?.height]);
+
+  // Record successful slot rect reports so the auto-park effect knows
+  // which foregrounds have actually been visible at least once.
+  useEffect(() => {
+    if (foregroundId && slotRect) {
+      slotRectShownForRef.current = foregroundId;
+    }
+  }, [foregroundId, slotRect]);
+
+  // When the user navigates away from /browser, DappActive unmounts and
+  // clears the slot rect. Auto-park the foreground session so its bubble
+  // appears on whichever tab the user is now on, and hide the native window
+  // so it doesn't bleed through.
   //
-  // Why hard close instead of moving offscreen: the @capgo/inappbrowser
-  // plugin's positioned-modal swap (PassThroughView container) makes
-  // subsequent updateDimensions calls move the wrong frame, so an
-  // "offscreen rect" approach doesn't actually hide the webview. Closing
-  // and reopening is a heavier path but reliable. PR-4's vendored fork
-  // adds proper setVisible support so the JS context survives across park.
-  const park = useCallback(async () => {
-    if (!session || mode !== 'active') return;
-    // Snapshot first so the bubble has a frozen preview to render.
-    await captureSnapshot(session.id, 0.5, 0.7);
-    await closeWebView();
-    setMode('parked');
-    setSlotRect(null);
-  }, [session, mode, closeWebView]);
+  // Guard: only park if we previously SAW a slot rect for this foreground.
+  // Without this guard the effect would fire immediately after open()
+  // (before DappActive mounted and reported its rect), parking the
+  // freshly-opened session on render 1 — which is not what the user wants.
+  useEffect(() => {
+    if (!foregroundId || slotRect) return;
+    if (slotRectShownForRef.current !== foregroundId) return;
+    void parkInternal(foregroundId);
+    setForegroundId(null);
+    slotRectShownForRef.current = null;
+  }, [foregroundId, slotRect, parkInternal]);
 
-  // Restore: flip mode back to 'active'. DappActive remounts on the next
-  // render, the slot rect is reported, and the lifecycle hook reopens.
-  const restore = useCallback(async () => {
-    if (!session || mode !== 'parked') return;
-    setMode('active');
-  }, [session, mode]);
+  // Mirror the foreground session id into the legacy Zustand field for
+  // backwards compat with callers (e.g. native-notifications) that check
+  // `activeDappSessionId`.
+  useEffect(() => {
+    setActiveDappSession(foregroundId);
+  }, [foregroundId, setActiveDappSession]);
+
+  // ─── Derived backwards-compat fields ────────────────────────────────────
+  //
+  // IMPORTANT: read from `sessionStates` (state) here, NOT from
+  // `sessionStatesRef.current`. The ref is updated by an effect AFTER the
+  // render that triggered the state change, so reading the ref during
+  // render returns the previous frame's data — derived fields would lag a
+  // render behind every state mutation, leaving `mode === 'launcher'` for
+  // one render after `open()` and breaking the launcher → active swap.
+
+  const foregroundState = foregroundId ? sessionStates.find(s => s.session.id === foregroundId) : undefined;
+  const session = foregroundState?.session ?? null;
+  const mode: DappMode = foregroundState ? 'active' : 'launcher';
+  const isLoading = foregroundState?.isLoading ?? false;
+
+  const parkedSessions = useMemo(() => sessionStates.filter(s => s.status === 'parked'), [sessionStates]);
 
   const contextValue = useMemo<DappBrowserContextValue>(
     () => ({
       session,
       mode,
       isLoading,
+      parkedSessions,
+      sessionStates,
       open,
       close,
       park,
@@ -187,26 +555,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       setSlotRect,
       slotRect
     }),
-    [session, mode, isLoading, open, close, park, restore, slotRect]
+    [session, mode, isLoading, parkedSessions, sessionStates, open, close, park, restore, slotRect]
   );
-
-  // Mirror provider state into the existing Zustand activeDappSessionId
-  // boolean for backwards compat with native-notifications.
-  useEffect(() => {
-    setActiveDappSession(session?.id ?? null);
-  }, [session, setActiveDappSession]);
-
-  // Open the webview ONLY when there's a session, mode is 'active', and the
-  // DappActive slot has reported a rect. Parked mode doesn't reopen — park
-  // hard-closes the webview and the bubble is the only visual; restore flips
-  // mode to 'active' which triggers DappActive to remount and the slot rect
-  // to be reported, after which this effect fires.
-  useEffect(() => {
-    if (!session || mode !== 'active' || !slotRect) return;
-    void openWebView();
-    // openWebView is a stable ref from the hook; intentionally not in deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.id, mode, slotRect != null]);
 
   // The confirmation modal is rendered here so it survives tab navigation.
   const { request, resolve } = useDappConfirmation();
@@ -228,7 +578,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     <DappBrowserContext.Provider value={contextValue}>
       {children}
 
-      {/* Bubble portal — visible when a dApp is parked. Sits above tab content. */}
+      {/* Bubble portal — one bubble per parked dApp. */}
       {isMobile() && <DappBubbleHost />}
 
       {/* Confirmation modal — visible whenever the store has a pending request,
@@ -241,16 +591,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     </DappBrowserContext.Provider>
   );
 };
-
-/**
- * Coordinates we move the webview to when parked. Negative values move
- * the native frame offscreen so it stays alive but invisible. The plugin
- * accepts negative coordinates without clamping — verified during PR-1
- * part 2 review of `@capgo+inappbrowser` source.
- */
-function offscreenRect(): WebViewRect {
-  return { x: -10000, y: -10000, width: 1, height: 1 };
-}
 
 // Re-export RefObject so consumers can pass refs through context.
 export type { RefObject };

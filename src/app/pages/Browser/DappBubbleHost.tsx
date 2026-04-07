@@ -6,8 +6,10 @@
  * so it survives tab navigation — a parked dApp's bubble stays
  * interactive from any tab.
  *
- * PR-3 ships single-bubble support (length 0 or 1). PR-5 generalizes
- * to multi-bubble stacking with a long-press radial menu.
+ * PR-4 chunk 7: renders one `<DappBubble>` per parked session. PR-5 adds
+ * the long-press radial menu and stacking polish; for now the bubbles
+ * just float side-by-side and each manages its own drag + snap-to-corner
+ * state independently.
  */
 
 import React, { type FC, useEffect, useState } from 'react';
@@ -22,7 +24,7 @@ import { DappBubble } from './DappBubble';
 const FOOTER_HEIGHT_FALLBACK = 88;
 
 export const DappBubbleHost: FC = () => {
-  const { session, mode, restore } = useDappBrowser();
+  const { parkedSessions, restore } = useDappBrowser();
   const [snapshotTick, setSnapshotTick] = useState(0);
   const [footerHeight, setFooterHeight] = useState(FOOTER_HEIGHT_FALLBACK);
 
@@ -45,22 +47,22 @@ export const DappBubbleHost: FC = () => {
     return () => window.removeEventListener('resize', measure);
   }, []);
 
-  const visible = mode === 'parked' && session != null;
-  const snapshot = visible ? getSnapshot(session.id) : undefined;
-
   return (
-    <div className="pointer-events-none fixed inset-0" style={{ zIndex: 65 }} aria-hidden={!visible}>
+    <div className="pointer-events-none fixed inset-0" style={{ zIndex: 65 }} aria-hidden={parkedSessions.length === 0}>
       <AnimatePresence>
-        {visible && (
-          <div className="pointer-events-auto" key={`bubble-${session.id}-${snapshotTick}`}>
-            <DappBubble
-              session={session}
-              snapshot={snapshot}
-              footerHeight={footerHeight}
-              onTap={() => void restore()}
-            />
-          </div>
-        )}
+        {parkedSessions.map(state => {
+          const snapshot = getSnapshot(state.session.id);
+          return (
+            <div className="pointer-events-auto" key={`bubble-${state.session.id}-${snapshotTick}`}>
+              <DappBubble
+                session={state.session}
+                snapshot={snapshot}
+                footerHeight={footerHeight}
+                onTap={() => void restore(state.session.id)}
+              />
+            </div>
+          );
+        })}
       </AnimatePresence>
     </div>
   );

@@ -57,12 +57,10 @@ export class DappWebViewInstance {
 
   /** Inject JS into this instance's webview. */
   executeScript(code) {
-    // The native executeScript method is currently single-instance-only.
-    // Until we add an id-aware variant, callers must keep this instance as
-    // the foreground 'default' before calling executeScript. The wallet's
-    // PR-3 useDappBrowserWebView already wraps this — chunk 7's migration
-    // routes through the same path.
-    return InAppBrowser.executeScript({ code });
+    // PR-4 chunk 7: native executeScript is now id-aware on iOS and Android,
+    // so the call routes to this specific instance's WebView even when other
+    // dApps are open in parallel.
+    return InAppBrowser.executeScript({ id: this.id, code });
   }
 
   /** Close this instance and tear down its WebView. */

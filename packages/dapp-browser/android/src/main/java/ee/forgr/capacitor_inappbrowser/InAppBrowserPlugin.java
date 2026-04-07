@@ -224,7 +224,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             return;
         }
 
-        if (webViewDialog == null) {
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        final WebViewDialog target = WebViewRegistry.getShared().get(instanceId);
+        if (target == null && webViewDialog == null) {
             call.reject("WebView is not initialized");
             return;
         }
@@ -235,8 +240,9 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (webViewDialog != null) {
-                            webViewDialog.setUrl(url);
+                        WebViewDialog dialog = target != null ? target : webViewDialog;
+                        if (dialog != null) {
+                            dialog.setUrl(url);
                             call.resolve();
                         } else {
                             call.reject("WebView is not initialized");
@@ -540,37 +546,63 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         // Use system top inset for WebView margin when explicitly enabled
         options.setUseTopInset(Boolean.TRUE.equals(call.getBoolean("useTopInset", false)));
 
+        // Miden patch (PR-4 chunk 7): the callback closure needs to capture
+        // the instance id so every event the WebView emits is tagged with the
+        // id of the originating instance. The JS-side multi-instance handler
+        // uses this to route events to the matching session. We capture the
+        // id later (after instanceId is computed below) by holding a final
+        // reference here that callbacks can read.
+        final String[] callbackInstanceId = new String[] { WebViewRegistry.DEFAULT_INSTANCE_ID };
+
         //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
         options.setCallbacks(
             new WebViewCallbacks() {
                 @Override
                 public void urlChangeEvent(String url) {
-                    notifyListeners("urlChangeEvent", new JSObject().put("url", url));
+                    notifyListeners(
+                        "urlChangeEvent",
+                        new JSObject().put("url", url).put("id", callbackInstanceId[0])
+                    );
                 }
 
                 @Override
                 public void closeEvent(String url) {
-                    notifyListeners("closeEvent", new JSObject().put("url", url));
+                    notifyListeners(
+                        "closeEvent",
+                        new JSObject().put("url", url).put("id", callbackInstanceId[0])
+                    );
                 }
 
                 @Override
                 public void pageLoaded() {
-                    notifyListeners("browserPageLoaded", new JSObject());
+                    notifyListeners(
+                        "browserPageLoaded",
+                        new JSObject().put("id", callbackInstanceId[0])
+                    );
                 }
 
                 @Override
                 public void pageLoadError() {
-                    notifyListeners("pageLoadError", new JSObject());
+                    notifyListeners(
+                        "pageLoadError",
+                        new JSObject().put("id", callbackInstanceId[0])
+                    );
                 }
 
                 @Override
                 public void buttonNearDoneClicked() {
-                    notifyListeners("buttonNearDoneClick", new JSObject());
+                    notifyListeners(
+                        "buttonNearDoneClick",
+                        new JSObject().put("id", callbackInstanceId[0])
+                    );
                 }
 
                 @Override
                 public void confirmBtnClicked(String url) {
-                    notifyListeners("confirmBtnClicked", new JSObject().put("url", url));
+                    notifyListeners(
+                        "confirmBtnClicked",
+                        new JSObject().put("url", url).put("id", callbackInstanceId[0])
+                    );
                 }
 
                 @Override
@@ -592,6 +624,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                             jsObject.put(key, jsonMessage.get(key));
                         }
 
+                        // PR-4 chunk 7: tag the event with the originating
+                        // instance id (overwrites any "id" the JS message
+                        // happened to include — the native id is the source
+                        // of truth for routing).
+                        jsObject.put("id", callbackInstanceId[0]);
+
                         // Notify listeners with the parsed message
                         notifyListeners("messageFromWebview", jsObject);
                     } catch (JSONException e) {
@@ -600,6 +638,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         // If JSON parsing fails, send the raw message as a string
                         JSObject jsObject = new JSObject();
                         jsObject.put("rawMessage", message);
+                        jsObject.put("id", callbackInstanceId[0]);
                         notifyListeners("messageFromWebview", jsObject);
                     }
                 }
@@ -678,6 +717,9 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         final String instanceId = call.getString("id") != null
             ? call.getString("id")
             : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        // Miden patch (PR-4 chunk 7): wire the id into the event callbacks so
+        // every notifyListeners call from this WebView is tagged with the id.
+        callbackInstanceId[0] = instanceId;
 
         this.getActivity().runOnUiThread(
             new Runnable() {
@@ -718,7 +760,13 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void postMessage(PluginCall call) {
-        if (webViewDialog == null) {
+        // Miden patch (PR-4 chunk 7): id-aware. Defaults to "default" so legacy
+        // single-instance callers still work.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        final WebViewDialog target = WebViewRegistry.getShared().get(instanceId);
+        if (target == null && webViewDialog == null) {
             call.reject("WebView is not initialized");
             return;
         }
@@ -734,8 +782,9 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             new Runnable() {
                 @Override
                 public void run() {
-                    if (webViewDialog != null) {
-                        webViewDialog.postMessageToJS(eventData);
+                    WebViewDialog dialog = target != null ? target : webViewDialog;
+                    if (dialog != null) {
+                        dialog.postMessageToJS(eventData);
                         call.resolve();
                     } else {
                         call.reject("WebView is not initialized");
@@ -753,7 +802,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             return;
         }
 
-        if (webViewDialog == null) {
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        final WebViewDialog target = WebViewRegistry.getShared().get(instanceId);
+        if (target == null && webViewDialog == null) {
             call.reject("WebView is not initialized");
             return;
         }
@@ -763,8 +817,9 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (webViewDialog != null) {
-                            webViewDialog.executeScript(script);
+                        WebViewDialog dialog = target != null ? target : webViewDialog;
+                        if (dialog != null) {
+                            dialog.executeScript(script);
                             call.resolve();
                         } else {
                             call.reject("WebView is not initialized");
@@ -780,12 +835,18 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void goBack(PluginCall call) {
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        final WebViewDialog target = WebViewRegistry.getShared().get(instanceId);
         this.getActivity().runOnUiThread(
             new Runnable() {
                 @Override
                 public void run() {
-                    if (webViewDialog != null) {
-                        boolean canGoBack = webViewDialog.goBack();
+                    WebViewDialog dialog = target != null ? target : webViewDialog;
+                    if (dialog != null) {
+                        boolean canGoBack = dialog.goBack();
                         JSObject result = new JSObject();
                         result.put("canGoBack", canGoBack);
                         call.resolve(result);
@@ -801,12 +862,18 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void reload(PluginCall call) {
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        final WebViewDialog target = WebViewRegistry.getShared().get(instanceId);
         this.getActivity().runOnUiThread(
             new Runnable() {
                 @Override
                 public void run() {
-                    if (webViewDialog != null) {
-                        webViewDialog.reload();
+                    WebViewDialog dialog = target != null ? target : webViewDialog;
+                    if (dialog != null) {
+                        dialog.reload();
                         call.resolve();
                     } else {
                         call.reject("WebView is not initialized");
@@ -882,8 +949,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                                 currentUrl = "";
                             }
 
-                            // Notify listeners about the close event
-                            notifyListeners("closeEvent", new JSObject().put("url", currentUrl));
+                            // Notify listeners about the close event.
+                            // PR-4 chunk 7: tag with instance id.
+                            notifyListeners(
+                                "closeEvent",
+                                new JSObject().put("url", currentUrl).put("id", instanceId)
+                            );
 
                             targetDialog.dismiss();
                             WebViewRegistry.getShared().remove(instanceId);
@@ -986,7 +1057,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void updateDimensions(PluginCall call) {
-        if (webViewDialog == null) {
+        // Miden patch (PR-4 chunk 7): id-aware routing.
+        final String instanceId = call.getString("id") != null
+            ? call.getString("id")
+            : WebViewRegistry.DEFAULT_INSTANCE_ID;
+        final WebViewDialog target = WebViewRegistry.getShared().get(instanceId);
+        if (target == null && webViewDialog == null) {
             call.reject("WebView is not initialized");
             return;
         }
@@ -1001,8 +1077,9 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (webViewDialog != null) {
-                            webViewDialog.updateDimensions(width, height, x, y);
+                        WebViewDialog dialog = target != null ? target : webViewDialog;
+                        if (dialog != null) {
+                            dialog.updateDimensions(width, height, x, y);
                             call.resolve();
                         } else {
                             call.reject("WebView is not initialized");
