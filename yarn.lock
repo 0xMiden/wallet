@@ -1102,11 +1102,6 @@
   resolved "https://registry.yarnpkg.com/@capacitor/synapse/-/synapse-1.0.4.tgz#c6beb33119d9656b1f04cb7783989fb78933ef6d"
   integrity sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==
 
-"@capgo/inappbrowser@^8.0.6":
-  version "8.0.6"
-  resolved "https://registry.yarnpkg.com/@capgo/inappbrowser/-/inappbrowser-8.0.6.tgz#b9d5f241748b56634c0af9e88006186990ed521f"
-  integrity sha512-OTVM9p+zvhtPbjUjMJQNx3gLRigTLUBqvfQqYy4yOKFCRJvTVd/jdYbr9Xhe9GDO9JJzbCsVOPOAQloUvEcsUA==
-
 "@chromatic-com/storybook@^1.5.0":
   version "1.9.0"
   resolved "https://registry.yarnpkg.com/@chromatic-com/storybook/-/storybook-1.9.0.tgz#d95eb3474783bcc17a830a7627c3f099c1f75ba5"
@@ -2161,6 +2156,10 @@
     "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
     glob "^11.0.0"
+
+"@miden/dapp-browser@link:./packages/dapp-browser":
+  version "0.0.0"
+  uid ""
 
 "@napi-rs/wasm-runtime@^0.2.11":
   version "0.2.12"
