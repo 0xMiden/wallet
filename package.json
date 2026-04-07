@@ -6,6 +6,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
+    "postinstall": "patch-package",
     "start": "yarn watch:src",
     "dev": "rimraf ./dist && concurrently yarn:watch:*",
     "dev-clean": "rimraf node_modules && yarn cache clean && yarn install && yarn dev",
@@ -241,11 +242,13 @@
     "mini-css-extract-plugin": "^2.5.3",
     "minimist": "^1.2.7",
     "mv3-hot-reload": "^0.2.7",
+    "patch-package": "^8.0.1",
     "postcss": "^8.5.6",
     "postcss-flexbugs-fixes": "5.0.2",
     "postcss-loader": "^6.2.1",
     "postcss-preset-env": "^7.3.3",
     "postcss-scss": "^4.0.3",
+    "postinstall-postinstall": "^2.1.0",
     "prettier": "^3.7.4",
     "process": "0.11.10",
     "rimraf": "6.0.1",

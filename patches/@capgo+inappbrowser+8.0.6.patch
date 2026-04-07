@@ -1,0 +1,440 @@
+diff --git a/node_modules/@capgo/inappbrowser/._.yarn-metadata.json b/node_modules/@capgo/inappbrowser/._.yarn-metadata.json
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._.yarn-metadata.json and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._.yarn-tarball.tgz b/node_modules/@capgo/inappbrowser/._.yarn-tarball.tgz
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._.yarn-tarball.tgz and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._CapgoInappbrowser.podspec b/node_modules/@capgo/inappbrowser/._CapgoInappbrowser.podspec
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._CapgoInappbrowser.podspec and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._LICENSE b/node_modules/@capgo/inappbrowser/._LICENSE
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._LICENSE and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._Package.swift b/node_modules/@capgo/inappbrowser/._Package.swift
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._Package.swift and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._README.md b/node_modules/@capgo/inappbrowser/._README.md
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._README.md and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._android b/node_modules/@capgo/inappbrowser/._android
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._android and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._dist b/node_modules/@capgo/inappbrowser/._dist
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._dist and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._ios b/node_modules/@capgo/inappbrowser/._ios
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._ios and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/._package.json b/node_modules/@capgo/inappbrowser/._package.json
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/._package.json and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/._build.gradle b/node_modules/@capgo/inappbrowser/android/._build.gradle
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/._build.gradle and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/._src b/node_modules/@capgo/inappbrowser/android/._src
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/._src and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/._main b/node_modules/@capgo/inappbrowser/android/src/._main
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/._main and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/._AndroidManifest.xml b/node_modules/@capgo/inappbrowser/android/src/main/._AndroidManifest.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/._AndroidManifest.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/._java b/node_modules/@capgo/inappbrowser/android/src/main/._java
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/._java and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/._res b/node_modules/@capgo/inappbrowser/android/src/main/._res
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/._res and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/._ee b/node_modules/@capgo/inappbrowser/android/src/main/java/._ee
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/java/._ee and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/._forgr b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/._forgr
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/._forgr and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/._capacitor_inappbrowser b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/._capacitor_inappbrowser
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/._capacitor_inappbrowser and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._InAppBrowserPlugin.java b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._InAppBrowserPlugin.java
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._InAppBrowserPlugin.java and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._Options.java b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._Options.java
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._Options.java and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._WebViewCallbacks.java b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._WebViewCallbacks.java
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._WebViewCallbacks.java and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._WebViewDialog.java b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._WebViewDialog.java
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/._WebViewDialog.java and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/InAppBrowserPlugin.java b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/InAppBrowserPlugin.java
+index 6b65d85..fb3767a 100755
+--- a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/InAppBrowserPlugin.java
++++ b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/InAppBrowserPlugin.java
+@@ -987,4 +987,47 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
+             }
+         );
+     }
++
++    /**
++     * Miden patch: take a JPEG snapshot of the current webview content as a
++     * base64 data URL. Used by the embedded dApp browser to show frozen
++     * previews on minimized bubbles and card-switcher cards.
++     */
++    @PluginMethod
++    public void snapshot(PluginCall call) {
++        if (webViewDialog == null) {
++            call.reject("WebView is not initialized");
++            return;
++        }
++
++        Float scaleArg = call.getFloat("scale");
++        Float qualityArg = call.getFloat("quality");
++        final float scale = (scaleArg != null) ? scaleArg : 0.5f;
++        final float quality = (qualityArg != null) ? qualityArg : 0.7f;
++
++        this.getActivity().runOnUiThread(
++            new Runnable() {
++                @Override
++                public void run() {
++                    try {
++                        if (webViewDialog == null) {
++                            call.reject("WebView is not initialized");
++                            return;
++                        }
++                        String dataUrl = webViewDialog.takeSnapshotData(scale, quality);
++                        if (dataUrl == null) {
++                            call.reject("snapshot failed");
++                            return;
++                        }
++                        JSObject ret = new JSObject();
++                        ret.put("data", dataUrl);
++                        call.resolve(ret);
++                    } catch (Exception e) {
++                        Log.e("InAppBrowser", "Error taking snapshot: " + e.getMessage());
++                        call.reject("snapshot failed: " + e.getMessage());
++                    }
++                }
++            }
++        );
++    }
+ }
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/WebViewDialog.java b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/WebViewDialog.java
+index 660e07b..f86ae6e 100755
+--- a/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/WebViewDialog.java
++++ b/node_modules/@capgo/inappbrowser/android/src/main/java/ee/forgr/capacitor_inappbrowser/WebViewDialog.java
+@@ -3054,4 +3054,36 @@ public class WebViewDialog extends Dialog {
+     private float getPixels(int dp) {
+         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, _context.getResources().getDisplayMetrics());
+     }
++
++    /**
++     * Miden patch: take a JPEG snapshot of the current webview content as a
++     * base64 data URL. Used by the embedded dApp browser to show frozen
++     * previews on minimized bubbles and card-switcher cards.
++     *
++     * Must be called on the UI thread (the plugin wrapper enforces this).
++     */
++    public String takeSnapshotData(float scale, float quality) {
++        if (_webView == null || _webView.getWidth() == 0 || _webView.getHeight() == 0) {
++            return null;
++        }
++        try {
++            float clampedScale = Math.max(0.05f, Math.min(1.0f, scale));
++            int width = Math.max(1, (int) (_webView.getWidth() * clampedScale));
++            int height = Math.max(1, (int) (_webView.getHeight() * clampedScale));
++            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
++            android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
++            canvas.scale(clampedScale, clampedScale);
++            _webView.draw(canvas);
++
++            int qualityPct = Math.max(10, Math.min(100, (int) (quality * 100)));
++            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
++            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, qualityPct, baos);
++            bmp.recycle();
++            String b64 = android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP);
++            return "data:image/jpeg;base64," + b64;
++        } catch (Exception e) {
++            Log.e("InAppBrowser", "takeSnapshotData failed: " + e.getMessage());
++            return null;
++        }
++    }
+ }
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/._.gitkeep b/node_modules/@capgo/inappbrowser/android/src/main/res/._.gitkeep
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/._.gitkeep and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/._drawable b/node_modules/@capgo/inappbrowser/android/src/main/res/._drawable
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/._drawable and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/._layout b/node_modules/@capgo/inappbrowser/android/src/main/res/._layout
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/._layout and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/._values b/node_modules/@capgo/inappbrowser/android/src/main/res/._values
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/._values and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/._xml b/node_modules/@capgo/inappbrowser/android/src/main/res/._xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/._xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_back_disabled.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_back_disabled.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_back_disabled.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_back_enabled.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_back_enabled.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_back_enabled.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_forward_disabled.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_forward_disabled.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_forward_disabled.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_forward_enabled.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_forward_enabled.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._arrow_forward_enabled.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_clear_24px.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_clear_24px.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_clear_24px.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_refresh.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_refresh.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_refresh.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_share.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_share.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/drawable/._ic_share.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._activity_browser.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._activity_browser.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._activity_browser.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._bridge_layout_main.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._bridge_layout_main.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._bridge_layout_main.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._content_browser.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._content_browser.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._content_browser.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._tool_bar.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._tool_bar.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/layout/._tool_bar.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._browser_theme.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/values/._browser_theme.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._browser_theme.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._colors.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/values/._colors.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._colors.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._dimens.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/values/._dimens.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._dimens.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._strings.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/values/._strings.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._strings.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._styles.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/values/._styles.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._styles.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._themes.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/values/._themes.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/values/._themes.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/android/src/main/res/xml/._file_paths.xml b/node_modules/@capgo/inappbrowser/android/src/main/res/xml/._file_paths.xml
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/android/src/main/res/xml/._file_paths.xml and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/._docs.json b/node_modules/@capgo/inappbrowser/dist/._docs.json
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/._docs.json and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/._esm b/node_modules/@capgo/inappbrowser/dist/._esm
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/._esm and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/._plugin.cjs.js b/node_modules/@capgo/inappbrowser/dist/._plugin.cjs.js
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/._plugin.cjs.js and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/._plugin.cjs.js.map b/node_modules/@capgo/inappbrowser/dist/._plugin.cjs.js.map
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/._plugin.cjs.js.map and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/._plugin.js b/node_modules/@capgo/inappbrowser/dist/._plugin.js
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/._plugin.js and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/._plugin.js.map b/node_modules/@capgo/inappbrowser/dist/._plugin.js.map
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/._plugin.js.map and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._definitions.d.ts b/node_modules/@capgo/inappbrowser/dist/esm/._definitions.d.ts
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._definitions.d.ts and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._definitions.js b/node_modules/@capgo/inappbrowser/dist/esm/._definitions.js
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._definitions.js and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._definitions.js.map b/node_modules/@capgo/inappbrowser/dist/esm/._definitions.js.map
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._definitions.js.map and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._index.d.ts b/node_modules/@capgo/inappbrowser/dist/esm/._index.d.ts
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._index.d.ts and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._index.js b/node_modules/@capgo/inappbrowser/dist/esm/._index.js
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._index.js and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._index.js.map b/node_modules/@capgo/inappbrowser/dist/esm/._index.js.map
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._index.js.map and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._web.d.ts b/node_modules/@capgo/inappbrowser/dist/esm/._web.d.ts
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._web.d.ts and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._web.js b/node_modules/@capgo/inappbrowser/dist/esm/._web.js
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._web.js and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/dist/esm/._web.js.map b/node_modules/@capgo/inappbrowser/dist/esm/._web.js.map
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/dist/esm/._web.js.map and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/ios/._Sources b/node_modules/@capgo/inappbrowser/ios/._Sources
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/ios/._Sources and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/._InAppBrowserPlugin b/node_modules/@capgo/inappbrowser/ios/Sources/._InAppBrowserPlugin
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/ios/Sources/._InAppBrowserPlugin and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._Enums.swift b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._Enums.swift
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._Enums.swift and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._InAppBrowserPlugin.swift b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._InAppBrowserPlugin.swift
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._InAppBrowserPlugin.swift and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._WKWebViewController.swift b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._WKWebViewController.swift
+deleted file mode 100755
+index 937bcbb..0000000
+Binary files a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._WKWebViewController.swift and /dev/null differ
+diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift
+index 2bb030a..4e9cd50 100755
+--- a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift
++++ b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift
+@@ -42,6 +42,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
+         CAPPluginMethod(name: "executeScript", returnType: CAPPluginReturnPromise),
+         CAPPluginMethod(name: "postMessage", returnType: CAPPluginReturnPromise),
+         CAPPluginMethod(name: "updateDimensions", returnType: CAPPluginReturnPromise),
++        CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise),
+         CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
+     ]
+     var navigationWebViewController: UINavigationController?
+@@ -957,4 +958,26 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
+         }
+     }
+ 
++    /// Miden patch: take a JPEG snapshot of the current webview content as a
++    /// base64 data URL. Used by the embedded dApp browser to show frozen
++    /// previews on minimized bubbles and card-switcher cards.
++    @objc func snapshot(_ call: CAPPluginCall) {
++        let scale = CGFloat(call.getFloat("scale") ?? 0.5)
++        let quality = CGFloat(call.getFloat("quality") ?? 0.7)
++
++        DispatchQueue.main.async {
++            guard let webViewController = self.webViewController else {
++                call.reject("WebView is not initialized")
++                return
++            }
++            webViewController.takeSnapshotData(scale: scale, quality: quality) { dataUrl in
++                if let dataUrl = dataUrl {
++                    call.resolve(["data": dataUrl])
++                } else {
++                    call.reject("snapshot failed")
++                }
++            }
++        }
++    }
++
+ }
+diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift
+index fdd6845..182370e 100755
+--- a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift
++++ b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift
+@@ -717,6 +717,11 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
+         // Disable bounce effect by setting scrollView.bounces to false when disableOverscroll is true
+         webView.scrollView.bounces = !self.disableOverscroll
+ 
++        // Miden patch (B5 latency): make tap responses immediate. The default
++        // 150ms delaysContentTouches makes capsule + bubble taps feel sluggish
++        // when overlaid on a positioned dApp webview.
++        webView.scrollView.delaysContentTouches = false
++
+         webView.addObserver(self, forKeyPath: estimatedProgressKeyPath, options: .new, context: nil)
+         if websiteTitleInNavigationBar {
+             webView.addObserver(self, forKeyPath: titleKeyPath, options: .new, context: nil)
+@@ -1965,6 +1970,27 @@ extension WKWebViewController: WKNavigationDelegate {
+         // Apply the new dimensions
+         applyCustomDimensions()
+     }
++
++    /// Miden patch: take a JPEG snapshot of the current webview content.
++    /// `scale` < 1 downsamples for memory; `quality` is JPEG compression 0..1.
++    open func takeSnapshotData(scale: CGFloat, quality: CGFloat, completion: @escaping (String?) -> Void) {
++        guard let webView = self.webView else {
++            completion(nil)
++            return
++        }
++        let config = WKSnapshotConfiguration()
++        if scale > 0, scale < 1 {
++            // snapshotWidth is in points; native takeSnapshot scales the result.
++            config.snapshotWidth = NSNumber(value: Double(webView.bounds.width * scale))
++        }
++        webView.takeSnapshot(with: config) { image, _ in
++            guard let image = image, let data = image.jpegData(compressionQuality: max(0.1, min(1.0, quality))) else {
++                completion(nil)
++                return
++            }
++            completion("data:image/jpeg;base64,\(data.base64EncodedString())")
++        }
++    }
+ }
+ 
+ class BlockBarButtonItem: UIBarButtonItem {
