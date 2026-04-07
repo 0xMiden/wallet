@@ -103,8 +103,21 @@ export interface CloseWebviewOptions {
      * @default true
      */
     isAnimated?: boolean;
+    /**
+     * Miden patch (PR-4 chunk 5): id of the multi-instance webview to close.
+     * Defaults to 'default' for legacy single-instance callers.
+     */
+    id?: string;
 }
 export interface OpenWebViewOptions {
+    /**
+     * Miden patch (PR-4 chunk 5): id for the multi-instance webview being
+     * opened. Defaults to 'default' for legacy single-instance callers.
+     * Multi-instance callers pass an explicit id (e.g. a session id) so
+     * subsequent setVisible / snapshot / close calls can target this
+     * specific webview while other instances stay alive in parallel.
+     */
+    id?: string;
     /**
      * Target URL to load.
      * @since 0.1.0
@@ -545,6 +558,11 @@ export interface OpenWebViewOptions {
 }
 export interface DimensionOptions {
     /**
+     * Miden patch (PR-4 chunk 5): id of the multi-instance webview to
+     * resize. Defaults to 'default' for legacy single-instance callers.
+     */
+    id?: string;
+    /**
      * Width of the webview in pixels
      */
     width?: number;
@@ -694,6 +712,41 @@ export interface InAppBrowserPlugin {
      * @returns Promise that resolves when dimensions are updated
      */
     updateDimensions(options: DimensionOptions): Promise<void>;
+    /**
+     * Miden patch (PR-1 part 2): take a JPEG snapshot of the webview content
+     * as a base64 data URL. Optional `id` (PR-4 chunk 4) targets a specific
+     * multi-instance webview; defaults to 'default' for legacy callers.
+     */
+    snapshot(options?: {
+        id?: string;
+        scale?: number;
+        quality?: number;
+    }): Promise<{
+        data: string;
+    }>;
+    /**
+     * Miden patch (PR-4 chunk 4): toggle a specific instance's visibility
+     * WITHOUT tearing down its WebView. The JS context, page state, scroll
+     * position, and any in-flight network requests survive across the
+     * hide/show cycle. Required: `id`.
+     */
+    setVisible(options: {
+        id: string;
+        visible: boolean;
+    }): Promise<void>;
+    /**
+     * Miden patch (PR-4 chunk 4): list every currently registered instance
+     * id. Used by the wallet's PR-6 cold-bubble restore logic and the LRU
+     * eviction in PR-4 §memory-budget.
+     */
+    listInstances(): Promise<{
+        ids: string[];
+    }>;
+    /**
+     * Miden patch (PR-4 chunk 4): close every registered instance. Used on
+     * app shutdown / wallet reset.
+     */
+    closeAll(): Promise<void>;
 }
 /**
  * JavaScript APIs available in the InAppBrowser WebView.
