@@ -15,7 +15,7 @@
 
 import React, { type FC, useCallback, useEffect, useRef } from 'react';
 
-import { InAppBrowser } from '@capgo/inappbrowser';
+import { InAppBrowser } from '@miden/dapp-browser';
 
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';

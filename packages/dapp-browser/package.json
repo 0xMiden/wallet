@@ -1,0 +1,29 @@
+{
+  "name": "@miden/dapp-browser",
+  "version": "0.1.0",
+  "description": "Vendored multi-instance dApp browser plugin for the Miden Wallet. Forked from @capgo/inappbrowser 8.0.6 with patches for: positioned-modal touch passthrough, JPEG snapshot, async close completion, and (PR-4 onwards) multi-instance / UIWindow architecture.",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "dist/",
+    "ios/Sources/",
+    "Package.swift",
+    "MidenDappBrowser.podspec"
+  ],
+  "license": "MPL-2.0",
+  "private": true,
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  }
+}

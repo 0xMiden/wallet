@@ -6,7 +6,6 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "postinstall": "patch-package",
     "start": "yarn watch:src",
     "dev": "rimraf ./dist && concurrently yarn:watch:*",
     "dev-clean": "rimraf node_modules && yarn cache clean && yarn install && yarn dev",
@@ -72,7 +71,7 @@
     "@capacitor/preferences": "^8.0.0",
     "@capacitor/share": "^8.0.0",
     "@capacitor/splash-screen": "^8.0.0",
-    "@capgo/inappbrowser": "^8.0.6",
+    "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@demox-labs/aleo-hd-key": "^0.0.1",
     "@demox-labs/miden-wallet-adapter-base": "0.10.0",
     "@demox-labs/miden-wallet-adapter-miden": "0.10.0",

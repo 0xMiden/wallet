@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { InAppBrowser, ToolBarType } from '@capgo/inappbrowser';
+import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import { useTranslation } from 'react-i18next';
 
 import { INJECTION_SCRIPT, type DappSession, type WebViewMessage, handleWebViewMessage } from 'lib/dapp-browser';

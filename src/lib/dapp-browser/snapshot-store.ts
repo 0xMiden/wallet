@@ -11,7 +11,7 @@
  * persistence layer for cold-bubble restore after app restart.
  */
 
-import { InAppBrowser } from '@capgo/inappbrowser';
+import { InAppBrowser } from '@miden/dapp-browser';
 
 const snapshots = new Map<string, string>();
 const listeners = new Set<() => void>();

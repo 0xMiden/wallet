@@ -1,5 +1,5 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { InAppBrowser } from '@capgo/inappbrowser';
+import { InAppBrowser } from '@miden/dapp-browser';
 
 import { hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile, isAndroid } from 'lib/platform';
@@ -24,7 +24,7 @@ jest.mock('@capacitor/local-notifications', () => ({
   }
 }));
 
-jest.mock('@capgo/inappbrowser', () => ({
+jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
     close: jest.fn()
   }
