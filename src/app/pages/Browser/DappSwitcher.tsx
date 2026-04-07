@@ -16,8 +16,9 @@
 import React, { type FC, useCallback, useEffect } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
-import { springs } from 'lib/animation';
+import { useSprings } from 'lib/animation';
 import { type DappSession, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -31,6 +32,7 @@ interface DappSwitcherProps {
 
 export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
   const { sessionStates, restore, close } = useDappBrowser();
+  const { t } = useTranslation();
 
   // Close when there are no sessions left.
   useEffect(() => {
@@ -57,10 +59,20 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
     [close]
   );
 
+  const headerCountLabel =
+    sessionStates.length === 1
+      ? (t('openDappCountOne') ?? '1 open dApp')
+      : (t('openDappCountPlural') ?? '{count} open dApps').replace('{count}', String(sessionStates.length));
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div
+          // PR-7: proper dialog semantics so VoiceOver/TalkBack trap
+          // focus and announce the switcher as a modal experience.
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('dappSwitcher') ?? 'dApp switcher'}
           className="fixed inset-0 flex flex-col items-center justify-start"
           style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(24px)' }}
           initial={{ opacity: 0 }}
@@ -68,30 +80,35 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           onClick={onClose}
+          onKeyDown={e => {
+            if (e.key === 'Escape') onClose();
+          }}
         >
           {/* Top bar with close button */}
           <div
             className="flex w-full items-center justify-between px-4"
             style={{ paddingTop: 'calc(env(safe-area-inset-top) + 16px)' }}
           >
-            <div className="text-base font-semibold text-pure-white">
-              {sessionStates.length} {sessionStates.length === 1 ? 'open dApp' : 'open dApps'}
+            <div className="text-base font-semibold text-pure-white" aria-live="polite">
+              {headerCountLabel}
             </div>
             <button
               type="button"
-              aria-label="Close dApp switcher"
+              aria-label={t('closeDappSwitcher') ?? 'Close dApp switcher'}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10"
               onClick={e => {
                 e.stopPropagation();
                 onClose();
               }}
             >
-              <span className="text-xl text-pure-white">✕</span>
+              <span className="text-xl text-pure-white" aria-hidden="true">
+                ✕
+              </span>
             </button>
           </div>
 
           {/* Card grid */}
-          <div className="mt-6 grid w-full grid-cols-2 gap-3 px-4" onClick={e => e.stopPropagation()}>
+          <div className="mt-6 grid w-full grid-cols-2 gap-3 px-4" onClick={e => e.stopPropagation()} role="list">
             {sessionStates.map(state => (
               <SwitcherCard key={state.session.id} state={state} onTap={handleCardTap} onClose={handleCardClose} />
             ))}
@@ -109,10 +126,15 @@ interface SwitcherCardProps {
 }
 
 const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
+  // PR-7: reduce-motion-aware springs. The card enter animation is
+  // coupled to the switcher's AnimatePresence so the whole surface
+  // snaps instantly when reduce motion is on.
+  const springs = useSprings();
   const { session } = state;
   const snapshot = getSnapshot(session.id);
   const fallbackColor = getFallbackColor(session.origin);
   const fallbackLetter = getFallbackLetter(session.origin);
+  const displayName = session.title || session.origin;
 
   return (
     <motion.div
@@ -123,8 +145,15 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       transition={springs.sheetPresent}
       className="relative flex aspect-[3/4] cursor-pointer flex-col overflow-hidden rounded-2xl bg-pure-white shadow-[0_16px_48px_rgba(0,0,0,0.4)]"
       onClick={() => onTap(session)}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTap(session);
+        }
+      }}
+      tabIndex={0}
       role="button"
-      aria-label={`Switch to ${session.title || session.origin}`}
+      aria-label={`${displayName}. Activate to switch to this dApp.`}
     >
       {/* Snapshot or fallback */}
       <div
@@ -151,11 +180,18 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
         </div>
         <button
           type="button"
-          aria-label={`Close ${session.title || session.origin}`}
+          aria-label={`Close ${displayName}`}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/40"
           onClick={e => onClose(e, session)}
+          onKeyDown={e => {
+            // Stop the card's keyboard activation from firing when the
+            // user presses Enter/Space on the ✕ inside it.
+            if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+          }}
         >
-          <span className="text-xs text-pure-white">✕</span>
+          <span className="text-xs text-pure-white" aria-hidden="true">
+            ✕
+          </span>
         </button>
       </div>
 

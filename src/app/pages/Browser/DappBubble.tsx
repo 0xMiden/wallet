@@ -15,9 +15,9 @@
 
 import React, { type FC, useCallback, useEffect, useRef, useState } from 'react';
 
-import { motion, useAnimationControls } from 'framer-motion';
+import { motion, useAnimationControls, useReducedMotion } from 'framer-motion';
 
-import { springs } from 'lib/animation';
+import { resolveTransition, springs } from 'lib/animation';
 import { type DappSession, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
 import { hapticBubbleAttach, hapticLight } from 'lib/mobile/haptics';
 
@@ -104,6 +104,16 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
   const [iconBroken, setIconBroken] = useState(false);
   const dragStartedAt = useRef<{ x: number; y: number; time: number } | null>(null);
   const movedDuringDrag = useRef(false);
+  // PR-7: cache the reduce-motion preference in a ref so event handlers
+  // (which can't call hooks) can still reach the current value. Each
+  // `controls.start({ transition })` call below routes through
+  // `resolveTransition` to collapse springs to instant tweens when the
+  // user has reduced motion on.
+  const reduceMotion = useReducedMotion();
+  const reduceMotionRef = useRef(reduceMotion);
+  useEffect(() => {
+    reduceMotionRef.current = reduceMotion;
+  }, [reduceMotion]);
   // Anchor in CSS pixels (top-left of the bubble). Default corner is
   // bottom-right; the stackIndex shifts the initial position diagonally
   // toward the screen center so multiple bubbles in the same corner are
@@ -124,7 +134,7 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
       .start({
         scale: 1,
         opacity: 1,
-        transition: springs.magnetic
+        transition: resolveTransition(reduceMotionRef.current, springs.magnetic)
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,7 +147,13 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
       const corners = computeCorners(footerHeight);
       const snap = nearestCorner(corners, positionRef.current.x, positionRef.current.y);
       positionRef.current = snap;
-      controls.start({ x: snap.x, y: snap.y, transition: springs.standard }).catch(() => {});
+      controls
+        .start({
+          x: snap.x,
+          y: snap.y,
+          transition: resolveTransition(reduceMotionRef.current, springs.standard)
+        })
+        .catch(() => {});
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
@@ -166,7 +182,7 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
         .start({
           x: target.x,
           y: target.y,
-          transition: springs.magnetic
+          transition: resolveTransition(reduceMotionRef.current, springs.magnetic)
         })
         .catch(() => {});
     },
@@ -184,6 +200,12 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
   const showFavicon = !!session.favicon && !iconBroken;
   const hasSnapshot = !!snapshot;
 
+  // PR-7: aria-label reads better as an affordance description. Screen
+  // reader users map "activate" (double-tap) to the button role
+  // automatically, so we just state what the button does.
+  const displayName = session.title || session.origin;
+  const ariaLabel = `${displayName}, parked dApp. Activate to restore.`;
+
   return (
     <motion.div
       animate={controls}
@@ -195,7 +217,17 @@ export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeigh
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       role="button"
-      aria-label={`${session.title} dApp, double-tap to restore`}
+      tabIndex={0}
+      aria-label={ariaLabel}
+      aria-roledescription="draggable bubble"
+      onKeyDown={e => {
+        // Keyboard activation for external-keyboard users + screen reader
+        // shortcut keys that don't synthesize click events.
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleClick();
+        }
+      }}
       className="absolute left-0 top-0 flex h-16 w-16 cursor-grab items-center justify-center overflow-hidden rounded-full bg-pure-white shadow-[0_8px_24px_rgba(15,23,42,0.18),_0_2px_4px_rgba(15,23,42,0.08)] active:cursor-grabbing"
       style={{
         background: hasSnapshot ? `center/cover no-repeat url(${snapshot})` : fallbackColor,

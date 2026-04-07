@@ -17,14 +17,14 @@
  * avoids tripping the host viewport bug documented in `viewport-reset.ts`.
  */
 
-import React, { type FC, useEffect } from 'react';
+import React, { type FC, useEffect, useRef } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { springs } from 'lib/animation';
+import { useSprings } from 'lib/animation';
 import type { DAppConfirmationRequest, DAppConfirmationResult } from 'lib/dapp-browser/confirmation-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -39,10 +39,44 @@ interface DappConfirmationModalProps {
 
 export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request, accountId, onResolve }) => {
   const { t } = useTranslation();
+  // PR-7: reduce-motion-aware springs.
+  const springs = useSprings();
   const isTransaction = request.type === 'transaction' || request.type === 'consume';
   const appName = request.appMeta?.name || request.origin;
   const transactionMessages = request.transactionMessages ?? [];
   const canApprove = isTransaction || Boolean(accountId);
+
+  // PR-7: focus management. On mount we store the element that was
+  // focused before the modal opened, move focus to the first focusable
+  // element inside the modal, trap Tab within the modal, and restore
+  // focus to the original element on unmount. This gives keyboard and
+  // screen-reader users a proper modal interaction without adding the
+  // `react-focus-lock` dep the plan suggested — a ~30 LOC native
+  // implementation covers the same ground for our single-modal case.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const approveButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previouslyFocused = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null;
+    // Focus the primary action so pressing Enter confirms by default
+    // (matches iOS / macOS confirm-dialog behavior). If the approve
+    // button is disabled, focus falls back to the first interactive
+    // element in the dialog (which will be the Deny button).
+    const focusTarget =
+      approveButtonRef.current && !approveButtonRef.current.disabled
+        ? approveButtonRef.current
+        : containerRef.current?.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])');
+    focusTarget?.focus();
+
+    return () => {
+      // Restore focus to whatever had it before the modal opened so
+      // keyboard users don't lose their place.
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+        previouslyFocused.focus();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Hardware back / iOS swipe-back closes the modal as a deny.
   useMobileBackHandler(() => {
@@ -50,10 +84,38 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     return true;
   }, []);
 
-  // ESC key closes as deny (desktop / keyboard accessibility).
+  // PR-7: ESC key deny + Tab key focus trap.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleDeny();
+      if (e.key === 'Escape') {
+        handleDeny();
+        return;
+      }
+      if (e.key === 'Tab') {
+        const container = containerRef.current;
+        if (!container) return;
+        const focusables = Array.from(
+          container.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+
+        if (e.shiftKey) {
+          if (active === first || !container.contains(active)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (active === last || !container.contains(active)) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -93,6 +155,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
       aria-labelledby="dapp-confirmation-title"
     >
       <motion.div
+        ref={containerRef}
         className="w-full max-w-[360px] overflow-hidden rounded-2xl bg-pure-white shadow-2xl"
         initial={{ scale: 0.96, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -154,6 +217,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             {t('deny')}
           </button>
           <button
+            ref={approveButtonRef}
             type="button"
             onClick={handleApprove}
             disabled={!canApprove}

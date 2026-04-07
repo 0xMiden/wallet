@@ -23,7 +23,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { springs } from 'lib/animation';
+import { useSprings } from 'lib/animation';
 import { type DappSession, getFallbackColor, getFallbackLetter, getFaviconUrl } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -55,6 +55,9 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   tabsCount = 1
 }) => {
   const { t } = useTranslation();
+  // PR-7: reduce-motion aware springs. When the user has reduce-motion
+  // on, every transition below collapses to `{ duration: 0.001 }`.
+  const springs = useSprings();
   const [menuOpen, setMenuOpen] = useState(false);
   const [faviconBroken, setFaviconBroken] = useState(false);
 
@@ -90,6 +93,10 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   return (
     <header
       className="fixed left-0 right-0 top-0 z-[60] flex flex-col"
+      // PR-7: explicit landmark role so VoiceOver/TalkBack announces
+      // the capsule as a banner region when the user swipes into it.
+      role="banner"
+      aria-label={t('dappBrowserCapsule') ?? 'dApp browser header'}
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         background: 'rgba(255,255,255,0.85)',
@@ -107,10 +114,17 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
       {/* 24px drag affordance strip — PR-3 wires up framer-motion drag here.
           The strip is draggable in y; releasing past 120px or velocity > 600px/s
           calls onMinimize(). The drag is constrained to the strip itself so
-          taps in the content row below remain unaffected. */}
+          taps in the content row below remain unaffected.
+
+          PR-7: role + aria-roledescription so screen readers announce
+          "draggable" — users without the gesture capability still have
+          the Minimize button below as an accessible alternative path. */}
       <motion.div
         className="flex h-6 items-center justify-center"
         data-drag-handle="true"
+        role={onMinimize ? 'button' : undefined}
+        aria-roledescription={onMinimize ? 'draggable' : undefined}
+        aria-label={onMinimize ? (t('dragToMinimize') ?? 'Drag down to minimize') : undefined}
         drag={onMinimize ? 'y' : false}
         dragConstraints={{ top: 0, bottom: 0 }}
         dragElastic={{ top: 0, bottom: 0.6 }}

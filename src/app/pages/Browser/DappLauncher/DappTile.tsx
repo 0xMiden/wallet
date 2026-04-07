@@ -12,7 +12,7 @@ import React, { type FC, useState } from 'react';
 
 import { motion } from 'framer-motion';
 
-import { springs } from 'lib/animation';
+import { useSprings } from 'lib/animation';
 import { type FeaturedDapp, type RecentDapp } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -27,6 +27,10 @@ interface DappTileProps {
 
 export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge, onOpen }) => {
   const [iconBroken, setIconBroken] = useState(false);
+  // PR-7: reduce-motion-aware springs so the shared-element morph from
+  // tile → capsule collapses to an instant switch when the user has
+  // reduce motion on.
+  const springs = useSprings();
 
   const handleClick = () => {
     hapticLight();
@@ -35,6 +39,9 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
 
   const showFallback = !icon || iconBroken;
   const fallbackBg = brandColor ?? '#94A3B8';
+  // PR-7: include the badge state in the accessible name so screen
+  // readers announce verified status, not just the dApp name.
+  const accessibleLabel = badge === 'verified' ? `${name}, verified dApp` : name;
 
   return (
     <motion.button
@@ -43,13 +50,14 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
       transition={springs.morph}
       onPointerDown={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
-      aria-label={name}
+      aria-label={accessibleLabel}
     >
       <motion.div
         layoutId={`dapp-favicon-${url}`}
         transition={springs.morph}
         className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
         style={{ background: showFallback ? fallbackBg : 'rgba(0,0,0,0.04)' }}
+        aria-hidden="true"
       >
         {showFallback ? (
           <span className="text-lg font-semibold text-pure-white">{name.charAt(0).toUpperCase()}</span>
@@ -72,6 +80,7 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
         layoutId={`dapp-name-${url}`}
         transition={springs.morph}
         className="w-full truncate text-center text-xs font-medium text-grey-700"
+        aria-hidden="true"
       >
         {name}
       </motion.span>
