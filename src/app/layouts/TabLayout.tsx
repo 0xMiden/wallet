@@ -68,8 +68,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         {children}
       </div>
 
-      {/* Floating footer with blur — overlays content */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
+      {/* Floating footer with blur — overlays content. The data attribute lets
+          the dApp bubble host measure the footer height for corner snap math. */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none" data-tabbar-footer="true">
         <div className="pointer-events-auto">
           <Footer historyBadge={historyBadge} />
         </div>

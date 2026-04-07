@@ -16,9 +16,10 @@ import React, { forwardRef } from 'react';
 
 interface NativeWebViewSlotProps {
   className?: string;
+  style?: React.CSSProperties;
 }
 
-export const NativeWebViewSlot = forwardRef<HTMLDivElement, NativeWebViewSlotProps>(({ className }, ref) => {
+export const NativeWebViewSlot = forwardRef<HTMLDivElement, NativeWebViewSlotProps>(({ className, style }, ref) => {
   return (
     <div
       ref={ref}
@@ -26,7 +27,8 @@ export const NativeWebViewSlot = forwardRef<HTMLDivElement, NativeWebViewSlotPro
       style={{
         flex: 1,
         // Don't draw anything; let the native webview show through.
-        pointerEvents: 'none'
+        pointerEvents: 'none',
+        ...style
       }}
       aria-hidden="true"
     />

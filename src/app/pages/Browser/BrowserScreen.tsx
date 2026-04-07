@@ -1,35 +1,36 @@
 /**
  * Top-level browser tab screen.
  *
- * State machine:
- *   no active session -> <DappLauncher/>
- *   active session    -> <DappActive session={...}/>
+ * After PR-3's `<DappBrowserProvider>` hoist, this component is a thin
+ * consumer that:
+ *  - Reads the active session and mode from `useDappBrowser()`
+ *  - Renders `<DappLauncher>` when there's no foreground dApp (mode is
+ *    `'launcher'`, OR mode is `'parked'` so the bubble shows over the
+ *    launcher)
+ *  - Renders `<DappActive>` when a dApp is foregrounded (mode `'active'`)
+ *  - Tells the provider to open a new session when the user taps a tile
+ *    or submits a URL
  *
- * In PR-1 there's exactly one active session at a time. PR-3 hoists the
- * session ownership to a `DappBrowserProvider` mounted at app root, so
- * sessions survive tab navigation. For PR-1 the session lives in this
- * component's local state, which is sufficient because the user must be
- * on `/browser` to interact with a dApp at all.
+ * The provider lives in `<TabLayout>` and survives tab navigation.
  *
- * The platform check is preserved from the legacy `Browser.tsx`: on desktop
- * (Tauri) we still hand off to the existing dapp-browser bridge that opens
- * a separate window. PR-1 only changes mobile behavior.
+ * The platform check is preserved from the legacy `Browser.tsx`: on
+ * desktop (Tauri) we still hand off to the existing dapp-browser bridge
+ * that opens a separate window.
  */
 
-import React, { type FC, useCallback, useState } from 'react';
+import React, { type FC, useCallback } from 'react';
 
 import { LayoutGroup } from 'framer-motion';
 
-import { type DappSession, createDappSession, recordRecentDapp } from 'lib/dapp-browser';
+import { useDappBrowser } from 'app/providers/DappBrowserProvider';
+import { createDappSession, recordRecentDapp } from 'lib/dapp-browser';
 import { isDesktop } from 'lib/platform';
-import { useWalletStore } from 'lib/store';
 
 import { DappActive } from './DappActive';
 import { DappLauncher } from './DappLauncher';
 
 export const BrowserScreen: FC = () => {
-  const setActiveDappSession = useWalletStore(s => s.setActiveDappSession);
-  const [session, setSession] = useState<DappSession | null>(null);
+  const { mode, open } = useDappBrowser();
 
   const handleOpen = useCallback(
     async (url: string) => {
@@ -44,36 +45,26 @@ export const BrowserScreen: FC = () => {
         return;
       }
 
-      // Mobile: create a session and let <DappActive> open the native webview.
-      const next = createDappSession(url);
-      setSession(next);
-      setActiveDappSession(next.id);
+      // Mobile: build a session and hand it to the provider.
+      const session = createDappSession(url);
+      open(session);
 
-      // Record into recents storage so the launcher's MyDappsGrid shows it
-      // next time. The session's title gets updated by useDappWebView once
-      // browserPageLoaded fires; for the recents entry we save a best-effort
-      // initial name based on the origin.
       recordRecentDapp({
         url,
-        name: next.title || next.origin.replace(/^https?:\/\//, ''),
-        origin: next.origin,
-        favicon: next.favicon
+        name: session.title || session.origin.replace(/^https?:\/\//, ''),
+        origin: session.origin,
+        favicon: session.favicon
       }).catch(() => {});
     },
-    [setActiveDappSession]
+    [open]
   );
-
-  const handleClose = useCallback(() => {
-    setSession(null);
-    setActiveDappSession(null);
-  }, [setActiveDappSession]);
 
   // The shared LayoutGroup id ties the tile's `layoutId={`dapp-tile-${url}`}`
   // (and child favicon/name layoutIds) to the matching ones on `<CapsuleBar>`,
   // so opening a dApp from the launcher morphs the tile into the capsule.
   return (
     <LayoutGroup id="dapp-browser">
-      {session ? <DappActive session={session} onClose={handleClose} /> : <DappLauncher onOpen={handleOpen} />}
+      {mode === 'active' ? <DappActive /> : <DappLauncher onOpen={handleOpen} />}
     </LayoutGroup>
   );
 };
