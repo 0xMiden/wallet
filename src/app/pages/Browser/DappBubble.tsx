@@ -18,7 +18,7 @@ import React, { type FC, useCallback, useEffect, useRef, useState } from 'react'
 import { motion, useAnimationControls, useReducedMotion } from 'framer-motion';
 
 import { resolveTransition, springs } from 'lib/animation';
-import { type DappSession, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
+import { type DappSession, getDappDisplayName, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
 import { hapticBubbleAttach, hapticLight } from 'lib/mobile/haptics';
 
 interface DappBubbleProps {
@@ -217,8 +217,11 @@ export const DappBubble: FC<DappBubbleProps> = ({
 
   // PR-7: aria-label reads better as an affordance description. Screen
   // reader users map "activate" (double-tap) to the button role
-  // automatically, so we just state what the button does.
-  const displayName = session.title || session.origin;
+  // automatically, so we just state what the button does. Use the
+  // shared display-name helper so the label reads "miden.xyz, parked
+  // dApp" instead of the raw `https://miden.xyz` URL the session.title
+  // falls back to before the page loads.
+  const displayName = getDappDisplayName(session);
   const ariaLabel =
     overflowCount > 0
       ? `${overflowCount + 1} parked dApps. Activate to open switcher.`

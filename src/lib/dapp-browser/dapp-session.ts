@@ -58,3 +58,31 @@ export function parseOrigin(url: string): string {
     return url;
   }
 }
+
+/**
+ * Hostname-only label for a session URL (no scheme, no www. prefix).
+ * Used as the secondary line in the capsule and as the bubble / switcher
+ * card / tile fallback name.
+ */
+export function getDappHostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Short, human-readable display name for a session.
+ *
+ * Priority: a non-empty `<title>` that isn't just the URL itself wins;
+ * otherwise we derive a hostname-style label from the URL. The capsule
+ * stores `session.title = origin` until the page loads, so without this
+ * helper every label fell back to the raw `https://...` string and the
+ * letter avatar collapsed to "H".
+ */
+export function getDappDisplayName(session: { title?: string; url: string; origin?: string }): string {
+  const t = (session.title ?? '').trim();
+  if (t && !t.startsWith('http')) return t;
+  return getDappHostname(session.url);
+}

@@ -23,7 +23,7 @@ import React, { type FC, useCallback } from 'react';
 import { LayoutGroup } from 'framer-motion';
 
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
-import { createDappSession, recordRecentDapp } from 'lib/dapp-browser';
+import { createDappSession, getDappDisplayName, recordRecentDapp } from 'lib/dapp-browser';
 import { isDesktop } from 'lib/platform';
 
 import { DappActive } from './DappActive';
@@ -49,11 +49,13 @@ export const BrowserScreen: FC = () => {
       const session = createDappSession(url);
       open(session);
 
-      // PR-6/7 polish: derive a readable display name from the URL
-      // hostname rather than storing the raw origin/title. Previously
-      // the stored `name` was the full `https://…` URL, which made the
-      // DappTile fall back to 'H' as its avatar letter.
-      const displayName = displayNameFromUrl(url, session.title);
+      // Derive a readable display name from the URL hostname rather
+      // than storing the raw origin/title. Previously the stored
+      // `name` was the full `https://…` URL, which made the DappTile
+      // fall back to 'H' as its avatar letter. The shared helper lives
+      // in lib/dapp-browser so the bubble, switcher card, and capsule
+      // all derive the same name from the same source of truth.
+      const displayName = getDappDisplayName(session);
 
       recordRecentDapp({
         url,
@@ -74,25 +76,3 @@ export const BrowserScreen: FC = () => {
     </LayoutGroup>
   );
 };
-
-/**
- * Produce a short human-readable display name for a dApp based on its
- * URL. Priority: a non-empty, non-URL `sessionTitle` → the URL's
- * hostname with `www.` stripped → the raw URL if parsing fails.
- *
- * We deliberately avoid storing the raw `https://…` URL as the
- * display name because the DappTile uses `name.charAt(0)` as its
- * fallback letter — and every HTTPS URL starts with 'H', so every
- * recent tile ended up with the same "H" avatar.
- */
-function displayNameFromUrl(url: string, sessionTitle?: string): string {
-  if (sessionTitle && !sessionTitle.startsWith('http')) {
-    return sessionTitle;
-  }
-  try {
-    const host = new URL(url).hostname;
-    return host.replace(/^www\./, '');
-  } catch {
-    return url;
-  }
-}
