@@ -25,7 +25,7 @@ import { NativeWebViewSlot } from './NativeWebViewSlot';
 import { ProgressBar } from './ProgressBar';
 
 export const DappActive: FC = () => {
-  const { session, isLoading, close, park, setSlotRect } = useDappBrowser();
+  const { session, isLoading, close, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
   const slotRef = useRef<HTMLDivElement>(null);
 
   // Hardware back from `<DappActive>`: park (not close) so the session
@@ -81,6 +81,9 @@ export const DappActive: FC = () => {
         onClose={() => void close()}
         onReload={handleReload}
         onMinimize={() => void park()}
+        // PR-5: card switcher access from the capsule.
+        onOpenSwitcher={openSwitcher}
+        tabsCount={sessionStates.length}
       />
 
       {/* Spacer matching the capsule height (24 drag + 56 content + 1 hairline) */}

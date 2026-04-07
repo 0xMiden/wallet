@@ -50,7 +50,7 @@ export const DappBubbleHost: FC = () => {
   return (
     <div className="pointer-events-none fixed inset-0" style={{ zIndex: 65 }} aria-hidden={parkedSessions.length === 0}>
       <AnimatePresence>
-        {parkedSessions.map(state => {
+        {parkedSessions.map((state, index) => {
           const snapshot = getSnapshot(state.session.id);
           return (
             <div className="pointer-events-auto" key={`bubble-${state.session.id}-${snapshotTick}`}>
@@ -58,6 +58,10 @@ export const DappBubbleHost: FC = () => {
                 session={state.session}
                 snapshot={snapshot}
                 footerHeight={footerHeight}
+                // PR-5 multi-bubble polish: cascade index so each bubble in a
+                // shared corner is visually distinguishable. parkedSessions
+                // mirrors sessionStates order, so newer parks stack on top.
+                stackIndex={index}
                 onTap={() => void restore(state.session.id)}
               />
             </div>

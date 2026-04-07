@@ -55,6 +55,7 @@ import { useTranslation } from 'react-i18next';
 
 import { DappBubbleHost } from 'app/pages/Browser/DappBubbleHost';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
+import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
 import {
   INJECTION_SCRIPT,
   type DappSession,
@@ -119,6 +120,14 @@ interface DappBrowserContextValue {
   park: (sessionId?: string) => Promise<void>;
   /** Restore a parked session to the foreground. */
   restore: (sessionId: string) => Promise<void>;
+  /**
+   * PR-5: card switcher state. The switcher is a fullscreen modal that
+   * lets the user browse and manage every open dApp at once. It's
+   * mounted by the provider so it survives tab navigation.
+   */
+  switcherOpen: boolean;
+  openSwitcher: () => void;
+  closeSwitcher: () => void;
   /** Set the slot rect — `<NativeWebViewSlot>` calls this on every layout. */
   setSlotRect: (rect: WebViewRect | null) => void;
   /** The most recent slot rect, used by minimize-animation hooks. */
@@ -173,6 +182,18 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const [sessionStates, setSessionStates] = useState<DappSessionState[]>([]);
   const [foregroundId, setForegroundId] = useState<string | null>(null);
   const [slotRect, setSlotRect] = useState<WebViewRect | null>(null);
+  // PR-5: card switcher visibility lives in the provider so it survives
+  // tab navigation alongside the bubble host.
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  // Snapshot taken at the moment the switcher opens — restored when it
+  // closes (unless the user picked a card, in which case the picked
+  // session takes the foreground via restore()).
+  const switcherForegroundBeforeRef = useRef<string | null>(null);
+  const openSwitcher = useCallback(() => {
+    switcherForegroundBeforeRef.current = foregroundIdRef.current;
+    setSwitcherOpen(true);
+  }, []);
+  const closeSwitcher = useCallback(() => setSwitcherOpen(false), []);
 
   const sessionStatesRef = useRef<DappSessionState[]>(sessionStates);
   const foregroundIdRef = useRef<string | null>(foregroundId);
@@ -528,6 +549,37 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     setActiveDappSession(foregroundId);
   }, [foregroundId, setActiveDappSession]);
 
+  // PR-5: when the switcher opens, hide every active native dApp window
+  // so the React-rendered switcher can be the topmost visible layer.
+  // Otherwise the native UIWindows (which sit above the Capacitor host
+  // window in iOS architecture A) bleed through. When the switcher
+  // closes WITHOUT a restore(), put the previously-foreground session
+  // back into view.
+  useEffect(() => {
+    if (switcherOpen) {
+      // Hide all active instances. Parked ones are already hidden.
+      sessionStatesRef.current.forEach(s => {
+        if (s.status === 'active' && s.instance) {
+          void s.instance.setVisible(false);
+        }
+      });
+    } else {
+      // Switcher closed. If a foreground session is set, ensure it's
+      // visible at the slot rect (in case the user closed without
+      // picking a different card). The slot-rect-driven effect will
+      // call setVisible(true) + setRect once it runs, but we don't
+      // need to do anything explicit here — the dependency on
+      // switcherOpen is enough to trigger a re-run.
+      if (foregroundIdRef.current && slotRectRef.current) {
+        const state = sessionStatesRef.current.find(s => s.session.id === foregroundIdRef.current);
+        if (state?.instance) {
+          void state.instance.setVisible(true);
+          void state.instance.setRect(slotRectRef.current);
+        }
+      }
+    }
+  }, [switcherOpen]);
+
   // ─── Derived backwards-compat fields ────────────────────────────────────
   //
   // IMPORTANT: read from `sessionStates` (state) here, NOT from
@@ -555,10 +607,27 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       close,
       park,
       restore,
+      switcherOpen,
+      openSwitcher,
+      closeSwitcher,
       setSlotRect,
       slotRect
     }),
-    [session, mode, isLoading, parkedSessions, sessionStates, open, close, park, restore, slotRect]
+    [
+      session,
+      mode,
+      isLoading,
+      parkedSessions,
+      sessionStates,
+      open,
+      close,
+      park,
+      restore,
+      switcherOpen,
+      openSwitcher,
+      closeSwitcher,
+      slotRect
+    ]
   );
 
   // The confirmation modal is rendered here so it survives tab navigation.
@@ -588,6 +657,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
       {/* Bubble portal — one bubble per parked dApp. */}
       {isMobile() && <DappBubbleHost />}
+
+      {/* PR-5: card switcher portal — fullscreen modal for managing
+          every open dApp. Mounted here so it survives tab navigation. */}
+      {isMobile() && <DappSwitcher open={switcherOpen} onClose={closeSwitcher} />}
 
       {/* Confirmation modal — visible whenever the store has a pending request,
           regardless of which tab the user is on. */}

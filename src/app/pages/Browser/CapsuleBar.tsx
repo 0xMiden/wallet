@@ -33,12 +33,27 @@ interface CapsuleBarProps {
   onReload: () => void;
   /** Optional drag handler — when provided, the top 24px strip becomes draggable. */
   onMinimize?: () => void;
+  /**
+   * PR-5: when there is more than one open dApp, this opens the card
+   * switcher. The capsule shows a small tabs button with the count badge
+   * between favicon and ⋯ menu when this is provided AND tabsCount > 1.
+   */
+  onOpenSwitcher?: () => void;
+  /** Total number of open dApp sessions (foreground + parked). */
+  tabsCount?: number;
 }
 
 const MINIMIZE_DISTANCE_THRESHOLD = 120;
 const MINIMIZE_VELOCITY_THRESHOLD = 600;
 
-export const CapsuleBar: FC<CapsuleBarProps> = ({ session, onClose, onReload, onMinimize }) => {
+export const CapsuleBar: FC<CapsuleBarProps> = ({
+  session,
+  onClose,
+  onReload,
+  onMinimize,
+  onOpenSwitcher,
+  tabsCount = 1
+}) => {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [faviconBroken, setFaviconBroken] = useState(false);
@@ -139,6 +154,26 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({ session, onClose, onReload, on
           </motion.span>
           <span className="truncate text-xs text-grey-500">{session.origin}</span>
         </div>
+
+        {/* PR-5 card switcher button — appears when there are 2+ open
+            dApps. Tapping opens the switcher with the current dApp
+            focused. Shows a count badge so the user knows how many are
+            open without having to think about it. */}
+        {onOpenSwitcher && tabsCount > 1 && (
+          <button
+            type="button"
+            onClick={() => {
+              hapticLight();
+              onOpenSwitcher();
+            }}
+            aria-label={t('switchDapps') ?? 'Switch dApps'}
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+          >
+            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-grey-700">
+              <span className="text-[10px] font-bold leading-none text-grey-700">{tabsCount}</span>
+            </div>
+          </button>
+        )}
 
         {/* Minimize button — drag handle is the gesture path on real devices,
             this button is the discoverable + accessible alternative. Calling

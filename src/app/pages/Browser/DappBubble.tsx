@@ -27,11 +27,26 @@ interface DappBubbleProps {
   snapshot?: string;
   /** Footer height in CSS pixels — used to compute the bottom safe-corner offset. */
   footerHeight: number;
+  /**
+   * PR-5 multi-bubble polish: zero-based index within a corner stack. Used
+   * to offset the initial position so multiple bubbles are visually
+   * distinguishable rather than overlapping perfectly. The user can still
+   * drag any bubble independently — the offset only determines the
+   * starting layout. Defaults to 0 (no offset) for single-bubble cases.
+   */
+  stackIndex?: number;
   onTap: () => void;
 }
 
 const SIZE = 64;
 const EDGE_PADDING = 16;
+/**
+ * PR-5 multi-bubble polish: when N bubbles share a corner, each gets a
+ * 12px diagonal offset from the next so they're all visible. The drag
+ * gesture is unaffected — once a bubble is dragged it snaps to whichever
+ * corner it ends up nearest.
+ */
+const STACK_OFFSET = 12;
 
 interface Corner {
   x: number;
@@ -68,18 +83,37 @@ function nearestCorner(corners: Corner[], x: number, y: number): Corner {
   return best;
 }
 
-export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeight, onTap }) => {
+/**
+ * PR-5 multi-bubble polish: compute the initial position for a bubble at
+ * a given stack index. The bottom-right corner is the default; each
+ * stack index shifts the bubble STACK_OFFSET pixels toward the upper-left
+ * (away from the corner) so a stack of N bubbles cascades visibly.
+ */
+function computeStackedInitialPosition(footerHeight: number, stackIndex: number): Corner {
+  const corners = computeCorners(footerHeight);
+  const base = corners[3] ?? { x: 0, y: 0 }; // bottom-right
+  const offset = stackIndex * STACK_OFFSET;
+  return {
+    x: base.x - offset,
+    y: base.y - offset
+  };
+}
+
+export const DappBubble: FC<DappBubbleProps> = ({ session, snapshot, footerHeight, stackIndex = 0, onTap }) => {
   const controls = useAnimationControls();
   const [iconBroken, setIconBroken] = useState(false);
   const dragStartedAt = useRef<{ x: number; y: number; time: number } | null>(null);
   const movedDuringDrag = useRef(false);
-  // Anchor in CSS pixels (top-left of the bubble).
-  const positionRef = useRef<Corner>(computeCorners(footerHeight)[3] ?? { x: 0, y: 0 });
+  // Anchor in CSS pixels (top-left of the bubble). Default corner is
+  // bottom-right; the stackIndex shifts the initial position diagonally
+  // toward the screen center so multiple bubbles in the same corner are
+  // all visible.
+  const positionRef = useRef<Corner>(computeStackedInitialPosition(footerHeight, stackIndex));
 
   // Pop-in animation: scale 0 → 1 with overshoot.
   useEffect(() => {
-    const initial = computeCorners(footerHeight)[3];
-    if (initial) positionRef.current = initial;
+    const initial = computeStackedInitialPosition(footerHeight, stackIndex);
+    positionRef.current = initial;
     controls.set({
       x: positionRef.current.x,
       y: positionRef.current.y,
