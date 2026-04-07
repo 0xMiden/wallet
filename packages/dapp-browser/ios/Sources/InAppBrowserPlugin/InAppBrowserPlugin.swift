@@ -417,19 +417,22 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // to the matching session.
             webViewController.instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
 
-            // Set dimensions if provided
-            if let width = width {
-                webViewController.customWidth = CGFloat(width)
-            }
-            if let height = height {
-                webViewController.customHeight = CGFloat(height)
-            }
-            if let xPos = xPos {
-                webViewController.customX = CGFloat(xPos)
-            }
-            if let yPos = yPos {
-                webViewController.customY = CGFloat(yPos)
-            }
+            // Miden patch (PR-6/7 polish): we deliberately do NOT set
+            // customWidth/customHeight/customX/customY on the controller
+            // anymore when the caller passes dimensions. In Architecture A
+            // the positioning is owned by the UIWindow frame (see the
+            // window-creation block below), and having the controller
+            // also try to set `navigationController.view.frame = ...` in
+            // `applyCustomDimensions()` double-counts the slot rect
+            // offset and pushes content off-screen. By leaving these
+            // properties nil, `applyCustomDimensions()` falls into its
+            // "no action needed" branch and the UIWindow + nav
+            // controller layout takes over cleanly.
+            //
+            // Legacy callers that don't pass width/height (faucet-webview,
+            // native-notifications) still hit the legacy fullscreen modal
+            // path below; their custom* fields also stay nil and
+            // fullscreen presentation works exactly as before.
 
             // Set disableOverscroll option
             webViewController.disableOverscroll = disableOverscroll
@@ -626,37 +629,42 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
 
             }
 
-            // Configure modal presentation for touch passthrough if custom dimensions are set
+            // Miden patch (PR-6/7 polish): the legacy "PassThroughView
+            // container" branch here is GONE for positioned webviews.
+            //
+            // What it used to do: when width/height were passed, replace
+            // `navController.view` with a PassThroughView containing the
+            // original nav view at a custom frame. This was the
+            // Architecture B approach for touch passthrough when the
+            // webview was presented as a modal on top of the Capacitor
+            // host. It had two fatal problems for Architecture A:
+            //
+            //  1. Swapping `navController.view` confuses iOS layout:
+            //     the child WKWebViewController's `self.view` ends up
+            //     at a phantom 2x size (804×1218 on a 402×609 window)
+            //     because the nav controller stops resizing its child
+            //     properly after the view swap.
+            //  2. The container's `targetFrame` was in SCREEN space but
+            //     the PassThroughView itself was embedded in the window,
+            //     which now is also in screen space at the slot rect.
+            //     Double-counting the slot offset would push the
+            //     webview further off-screen.
+            //
+            // Architecture A doesn't need any of this. The UIWindow
+            // itself is sized to the slot rect and positioned in screen
+            // coordinates; taps outside the slot rect naturally fall to
+            // the Capacitor host window because iOS window hit-testing
+            // picks the window containing the point. No PassThroughView
+            // swap needed.
+            //
+            // We KEEP the PassThroughView class around (unused here, but
+            // referenced by WKWebViewController.swift's hitTest override)
+            // because it's still the in-window passthrough for touches
+            // that land inside the slot rect but outside the webview's
+            // actual content region (rare but possible during
+            // drag animations).
             if width != nil || height != nil {
                 self.navigationWebViewController?.modalPresentationStyle = .overFullScreen
-
-                // Create a pass-through container
-                let containerView = PassThroughView()
-                containerView.backgroundColor = .clear
-
-                // Calculate dimensions - use screen width if only height is provided
-                let finalWidth = width.map { CGFloat($0) } ?? UIScreen.main.bounds.width
-                let finalHeight = height.map { CGFloat($0) } ?? UIScreen.main.bounds.height
-
-                containerView.targetFrame = CGRect(
-                    x: CGFloat(xPos ?? 0),
-                    y: CGFloat(yPos ?? 0),
-                    width: finalWidth,
-                    height: finalHeight
-                )
-
-                // Replace the navigation controller's view with our pass-through container
-                if let navController = self.navigationWebViewController,
-                   let originalView = navController.view {
-                    navController.view = containerView
-                    containerView.addSubview(originalView)
-                    originalView.frame = CGRect(
-                        x: CGFloat(xPos ?? 0),
-                        y: CGFloat(yPos ?? 0),
-                        width: finalWidth,
-                        height: finalHeight
-                    )
-                }
             } else {
                 self.navigationWebViewController?.modalPresentationStyle = .overCurrentContext
             }
@@ -746,12 +754,34 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // anything that doesn't pass width/height) keep using the
             // legacy modal presentation path so backwards compat is
             // preserved without code changes in those callers.
+            // Miden patch (PR-6/7 polish): the UIWindow is sized to the
+            // slot rect itself, NOT full-screen. Two reasons this matters:
+            //
+            // 1. Viewport correctness — when the window is 402pt wide
+            //    (the slot rect), the WKWebView inside it reports a CSS
+            //    viewport of 402pt. Content from the dApp lays out to
+            //    device width. If the window were full-screen, iOS would
+            //    use the full-screen width as the CSS viewport and the
+            //    dApp would render at desktop dimensions, clipping
+            //    horizontally.
+            //
+            // 2. Touch routing — with a slot-sized window, taps outside
+            //    the slot rect fall naturally to lower windows (the
+            //    Capacitor host), so the React capsule, footer, and
+            //    bubbles receive touches without needing the
+            //    PassThroughView hack. Taps inside the window still go
+            //    through PassThroughView for intra-window transparent
+            //    regions (none today but the plumbing is there).
             var presentedInWindow = false
             if width != nil || height != nil,
                let instance = registeredInstance,
                let scene = self.bridge?.viewController?.view?.window?.windowScene {
+                let w = CGFloat(width ?? 0)
+                let h = CGFloat(height ?? 0)
+                let x = CGFloat(xPos ?? 0)
+                let y = CGFloat(yPos ?? 0)
                 let window = UIWindow(windowScene: scene)
-                window.frame = scene.coordinateSpace.bounds
+                window.frame = CGRect(x: x, y: y, width: w, height: h)
                 window.windowLevel = UIWindow.Level.normal + 100
                 window.backgroundColor = .clear
                 window.rootViewController = instance.navigationController
@@ -1078,31 +1108,38 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
-            webViewController.updateDimensions(
-                width: width.map { CGFloat($0) },
-                height: height.map { CGFloat($0) },
-                xPos: xPos.map { CGFloat($0) },
-                yPos: yPos.map { CGFloat($0) }
-            )
-
-            // Miden patch (PR-4 chunk 7): if this instance has its own
-            // UIWindow (Architecture A), the WKWebViewController's frame
-            // updates need to be reflected on the window too — otherwise the
-            // window stays at the original size and clipping/touch bounds
-            // don't follow the resize.
+            // Miden patch (PR-6/7 polish): for Architecture A instances
+            // (with a containerWindow), resize the UIWindow itself to
+            // the new slot rect. This is load-bearing for:
+            //  - Viewport correctness: WKWebView reports its CSS
+            //    viewport based on the window size, so the window must
+            //    match the slot rect or the dApp content will render at
+            //    the wrong dimensions.
+            //  - Touch routing: taps outside the window fall to lower
+            //    windows naturally.
+            //
+            // We skip `webViewController.updateDimensions` for windowed
+            // instances because that method mutates the navigation
+            // controller's view.frame, which the UIWindow then
+            // immediately overwrites on the next layout pass — making
+            // it a no-op at best and a source of layout thrash at
+            // worst.
             if let instance = WebViewRegistry.shared.get(id: instanceId),
-               let window = instance.containerWindow,
-               let scene = window.windowScene {
-                // The instance's WebView is positioned in scene coordinates,
-                // so the host window itself should remain full-screen and let
-                // the inner navigation controller's view do the actual
-                // positioning. Just record the rect for bookkeeping.
-                _ = scene
-                instance.rect = CGRect(
-                    x: CGFloat(xPos ?? 0),
-                    y: CGFloat(yPos ?? 0),
-                    width: CGFloat(width ?? 0),
-                    height: CGFloat(height ?? 0)
+               let window = instance.containerWindow {
+                let w = CGFloat(width ?? Float(window.frame.width))
+                let h = CGFloat(height ?? Float(window.frame.height))
+                let x = CGFloat(xPos ?? Float(window.frame.minX))
+                let y = CGFloat(yPos ?? Float(window.frame.minY))
+                window.frame = CGRect(x: x, y: y, width: w, height: h)
+                instance.rect = window.frame
+            } else {
+                // Legacy modal path: forward to the controller's own
+                // dimension logic.
+                webViewController.updateDimensions(
+                    width: width.map { CGFloat($0) },
+                    height: height.map { CGFloat($0) },
+                    xPos: xPos.map { CGFloat($0) },
+                    yPos: yPos.map { CGFloat($0) }
                 )
             }
 

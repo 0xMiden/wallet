@@ -636,6 +636,20 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         webConfiguration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
         webConfiguration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
 
+        // Miden patch (PR-6/7 polish): force every navigation to render
+        // in mobile content mode. Without this, iOS picks
+        // `.recommended` which evaluates to desktop on larger phones
+        // (iPhone 14 Pro Max, iPhone 15/16/17 Pro, any iPad), meaning
+        // the dApp's CSS viewport becomes ~980pt wide regardless of
+        // the actual WKWebView frame. The page lays out desktop-style
+        // and overflows the slot rect horizontally. Locking the
+        // preference to `.mobile` makes WKWebView honor the
+        // `<meta viewport content="width=device-width">` tag that
+        // every modern dApp ships with.
+        if #available(iOS 13.0, *) {
+            webConfiguration.defaultWebpagePreferences.preferredContentMode = .mobile
+        }
+
         // Enable background task processing
         webConfiguration.processPool = WKProcessPool()
 
@@ -1875,6 +1889,28 @@ extension WKWebViewController: WKNavigationDelegate {
             completionHandler(.useCredential, credential)
         }
         self.injectJavaScriptInterface()
+    }
+
+    // Miden patch (PR-6/7 polish): iOS 13+ navigation delegate variant
+    // that lets us lock `preferredContentMode = .mobile` on every
+    // navigation. Without this, iOS picks `.recommended` which selects
+    // desktop on larger phones (iPhone 14 Pro Max and up), meaning the
+    // WKWebView's CSS viewport becomes ~980pt wide regardless of the
+    // actual frame size. By forcing `.mobile`, the webview honors the
+    // device-width viewport meta tag every modern dApp ships with.
+    //
+    // We forward to the legacy `decidePolicyFor navigationAction:` entry
+    // point so the existing routing logic (external apps, blocked hosts,
+    // cookie interception, deeplink prevention) stays in one place.
+    @available(iOS 13.0, *)
+    public func webView(_ webView: WKWebView,
+                        decidePolicyFor navigationAction: WKNavigationAction,
+                        preferences: WKWebpagePreferences,
+                        decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        preferences.preferredContentMode = .mobile
+        self.webView(webView, decidePolicyFor: navigationAction) { policy in
+            decisionHandler(policy, preferences)
+        }
     }
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
