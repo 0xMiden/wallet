@@ -49,9 +49,15 @@ export const BrowserScreen: FC = () => {
       const session = createDappSession(url);
       open(session);
 
+      // PR-6/7 polish: derive a readable display name from the URL
+      // hostname rather than storing the raw origin/title. Previously
+      // the stored `name` was the full `https://…` URL, which made the
+      // DappTile fall back to 'H' as its avatar letter.
+      const displayName = displayNameFromUrl(url, session.title);
+
       recordRecentDapp({
         url,
-        name: session.title || session.origin.replace(/^https?:\/\//, ''),
+        name: displayName,
         origin: session.origin,
         favicon: session.favicon
       }).catch(() => {});
@@ -68,3 +74,25 @@ export const BrowserScreen: FC = () => {
     </LayoutGroup>
   );
 };
+
+/**
+ * Produce a short human-readable display name for a dApp based on its
+ * URL. Priority: a non-empty, non-URL `sessionTitle` → the URL's
+ * hostname with `www.` stripped → the raw URL if parsing fails.
+ *
+ * We deliberately avoid storing the raw `https://…` URL as the
+ * display name because the DappTile uses `name.charAt(0)` as its
+ * fallback letter — and every HTTPS URL starts with 'H', so every
+ * recent tile ended up with the same "H" avatar.
+ */
+function displayNameFromUrl(url: string, sessionTitle?: string): string {
+  if (sessionTitle && !sessionTitle.startsWith('http')) {
+    return sessionTitle;
+  }
+  try {
+    const host = new URL(url).hostname;
+    return host.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
