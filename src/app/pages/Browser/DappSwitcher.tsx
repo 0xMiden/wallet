@@ -165,10 +165,22 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
       role="button"
       aria-label={`${displayName}. Activate to switch to this dApp.`}
     >
-      {/* Snapshot or fallback */}
+      {/* Snapshot or fallback. `background-position: top center` makes
+          the card show the TOP of the page (favicon / header / hero)
+          rather than a middle slice — the default `center` position
+          cropped the Miden logo to "DEN" and similar on tall pages. */}
       <div
         className="absolute inset-0"
-        style={snapshot ? { background: `center/cover no-repeat url(${snapshot})` } : { background: fallbackColor }}
+        style={
+          snapshot
+            ? {
+                backgroundImage: `url(${snapshot})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'top center',
+                backgroundRepeat: 'no-repeat'
+              }
+            : { background: fallbackColor }
+        }
       >
         {!snapshot && (
           <div className="flex h-full w-full items-center justify-center">
