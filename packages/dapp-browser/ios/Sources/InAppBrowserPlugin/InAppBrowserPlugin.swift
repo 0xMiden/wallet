@@ -43,6 +43,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "postMessage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateDimensions", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise),
+        // Miden patch (PR-4 chunk 4): multi-instance management methods.
+        CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
     ]
     var navigationWebViewController: UINavigationController?
@@ -1052,19 +1056,89 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func snapshot(_ call: CAPPluginCall) {
         let scale = CGFloat(call.getFloat("scale") ?? 0.5)
         let quality = CGFloat(call.getFloat("quality") ?? 0.7)
+        // Miden patch (PR-4 chunk 4): id-aware. Defaults to "default" so the
+        // legacy single-instance call signature still works.
+        let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
 
         DispatchQueue.main.async {
-            guard let webViewController = self.webViewController else {
+            guard let instance = WebViewRegistry.shared.get(id: instanceId) else {
                 call.reject("WebView is not initialized")
                 return
             }
-            webViewController.takeSnapshotData(scale: scale, quality: quality) { dataUrl in
+            instance.controller.takeSnapshotData(scale: scale, quality: quality) { dataUrl in
                 if let dataUrl = dataUrl {
                     call.resolve(["data": dataUrl])
                 } else {
                     call.reject("snapshot failed")
                 }
             }
+        }
+    }
+
+    /// Miden plugin method (PR-4 chunk 4): toggle a specific instance's
+    /// visibility WITHOUT tearing down its WKWebView. The JS context, page
+    /// state, scroll position, and any in-flight network requests survive
+    /// across the hide/show cycle.
+    ///
+    /// Required params:
+    ///   id      — instance id (created by openWebView)
+    ///   visible — boolean
+    @objc func setVisible(_ call: CAPPluginCall) {
+        guard let instanceId = call.getString("id") else {
+            call.reject("id required")
+            return
+        }
+        let visible = call.getBool("visible", true)
+
+        DispatchQueue.main.async {
+            guard let instance = WebViewRegistry.shared.get(id: instanceId) else {
+                call.reject("instance not found: \(instanceId)")
+                return
+            }
+            instance.isVisible = visible
+            // Architecture A path: just toggle the UIWindow.
+            if let window = instance.containerWindow {
+                window.isHidden = !visible
+            } else {
+                // Legacy modal path: hide the navigation controller's view.
+                // Not ideal (the modal stays presented but content invisible)
+                // but no caller exercises this branch — multi-instance is only
+                // used by the Architecture A code path.
+                instance.navigationController.view.isHidden = !visible
+            }
+            call.resolve()
+        }
+    }
+
+    /// Miden plugin method (PR-4 chunk 4): list all currently registered
+    /// instance ids. Used by the wallet's PR-6 cold-bubble restore logic and
+    /// the LRU eviction in PR-4 §memory-budget. The order is unspecified;
+    /// callers should sort by their own openedAt metadata if order matters.
+    @objc func listInstances(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            call.resolve(["ids": WebViewRegistry.shared.allIds()])
+        }
+    }
+
+    /// Miden plugin method (PR-4 chunk 4): close every registered instance.
+    /// Used on app shutdown / wallet reset. Each instance's window is hidden
+    /// and the registry is cleared. closeEvent listeners are NOT fired
+    /// individually — callers know they're tearing everything down.
+    @objc func closeAll(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            WebViewRegistry.shared.forEach { _, instance in
+                if let window = instance.containerWindow {
+                    window.isHidden = true
+                    window.rootViewController = nil
+                }
+                instance.controller.cleanupWebView()
+                instance.containerWindow = nil
+            }
+            WebViewRegistry.shared.removeAll()
+            // Also clear the legacy single-instance fields if they were set.
+            self.webViewController = nil
+            self.navigationWebViewController = nil
+            call.resolve()
         }
     }
 
