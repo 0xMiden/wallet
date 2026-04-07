@@ -105,22 +105,18 @@ export const DappActive: FC = () => {
       <div style={{ height: 'calc(env(safe-area-inset-top) + 81px)' }} className="shrink-0" />
       <ProgressBar loading={isLoading} />
 
-      {/* The slot's bounding rect drives `updateDimensions`. We carve out
-          space at the bottom matching the floating tabbar (88px content +
-          safe-area-inset-bottom) so the native webview rect doesn't overlap
-          the React tabbar — otherwise the dApp's PassThroughView captures
-          touches in the tabbar region.
+      {/* The slot's bounding rect drives `updateDimensions`. Uses
+          flex-1 so it naturally fills the space between the capsule
+          and the footer spacer below — no `calc(100vh - ...)` math
+          (which was off by ~77pt due to nested safe-area padding
+          and caused the native webview to overlap the footer, eating
+          HOME/ACTIVITY/BROWSER taps).
 
           PR-6: while isLoading is true (either a first open or a cold-
           bubble restore), we overlay the cached snapshot behind the
-          native webview. This gives the user something to look at
-          besides a blank rect during the lazy-load, and the snapshot
-          fades out naturally once the real content is live underneath
-          because the overlay is inside the slot but keyed to isLoading. */}
-      <div
-        className="relative flex-none"
-        style={{ height: 'calc(100vh - env(safe-area-inset-top) - 81px - env(safe-area-inset-bottom) - 88px)' }}
-      >
+          native webview. Keyed to isLoading so it fades out once the
+          real content loads underneath. */}
+      <div className="relative flex-1 min-h-0">
         <NativeWebViewSlot ref={slotRef} style={{ position: 'absolute', inset: 0 }} />
         {isLoading && cachedSnapshot && (
           <div
@@ -153,6 +149,14 @@ export const DappActive: FC = () => {
           </div>
         )}
       </div>
+
+      {/* Footer spacer — reserves vertical space at the bottom of the
+          flex column so the slot (flex-1 above) doesn't extend into
+          the floating tabbar region. Without this, the native
+          WKWebView window covers the HOME/ACTIVITY/BROWSER tab area
+          and taps never reach the React footer — the user gets stuck
+          on the current dApp with no way to navigate away. */}
+      <div className="shrink-0" style={{ height: 'calc(env(safe-area-inset-bottom) + 88px)' }} aria-hidden="true" />
     </div>
   );
 };
