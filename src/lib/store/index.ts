@@ -74,6 +74,7 @@ export const useWalletStore = create<WalletStore>()(
     isTransactionModalOpen: false,
     isTransactionModalDismissedByUser: false,
     isDappBrowserOpen: false,
+    activeDappSessionId: null,
 
     // Initial note toast state (mobile only)
     seenNoteIds: new Set<string>(),
@@ -489,7 +490,19 @@ export const useWalletStore = create<WalletStore>()(
 
     // DApp browser state (mobile only)
     setDappBrowserOpen: (isOpen: boolean) => {
-      set({ isDappBrowserOpen: isOpen });
+      // Backwards-compat path: clear `activeDappSessionId` if turning off,
+      // leave it alone if turning on (the new code path uses
+      // `setActiveDappSession` which sets both atomically).
+      set(prev => ({
+        isDappBrowserOpen: isOpen,
+        activeDappSessionId: isOpen ? prev.activeDappSessionId : null
+      }));
+    },
+    setActiveDappSession: (sessionId: string | null) => {
+      set({
+        activeDappSessionId: sessionId,
+        isDappBrowserOpen: sessionId !== null
+      });
     },
 
     // Note toast actions (mobile only)
