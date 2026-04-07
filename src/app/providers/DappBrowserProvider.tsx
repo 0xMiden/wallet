@@ -237,7 +237,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           const eventData = (event as { detail?: unknown })?.detail ?? event;
           const parsed = typeof eventData === 'string' ? JSON.parse(eventData) : (eventData as WebViewMessage);
           const walletMessage = parsed as WebViewMessage;
-          const response = await handleWebViewMessage(walletMessage, state.origin);
+          // PR-4 chunk 8: pass the session id through to the backend so any
+          // confirmation prompt this request triggers is keyed by it and
+          // the React modal routes correctly.
+          const response = await handleWebViewMessage(walletMessage, state.origin, id);
           await sendResponseToInstance(state.instance, response);
         } catch (error) {
           console.error('[DappBrowserProvider] Error handling WebView message:', error);
@@ -559,7 +562,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   // The confirmation modal is rendered here so it survives tab navigation.
-  const { request, resolve } = useDappConfirmation();
+  // PR-4 chunk 8: scope to the foreground session id so a parked dApp's
+  // pending confirmation stays queued until the user surfaces that
+  // session via its bubble. Falling back to undefined when no session is
+  // foregrounded means the modal also picks up the legacy default-slot
+  // request from the extension/desktop flow when those code paths run.
+  const { request, resolve } = useDappConfirmation(foregroundId ?? undefined);
 
   // Read account info for the modal — kept here to avoid prop-drilling
   const currentAccount = useWalletStore(s => s.currentAccount);

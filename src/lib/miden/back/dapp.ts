@@ -156,7 +156,11 @@ export async function requestDisconnect(
 
 export async function requestPermission(
   origin: string,
-  req: MidenDAppPermissionRequest
+  req: MidenDAppPermissionRequest,
+  // PR-4 chunk 8: optional multi-instance session id, threaded into the
+  // confirmation store so the React modal can route the prompt to the
+  // matching foreground session.
+  sessionId?: string
 ): Promise<MidenDAppPermissionResponse> {
   console.log('[requestPermission] Called with origin:', origin);
   console.log('[requestPermission] Request:', JSON.stringify(req));
@@ -189,7 +193,8 @@ export async function requestPermission(
         dApp.appMeta,
         !!dApp,
         dApp.privateDataPermission,
-        dApp.allowedPrivateData
+        dApp.allowedPrivateData,
+        sessionId
       );
     }
     dappLog('[requestPermission] PATH: existing permission, wallet unlocked, DIRECT RETURN');
@@ -212,7 +217,8 @@ export async function requestPermission(
     req.appMeta,
     !!dApp,
     req.privateDataPermission,
-    req.allowedPrivateData
+    req.allowedPrivateData,
+    sessionId
   );
 }
 
@@ -223,19 +229,22 @@ export async function generatePromisifyRequestPermission(
   appMeta: DappMetadata,
   existingPermission: boolean,
   privateDataPermission?: PrivateDataPermission,
-  allowedPrivateData?: AllowedPrivateData
+  allowedPrivateData?: AllowedPrivateData,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppPermissionResponse> {
   console.log('[generatePromisifyRequestPermission] Called, isExtension:', isExtension());
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     const id = nanoid();
-    dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id}`);
+    dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id} sessionId: ${sessionId}`);
     dappLog(`[DApp] Calling dappConfirmationStore.requestConfirmation...`);
 
     // Request confirmation from the user via the confirmation store
     dappLog(`[DApp] About to call requestConfirmation, store instance: ${dappConfirmationStore.getInstanceId()}`);
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'connect',
       origin,
       appMeta,
@@ -846,7 +855,9 @@ export const generatePromisifyImportPrivateNote = async (
 
 export async function requestTransaction(
   origin: string,
-  req: MidenDAppTransactionRequest
+  req: MidenDAppTransactionRequest,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppTransactionResponse> {
   console.log(req, 'requestTransaction, dapp.ts');
   if (!req?.sourcePublicKey || !req?.transaction) {
@@ -863,14 +874,15 @@ export async function requestTransaction(
     throw new Error(MidenDAppErrorType.NotFound);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req, sessionId));
 }
 
 const generatePromisifyTransaction = async (
   resolve: (value: MidenDAppTransactionResponse | PromiseLike<MidenDAppTransactionResponse>) => void,
   reject: (reason?: any) => void,
   dApp: MidenDAppSession,
-  req: MidenDAppTransactionRequest
+  req: MidenDAppTransactionRequest,
+  sessionId?: string
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
@@ -896,6 +908,7 @@ const generatePromisifyTransaction = async (
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'transaction',
       origin: dApp.appMeta.name,
       appMeta: dApp.appMeta,
@@ -993,7 +1006,9 @@ const generatePromisifyTransaction = async (
 
 export async function requestSendTransaction(
   origin: string,
-  req: MidenDAppSendTransactionRequest
+  req: MidenDAppSendTransactionRequest,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppSendTransactionResponse> {
   if (!req?.transaction) {
     throw new Error(MidenDAppErrorType.InvalidParams);
@@ -1009,14 +1024,15 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotFound);
   }
 
-  return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req, sessionId));
 }
 
 const generatePromisifySendTransaction = async (
   resolve: (value: MidenDAppSendTransactionResponse | PromiseLike<MidenDAppSendTransactionResponse>) => void,
   reject: (reason?: any) => void,
   dApp: MidenDAppSession,
-  req: MidenDAppSendTransactionRequest
+  req: MidenDAppSendTransactionRequest,
+  sessionId?: string
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
@@ -1036,6 +1052,7 @@ const generatePromisifySendTransaction = async (
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'transaction',
       origin: dApp.appMeta.name,
       appMeta: dApp.appMeta,
@@ -1131,7 +1148,9 @@ const generatePromisifySendTransaction = async (
 
 export async function requestConsumeTransaction(
   origin: string,
-  req: MidenDAppConsumeRequest
+  req: MidenDAppConsumeRequest,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppConsumeResponse> {
   if (!req?.sourcePublicKey || !req?.transaction) {
     throw new Error(MidenDAppErrorType.InvalidParams);
@@ -1147,14 +1166,15 @@ export async function requestConsumeTransaction(
     throw new Error(MidenDAppErrorType.NotFound);
   }
 
-  return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req, sessionId));
 }
 
 const generatePromisifyConsumeTransaction = async (
   resolve: (value: MidenDAppConsumeResponse | PromiseLike<MidenDAppConsumeResponse>) => void,
   reject: (reason?: any) => void,
   dApp: MidenDAppSession,
-  req: MidenDAppConsumeRequest
+  req: MidenDAppConsumeRequest,
+  sessionId?: string
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
@@ -1174,6 +1194,7 @@ const generatePromisifyConsumeTransaction = async (
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'consume',
       origin: dApp.appMeta.name,
       appMeta: dApp.appMeta,

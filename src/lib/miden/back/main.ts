@@ -209,7 +209,9 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
             payload: 'PONG'
           };
         }
-        const resPayload = await Actions.processDApp(req.origin, req.payload);
+        // PR-4 chunk 8: thread sessionId through (extension flow leaves
+        // it undefined; mobile/desktop multi-instance pass it).
+        const resPayload = await Actions.processDApp(req.origin, req.payload, (req as any).sessionId);
         return {
           type: MidenMessageType.PageResponse,
           payload: resPayload ?? null

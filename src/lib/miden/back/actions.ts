@@ -217,27 +217,41 @@ export function removeDAppSession(origin: string) {
   });
 }
 
-export async function processDApp(origin: string, req: MidenDAppRequest): Promise<MidenDAppResponse | void> {
-  console.log('[processDApp] Called with origin:', origin, 'req type:', req?.type);
+/**
+ * Top-level dApp request dispatcher.
+ *
+ * PR-4 chunk 8: accepts an optional `sessionId` parameter so multi-
+ * instance callers can route confirmation prompts to a specific dApp
+ * session. The id flows through to handlers in `dapp.ts` that key
+ * `dappConfirmationStore` requests by it. Single-session callers
+ * (extension popup, faucet-webview, native-notifications) omit the
+ * argument and the legacy "default" slot is used.
+ */
+export async function processDApp(
+  origin: string,
+  req: MidenDAppRequest,
+  sessionId?: string
+): Promise<MidenDAppResponse | void> {
+  console.log('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
   console.log('[processDApp] Full request:', JSON.stringify(req));
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));
 
     case MidenDAppMessageType.PermissionRequest:
-      return withInited(() => dappQueue.add(() => requestPermission(origin, req)));
+      return withInited(() => dappQueue.add(() => requestPermission(origin, req, sessionId)));
 
     case MidenDAppMessageType.DisconnectRequest:
       return withInited(() => dappQueue.add(() => requestDisconnect(origin, req)));
 
     case MidenDAppMessageType.TransactionRequest:
-      return withInited(() => dappQueue.add(() => requestTransaction(origin, req)));
+      return withInited(() => dappQueue.add(() => requestTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.SendTransactionRequest:
-      return withInited(() => dappQueue.add(() => requestSendTransaction(origin, req)));
+      return withInited(() => dappQueue.add(() => requestSendTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.ConsumeRequest:
-      return withInited(() => dappQueue.add(() => requestConsumeTransaction(origin, req)));
+      return withInited(() => dappQueue.add(() => requestConsumeTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.PrivateNotesRequest:
       return withInited(() => dappQueue.add(() => requestPrivateNotes(origin, req)));

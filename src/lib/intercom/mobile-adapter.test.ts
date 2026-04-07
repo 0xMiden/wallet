@@ -268,7 +268,7 @@ describe('MobileIntercomAdapter', () => {
         payload: { method: 'test' }
       } as any);
 
-      expect(Actions.processDApp).toHaveBeenCalledWith('https://example.com', { method: 'test' });
+      expect(Actions.processDApp).toHaveBeenCalledWith('https://example.com', { method: 'test' }, undefined);
       expect(response).toEqual({
         type: MidenMessageType.PageResponse,
         payload: { result: 'success' }

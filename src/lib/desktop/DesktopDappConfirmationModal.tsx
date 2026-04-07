@@ -83,9 +83,11 @@ export function DesktopDappConfirmationModal(): null {
           };
 
       // Use setTimeout to match the original auto-approval timing
-      // This avoids race conditions with the confirmation store setup
+      // This avoids race conditions with the confirmation store setup.
+      // PR-4 chunk 8: pass undefined sessionId so this falls into the
+      // legacy default slot.
       setTimeout(() => {
-        dappConfirmationStore.resolveConfirmation(result);
+        dappConfirmationStore.resolveConfirmation(undefined, result);
         pendingRequestRef.current = null;
       }, 100);
     }).then(unsub => {
@@ -134,8 +136,9 @@ export function DesktopDappConfirmationModal(): null {
         );
 
         showDappConfirmationOverlay(overlayScript).catch(() => {
-          // If overlay fails, deny the request
-          dappConfirmationStore.resolveConfirmation({ confirmed: false });
+          // If overlay fails, deny the request. PR-4 chunk 8: legacy
+          // default-slot resolution.
+          dappConfirmationStore.resolveConfirmation(undefined, { confirmed: false });
           pendingRequestRef.current = null;
         });
       } else if (!request) {
