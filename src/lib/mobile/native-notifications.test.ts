@@ -26,7 +26,10 @@ jest.mock('@capacitor/local-notifications', () => ({
 
 jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
-    close: jest.fn()
+    // PR-4 chunk 9: native-notifications now closes ALL active dApp
+    // instances on notification tap, not just the legacy default slot.
+    close: jest.fn(),
+    closeAll: jest.fn()
   }
 }));
 
@@ -198,7 +201,7 @@ describe('native-notifications', () => {
       jest.useRealTimers();
     });
 
-    it('closes InAppBrowser if open when notification tapped', async () => {
+    it('closes all InAppBrowser instances if open when notification tapped', async () => {
       jest.useFakeTimers();
 
       (useWalletStore.getState as jest.Mock).mockReturnValue({ isDappBrowserOpen: true });
@@ -217,7 +220,9 @@ describe('native-notifications', () => {
         }
       });
 
-      expect(InAppBrowser.close).toHaveBeenCalled();
+      // PR-4 chunk 9: must call closeAll() so multi-instance dApps are
+      // also torn down, not just the legacy default slot via close().
+      expect(InAppBrowser.closeAll).toHaveBeenCalled();
 
       jest.useRealTimers();
     });

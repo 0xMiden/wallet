@@ -6,6 +6,12 @@ import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
 
+// PR-4 chunk 9: faucet uses its own instance id so its messageFromWebview
+// listener can filter out events from any concurrently-open multi-instance
+// dApp browser. Without this filter, a dApp posting a similarly-shaped
+// detail object would be mis-routed into the faucet's download handler.
+const FAUCET_INSTANCE_ID = 'faucet-webview';
+
 const DOWNLOAD_INTERCEPTOR_SCRIPT = `
 (function() {
   if (window.__downloadInterceptorInjected) return;
@@ -156,6 +162,13 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
   // Set up message listener for download requests
   const messageListener = await InAppBrowser.addListener('messageFromWebview', async event => {
     try {
+      // PR-4 chunk 9: filter to events from this specific instance so a
+      // concurrently-open multi-instance dApp doesn't accidentally trip
+      // the download handler.
+      const eventId = (event as { id?: string })?.id;
+      if (eventId !== undefined && eventId !== FAUCET_INSTANCE_ID) {
+        return;
+      }
       // The event should directly contain our data since notifyListeners passes messageBody as data
       const eventData = event as { detail?: { type?: string; filename?: string; content?: string } };
       const detail = eventData.detail;
@@ -190,8 +203,8 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
         const fileUri = result.uri;
         const fileTitle = filename;
 
-        // Close browser first
-        await InAppBrowser.close();
+        // Close browser first (PR-4 chunk 9: id-aware close).
+        await InAppBrowser.close({ id: FAUCET_INSTANCE_ID });
 
         // Use setTimeout to completely decouple share from InAppBrowser context
         setTimeout(async () => {
@@ -208,7 +221,8 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
 
       if (detail.type === 'PUBLIC_NOTE_SUCCESS') {
         // Auto-close browser when public note minting is complete
-        await InAppBrowser.close();
+        // (PR-4 chunk 9: id-aware close).
+        await InAppBrowser.close({ id: FAUCET_INSTANCE_ID });
       }
     } catch (error) {
       // Show alert with error for debugging
@@ -219,13 +233,18 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
   });
 
   // Inject scripts when page loads (needs DOM to be ready)
-  const loadListener = await InAppBrowser.addListener('browserPageLoaded', async () => {
+  const loadListener = await InAppBrowser.addListener('browserPageLoaded', async event => {
+    // PR-4 chunk 9: only react to load events from THIS instance.
+    const eventId = (event as { id?: string })?.id;
+    if (eventId !== undefined && eventId !== FAUCET_INSTANCE_ID) {
+      return;
+    }
     try {
       // Inject download interceptor first
-      await InAppBrowser.executeScript({ code: DOWNLOAD_INTERCEPTOR_SCRIPT });
+      await InAppBrowser.executeScript({ code: DOWNLOAD_INTERCEPTOR_SCRIPT, id: FAUCET_INSTANCE_ID });
       // Then prefill address if provided
       if (prefillAddressScript) {
-        await InAppBrowser.executeScript({ code: prefillAddressScript });
+        await InAppBrowser.executeScript({ code: prefillAddressScript, id: FAUCET_INSTANCE_ID });
       }
     } catch (e) {
       console.error('[FaucetWebview] Error injecting scripts:', e);
@@ -233,7 +252,12 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
   });
 
   // Clean up listeners when browser closes
-  const closeListener = await InAppBrowser.addListener('closeEvent', async () => {
+  const closeListener = await InAppBrowser.addListener('closeEvent', async event => {
+    // PR-4 chunk 9: only respond to OUR instance's close.
+    const eventId = (event as { id?: string })?.id;
+    if (eventId !== undefined && eventId !== FAUCET_INSTANCE_ID) {
+      return;
+    }
     markReturningFromWebview();
     messageListener.remove();
     loadListener.remove();
@@ -243,6 +267,7 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
 
   // Open the webview immediately (scripts injected via browserPageLoaded listener)
   await InAppBrowser.openWebView({
+    id: FAUCET_INSTANCE_ID,
     url,
     title,
     toolbarType: ToolBarType.NAVIGATION,
