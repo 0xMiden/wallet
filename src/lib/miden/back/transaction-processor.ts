@@ -10,6 +10,7 @@ import {
 } from 'lib/miden/activity/transactions';
 import { WalletMessageType } from 'lib/shared/types';
 
+import { markDirty } from './auto-backup-manager';
 import { getIntercom } from './defaults';
 import { withUnlocked } from './store';
 
@@ -106,7 +107,10 @@ export async function startTransactionProcessing(): Promise<void> {
       }
 
       const remaining = await getAllUncompletedTransactions();
-      if (remaining.length === 0) break;
+      if (remaining.length === 0) {
+        markDirty();
+        break;
+      }
 
       await new Promise(resolve => setTimeout(resolve, 5000));
     }

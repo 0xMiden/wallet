@@ -200,6 +200,46 @@ async function fetchUserInfo(accessToken: string): Promise<{ email?: string; nam
 
 export const EXTENSION_REDIRECT_URI = 'http://localhost/oauth2callback';
 const OAUTH_RESULT_STORAGE_KEY = 'google_oauth_result';
+const EXT_REFRESH_TOKEN_KEY = 'google_drive_ext_refresh_token';
+
+// ---- Extension refresh token storage (chrome.storage.local for persistence across restarts) ----
+
+async function saveExtensionRefreshToken(token: string): Promise<void> {
+  console.log('[GoogleAuth] Saving refresh token for extension auto-backup');
+  const chrome = (globalThis as any).chrome;
+  if (chrome?.storage?.local) {
+    await chrome.storage.local.set({ [EXT_REFRESH_TOKEN_KEY]: token });
+  }
+}
+
+async function loadExtensionRefreshToken(): Promise<string | null> {
+  const chrome = (globalThis as any).chrome;
+  if (!chrome?.storage?.local) return null;
+  const result = await chrome.storage.local.get(EXT_REFRESH_TOKEN_KEY);
+  return result[EXT_REFRESH_TOKEN_KEY] ?? null;
+}
+
+/**
+ * Silently refresh the Google access token on extension using a stored refresh token.
+ * Returns null if no refresh token is stored or if refresh fails.
+ */
+export async function refreshExtensionAccessToken(): Promise<GoogleAuthResult | null> {
+  const refreshToken = await loadExtensionRefreshToken();
+  console.log('[GoogleAuth] Refreshing access token using refresh token:', !!refreshToken);
+  if (!refreshToken) return null;
+  try {
+    const result = await refreshAccessToken(refreshToken, GOOGLE_DRIVE_CLIENT_ID);
+    const userInfo = await fetchUserInfo(result.accessToken);
+    return {
+      accessToken: result.accessToken,
+      expiresAt: Date.now() + result.expiresIn * 1000,
+      email: userInfo.email,
+      displayName: userInfo.name
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Called from the service worker to handle the full OAuth tab lifecycle.
@@ -252,6 +292,12 @@ export async function handleExtensionOAuthInBackground(): Promise<void> {
           EXTENSION_REDIRECT_URI,
           GOOGLE_WEB_CLIENT_SECRET
         );
+        if (tokenResult.refreshToken) {
+          console.log('[GoogleAuth] Received refresh token from OAuth flow', tokenResult);
+          await saveExtensionRefreshToken(tokenResult.refreshToken);
+        } else {
+          throw new Error('No refresh token received — required for auto-backup');
+        }
         const userInfo = await fetchUserInfo(tokenResult.accessToken);
         const result: GoogleAuthResult = {
           accessToken: tokenResult.accessToken,

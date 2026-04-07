@@ -1,14 +1,30 @@
 import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
+import {
+  disableAutoBackup,
+  enableAutoBackup,
+  getStatus as getAutoBackupStatus,
+  isInternalSettingsUpdate,
+  markDirty,
+  onWalletLocked,
+  onWalletUnlocked
+} from 'lib/miden/back/auto-backup-manager';
 import { intercom } from 'lib/miden/back/defaults';
-import { store, toFront } from 'lib/miden/back/store';
+import {
+  accountsUpdated,
+  currentAccountUpdated,
+  locked,
+  settingsUpdated,
+  store,
+  toFront,
+  unlocked
+} from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
-import { BackupEncryptionArgs, createCloudBackup } from '../backup/backup-service';
 import { GoogleDriveProvider } from '../backup/google-drive-provider';
 import { probeCloudBackup, restoreCloudBackup, RestoreEncryptionArgs } from '../backup/restore-service';
 import { NoteExportType } from '../sdk/constants';
@@ -44,6 +60,17 @@ export async function start() {
   });
   // Force frontend to re-fetch state now that everything is initialized
   intercom.broadcast({ type: WalletMessageType.StateUpdated });
+
+  // Auto-backup hooks
+  accountsUpdated.watch(({ accounts }) => {
+    markDirty();
+  });
+  currentAccountUpdated.watch(() => markDirty());
+  settingsUpdated.watch(() => {
+    if (!isInternalSettingsUpdate()) markDirty();
+  });
+  unlocked.watch(() => onWalletUnlocked());
+  locked.watch(() => onWalletLocked());
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
@@ -58,6 +85,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.ProcessTransactionsRequest:
       // Fire-and-forget — start processing asynchronously
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
+      markDirty();
       return { type: WalletMessageType.ProcessTransactionsResponse };
     case WalletMessageType.ImportNoteBytesRequest: {
       const noteBytes = new Uint8Array(Buffer.from(req.noteBytes, 'base64'));
@@ -67,6 +95,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         await client.syncState();
         return id.toString();
       });
+      markDirty();
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
     }
     case WalletMessageType.ExportNoteRequest: {
@@ -255,20 +284,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     //   type: WalletMessageType.GetOwnedRecordsResponse,
     //   records
     // };
-    case WalletMessageType.CloudBackupCreateRequest: {
-      const provider = new GoogleDriveProvider(req.accessToken);
-      const backupArgs: BackupEncryptionArgs =
-        req.encryption.method === 'password'
-          ? { type: 'password', backupPassword: req.encryption.backupPassword }
-          : {
-              type: 'passkey',
-              keyMaterial: fromBase64(req.encryption.keyMaterial),
-              credentialId: fromBase64(req.encryption.credentialId),
-              prfSalt: fromBase64(req.encryption.prfSalt)
-            };
-      await createCloudBackup(backupArgs, provider);
-      return { type: WalletMessageType.CloudBackupCreateResponse };
-    }
     case WalletMessageType.CloudBackupRestoreRequest: {
       const provider = new GoogleDriveProvider(req.accessToken);
       const restoreArgs: RestoreEncryptionArgs =
@@ -290,6 +305,17 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.CloudBackupRegisterRequest: {
       await Actions.registerFromCloudBackup(req.password ?? '', req.mnemonic, req.walletAccounts, req.walletSettings);
       return { type: WalletMessageType.CloudBackupRegisterResponse };
+    }
+    case WalletMessageType.AutoBackupSetEnabledRequest: {
+      if (req.enabled && req.encryption && req.accessToken && req.expiresAt) {
+        await enableAutoBackup(req.encryption, req.accessToken, req.expiresAt);
+      } else {
+        await disableAutoBackup();
+      }
+      return { type: WalletMessageType.AutoBackupSetEnabledResponse };
+    }
+    case WalletMessageType.AutoBackupStatusRequest: {
+      return { type: WalletMessageType.AutoBackupStatusResponse, ...getAutoBackupStatus() };
     }
   }
 }

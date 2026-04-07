@@ -6,7 +6,8 @@ import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
-  CloudBackupCreateEncryption,
+  AutoBackupEncryption,
+  AutoBackupStatus,
   CloudBackupProbeResult,
   CloudBackupRestoreEncryption,
   SerializedConsumableNote,
@@ -166,7 +167,6 @@ export interface WalletActions {
   removeDAppSession: (origin: string) => Promise<void>;
 
   // Cloud backup actions
-  createCloudBackup: (accessToken: string, encryption: CloudBackupCreateEncryption) => Promise<void>;
   restoreCloudBackup: (
     accessToken: string,
     encryption: CloudBackupRestoreEncryption
@@ -178,6 +178,15 @@ export interface WalletActions {
     walletAccounts: WalletAccount[],
     walletSettings: WalletSettings
   ) => Promise<void>;
+
+  // Auto backup actions
+  setAutoBackupEnabled: (
+    enabled: boolean,
+    accessToken?: string,
+    expiresAt?: number,
+    encryption?: AutoBackupEncryption
+  ) => Promise<void>;
+  fetchAutoBackupStatus: () => Promise<AutoBackupStatus>;
 
   // UI actions
   setSelectedNetworkId: (networkId: string) => void;

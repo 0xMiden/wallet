@@ -245,15 +245,6 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Cloud backup actions
-    createCloudBackup: async (accessToken, encryption) => {
-      const res = await request({
-        type: WalletMessageType.CloudBackupCreateRequest,
-        accessToken,
-        encryption
-      });
-      assertResponse(res.type === WalletMessageType.CloudBackupCreateResponse);
-    },
-
     restoreCloudBackup: async (accessToken, encryption) => {
       const res = await request({
         type: WalletMessageType.CloudBackupRestoreRequest,
@@ -282,6 +273,32 @@ export const useWalletStore = create<WalletStore>()(
         walletSettings
       });
       assertResponse(res.type === WalletMessageType.CloudBackupRegisterResponse);
+    },
+
+    // Auto backup actions
+    setAutoBackupEnabled: async (enabled, accessToken, expiresAt, encryption) => {
+      const res = await request({
+        type: WalletMessageType.AutoBackupSetEnabledRequest,
+        enabled,
+        accessToken,
+        expiresAt,
+        encryption
+      });
+      assertResponse(res.type === WalletMessageType.AutoBackupSetEnabledResponse);
+    },
+
+    fetchAutoBackupStatus: async () => {
+      const res = await request({
+        type: WalletMessageType.AutoBackupStatusRequest
+      });
+      assertResponse(res.type === WalletMessageType.AutoBackupStatusResponse);
+      return {
+        enabled: res.enabled,
+        lastBackupAt: res.lastBackupAt,
+        lastError: res.lastError,
+        method: res.method,
+        needsGoogleReauth: res.needsGoogleReauth
+      };
     },
 
     // Signing actions

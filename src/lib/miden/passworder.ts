@@ -136,6 +136,22 @@ export function deriveKey(key: CryptoKey, salt: Uint8Array, iterations = 1_310_0
   );
 }
 
+/**
+ * Derive raw key bytes from a password + salt via PBKDF2.
+ * Unlike deriveKey(), this returns extractable raw bytes (for vault storage).
+ */
+export async function deriveKeyBytes(password: string, salt: Uint8Array, iterations = 1_310_000): Promise<Uint8Array> {
+  const passKey = await generateKey(password);
+  const saltBuffer = new ArrayBuffer(salt.byteLength);
+  new Uint8Array(saltBuffer).set(new Uint8Array(salt));
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltBuffer, iterations, hash: 'SHA-256' },
+    passKey,
+    256
+  );
+  return new Uint8Array(bits);
+}
+
 export function generateSalt(byteCount = 32) {
   const view = new Uint8Array(byteCount);
   crypto.getRandomValues(view);

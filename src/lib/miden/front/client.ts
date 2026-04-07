@@ -5,7 +5,7 @@ import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
-  CloudBackupCreateEncryption,
+  AutoBackupEncryption,
   CloudBackupRestoreEncryption,
   WalletAccount,
   WalletRequest,
@@ -56,10 +56,11 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
-  const storeCreateCloudBackup = useWalletStore(s => s.createCloudBackup);
   const storeRestoreCloudBackup = useWalletStore(s => s.restoreCloudBackup);
   const storeProbeCloudBackup = useWalletStore(s => s.probeCloudBackup);
   const storeRegisterFromCloudBackup = useWalletStore(s => s.registerFromCloudBackup);
+  const storeSetAutoBackupEnabled = useWalletStore(s => s.setAutoBackupEnabled);
+  const storeFetchAutoBackupStatus = useWalletStore(s => s.fetchAutoBackupStatus);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
@@ -156,13 +157,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeUpdateSettings]
   );
 
-  const createCloudBackup = useCallback(
-    async (accessToken: string, encryption: CloudBackupCreateEncryption) => {
-      await storeCreateCloudBackup(accessToken, encryption);
-    },
-    [storeCreateCloudBackup]
-  );
-
   const restoreCloudBackup = useCallback(
     async (accessToken: string, encryption: CloudBackupRestoreEncryption) => {
       return await storeRestoreCloudBackup(accessToken, encryption);
@@ -188,6 +182,17 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     },
     [storeRegisterFromCloudBackup]
   );
+
+  const setAutoBackupEnabled = useCallback(
+    async (enabled: boolean, accessToken?: string, expiresAt?: number, encryption?: AutoBackupEncryption) => {
+      await storeSetAutoBackupEnabled(enabled, accessToken, expiresAt, encryption);
+    },
+    [storeSetAutoBackupEnabled]
+  );
+
+  const fetchAutoBackupStatus = useCallback(async () => {
+    return storeFetchAutoBackupStatus();
+  }, [storeFetchAutoBackupStatus]);
 
   const signData = useCallback(
     async (publicKey: string, signingInputs: string) => {
@@ -361,10 +366,11 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     decryptCiphertexts,
     getOwnedRecords,
     importWalletFromClient,
-    createCloudBackup,
     restoreCloudBackup,
     probeCloudBackup,
-    registerFromCloudBackup
+    registerFromCloudBackup,
+    setAutoBackupEnabled,
+    fetchAutoBackupStatus
   };
 });
 

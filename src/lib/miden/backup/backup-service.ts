@@ -56,6 +56,22 @@ export async function createCloudBackup(args: BackupEncryptionArgs, provider: Cl
   await provider.write(serializeEncryptedBackup(backup));
 }
 
+/**
+ * Create a cloud backup using a pre-derived CryptoKey.
+ * Used by auto-backup to avoid re-deriving from password each time.
+ */
+export async function createCloudBackupWithKey(
+  encryptionKey: CryptoKey,
+  method: BackupEncryptionMethod,
+  salt: Uint8Array,
+  credentialId: Uint8Array,
+  provider: CloudProvider
+): Promise<void> {
+  const content = await collectBackupContent();
+  const backup = await encryptBackup(content, encryptionKey, method, salt, credentialId);
+  await provider.write(serializeEncryptedBackup(backup));
+}
+
 async function collectBackupContent(): Promise<CloudBackupContent> {
   const sdkStoreSnapshot = await withWasmClientLock(async () => {
     const client = await getMidenClient();

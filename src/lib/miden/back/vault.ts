@@ -43,6 +43,7 @@ enum StorageEntity {
   Accounts = 'accounts',
   Settings = 'settings',
   OwnMnemonic = 'ownmnemonic',
+  AutoBackupKey = 'autobackupkey',
   LegacyMigrationLevel = 'mgrnlvl'
 }
 
@@ -55,6 +56,7 @@ const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey)
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
+const autoBackupKeyStrgKey = createStorageKey(StorageEntity.AutoBackupKey);
 
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
@@ -541,6 +543,23 @@ export class Vault {
       await encryptAndSaveMany([[settingsStrgKey, newSettings]], this.vaultKey);
       return newSettings;
     });
+  }
+
+  async saveAutoBackupKey(keyBytes: Uint8Array): Promise<void> {
+    await encryptAndSaveMany([[autoBackupKeyStrgKey, u8ToB64(keyBytes)]], this.vaultKey);
+  }
+
+  async getAutoBackupKey(): Promise<Uint8Array | null> {
+    try {
+      const b64 = await fetchAndDecryptOneWithLegacyFallBack<string>(autoBackupKeyStrgKey, this.vaultKey);
+      return b64ToU8(b64);
+    } catch {
+      return null;
+    }
+  }
+
+  async clearAutoBackupKey(): Promise<void> {
+    await encryptAndSaveMany([[autoBackupKeyStrgKey, null]], this.vaultKey);
   }
 
   async authorize(_sendTransaction: SendTransaction) {}

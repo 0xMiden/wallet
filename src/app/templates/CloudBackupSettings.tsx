@@ -1,26 +1,31 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { getGoogleAuthToken, GoogleAuthResult } from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
-import { getPasskeyProvider } from 'lib/passkey';
 import { generateSalt } from 'lib/miden/passworder';
-
-import { getGoogleAuthToken, GoogleAuthResult } from '../../lib/miden/backup/google-drive-auth';
+import { getPasskeyProvider } from 'lib/passkey';
+import { u8ToB64 } from 'lib/shared/helpers';
+import { AutoBackupStatus } from 'lib/shared/types';
 
 type EncryptionMethod = 'password' | 'passkey';
 
-function toBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
-}
-
 const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
-  const { createCloudBackup, restoreCloudBackup, probeCloudBackup } = useMidenContext();
+  const { setAutoBackupEnabled, fetchAutoBackupStatus } = useMidenContext();
 
   const [auth, setAuth] = useState<GoogleAuthResult | null>(null);
   const [backupPassword, setBackupPassword] = useState('');
   const [encryptionMethod, setEncryptionMethod] = useState<EncryptionMethod>('password');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  const [autoBackupStatus, setAutoBackupStatus] = useState<AutoBackupStatus | null>(null);
+
+  // Fetch auto-backup status on mount
+  useEffect(() => {
+    fetchAutoBackupStatus()
+      .then(setAutoBackupStatus)
+      .catch(() => {});
+  }, [fetchAutoBackupStatus]);
 
   const handleSignIn = useCallback(async () => {
     setLoading(true);
@@ -36,10 +41,10 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
     }
   }, []);
 
-  const handleBackup = useCallback(async () => {
+  const handleEnable = useCallback(async () => {
     if (!auth) return;
     setLoading(true);
-    setStatus('Creating backup...');
+    setStatus('Enabling auto-backup...');
     try {
       if (encryptionMethod === 'passkey') {
         const provider = await getPasskeyProvider();
@@ -48,131 +53,154 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
         const salt = generateSalt();
         const { keyMaterial, credentialId, prfSalt } = await provider.register(salt);
 
-        await createCloudBackup(auth.accessToken, {
+        await setAutoBackupEnabled(true, auth.accessToken, auth.expiresAt, {
           method: 'passkey',
-          keyMaterial: toBase64(keyMaterial),
-          credentialId: toBase64(credentialId),
-          prfSalt: toBase64(prfSalt)
+          keyMaterial: u8ToB64(keyMaterial),
+          credentialId: u8ToB64(credentialId),
+          prfSalt: u8ToB64(prfSalt)
         });
       } else {
         if (!backupPassword) return;
-        await createCloudBackup(auth.accessToken, { method: 'password', backupPassword });
+        await setAutoBackupEnabled(true, auth.accessToken, auth.expiresAt, {
+          method: 'password',
+          backupPassword
+        });
       }
-      setStatus('Backup uploaded successfully');
+      setBackupPassword('');
+      setStatus('Auto-backup enabled');
+      const updated = await fetchAutoBackupStatus();
+      setAutoBackupStatus(updated);
     } catch (err: unknown) {
-      setStatus(`Backup failed: ${err instanceof Error ? err.message : String(err)}`);
+      setStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
-  }, [auth, backupPassword, encryptionMethod, createCloudBackup]);
+  }, [auth, backupPassword, encryptionMethod, setAutoBackupEnabled, fetchAutoBackupStatus]);
 
-  const handleRestore = useCallback(async () => {
-    if (!auth) return;
+  const handleDisable = useCallback(async () => {
     setLoading(true);
-    setStatus('Restoring from backup...');
+    setStatus('Disabling auto-backup...');
     try {
-      const probe = await probeCloudBackup(auth.accessToken);
-
-      if (probe.encryptionMethod === null) {
-        setStatus('No backup found');
-        return;
-      }
-
-      if (probe.encryptionMethod === 'passkey') {
-        if (!probe.credentialId || !probe.prfSalt) throw new Error('Backup missing passkey metadata');
-
-        const provider = await getPasskeyProvider();
-        if (!provider) throw new Error('Passkeys not available on this platform');
-
-        const credentialId = Uint8Array.from(atob(probe.credentialId), c => c.charCodeAt(0));
-        const prfSalt = Uint8Array.from(atob(probe.prfSalt), c => c.charCodeAt(0));
-        const { keyMaterial } = await provider.authenticate(credentialId, prfSalt);
-
-        await restoreCloudBackup(auth.accessToken, { method: 'passkey', keyMaterial: toBase64(keyMaterial) });
-      } else {
-        if (!backupPassword) {
-          setStatus('This backup requires a password');
-          setLoading(false);
-          return;
-        }
-        await restoreCloudBackup(auth.accessToken, { method: 'password', backupPassword });
-      }
-
-      setStatus('Restore completed successfully');
+      await setAutoBackupEnabled(false);
+      setStatus('Auto-backup disabled');
+      const updated = await fetchAutoBackupStatus();
+      setAutoBackupStatus(updated);
     } catch (err: unknown) {
-      setStatus(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);
+      setStatus(`Failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
-  }, [auth, backupPassword, probeCloudBackup, restoreCloudBackup]);
+  }, [setAutoBackupEnabled, fetchAutoBackupStatus]);
 
-  const backupDisabled = loading || !auth || (encryptionMethod === 'password' && !backupPassword);
+  const handleGoogleReauth = useCallback(async () => {
+    setLoading(true);
+    setStatus('Re-authenticating with Google...');
+    try {
+      const result = await getGoogleAuthToken();
+      setAuth(result);
+      // Re-enable with fresh token (encryption unchanged, just refreshing token)
+      setStatus(`Re-authenticated as ${result.email || 'unknown'}`);
+    } catch (err: unknown) {
+      setStatus(`Re-auth failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const isEnabled = autoBackupStatus?.enabled ?? false;
+  const enableDisabled = loading || !auth || (encryptionMethod === 'password' && !backupPassword);
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <h2 className="text-lg font-semibold">Cloud Backup (Test)</h2>
+      <h2 className="text-lg font-semibold">Cloud Backup</h2>
+
+      {/* Status */}
+      {isEnabled && autoBackupStatus && (
+        <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm">
+          <p className="font-medium text-green-800">Auto-backup enabled ({autoBackupStatus.method})</p>
+          {autoBackupStatus.lastBackupAt && (
+            <p className="text-green-600">Last backup: {new Date(autoBackupStatus.lastBackupAt).toLocaleString()}</p>
+          )}
+          {autoBackupStatus.lastError && <p className="text-red-600">Error: {autoBackupStatus.lastError}</p>}
+          {autoBackupStatus.needsGoogleReauth && (
+            <Button
+              className="mt-2 w-full justify-center"
+              title="Re-authenticate with Google"
+              variant={ButtonVariant.Secondary}
+              onClick={handleGoogleReauth}
+              disabled={loading}
+            />
+          )}
+        </div>
+      )}
 
       {/* Auth */}
-      <Button
-        className="w-full justify-center"
-        title={auth ? `Signed in: ${auth.email || 'Google'}` : 'Sign in with Google'}
-        variant={ButtonVariant.Secondary}
-        onClick={handleSignIn}
-        disabled={loading}
-      />
+      {!isEnabled && (
+        <>
+          <Button
+            className="w-full justify-center"
+            title={auth ? `Signed in: ${auth.email || 'Google'}` : 'Sign in with Google'}
+            variant={ButtonVariant.Secondary}
+            onClick={handleSignIn}
+            disabled={loading}
+          />
 
-      {/* Encryption method selector */}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => setEncryptionMethod('password')}
-          className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-            encryptionMethod === 'password' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300'
-          }`}
-        >
-          Password
-        </button>
-        <button
-          type="button"
-          onClick={() => setEncryptionMethod('passkey')}
-          className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-            encryptionMethod === 'passkey' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300'
-          }`}
-        >
-          Passkey
-        </button>
-      </div>
+          {/* Encryption method selector */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setEncryptionMethod('password')}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                encryptionMethod === 'password' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300'
+              }`}
+            >
+              Password
+            </button>
+            <button
+              type="button"
+              onClick={() => setEncryptionMethod('passkey')}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                encryptionMethod === 'passkey' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300'
+              }`}
+            >
+              Passkey
+            </button>
+          </div>
 
-      {/* Password input (only for password method) */}
-      {encryptionMethod === 'password' && (
-        <input
-          type="password"
-          placeholder="Backup password"
-          value={backupPassword}
-          onChange={e => setBackupPassword(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          {/* Password input (only for password method) */}
+          {encryptionMethod === 'password' && (
+            <input
+              type="password"
+              placeholder="Backup password"
+              value={backupPassword}
+              onChange={e => setBackupPassword(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          )}
+
+          {/* Enable */}
+          <Button
+            className="w-full justify-center"
+            title={encryptionMethod === 'passkey' ? 'Enable with Passkey' : 'Enable Auto-Backup'}
+            variant={ButtonVariant.Primary}
+            onClick={handleEnable}
+            disabled={enableDisabled}
+          />
+        </>
+      )}
+
+      {/* Disable */}
+      {isEnabled && (
+        <Button
+          className="w-full justify-center"
+          title="Disable Auto-Backup"
+          variant={ButtonVariant.Secondary}
+          onClick={handleDisable}
+          disabled={loading}
         />
       )}
 
-      {/* Actions */}
-      <div className="flex gap-2">
-        <Button
-          className="flex-1 justify-center"
-          title={encryptionMethod === 'passkey' ? 'Backup with Passkey' : 'Backup'}
-          variant={ButtonVariant.Primary}
-          onClick={handleBackup}
-          disabled={backupDisabled}
-        />
-        <Button
-          className="flex-1 justify-center"
-          title="Restore"
-          variant={ButtonVariant.Secondary}
-          onClick={handleRestore}
-          disabled={!auth || loading}
-        />
-      </div>
-
-      {/* Status */}
+      {/* Status message */}
       {status && <p className="text-sm text-gray-500 select-text">{status}</p>}
     </div>
   );

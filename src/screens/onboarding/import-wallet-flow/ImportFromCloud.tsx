@@ -150,7 +150,7 @@ export const ImportFromCloudScreen: React.FC<ImportFromCloudScreenProps> = ({ cl
             <button
               type="button"
               onClick={handlePasskeyRestore}
-              className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-medium text-white"
+              className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-medium"
             >
               {t('cloudRestoreWithPasskey')}
             </button>

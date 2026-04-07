@@ -112,14 +112,17 @@ export enum WalletMessageType {
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
   GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
   // Cloud backup
-  CloudBackupCreateRequest = 'CLOUD_BACKUP_CREATE_REQUEST',
-  CloudBackupCreateResponse = 'CLOUD_BACKUP_CREATE_RESPONSE',
   CloudBackupRestoreRequest = 'CLOUD_BACKUP_RESTORE_REQUEST',
   CloudBackupRestoreResponse = 'CLOUD_BACKUP_RESTORE_RESPONSE',
   CloudBackupProbeRequest = 'CLOUD_BACKUP_PROBE_REQUEST',
   CloudBackupProbeResponse = 'CLOUD_BACKUP_PROBE_RESPONSE',
   CloudBackupRegisterRequest = 'CLOUD_BACKUP_REGISTER_REQUEST',
-  CloudBackupRegisterResponse = 'CLOUD_BACKUP_REGISTER_RESPONSE'
+  CloudBackupRegisterResponse = 'CLOUD_BACKUP_REGISTER_RESPONSE',
+  // Auto backup
+  AutoBackupSetEnabledRequest = 'AUTO_BACKUP_SET_ENABLED_REQUEST',
+  AutoBackupSetEnabledResponse = 'AUTO_BACKUP_SET_ENABLED_RESPONSE',
+  AutoBackupStatusRequest = 'AUTO_BACKUP_STATUS_REQUEST',
+  AutoBackupStatusResponse = 'AUTO_BACKUP_STATUS_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -439,6 +442,19 @@ export interface UpdateSettingsRequest extends WalletMessageBase {
 // TODO: Pull this out somewhere and make it more generalizable
 export interface WalletSettings {
   contacts?: WalletContact[];
+  autoBackup?: AutoBackupSettings;
+}
+
+export interface AutoBackupSettings {
+  enabled: boolean;
+  /** 'password' or 'passkey' — which method was used to enable auto-backup */
+  method: 'password' | 'passkey';
+  /** Base64-encoded salt — PBKDF2 salt (password) or HKDF salt (passkey) for backup header */
+  salt?: string;
+  /** Base64-encoded WebAuthn credential ID (passkey only, for backup header) */
+  credentialId?: string;
+  /** ISO timestamp of last successful auto-backup */
+  lastBackupAt?: string;
 }
 
 export interface WalletContact {
@@ -649,10 +665,6 @@ export interface ImportFromClientResponse extends WalletMessageBase {
 
 // Cloud backup encryption arg types (reused across intercom messages, store, and frontend)
 
-export type CloudBackupCreateEncryption =
-  | { method: 'password'; backupPassword: string }
-  | { method: 'passkey'; keyMaterial: string; credentialId: string; prfSalt: string };
-
 export type CloudBackupRestoreEncryption =
   | { method: 'password'; backupPassword: string }
   | { method: 'passkey'; keyMaterial: string };
@@ -664,16 +676,6 @@ export interface CloudBackupProbeResult {
 }
 
 // Cloud backup intercom messages
-
-export interface CloudBackupCreateRequest extends WalletMessageBase {
-  type: WalletMessageType.CloudBackupCreateRequest;
-  accessToken: string;
-  encryption: CloudBackupCreateEncryption;
-}
-
-export interface CloudBackupCreateResponse extends WalletMessageBase {
-  type: WalletMessageType.CloudBackupCreateResponse;
-}
 
 export interface CloudBackupRestoreRequest extends WalletMessageBase {
   type: WalletMessageType.CloudBackupRestoreRequest;
@@ -706,6 +708,41 @@ export interface CloudBackupRegisterRequest extends WalletMessageBase {
 
 export interface CloudBackupRegisterResponse extends WalletMessageBase {
   type: WalletMessageType.CloudBackupRegisterResponse;
+}
+
+// Auto backup intercom messages
+
+export type AutoBackupEncryption =
+  | { method: 'password'; backupPassword: string }
+  | { method: 'passkey'; keyMaterial: string; credentialId: string; prfSalt: string };
+
+export interface AutoBackupSetEnabledRequest extends WalletMessageBase {
+  type: WalletMessageType.AutoBackupSetEnabledRequest;
+  enabled: boolean;
+  accessToken?: string;
+  expiresAt?: number;
+  encryption?: AutoBackupEncryption;
+}
+
+export interface AutoBackupSetEnabledResponse extends WalletMessageBase {
+  type: WalletMessageType.AutoBackupSetEnabledResponse;
+}
+
+export interface AutoBackupStatusRequest extends WalletMessageBase {
+  type: WalletMessageType.AutoBackupStatusRequest;
+}
+
+export interface AutoBackupStatus {
+  enabled: boolean;
+  lastBackupAt: string | null;
+  lastError: string | null;
+  method: 'password' | 'passkey' | null;
+  /** true when Google token refresh failed — frontend should prompt re-auth */
+  needsGoogleReauth: boolean;
+}
+
+export interface AutoBackupStatusResponse extends WalletMessageBase, AutoBackupStatus {
+  type: WalletMessageType.AutoBackupStatusResponse;
 }
 
 export enum WalletStatus {
@@ -760,10 +797,11 @@ export type WalletRequest =
   | ImportNoteBytesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
-  | CloudBackupCreateRequest
   | CloudBackupRestoreRequest
   | CloudBackupProbeRequest
-  | CloudBackupRegisterRequest;
+  | CloudBackupRegisterRequest
+  | AutoBackupSetEnabledRequest
+  | AutoBackupStatusRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -812,7 +850,8 @@ export type WalletResponse =
   | ImportNoteBytesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
-  | CloudBackupCreateResponse
   | CloudBackupRestoreResponse
   | CloudBackupProbeResponse
-  | CloudBackupRegisterResponse;
+  | CloudBackupRegisterResponse
+  | AutoBackupSetEnabledResponse
+  | AutoBackupStatusResponse;
