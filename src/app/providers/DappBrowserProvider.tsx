@@ -149,21 +149,27 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     hardClose();
   }, [closeWebView, hardClose]);
 
-  // Park: capture snapshot first (so the bubble has something to show),
-  // then move the webview offscreen via the hook re-rendering with the
-  // parked rect. The bubble overlay (DappBubbleHost) reads from context
-  // and renders itself.
+  // Park: capture snapshot, then HARD CLOSE the native webview. The session
+  // metadata stays in state so the bubble can show, and restore() reopens
+  // the webview at the slot rect when the user taps the bubble.
+  //
+  // Why hard close instead of moving offscreen: the @capgo/inappbrowser
+  // plugin's positioned-modal swap (PassThroughView container) makes
+  // subsequent updateDimensions calls move the wrong frame, so an
+  // "offscreen rect" approach doesn't actually hide the webview. Closing
+  // and reopening is a heavier path but reliable. PR-4's vendored fork
+  // adds proper setVisible support so the JS context survives across park.
   const park = useCallback(async () => {
     if (!session || mode !== 'active') return;
-    // Snapshot uses the patched `snapshot` plugin method shipped in PR-1
-    // part 2. Best-effort: if it fails, the bubble falls back to the
-    // favicon-color tile.
+    // Snapshot first so the bubble has a frozen preview to render.
     await captureSnapshot(session.id, 0.5, 0.7);
+    await closeWebView();
     setMode('parked');
-  }, [session, mode]);
+    setSlotRect(null);
+  }, [session, mode, closeWebView]);
 
-  // Restore: flip back to active mode. The lifecycle hook re-targets the
-  // webview at the slot rect on the next render.
+  // Restore: flip mode back to 'active'. DappActive remounts on the next
+  // render, the slot rect is reported, and the lifecycle hook reopens.
   const restore = useCallback(async () => {
     if (!session || mode !== 'parked') return;
     setMode('active');
@@ -190,14 +196,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     setActiveDappSession(session?.id ?? null);
   }, [session, setActiveDappSession]);
 
-  // The `useDappBrowserWebView` hook handles the actual openWebView call
-  // when the rect first becomes available; we just trigger the open here.
+  // Open the webview ONLY when there's a session, mode is 'active', and the
+  // DappActive slot has reported a rect. Parked mode doesn't reopen — park
+  // hard-closes the webview and the bubble is the only visual; restore flips
+  // mode to 'active' which triggers DappActive to remount and the slot rect
+  // to be reported, after which this effect fires.
   useEffect(() => {
-    if (!session || mode === 'launcher') return;
-    if (!slotRect && mode === 'active') return; // wait for rect
+    if (!session || mode !== 'active' || !slotRect) return;
     void openWebView();
-    // We intentionally don't depend on openWebView (stable ref); we want
-    // this to fire when session/mode/slotRect changes.
+    // openWebView is a stable ref from the hook; intentionally not in deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id, mode, slotRect != null]);
 

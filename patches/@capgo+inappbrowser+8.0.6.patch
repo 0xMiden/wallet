@@ -356,7 +356,7 @@ deleted file mode 100755
 index 937bcbb..0000000
 Binary files a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/._WKWebViewController.swift and /dev/null differ
 diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift
-index 2bb030a..4e9cd50 100755
+index 2bb030a..12086d7 100755
 --- a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift
 +++ b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/InAppBrowserPlugin.swift
 @@ -42,6 +42,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -367,7 +367,37 @@ index 2bb030a..4e9cd50 100755
          CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
      ]
      var navigationWebViewController: UINavigationController?
-@@ -957,4 +958,26 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
+@@ -869,13 +870,24 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
+ 
+             self.webViewController?.cleanupWebView()
+ 
+-            self.navigationWebViewController?.dismiss(animated: isAnimated) {
++            // Miden patch: resolve the call ONLY after dismissal completes,
++            // so the JS caller can safely call openWebView immediately after
++            // close. The original code resolved synchronously before the
++            // animation finished, leaving the navigation controller mid-
++            // dismissal — subsequent openWebView calls would then race the
++            // half-torn-down state and silently fail to display anything.
++            if let navController = self.navigationWebViewController {
++                navController.dismiss(animated: isAnimated) {
++                    self.webViewController = nil
++                    self.navigationWebViewController = nil
++                    self.notifyListeners("closeEvent", data: ["url": currentUrl])
++                    call.resolve()
++                }
++            } else {
+                 self.webViewController = nil
+-                self.navigationWebViewController = nil
++                self.notifyListeners("closeEvent", data: ["url": currentUrl])
++                call.resolve()
+             }
+-
+-            self.notifyListeners("closeEvent", data: ["url": currentUrl])
+-            call.resolve()
+         }
+     }
+ 
+@@ -957,4 +969,26 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
          }
      }
  
@@ -395,7 +425,7 @@ index 2bb030a..4e9cd50 100755
 +
  }
 diff --git a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift
-index fdd6845..182370e 100755
+index fdd6845..2535721 100755
 --- a/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift
 +++ b/node_modules/@capgo/inappbrowser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift
 @@ -717,6 +717,11 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
@@ -438,3 +468,27 @@ index fdd6845..182370e 100755
  }
  
  class BlockBarButtonItem: UIBarButtonItem {
+@@ -1980,7 +2006,22 @@ class PassThroughView: UIView {
+         // If we have a target frame and the touch is outside it, pass through
+         if let frame = targetFrame {
+             if !frame.contains(point) {
+-                return nil  // Pass through to underlying views
++                // Miden patch: returning nil from a modally-presented view's
++                // hitTest does NOT cause iOS 17+ to fall through to the
++                // presenting view controller — the touch is dropped entirely.
++                // Explicitly walk to the host window's rootViewController.view
++                // (which is the Capacitor host webview's container, since the
++                // dApp modal is presented OVER it) and forward the hit-test
++                // there so the wallet's React UI (capsule, tabbar, bubble
++                // overlay) remains interactive while a positioned dApp webview
++                // is open.
++                if let host = self.window?.rootViewController?.view, host !== self {
++                    let hostPoint = self.convert(point, to: host)
++                    if let hit = host.hitTest(hostPoint, with: event), hit !== self {
++                        return hit
++                    }
++                }
++                return nil  // No host found; drop the touch.
+             }
+         }
+ 

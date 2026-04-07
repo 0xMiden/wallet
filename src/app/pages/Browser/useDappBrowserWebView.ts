@@ -96,17 +96,16 @@ export function useDappBrowserWebView(args: UseDappBrowserWebViewArgs): UseDappB
     if (session) originRef.current = session.origin;
   }, [session?.origin]);
 
-  // Drive `updateDimensions` when the target rect changes (and we're open).
-  // This is what makes parking work: the provider passes an offscreen rect
-  // and the hook moves the native frame to it.
+  // updateDimensions: the @capgo/inappbrowser plugin's positioned-modal
+  // implementation has a known issue where calling updateDimensions AFTER
+  // openWebView drives the WRONG frame (it moves the PassThroughView
+  // container that the plugin swaps in for positioned mode rather than the
+  // inner webview). For PR-3 we therefore only set the rect at openWebView
+  // time and skip subsequent updates. Park / restore is implemented by
+  // closing + reopening at a different rect (a heavier path but reliable).
+  // PR-4's vendored fork fixes the underlying plugin bug.
   useEffect(() => {
-    if (!openedRef.current || !targetRect) return;
-    InAppBrowser.updateDimensions({
-      x: targetRect.x,
-      y: targetRect.y,
-      width: targetRect.width,
-      height: targetRect.height
-    }).catch(err => console.warn('[useDappBrowserWebView] updateDimensions failed:', err));
+    // Intentionally no-op. See comment above.
   }, [targetRect?.x, targetRect?.y, targetRect?.width, targetRect?.height]);
 
   const open = useCallback(async () => {
