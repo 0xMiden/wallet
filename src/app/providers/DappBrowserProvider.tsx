@@ -234,6 +234,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // render after open() — that's a "not yet" state, not a "just left"
   // state, and parking it would deadlock the open path).
   const slotRectShownForRef = useRef<string | null>(null);
+  // Forward ref to `restore()` so earlier-declared callbacks (e.g.
+  // `open`, the confirmation auto-restore effect) can invoke it without
+  // a circular useCallback dependency. Populated after `restore` is
+  // defined below.
+  const restoreRef = useRef<((sessionId: string) => Promise<void>) | null>(null);
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
@@ -509,12 +514,19 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const open = useCallback(
     (next: DappSession) => {
-      // If the same session is already in state, treat this as a restore.
-      const existing = getSessionStateById(next.id);
-      if (existing) {
-        // Re-foreground it.
-        setForegroundId(next.id);
-        updateSession(next.id, s => ({ ...s, status: 'active' }));
+      // Dedup by id first, then by URL — tapping the same dApp tile or a
+      // "recents" entry for an already-open session should restore the
+      // existing session instead of spawning a duplicate. Without this,
+      // repeatedly tapping a tile grows the session list unboundedly
+      // and the switcher fills up with identical cards.
+      const existingById = getSessionStateById(next.id);
+      if (existingById) {
+        void restoreRef.current?.(next.id);
+        return;
+      }
+      const existingByUrl = sessionStatesRef.current.find(s => s.session.url === next.url && s.status !== 'closing');
+      if (existingByUrl) {
+        void restoreRef.current?.(existingByUrl.session.id);
         return;
       }
 
@@ -632,6 +644,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     },
     [getSessionStateById, parkInternal, setActiveDappSession, updateSession]
   );
+
+  // Populate the forward ref so earlier-declared callbacks (`open`, the
+  // confirmation auto-restore effect) can call `restore` without
+  // circular useCallback deps.
+  useEffect(() => {
+    restoreRef.current = restore;
+  }, [restore]);
 
   // ─── Effects that drive the native side ─────────────────────────────────
 
