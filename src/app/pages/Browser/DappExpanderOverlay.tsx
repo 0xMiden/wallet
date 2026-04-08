@@ -48,8 +48,19 @@ interface DappExpanderOverlayProps {
   snapshot: string | null;
   /** Origin for the fallback brand-color background (used if no snapshot). */
   origin: string;
-  /** Ends at the viewport size; cached by the tray for portal rendering. */
-  viewport: { width: number; height: number };
+  /**
+   * The target rect the expander grows into. Crucially this is the
+   * DappActive SLOT rect (the area where the native webview will
+   * render), NOT the full viewport. The snapshot was captured from
+   * the slot area, so animating to the slot means the snapshot's
+   * aspect ratio matches its container exactly — `background-size:
+   * cover` produces a uniform scale with no cropping and the text in
+   * the snapshot lands at the same visual size as the live webview's
+   * text at handoff. Animating to the full viewport instead gives an
+   * ~25% text-size jump that reads as "ugly shrink" when the webview
+   * takes over.
+   */
+  targetRect: { x: number; y: number; width: number; height: number };
 }
 
 // Duration tuning:
@@ -65,7 +76,7 @@ const EXPAND_EASE = [0.2, 0.85, 0.25, 1] as const;
 
 export const EXPAND_TOTAL_DURATION_MS = EXPAND_DURATION_MS;
 
-export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({ sourceRect, snapshot, origin, viewport }) => {
+export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({ sourceRect, snapshot, origin, targetRect }) => {
   const fallbackColor = getFallbackColor(origin);
 
   return createPortal(
@@ -80,10 +91,10 @@ export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({ sourceRect, 
         opacity: 1
       }}
       animate={{
-        left: 0,
-        top: 0,
-        width: viewport.width,
-        height: viewport.height,
+        left: targetRect.x,
+        top: targetRect.y,
+        width: targetRect.width,
+        height: targetRect.height,
         borderRadius: 0,
         opacity: 1
       }}

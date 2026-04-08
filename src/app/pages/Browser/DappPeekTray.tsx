@@ -67,7 +67,21 @@ interface RestoringState {
   session: DappSession;
   snapshot: string | null;
   sourceRect: DOMRect;
-  viewport: { width: number; height: number };
+  /**
+   * Where the expander should finish its grow — this is the rect
+   * where the native webview will render, NOT the full viewport.
+   * The snapshot is captured from the slot rect (roughly
+   * 402×695 on iPhone 17) and if we animate to the full viewport
+   * (402×874) the snapshot's aspect ratio doesn't match and
+   * `background-size: cover` scales the image by the larger
+   * dimension + crops the sides. That larger scale makes the text
+   * in the snapshot ~25% bigger than the native webview's text,
+   * which then "shrinks" back to natural size when the webview
+   * takes over — visibly ugly. Animating to the slot rect gives a
+   * uniform scale with no cropping, so the snapshot text matches
+   * the webview text 1:1 at the moment of handoff.
+   */
+  targetRect: { x: number; y: number; width: number; height: number };
 }
 
 // Restore is called partway through the expand animation so the native
@@ -79,8 +93,32 @@ interface RestoringState {
 // the expander has covered ~70% of the screen.
 const RESTORE_TRIGGER_DELAY_MS = 320;
 
+// When the live slot rect isn't available (no dApp has been foregrounded
+// this session yet), fall back to a computed slot rect that matches the
+// DappActive layout: below the 81pt capsule and extending all the way
+// to the viewport bottom (the native navbar is a UIWindow overlay, not
+// an inline footer, so the slot covers the full remaining height).
+const FALLBACK_CAPSULE_HEIGHT = 145;
+
+function resolveTargetRect(liveSlotRect: { x: number; y: number; width: number; height: number } | null): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  if (liveSlotRect && liveSlotRect.width > 0 && liveSlotRect.height > 0) {
+    return liveSlotRect;
+  }
+  return {
+    x: 0,
+    y: FALLBACK_CAPSULE_HEIGHT,
+    width: window.innerWidth,
+    height: window.innerHeight - FALLBACK_CAPSULE_HEIGHT
+  };
+}
+
 export const DappPeekTray: FC = () => {
-  const { parkedSessions, restore, close, openSwitcher } = useDappBrowser();
+  const { parkedSessions, restore, close, openSwitcher, slotRect } = useDappBrowser();
   const [snapshotTick, setSnapshotTick] = useState(0);
   const [footerHeight, setFooterHeight] = useState(FOOTER_HEIGHT_FALLBACK);
   // The currently-restoring session, if any. Set when a card's tap/
@@ -134,11 +172,12 @@ export const DappPeekTray: FC = () => {
   const handleCommitRestore = useCallback(
     (session: DappSession, sourceRect: DOMRect) => {
       const snap = getSnapshot(session.id) ?? null;
+      const targetRect = resolveTargetRect(slotRect);
       setRestoring({
         session,
         snapshot: snap,
         sourceRect,
-        viewport: { width: window.innerWidth, height: window.innerHeight }
+        targetRect
       });
       // Kick the provider restore partway through the expand so the
       // webview is ready by the time the overlay is at full size.
@@ -155,7 +194,7 @@ export const DappPeekTray: FC = () => {
         restoreClearTimerRef.current = null;
       }, EXPAND_TOTAL_DURATION_MS + 100);
     },
-    [restore]
+    [restore, slotRect]
   );
 
   // Cards render newest-first so the dApp the user most recently
@@ -240,7 +279,7 @@ export const DappPeekTray: FC = () => {
           sourceRect={restoring.sourceRect}
           snapshot={restoring.snapshot}
           origin={restoring.session.origin}
-          viewport={restoring.viewport}
+          targetRect={restoring.targetRect}
         />
       )}
     </div>,
