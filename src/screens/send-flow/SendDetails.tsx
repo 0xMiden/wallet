@@ -9,6 +9,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { AutoSync } from 'lib/miden/front/autoSync';
 import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -137,6 +138,15 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   }, [isValidAmount, isValidAddress, onAction]);
 
   const canProceed = isValidAmount && isValidAddress;
+
+  // On mobile, the primary CTA is hoisted to the always-on native navbar
+  // (morphs into compact mode with a 50/50 split). The React button below
+  // is hidden on mobile via !isMobile() so we don't render both.
+  useNativeNavbarAction({
+    label: t('continue'),
+    onTap: handleReviewOpen,
+    enabled: canProceed
+  });
 
   const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
@@ -324,15 +334,17 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {/* Continue Button */}
         </div>
 
-        <div className="pt-4 pb-4 shrink-0">
-          <Button
-            title={t('continue')}
-            variant={ButtonVariant.Primary}
-            onClick={handleReviewOpen}
-            disabled={!canProceed}
-            className="w-full rounded-[10px] text-base font-semibold"
-          />
-        </div>
+        {!isMobile() && (
+          <div className="pt-4 pb-4 shrink-0">
+            <Button
+              title={t('continue')}
+              variant={ButtonVariant.Primary}
+              onClick={handleReviewOpen}
+              disabled={!canProceed}
+              className="w-full rounded-[10px] text-base font-semibold"
+            />
+          </div>
+        )}
 
         {/* Calendar Drawer */}
         <Drawer open={showCalendar} onOpenChange={setShowCalendar}>

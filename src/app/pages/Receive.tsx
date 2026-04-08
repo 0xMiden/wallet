@@ -22,6 +22,7 @@ import {
   verifyStuckTransactionsFromNode,
   waitForConsumeTx
 } from 'lib/miden/activity';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { AssetMetadata, useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -326,6 +327,21 @@ export const Receive: React.FC<ReceiveProps> = () => {
     individualClaimingIds
   ]);
 
+  // Lift the Claim All button into the native navbar overlay on mobile.
+  // The navbar morphs to compact mode when claimableNotes appear and
+  // back to default when they're all gone — handles the dynamic case
+  // where the background sync surfaces claimable notes mid-page-life.
+  const isClaimingAll = claimingNoteIds.size > 0;
+  useNativeNavbarAction(
+    unclaimedNotes.length > 0
+      ? {
+          label: t('claimAll'),
+          onTap: handleClaimAll,
+          enabled: !isClaimingAll
+        }
+      : null
+  );
+
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
   const containerClass = isMobile()
     ? 'h-full w-full'
@@ -425,7 +441,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
               </div>
             </>
           )}
-          {unclaimedNotes.length > 0 && (
+          {unclaimedNotes.length > 0 && !isMobile() && (
             <div className="flex justify-center mt-4 pb-4 shrink-0">
               <Button
                 className="w-30 h-10 text-md"

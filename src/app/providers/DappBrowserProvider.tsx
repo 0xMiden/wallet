@@ -82,7 +82,7 @@ import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
-import { useWalletStore } from 'lib/store';
+import { selectIsReady, useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
@@ -827,14 +827,21 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // behave identically to the React Footer's <Link> elements.
   const location = useLocation();
   const navbarShownRef = useRef(false);
+  // Check the wallet's lock state from the store. The lock screen
+  // renders at the same `/` route as Home, so we can't tell them
+  // apart by pathname alone — without this guard the navbar would
+  // appear over the password input on app launch / re-lock.
+  const isWalletReady = useWalletStore(selectIsReady);
   useEffect(() => {
     if (!isMobile()) return;
     const path = location.pathname;
 
-    // Onboarding and lock screen routes never get the navbar — the
-    // user shouldn't see wallet chrome before they're authenticated /
-    // have set up an account.
+    // Onboarding, lock screen, and not-yet-ready states never get the
+    // navbar — the user shouldn't see wallet chrome before they're
+    // authenticated. The lock screen renders at `/` so we can't gate
+    // on path alone; we also gate on the wallet's `ready` status.
     const isOnboardingRoute =
+      !isWalletReady ||
       path === '/welcome' ||
       path.startsWith('/onboarding') ||
       path === '/loading' ||
@@ -890,7 +897,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       activeId
     }).catch(() => {});
     navbarShownRef.current = true;
-  }, [location.pathname, t]);
+  }, [location.pathname, isWalletReady, t]);
 
   // Forward native navbar taps to the woozie router. Subscribed once for
   // the lifetime of the provider so we don't lose taps mid-mode-change.
