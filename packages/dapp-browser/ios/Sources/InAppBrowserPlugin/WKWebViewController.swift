@@ -2140,37 +2140,40 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// The id of the currently-active item, if any.
     private var activeItemId: String?
 
-    /// Container view holding the buttons. Plain UIView (not a
-    /// UIVisualEffectView) so the navbar's background is a fixed
-    /// translucent white tint regardless of what's painted underneath
-    /// — matches the React Footer's `rgba(255,255,255,0.6) +
-    /// backdrop-filter: blur(6px)` look. UIVisualEffectView with
-    /// .systemChromeMaterial would otherwise sample the dApp content
-    /// and produce wildly different tints depending on the dApp's
-    /// theme (peach over Zoroswap light mode, near-black over
-    /// Zoroswap dark mode), which the user shouldn't see.
-    private let blurContainer: UIView
-    /// Subview that provides the contentView API for the buttons —
-    /// kept as a separate field so the layout code below can stay
-    /// almost identical to the previous UIVisualEffectView version.
-    private let contentContainer: UIView
+    /// The pill background — a true Apple "liquid glass" blur via
+    /// UIVisualEffectView. iOS 26+ uses the new UIGlassEffect class
+    /// (the same effect Apple uses for the system Music / Mail /
+    /// Files floating bars); earlier iOS falls back to
+    /// .systemUltraThinMaterial which is the closest pre-iOS-26 blur
+    /// material to the new glass look.
+    ///
+    /// We deliberately use the visual effect here even though it
+    /// samples the dApp content underneath — that's the WHOLE POINT
+    /// of liquid glass. Letting the dApp content tint the pill is
+    /// what makes it feel native to the device rather than a flat
+    /// pasted-on rectangle. We can't replicate this in CSS because
+    /// `backdrop-filter` only sees content within the same WebKit
+    /// compositor layer, which the cross-window dApp WKWebView is
+    /// definitely not in.
+    private let blurContainer: UIVisualEffectView
+    /// Convenience for the layout code below — points at the blur
+    /// view's contentView, which is where button subviews go.
+    private var contentContainer: UIView { blurContainer.contentView }
 
     init(scene: UIWindowScene, items: [Item], activeId: String?) {
-        let container = UIView()
-        // The React Footer uses rgba(255,255,255,0.6) + backdrop-blur
-        // to produce a clean, near-white pill on top of the wallet's
-        // cream background. We can't replicate the blur behavior here
-        // (UIVisualEffectView samples the dApp content beneath, which
-        // produces wildly different tints depending on the dApp's
-        // theme — peach over Zoroswap light mode, near-black over
-        // dark mode). Instead, paint a near-opaque off-white that
-        // matches the *visible* color of the React pill regardless
-        // of what's below. The exact value matches the wallet's
-        // `--color-app-bg` (#F6F4F2) so the navbar visually melds
-        // with the rest of the wallet chrome.
-        container.backgroundColor = UIColor(red: 0.965, green: 0.957, blue: 0.949, alpha: 1.0)
+        let visualEffect: UIVisualEffect
+        if #available(iOS 26.0, *) {
+            // iOS 26 introduced UIGlassEffect — the actual "liquid
+            // glass" material the system uses for floating chrome.
+            visualEffect = UIGlassEffect()
+        } else {
+            // Pre-iOS-26 fallback: the most transparent system blur
+            // material. Tinted with the dApp content but without the
+            // heavy chrome darken that .systemChromeMaterial applies.
+            visualEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        }
+        let container = UIVisualEffectView(effect: visualEffect)
         self.blurContainer = container
-        self.contentContainer = container
         super.init(frame: scene.coordinateSpace.bounds)
         self.windowScene = scene
         self.windowLevel = UIWindow.Level.normal + 200
