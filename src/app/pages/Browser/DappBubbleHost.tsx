@@ -59,7 +59,12 @@ export const DappBubbleHost: FC = () => {
   const visibleBubbles = parkedSessions.length <= MAX_VISIBLE_BUBBLES ? parkedSessions : parkedSessions.slice(0, 1);
 
   return (
-    <div className="pointer-events-none fixed inset-0" style={{ zIndex: 65 }} aria-hidden={parkedSessions.length === 0}>
+    <div
+      data-dapp-bubble-host="true"
+      className="pointer-events-none fixed inset-0"
+      style={{ zIndex: 65 }}
+      aria-hidden={parkedSessions.length === 0}
+    >
       <AnimatePresence>
         {visibleBubbles.map((state, index) => {
           const snapshot = getSnapshot(state.session.id);

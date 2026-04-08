@@ -208,24 +208,32 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
 
-  // On mobile, morph the native navbar OUT when a settings drawer /
-  // seed-warning overlay takes over the bottom of the screen. Both
-  // would otherwise fight with the pill for the same real estate.
+  // On mobile, morph the native navbar AND the parked-dApp bubbles
+  // OUT when a settings drawer / seed-warning overlay takes over the
+  // bottom of the screen — both would otherwise fight with the drawer
+  // for the same real estate. The navbar morph is a Swift spring
+  // animation on the native UIWindow; the bubbles morph via a CSS
+  // rule keyed on `body[data-drawer-open]` (see main.css).
+  //
   // Morphs back IN when the drawer closes. No-op on desktop/extension.
   const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
   useEffect(() => {
     if (!isMobile()) return;
     if (drawerOrSheetOpen) {
+      document.body.setAttribute('data-drawer-open', '');
       InAppBrowser.morphNavbarOut().catch(() => {});
     } else {
+      document.body.removeAttribute('data-drawer-open');
       InAppBrowser.morphNavbarIn().catch(() => {});
     }
     // Unmount cleanup: if the Settings page unmounts while a drawer
-    // is still open (e.g. user swipes back mid-open), force the
-    // navbar back in so it isn't stranded off-screen on the next page.
+    // is still open (e.g. user swipes back mid-open), force both the
+    // navbar and the bubbles back in so nothing is stranded
+    // off-screen on the next page.
     return () => {
       if (!isMobile()) return;
       if (drawerOrSheetOpen) {
+        document.body.removeAttribute('data-drawer-open');
         InAppBrowser.morphNavbarIn().catch(() => {});
       }
     };

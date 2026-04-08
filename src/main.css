@@ -284,6 +284,27 @@ body[data-native-navbar] {
   padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 88px);
 }
 
+/* Parked-dApp bubble host — default transform is identity, and it
+ * rides a ~spring transition so that when the drawer-open rule
+ * below kicks in the bubble slides off the bottom of the screen on
+ * roughly the same curve as the native navbar's morphOut. Opacity
+ * drops alongside so a ghost isn't visible behind a translucent
+ * drawer backdrop. */
+[data-dapp-bubble-host='true'] {
+  transition:
+    transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body[data-drawer-open] [data-dapp-bubble-host='true'] {
+  /* Slide 200px below the screen — comfortably clears the bubble's
+   * ~72pt diameter + its 88pt footer clearance. The bubble's own
+   * z-index and positioning are unchanged, and pointer events on
+   * its children move with the transform so taps no longer hit
+   * the phantom location. */
+  transform: translateY(200px);
+  opacity: 0;
+}
+
 @layer base {
   :root {
     --chart-1: oklch(0.646 0.222 41.116);
