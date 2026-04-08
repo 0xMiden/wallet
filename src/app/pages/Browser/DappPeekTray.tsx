@@ -98,14 +98,22 @@ const RESTORE_TRIGGER_DELAY_MS = 215;
 
 // When the live slot rect isn't available (no dApp has been foregrounded
 // this session yet AND nothing is cached), fall back to a computed slot
-// that matches DappActive's layout: below the 81pt capsule + its
-// top-safe-area pad, extending to the BOTTOM-safe-area inset (not the
-// raw viewport bottom, because the home-indicator inset reduces the
-// usable content area by ~34pt on devices that have one). Using
-// `document.body.clientHeight` instead of `window.innerHeight` picks
-// up the `env(safe-area-inset-bottom)` padding mobile.html applies on
-// the body, giving us the actual drawable height.
+// that matches DappActive's layout. This needs three numbers:
+//   - FALLBACK_CAPSULE_HEIGHT (145): safe-area-inset-top (~62) + the
+//     capsule's drag handle + content row (83).
+//   - FALLBACK_BOTTOM_GUTTER (34): safe-area-inset-bottom on devices
+//     with a home indicator. The React footer gutter (88pt extra)
+//     does NOT apply in the post-foreground state — that gets reset
+//     by `body[data-native-navbar][data-dapp-foreground]` in main.css
+//     — but at the moment we're computing the fallback, that attr
+//     isn't set yet, so `document.body.clientHeight` still includes
+//     the 88pt gutter. Subtract the bottom safe area directly as a
+//     constant instead of trying to derive it from live CSS.
+// These defaults are iPhone 17-class. Other devices differ slightly
+// but the cache (populated the moment a dApp is foregrounded) covers
+// every case after the first restore.
 const FALLBACK_CAPSULE_HEIGHT = 145;
+const FALLBACK_BOTTOM_GUTTER = 34;
 
 function resolveTargetRect(liveSlotRect: { x: number; y: number; width: number; height: number } | null): {
   x: number;
@@ -116,12 +124,13 @@ function resolveTargetRect(liveSlotRect: { x: number; y: number; width: number; 
   if (liveSlotRect && liveSlotRect.width > 0 && liveSlotRect.height > 0) {
     return liveSlotRect;
   }
-  const drawableHeight = document.body.clientHeight || window.innerHeight;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
   return {
     x: 0,
     y: FALLBACK_CAPSULE_HEIGHT,
-    width: document.body.clientWidth || window.innerWidth,
-    height: drawableHeight - FALLBACK_CAPSULE_HEIGHT
+    width: vw,
+    height: vh - FALLBACK_CAPSULE_HEIGHT - FALLBACK_BOTTOM_GUTTER
   };
 }
 
@@ -159,9 +168,27 @@ export const DappPeekTray: FC = () => {
   // plumbing needed.
   const prevForegroundIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (slotRect && slotRect.width > 0 && slotRect.height > 0) {
-      lastKnownSlotRectRef.current = { x: slotRect.x, y: slotRect.y, width: slotRect.width, height: slotRect.height };
-    }
+    if (!slotRect || slotRect.width <= 0 || slotRect.height <= 0) return;
+    // Debounce the cache write by 350ms so mid-transition measurements
+    // don't stick. When the Browser tab is sliding in, DappActive
+    // mounts with its ancestors mid-translateX (the tab's ~150ms
+    // slide-in). The first ResizeObserver measurement returns
+    // coordinates offset by that transform (~32pt too far right).
+    // Without the debounce, that transient value gets cached and the
+    // NEXT restore animation (which reads the cache) targets the
+    // wrong rect — user-visible jump at handoff. DappActive schedules
+    // a re-measure at 200ms and 400ms post-mount to catch the
+    // settled rect; our 350ms debounce ensures that at least one of
+    // those settled values wins and is what ends up in the cache.
+    const t = window.setTimeout(() => {
+      lastKnownSlotRectRef.current = {
+        x: slotRect.x,
+        y: slotRect.y,
+        width: slotRect.width,
+        height: slotRect.height
+      };
+    }, 350);
+    return () => window.clearTimeout(t);
   }, [slotRect]);
 
   // Re-render when the snapshot store updates so freshly-captured
@@ -277,7 +304,12 @@ export const DappPeekTray: FC = () => {
       setActiveIndex(prev => {
         const len = orderedAll.length;
         if (len <= 1) return prev;
-        if (direction === 'left') return (prev + 1) % len;
+        // Swipe RIGHT → the card behind/below the current one moves
+        // forward to become active (activeIndex advances). Swipe LEFT
+        // rewinds to the previous active card. This matches the
+        // physical metaphor: the front card slides right under the
+        // finger and the next card emerges to take its place.
+        if (direction === 'right') return (prev + 1) % len;
         return (prev - 1 + len) % len;
       });
     },
