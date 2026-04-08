@@ -23,11 +23,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // Animate content on route change (mobile only, not extension)
   // Remove class after animation completes to prevent replay on display toggle
   // (resetViewportAfterWebview toggles display:none which restarts CSS animations)
+  //
+  // Diagnostic: temporarily skip the slide-in for /browser to confirm
+  // whether the persistent jiggle is tied to the CSS animation or to
+  // something else inside DappLauncher.
   useEffect(() => {
     if (!contentRef.current) return;
     if (isMobile() && isReturningFromWebview()) return;
     // Skip animation on extension
     if (isExtension()) return;
+    // Diagnostic: skip animation on /browser to isolate the jiggle source.
+    if (pathname === '/browser') return;
 
     const el = contentRef.current;
     el.classList.remove('mobile-page-enter');
