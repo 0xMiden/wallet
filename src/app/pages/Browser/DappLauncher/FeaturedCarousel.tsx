@@ -26,11 +26,17 @@ export const FeaturedCarousel: FC<FeaturedCarouselProps> = ({ onOpen }) => {
 
   if (CAROUSEL_DAPPS.length === 0) return null;
 
+  // No scroll-snap (snap-x snap-mandatory) here. iOS Safari recomputes
+  // snap points when the parent's CSS transform changes during
+  // TabLayout's mobile-slide-in, and the snap correction at the end of
+  // the slide-in shows up as a visible reverse-jiggle. The carousel
+  // still scrolls horizontally and the user can swipe between cards;
+  // they just don't snap to a card edge automatically.
   return (
     <section>
       <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-grey-500">{t('featuredDapps')}</h2>
       <div
-        className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 pl-4 pr-4"
+        className="flex gap-3 overflow-x-auto pb-2 pl-4 pr-4"
         style={{ overscrollBehavior: 'contain', scrollbarWidth: 'none' }}
       >
         {CAROUSEL_DAPPS.map(dapp => (
@@ -55,7 +61,7 @@ const FeaturedCard: FC<{ dapp: FeaturedDapp; onOpen: (url: string) => void }> = 
     <button
       type="button"
       onClick={handleClick}
-      className="relative h-40 w-[260px] shrink-0 snap-center overflow-hidden rounded-3xl text-left shadow-[0_8px_24px_rgba(15,23,42,0.12)] active:scale-[0.98] transition-transform"
+      className="relative h-40 w-[260px] shrink-0 overflow-hidden rounded-3xl text-left shadow-[0_8px_24px_rgba(15,23,42,0.12)] active:scale-[0.98] transition-transform"
       style={{ background: dapp.brandColor }}
       aria-label={dapp.name}
     >
