@@ -99,10 +99,13 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         self.initWebview(isInspectable: isInspectable)
     }
 
-    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool, enabledSafeBottomMargin: Bool, blockedHosts: [String], authorizedAppLinks: [String]) {
+    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool, enabledSafeBottomMargin: Bool, blockedHosts: [String], authorizedAppLinks: [String], enabledSafeTopMargin: Bool = true) {
         super.init(nibName: nil, bundle: nil)
         self.blankNavigationTab = blankNavigationTab
         self.enabledSafeBottomMargin = enabledSafeBottomMargin
+        // Miden patch: set BEFORE initWebview() runs because that
+        // triggers viewDidLoad which builds the WKWebView constraints.
+        self.enabledSafeTopMargin = enabledSafeTopMargin
         self.source = .remote(url)
         self.credentials = credentials
         self.setHeaders(headers: headers)
@@ -148,6 +151,18 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     var blankNavigationTab: Bool = false
     var capacitorStatusBar: UIView?
     var enabledSafeBottomMargin: Bool = false
+    /// Miden patch: when false, the WKWebView's top edge is pinned to
+    /// the parent view's actual top instead of its safe-area-layout-guide
+    /// top. The default `safeAreaLayoutGuide.topAnchor` constraint
+    /// shrinks the WKWebView by ~62pt on iPhones with Dynamic Island
+    /// even when the parent UIWindow is positioned ENTIRELY below the
+    /// system status bar — because iOS reports the screen-level safe
+    /// area to every window in the scene regardless of whether the
+    /// window actually intersects it. The embedded dApp browser sets
+    /// this to false so its WKWebView fills the slot rect exactly.
+    /// Defaults to true to keep the legacy modal-presentation paths
+    /// (faucet-webview, native notifications) untouched.
+    var enabledSafeTopMargin: Bool = true
     var blockedHosts: [String] = []
     var authorizedAppLinks: [String] = []
     var activeNativeNavigationForWebview: Bool = true
@@ -727,8 +742,32 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
             bottomPadding = self.view.safeAreaLayoutGuide.bottomAnchor
         }
 
+        // Miden patch: pin to the parent view's actual top edge for
+        // the embedded dApp browser. The legacy `safeAreaLayoutGuide
+        // .topAnchor` constraint shrinks the WKWebView by ~62pt on
+        // iPhones with Dynamic Island because iOS reports the screen
+        // safe area to the dApp UIWindow even though the window's
+        // frame sits entirely below the status bar. Result: the dApp's
+        // CSS viewport was 62pt shorter than the slot rect and there
+        // was a visible band of host React content showing through
+        // between the wallet's capsule and the dApp content's top.
+        let topAnchor = self.enabledSafeTopMargin
+            ? self.view.safeAreaLayoutGuide.topAnchor
+            : self.view.topAnchor
+
+        // Disable WebKit's automatic scroll-view content inset
+        // adjustment for the same reason — when it's on, WebKit also
+        // pads the scroll view by safeAreaInsets and the dApp's top
+        // content scrolls under an invisible 62pt band even after we
+        // fix the constraint above.
+        if !self.enabledSafeTopMargin {
+            webView.scrollView.contentInsetAdjustmentBehavior = .never
+            webView.scrollView.contentInset = .zero
+            webView.scrollView.scrollIndicatorInsets = .zero
+        }
+
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
             webView.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: bottomPadding)
@@ -2046,68 +2085,256 @@ class BlockBarButtonItem: UIBarButtonItem {
     var block: ((WKWebViewController) -> Void)?
 }
 
-/// UIWindow subclass for the dApp browser whose bottom strip is
-/// transparent to hit-testing AND visually masked out.
-///
-/// Why: the embedded dApp browser wants the WKWebView to fill the slot
-/// rect all the way to the bottom of the React viewport so the dApp's
-/// content visually butts right up against the wallet's bottom navbar,
-/// with no empty band of app background showing through. But:
-///
-/// 1. iOS picks the topmost UIWindow for any given touch point, so a
-///    regular UIWindow at +100 windowLevel covering the navbar would
-///    eat those taps. `bottomPassthroughHeight` returns nil from
-///    hitTest for points in the bottom strip so iOS falls through to
-///    the Capacitor host window, which restores navbar navigation.
-///
-/// 2. iOS also paints higher windows on top, so a regular UIWindow
-///    covering the navbar would visually hide it. We apply a CAShapeLayer
-///    mask to the rootViewController's view that cuts out the same
-///    bottom strip — the cut-out area becomes transparent and the
-///    navbar (rendered in the host window underneath) shows through.
-///
-/// The mask is rebuilt on layoutSubviews so it tracks frame changes
-/// from updateDimensions / orientation changes.
-class MidenDappPassthroughWindow: UIWindow {
-    /// Height of the bottom strip whose touches should fall through
-    /// to lower windows AND whose pixels should be masked out.
-    /// Measured from `self.bounds.maxY` upward. Set to 0 to disable
-    /// the passthrough entirely (useful for legacy callers).
-    var bottomPassthroughHeight: CGFloat = 0 {
-        didSet {
-            applyBottomPassthroughMask()
-        }
+// MARK: - Native navbar overlay (Architecture A — quality path)
+//
+// The embedded dApp browser wants the dApp WKWebView to fill the screen
+// from below the capsule all the way to the bottom edge — the same way
+// Apple Music's now-playing bar floats over content, or how iOS Mail's
+// tab bar floats over the message list. The wallet's HOME / ACTIVITY /
+// BROWSER navbar is HTML rendered inside the Capacitor host WKWebView,
+// which lives in a UIWindow at `.normal`. The dApp lives in its own
+// UIWindow at `.normal + 100`. Higher windows paint over lower windows,
+// full stop — so as long as the navbar is HTML in the host window, it
+// can never paint over the dApp WKWebView no matter what z-index we
+// give the React navbar div.
+//
+// The native fix: render a *second*, native UITabBar-style overlay
+// inside its own UIWindow at `.normal + 200`, above the dApp window.
+// While a dApp is foregrounded, the React navbar is hidden via CSS and
+// this native mirror takes over visually + for hit-testing. Taps on
+// the native buttons fire a Capacitor event that React listens for and
+// uses to drive its existing router. When the user leaves the active
+// dApp state, the React navbar comes back and the native mirror is
+// torn down.
+//
+// Quality wins over the prior mask hack:
+//  - True hardware compositing — the blur is a real UIVisualEffectView
+//    sampling the dApp WKWebView underneath, not a CSS backdrop-filter.
+//  - The dApp WKWebView genuinely fills the screen. No layer mask, no
+//    clip rect, no transparent strip, no measurement timing fragility.
+//  - Touch routing falls out for free — the navbar window is at a
+//    higher level than the dApp window, so iOS hit-tests it first. No
+//    PassThroughView, no hitTest override.
+//  - VoiceOver / Dynamic Type / Reduce Transparency / dark mode all
+//    work natively without any extra wiring.
+
+/// The native overlay window. There's at most one of these alive at a
+/// time. The plugin's `showNativeNavbar` builds it and inserts the
+/// shared singleton into the scene; `hideNativeNavbar` tears it down.
+class MidenNavbarOverlayWindow: UIWindow {
+    /// User-tappable item descriptor. Matches the JS-side payload.
+    struct Item {
+        let id: String
+        let title: String
+        let sfSymbol: String
     }
 
+    /// Tap handler — called with the tapped item id. Set by
+    /// `MidenNavbarOverlay.show` so the plugin can fire a Capacitor
+    /// event back to JS.
+    var onItemTap: ((String) -> Void)?
+
+    /// The buttons, indexed by item id. Used to update active state.
+    private var buttons: [String: NavbarButton] = [:]
+
+    /// The id of the currently-active item, if any.
+    private var activeItemId: String?
+
+    /// Container UIVisualEffectView (the blur pill).
+    private let blurContainer: UIVisualEffectView
+
+    init(scene: UIWindowScene, items: [Item], activeId: String?) {
+        // Use the same .systemUltraThinMaterial that iOS Music and Mail
+        // use for their floating bars — natively backdrop-samples whatever
+        // is underneath, including a WKWebView, with proper Reduce
+        // Transparency fallback.
+        let effect = UIBlurEffect(style: .systemChromeMaterial)
+        self.blurContainer = UIVisualEffectView(effect: effect)
+        super.init(frame: scene.coordinateSpace.bounds)
+        self.windowScene = scene
+        self.windowLevel = UIWindow.Level.normal + 200
+        self.backgroundColor = .clear
+        self.activeItemId = activeId
+        let rootVC = MidenNavbarRootViewController()
+        rootVC.view.backgroundColor = .clear
+        self.rootViewController = rootVC
+        installBlurContainer()
+        installButtons(items)
+        layoutBlurContainer()
+        self.isHidden = false
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
+    /// Override hitTest so taps OUTSIDE the navbar pill fall through to
+    /// the dApp window underneath. Without this, the entire screen
+    /// becomes a black hole that swallows scrolls / drags / capsule
+    /// taps.
+    ///
+    /// `point` arrives in the window's coordinate space. The blur
+    /// container is laid out via Auto Layout inside a shadow wrapper
+    /// inside rootViewController.view, so its `.frame` is in its
+    /// PARENT's coordinate space, not the window's. We have to
+    /// convert it via `convert(_:to:)` before hit-testing or every
+    /// tap on the actual pill rectangle silently falls through.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if bottomPassthroughHeight > 0 {
-            let cutoff = bounds.height - bottomPassthroughHeight
-            if point.y >= cutoff {
-                // Returning nil makes iOS try the next window in the
-                // scene, which is the host Capacitor window.
-                return nil
-            }
+        guard let parent = blurContainer.superview else {
+            return super.hitTest(point, with: event)
+        }
+        let pillFrameInWindow = parent.convert(blurContainer.frame, to: self)
+        if !pillFrameInWindow.contains(point) {
+            return nil
         }
         return super.hitTest(point, with: event)
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        applyBottomPassthroughMask()
+    /// Refresh the active item highlight without rebuilding the window.
+    func setActive(_ itemId: String?) {
+        activeItemId = itemId
+        for (id, button) in buttons {
+            button.setActive(id == itemId)
+        }
     }
 
-    private func applyBottomPassthroughMask() {
+    private func installBlurContainer() {
         guard let view = rootViewController?.view else { return }
-        let bounds = view.bounds
-        if bottomPassthroughHeight <= 0 || bounds.isEmpty {
-            view.layer.mask = nil
-            return
+        blurContainer.translatesAutoresizingMaskIntoConstraints = false
+        blurContainer.layer.cornerRadius = 26
+        blurContainer.clipsToBounds = true
+        // A very subtle shadow lives on a wrapper view because the blur
+        // view itself clips its sublayers — the shadow has to live on
+        // an outer view that doesn't clip.
+        let shadowWrap = UIView()
+        shadowWrap.translatesAutoresizingMaskIntoConstraints = false
+        shadowWrap.backgroundColor = .clear
+        shadowWrap.layer.shadowColor = UIColor.black.cgColor
+        shadowWrap.layer.shadowOpacity = 0.08
+        shadowWrap.layer.shadowOffset = CGSize(width: 0, height: 4)
+        shadowWrap.layer.shadowRadius = 20
+        view.addSubview(shadowWrap)
+        shadowWrap.addSubview(blurContainer)
+        NSLayoutConstraint.activate([
+            shadowWrap.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            shadowWrap.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            shadowWrap.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            shadowWrap.heightAnchor.constraint(equalToConstant: 64),
+            blurContainer.topAnchor.constraint(equalTo: shadowWrap.topAnchor),
+            blurContainer.leadingAnchor.constraint(equalTo: shadowWrap.leadingAnchor),
+            blurContainer.trailingAnchor.constraint(equalTo: shadowWrap.trailingAnchor),
+            blurContainer.bottomAnchor.constraint(equalTo: shadowWrap.bottomAnchor)
+        ])
+    }
+
+    private func installButtons(_ items: [Item]) {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.alignment = .center
+        stack.spacing = 0
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        blurContainer.contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: blurContainer.contentView.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: blurContainer.contentView.bottomAnchor, constant: -8),
+            stack.leadingAnchor.constraint(equalTo: blurContainer.contentView.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: blurContainer.contentView.trailingAnchor, constant: -8)
+        ])
+        for item in items {
+            let button = NavbarButton(item: item)
+            button.setActive(item.id == activeItemId)
+            button.addAction(UIAction { [weak self] _ in
+                self?.onItemTap?(item.id)
+            }, for: .touchUpInside)
+            stack.addArrangedSubview(button)
+            buttons[item.id] = button
         }
-        let visibleHeight = max(0, bounds.height - bottomPassthroughHeight)
-        let maskRect = CGRect(x: 0, y: 0, width: bounds.width, height: visibleHeight)
-        let mask = CAShapeLayer()
-        mask.path = UIBezierPath(rect: maskRect).cgPath
-        view.layer.mask = mask
+    }
+
+    private func layoutBlurContainer() {
+        rootViewController?.view.setNeedsLayout()
+        rootViewController?.view.layoutIfNeeded()
+    }
+}
+
+/// The dummy root view controller for the navbar overlay window —
+/// needed because UIWindow requires one. We override
+/// `prefersStatusBarHidden` so the overlay window doesn't try to take
+/// over status bar appearance from the host.
+private class MidenNavbarRootViewController: UIViewController {
+    override var prefersStatusBarHidden: Bool { return false }
+}
+
+/// Single navbar button — icon stacked over a label, with an
+/// orange-tinted oval background when active.
+private class NavbarButton: UIControl {
+    private let iconView = UIImageView()
+    private let label = UILabel()
+    private let pillBackground = UIView()
+    private let title: String
+
+    init(item: MidenNavbarOverlayWindow.Item) {
+        self.title = item.title
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        // Active-state pill background sized to inset by 6pt on each
+        // side so it visually nests inside the parent button frame.
+        pillBackground.translatesAutoresizingMaskIntoConstraints = false
+        pillBackground.layer.cornerRadius = 22
+        pillBackground.backgroundColor = UIColor(red: 1.0, green: 0.42, blue: 0.13, alpha: 0.18)
+        pillBackground.isHidden = true
+        addSubview(pillBackground)
+
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.contentMode = .scaleAspectFit
+        iconView.preferredSymbolConfiguration = symbolConfig
+        iconView.image = UIImage(systemName: item.sfSymbol)
+        iconView.tintColor = UIColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1.0)
+        addSubview(iconView)
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = item.title.uppercased()
+        label.font = .systemFont(ofSize: 10, weight: .semibold)
+        label.textColor = UIColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1.0)
+        label.textAlignment = .center
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            pillBackground.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconView.heightAnchor.constraint(equalToConstant: 22),
+            iconView.widthAnchor.constraint(equalToConstant: 22),
+            label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 4),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            heightAnchor.constraint(equalToConstant: 48)
+        ])
+
+        // Accessibility
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = item.title
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
+    func setActive(_ active: Bool) {
+        pillBackground.isHidden = !active
+        let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.13, alpha: 1.0)
+        let inactiveColor = UIColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1.0)
+        let color = active ? activeColor : inactiveColor
+        iconView.tintColor = color
+        label.textColor = color
+        accessibilityTraits = active ? [.button, .selected] : .button
     }
 }
 

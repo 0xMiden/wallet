@@ -47,6 +47,14 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
+        // Miden patch: native navbar overlay window. Render the wallet's
+        // bottom navbar as a UIVisualEffectView+UIButtons in its own
+        // UIWindow at .normal+200 so it can paint over (and capture
+        // taps from) the dApp WKWebView at .normal+100. While the
+        // overlay is visible the React-side navbar is hidden via CSS.
+        CAPPluginMethod(name: "showNativeNavbar", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "hideNativeNavbar", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setNativeNavbarActive", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
     ]
     var navigationWebViewController: UINavigationController?
@@ -378,12 +386,6 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let xPos = call.getFloat("x")
         let yPos = call.getFloat("y")
 
-        // Miden patch: optional bottom strip whose hit-tests fall
-        // through to the host window. Used by the embedded dApp browser
-        // to let the wallet's bottom navbar stay tappable while the
-        // WKWebView visually extends behind it.
-        let bottomPassthrough = call.getFloat("bottomPassthrough")
-
         // Read disableOverscroll option (iOS only - controls WebView bounce effect)
         let disableOverscroll = call.getBool("disableOverscroll", false)
 
@@ -399,6 +401,16 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
+            // Miden patch: positioned (Architecture A) instances live in
+            // their own UIWindow at a slot rect that's always entirely
+            // below the system status bar. Pinning the WKWebView to the
+            // safe-area-layout-guide top would shrink it by ~62pt for
+            // no reason and leave a band of host content showing through
+            // above the dApp. Pass the flag through the init so it's
+            // set BEFORE initWebview() builds the constraints — setting
+            // it after init is too late because viewDidLoad has already
+            // run with the default value.
+            let positioned = (width != nil || height != nil)
             self.webViewController = WKWebViewController.init(
                 url: url,
                 headers: headers,
@@ -409,6 +421,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 enabledSafeBottomMargin: enabledSafeBottomMargin,
                 blockedHosts: blockedHosts,
                 authorizedAppLinks: authorizedAppLinks,
+                enabledSafeTopMargin: !positioned
                 )
 
             guard let webViewController = self.webViewController else {
@@ -786,22 +799,20 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 let h = CGFloat(height ?? 0)
                 let x = CGFloat(xPos ?? 0)
                 let y = CGFloat(yPos ?? 0)
-                // Miden patch: use the passthrough subclass so the
-                // bottom strip can be made transparent to taps. When
-                // `bottomPassthrough` is provided in the open call,
-                // touches in that bottom slice fall through to the
-                // host window — letting the WKWebView visually extend
-                // behind the wallet's bottom navbar without breaking
-                // navbar taps. Legacy callers that omit the parameter
-                // get the original behavior (passthrough disabled).
-                let window = MidenDappPassthroughWindow(windowScene: scene)
+                // The dApp lives in its own UIWindow at .normal+100,
+                // a plain UIWindow now. The wallet's bottom navbar is
+                // rendered as a *separate* native overlay window at
+                // .normal+200 (see MidenNavbarOverlayWindow + the
+                // showNativeNavbar plugin method) so the dApp WKWebView
+                // can fill this window's full height without any
+                // mask / passthrough trickery — the navbar window is
+                // higher in the window stack, so iOS handles both
+                // visual compositing and hit-testing natively.
+                let window = UIWindow(windowScene: scene)
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
                 window.windowLevel = UIWindow.Level.normal + 100
                 window.backgroundColor = .clear
                 window.rootViewController = instance.navigationController
-                if let bp = bottomPassthrough {
-                    window.bottomPassthroughHeight = CGFloat(bp)
-                }
                 window.isHidden = false
                 instance.containerWindow = window
                 presentedInWindow = true
@@ -1113,10 +1124,6 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let height = call.getFloat("height")
         let xPos = call.getFloat("x")
         let yPos = call.getFloat("y")
-        // Miden patch: optional bottom passthrough strip. See openWebView
-        // for the rationale; updateDimensions can change it on the fly
-        // (e.g. orientation change shifts the navbar position).
-        let bottomPassthrough = call.getFloat("bottomPassthrough")
         // Miden patch (PR-4 chunk 7): id-aware. Defaults to "default" so the
         // legacy single-instance call signature still works.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
@@ -1153,10 +1160,6 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 let y = CGFloat(yPos ?? Float(window.frame.minY))
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
                 instance.rect = window.frame
-                if let bp = bottomPassthrough,
-                   let passthroughWindow = window as? MidenDappPassthroughWindow {
-                    passthroughWindow.bottomPassthroughHeight = CGFloat(bp)
-                }
             } else {
                 // Legacy modal path: forward to the controller's own
                 // dimension logic.
@@ -1260,6 +1263,77 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // Also clear the legacy single-instance fields if they were set.
             self.webViewController = nil
             self.navigationWebViewController = nil
+            // Tear down the navbar overlay too — it's pointless without
+            // any dApps to overlay.
+            Self.navbarOverlay?.isHidden = true
+            Self.navbarOverlay = nil
+            call.resolve()
+        }
+    }
+
+    // MARK: - Native navbar overlay
+    //
+    // The navbar overlay is a singleton MidenNavbarOverlayWindow stored
+    // here as a static so it survives across plugin instances. The
+    // wallet calls showNativeNavbar exactly once when it enters the
+    // active dApp state and hideNativeNavbar when it leaves. The active
+    // item is updated via setNativeNavbarActive without rebuilding the
+    // window.
+    private static var navbarOverlay: MidenNavbarOverlayWindow?
+
+    @objc func showNativeNavbar(_ call: CAPPluginCall) {
+        guard let itemsRaw = call.getArray("items") else {
+            call.reject("items array is required")
+            return
+        }
+        let activeId = call.getString("activeId")
+        // Decode the items array. Each item is { id, title, sfSymbol }.
+        var items: [MidenNavbarOverlayWindow.Item] = []
+        for raw in itemsRaw {
+            guard let dict = raw as? [String: Any],
+                  let id = dict["id"] as? String,
+                  let title = dict["title"] as? String,
+                  let symbol = dict["sfSymbol"] as? String else {
+                continue
+            }
+            items.append(MidenNavbarOverlayWindow.Item(id: id, title: title, sfSymbol: symbol))
+        }
+        if items.isEmpty {
+            call.reject("at least one item is required")
+            return
+        }
+        DispatchQueue.main.async {
+            // If there's already an overlay, reuse it (replace items
+            // and update active state). Otherwise, create one.
+            if Self.navbarOverlay != nil {
+                Self.navbarOverlay?.isHidden = true
+                Self.navbarOverlay = nil
+            }
+            guard let scene = self.bridge?.viewController?.view?.window?.windowScene else {
+                call.reject("no window scene")
+                return
+            }
+            let overlay = MidenNavbarOverlayWindow(scene: scene, items: items, activeId: activeId)
+            overlay.onItemTap = { [weak self] itemId in
+                self?.notifyListeners("nativeNavbarTap", data: ["id": itemId])
+            }
+            Self.navbarOverlay = overlay
+            call.resolve()
+        }
+    }
+
+    @objc func hideNativeNavbar(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            Self.navbarOverlay?.isHidden = true
+            Self.navbarOverlay = nil
+            call.resolve()
+        }
+    }
+
+    @objc func setNativeNavbarActive(_ call: CAPPluginCall) {
+        let activeId = call.getString("id")
+        DispatchQueue.main.async {
+            Self.navbarOverlay?.setActive(activeId)
             call.resolve()
         }
     }
