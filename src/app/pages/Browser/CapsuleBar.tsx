@@ -53,6 +53,11 @@ interface CapsuleBarProps {
   onOpenSwitcher?: () => void;
   /** Total number of open dApp sessions (foreground + parked). */
   tabsCount?: number;
+  /**
+   * Opens the WeChat-style actions sheet (copy link / add to My Dapps /
+   * reopen). Rendered as the rightmost capsule button when provided.
+   */
+  onOpenActions?: () => void;
 }
 
 const MINIMIZE_DISTANCE_THRESHOLD = 120;
@@ -64,7 +69,8 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   onReload,
   onMinimize,
   onOpenSwitcher,
-  tabsCount = 1
+  tabsCount = 1,
+  onOpenActions
 }) => {
   const { t } = useTranslation();
   // PR-7: reduce-motion aware springs. When the user has reduce-motion
@@ -207,7 +213,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             aria-label={t('minimize') ?? 'Minimize'}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
           >
-            <Icon name={IconName.ArrowDown} size="sm" className="text-grey-700" />
+            <Icon name={IconName.ArrowDown} size="sm" className="text-grey-700" fill="currentColor" />
           </button>
         )}
 
@@ -220,7 +226,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           aria-label={t('reload') ?? 'Reload'}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
         >
-          <Icon name={IconName.Refresh} size="sm" className="text-grey-700" />
+          <Icon name={IconName.Refresh} size="sm" className="text-grey-700" fill="currentColor" />
         </button>
 
         {/* Close button */}
@@ -230,13 +236,13 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           aria-label={t('close') ?? 'Close'}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
         >
-          <Icon name={IconName.Close} size="sm" className="text-grey-700" />
+          <Icon name={IconName.Close} size="sm" className="text-grey-700" fill="currentColor" />
         </button>
 
-        {/* PR-5 card switcher button — sits at the far right of the
-            capsule (after Close) so it visually anchors to the right
-            edge like Safari's tabs button. Shows a count badge of how
-            many dApps are open. Hidden when there's only one. */}
+        {/* PR-5 card switcher button — sits after Close so it visually
+            anchors near the right edge like Safari's tabs button. Shows
+            a count badge of how many dApps are open. Hidden when there's
+            only one. */}
         {onOpenSwitcher && tabsCount > 1 && (
           <button
             type="button"
@@ -250,6 +256,22 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-grey-700">
               <span className="text-[10px] font-bold leading-none text-grey-700">{tabsCount}</span>
             </div>
+          </button>
+        )}
+
+        {/* WeChat-style actions trigger — rightmost button in the capsule.
+            Opens a bottom sheet with copy link / add to My Dapps / reopen. */}
+        {onOpenActions && (
+          <button
+            type="button"
+            onClick={() => {
+              hapticLight();
+              onOpenActions();
+            }}
+            aria-label={t('dappActionsSheet') ?? 'dApp actions'}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+          >
+            <Icon name={IconName.More} size="sm" className="text-grey-700" fill="currentColor" />
           </button>
         )}
       </div>

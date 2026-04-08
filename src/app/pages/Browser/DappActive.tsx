@@ -13,23 +13,27 @@
  * the webview — the bubble takes over.
  */
 
-import React, { type FC, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { InAppBrowser } from '@miden/dapp-browser';
 import { useTranslation } from 'react-i18next';
 
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
+import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { isMobile } from 'lib/platform';
 
 import { CapsuleBar } from './CapsuleBar';
+import { DappActionsSheet } from './DappActionsSheet';
 import { NativeWebViewSlot } from './NativeWebViewSlot';
 import { ProgressBar } from './ProgressBar';
 
 export const DappActive: FC = () => {
-  const { session, isLoading, close, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
+  const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
   const { t } = useTranslation();
   const slotRef = useRef<HTMLDivElement>(null);
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   // PR-6: read this session's full state so we can surface error and
   // cold-load overlays.
@@ -56,6 +60,52 @@ export const DappActive: FC = () => {
     if (!session) return;
     InAppBrowser.reload({ id: session.id }).catch(err => console.warn('[DappActive] reload failed:', err));
   }, [session]);
+
+  // "Reopen" action from the WeChat-style actions sheet — a HARD restart
+  // (distinct from soft Reload above). Closes the current session so the
+  // native UIWindow + WebView tear down, then opens a brand-new session
+  // at the same URL. Useful when a dApp is stuck in a broken state
+  // that a simple reload can't fix.
+  const handleReopen = useCallback(() => {
+    if (!session) return;
+    const url = session.url;
+    void close(session.id).then(() => {
+      open(createDappSession(url));
+    });
+  }, [session, close, open]);
+
+  // When the actions sheet is open:
+  //   1. Morph out the floating navbar + park bubbles (same CSS/Swift
+  //      pattern Settings uses — see Settings.tsx for the rationale).
+  //   2. HIDE the dApp WKWebView via `setVisible(false)`. This is the
+  //      same trick the card switcher uses: the dApp lives in a
+  //      UIWindow above the Capacitor host window, so any React-rendered
+  //      drawer sheet that tries to slide up from the bottom gets buried
+  //      behind the webview. Hiding the webview clears the occluding
+  //      layer and lets the sheet sit on top. The webview's JS context,
+  //      scroll position, and in-flight requests all survive the
+  //      hide/show cycle.
+  useEffect(() => {
+    if (!isMobile() || !session) return;
+    const sessionId = session.id;
+    if (actionsOpen) {
+      document.body.setAttribute('data-drawer-open', '');
+      InAppBrowser.morphNavbarOut().catch(() => {});
+      InAppBrowser.setVisible({ id: sessionId, visible: false }).catch(() => {});
+    } else {
+      document.body.removeAttribute('data-drawer-open');
+      InAppBrowser.morphNavbarIn().catch(() => {});
+      InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
+    }
+    return () => {
+      if (!isMobile()) return;
+      if (actionsOpen) {
+        document.body.removeAttribute('data-drawer-open');
+        InAppBrowser.morphNavbarIn().catch(() => {});
+        InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
+      }
+    };
+  }, [actionsOpen, session]);
 
   // Drive the provider's slotRect via a ResizeObserver on the slot div.
   //
@@ -114,7 +164,10 @@ export const DappActive: FC = () => {
         // PR-5: card switcher access from the capsule.
         onOpenSwitcher={openSwitcher}
         tabsCount={sessionStates.length}
+        onOpenActions={() => setActionsOpen(true)}
       />
+
+      <DappActionsSheet session={session} open={actionsOpen} onOpenChange={setActionsOpen} onReopen={handleReopen} />
 
       {/* Spacer matching the capsule height (24 drag + 56 content + 1 hairline).
           No safe-area-inset-top here — public/mobile.html applies it

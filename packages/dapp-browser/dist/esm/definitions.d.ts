@@ -747,6 +747,17 @@ export interface InAppBrowserPlugin {
      * app shutdown / wallet reset.
      */
     closeAll(): Promise<void>;
+    /**
+     * Miden patch: slide the native wallet navbar pill off-screen on a
+     * spring animation. Used when a bottom-sheet drawer takes over the
+     * same real estate the navbar occupies.
+     */
+    morphNavbarOut(): Promise<void>;
+    /**
+     * Miden patch: reverse `morphNavbarOut`, sliding the native wallet
+     * navbar pill back into view on a spring animation.
+     */
+    morphNavbarIn(): Promise<void>;
 }
 /**
  * JavaScript APIs available in the InAppBrowser WebView.
