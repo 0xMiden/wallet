@@ -46,16 +46,15 @@ export const HeroSearch: FC<HeroSearchProps> = ({ onSubmit }) => {
     [submit]
   );
 
-  // No backdrop-filter here despite the visual temptation: iOS Safari
-  // has known rendering bugs where backdrop-filter elements lag behind
-  // their parent's CSS transform and snap into position when the
-  // transform completes — visible as a "reverse jiggle" at the end of
-  // TabLayout's mobile-slide-in. The plain bg-pure-white + border +
-  // shadow combo below is visually almost identical and renders without
-  // any compositor surprises.
   return (
     <form onSubmit={handleSubmit} className="px-4">
-      <div className="flex h-12 w-full items-center gap-3 rounded-2xl border border-grey-100 bg-pure-white px-4 shadow-[0_2px_8px_rgba(15,23,42,0.04)]">
+      <div
+        className="flex h-12 w-full items-center gap-3 rounded-2xl border border-grey-100 bg-pure-white px-4 shadow-[0_2px_8px_rgba(15,23,42,0.04)]"
+        style={{
+          backdropFilter: 'blur(20px) saturate(1.6)',
+          WebkitBackdropFilter: 'blur(20px) saturate(1.6)'
+        }}
+      >
         <Icon name={IconName.Search} size="sm" className="shrink-0 text-grey-400" />
         <input
           type="text"

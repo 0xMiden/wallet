@@ -39,8 +39,6 @@ import {
 } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { useMorphReady } from './BrowserScreen';
-
 interface CapsuleBarProps {
   session: DappSession;
   onClose: () => void;
@@ -72,10 +70,6 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   // PR-7: reduce-motion aware springs. When the user has reduce-motion
   // on, every transition below collapses to `{ duration: 0.001 }`.
   const springs = useSprings();
-  // Mirror the gating done in DappTile so the tile→capsule morph still
-  // pairs the correct layoutIds. See MorphReadyContext doc in
-  // BrowserScreen.tsx for the rationale.
-  const morphReady = useMorphReady();
   const [faviconBroken, setFaviconBroken] = useState(false);
 
   const handleClose = () => {
@@ -166,7 +160,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
       <div className="flex h-14 items-center gap-3 px-4">
         {/* Favicon — layoutId target for the launcher tile morph (PR-2). */}
         <motion.div
-          layoutId={morphReady ? `dapp-favicon-${session.url}` : undefined}
+          layoutId={`dapp-favicon-${session.url}`}
           transition={springs.morph}
           className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md"
           style={{ background: faviconBroken || !faviconUrl ? fallbackColor : 'transparent' }}
@@ -192,7 +186,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             stack two identical strings. */}
         <div className="flex min-w-0 flex-1 flex-col">
           <motion.span
-            layoutId={morphReady ? `dapp-name-${session.url}` : undefined}
+            layoutId={`dapp-name-${session.url}`}
             transition={springs.morph}
             className="truncate text-base font-semibold text-black"
           >
