@@ -58,6 +58,17 @@ export const DappActive: FC = () => {
   }, [session]);
 
   // Drive the provider's slotRect via a ResizeObserver on the slot div.
+  //
+  // CAREFUL: TabLayout runs a `mobile-page-enter` slide-in animation
+  // (translateX 8% → 0 over 150ms) on the contentRef wrapper that
+  // contains DappActive. getBoundingClientRect returns transformed
+  // coordinates, so any measurement taken DURING the slide-in lands
+  // ~32pt to the right of the real position. ResizeObserver only
+  // re-fires on size changes, not transform changes, so a stale,
+  // mid-animation rect would otherwise get locked into the slot state
+  // and the WKWebView would render shifted right by ~32pt. We schedule
+  // re-measures at 0/200/400ms after mount to make sure at least one
+  // lands after the animation has settled.
   useEffect(() => {
     const el = slotRef.current;
     if (!el) return;
@@ -71,9 +82,13 @@ export const DappActive: FC = () => {
       });
     };
     update();
+    const t1 = window.setTimeout(update, 200);
+    const t2 = window.setTimeout(update, 400);
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
       ro.disconnect();
     };
   }, [setSlotRect]);
