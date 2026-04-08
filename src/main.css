@@ -265,11 +265,13 @@ button,
 }
 
 /* Native navbar overlay hook (Architecture A — see DappBrowserProvider).
- * While a dApp is foregrounded the React-side footer is hidden because
- * a native MidenNavbarOverlayWindow at .normal+200 paints over it.
- * `data-dapp-foreground` is set on body by the provider when entering
- * the active dApp state and removed on exit. */
-body[data-dapp-foreground] [data-tabbar-footer='true'] {
+ * On mobile, the wallet replaces the React Footer with a native
+ * MidenNavbarOverlayWindow at .normal+200 across every tab page (Home,
+ * Activity, Browser). The provider sets `data-native-navbar` on body
+ * whenever the user is on a tab page and the native navbar is up;
+ * this rule keeps the React footer hidden so the two don't both
+ * render at the same time. */
+body[data-native-navbar] [data-tabbar-footer='true'] {
   display: none !important;
 }
 

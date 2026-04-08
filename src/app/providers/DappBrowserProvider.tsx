@@ -83,7 +83,7 @@ import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 
 /**
  * Where the foreground webview should be drawn:
@@ -805,26 +805,54 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // ─── Native navbar overlay (Architecture A — quality path) ─────────────
   //
-  // While a dApp is foregrounded the React-side navbar is hidden via the
-  // `body[data-dapp-foreground]` CSS hook installed below; in its place,
-  // a native MidenNavbarOverlayWindow at .normal+200 paints over the dApp
-  // WKWebView (.normal+100) and absorbs taps via standard iOS window
-  // hit-testing. Taps fire a `nativeNavbarTap` Capacitor event that we
-  // forward to the wallet's woozie router so HOME / ACTIVITY / BROWSER
-  // behave identically to the React navbar's <Link> elements.
+  // The native MidenNavbarOverlayWindow at .normal+200 replaces the
+  // React Footer for ALL tab pages on mobile, not just inside an
+  // active dApp — Home, Activity, and Browser all use it. The React
+  // Footer is hidden via the `body[data-native-navbar]` CSS hook in
+  // main.css whenever the overlay is up.
+  //
+  // We track the active pill via the current woozie route, not via
+  // the dApp browser mode, so the navbar:
+  //   - shows on every tab page (/, /history, /browser)
+  //   - tears down when the user navigates to a non-tab page
+  //     (settings, send flow, etc.)
+  //   - stays up when the user enters / exits an active dApp inside
+  //     /browser (the route doesn't change)
+  //
+  // Taps fire a `nativeNavbarTap` Capacitor event that the listener
+  // below forwards to woozie.navigate so HOME / ACTIVITY / BROWSER
+  // behave identically to the React Footer's <Link> elements.
+  const location = useLocation();
+  const navbarShownRef = useRef(false);
   useEffect(() => {
     if (!isMobile()) return;
-    if (mode !== 'active') {
+    const path = location.pathname;
+    const isTabPage = path === '/' || path.startsWith('/history') || path === '/browser';
+
+    if (!isTabPage) {
       // Mark the body for CSS hiding hook BEFORE we hide the native bar
       // so the React bar doesn't briefly flash back in.
-      document.body.removeAttribute('data-dapp-foreground');
-      InAppBrowser.hideNativeNavbar().catch(() => {});
+      document.body.removeAttribute('data-native-navbar');
+      if (navbarShownRef.current) {
+        InAppBrowser.hideNativeNavbar().catch(() => {});
+        navbarShownRef.current = false;
+      }
       return;
     }
-    document.body.setAttribute('data-dapp-foreground', '');
-    // SF Symbol names mirror the Footer.tsx icon set: house / chart /
-    // globe — close enough to the React app's stylized icons that the
-    // user shouldn't notice the swap.
+
+    let activeId = 'home';
+    if (path.startsWith('/history')) activeId = 'activity';
+    else if (path === '/browser') activeId = 'browser';
+
+    document.body.setAttribute('data-native-navbar', '');
+
+    if (navbarShownRef.current) {
+      // Navbar already up — just refresh the active pill. Avoids the
+      // teardown / rebuild flicker that showNativeNavbar would cause.
+      InAppBrowser.setNativeNavbarActive({ id: activeId }).catch(() => {});
+      return;
+    }
+
     // SF Symbols chosen to mirror the React Footer's filled SVG icons:
     // - house.fill matches `home-new.svg` (filled house silhouette)
     // - chart.line.uptrend.xyaxis matches `activity-new.svg` (zigzag
@@ -837,9 +865,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         { id: 'activity', title: t('activity'), sfSymbol: 'chart.line.uptrend.xyaxis' },
         { id: 'browser', title: t('browser'), sfSymbol: 'globe' }
       ],
-      activeId: 'browser'
+      activeId
     }).catch(() => {});
-  }, [mode, t]);
+    navbarShownRef.current = true;
+  }, [location.pathname, t]);
 
   // Forward native navbar taps to the woozie router. Subscribed once for
   // the lifetime of the provider so we don't lose taps mid-mode-change.
