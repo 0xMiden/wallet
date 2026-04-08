@@ -18,8 +18,8 @@
  *  - `session` / `mode` are kept as derived backwards-compat fields so
  *    existing consumers (`BrowserScreen`, `DappActive`) don't need to
  *    know about the multi-session model yet; they read the foregrounded
- *    session via the singular fields. `<DappBubbleHost>` reads the full
- *    `parkedSessions` array to render one bubble per parked dApp.
+ *    session via the singular fields. `<DappPeekTray>` reads the full
+ *    `parkedSessions` array to render one peek card per parked dApp.
  *  - The `useDappBrowserWebView` hook is gone — its responsibilities
  *    (listener wiring, bridge injection, lifecycle) moved into the
  *    provider so multi-session bookkeeping can be centralized.
@@ -32,7 +32,7 @@
  *  - Listening to plugin events (messageFromWebview, browserPageLoaded,
  *    urlChangeEvent, closeEvent, pageLoadError) and routing them to the
  *    matching session by `event.id`
- *  - The `<DappBubbleHost>` portal (rendered as a sibling of children)
+ *  - The `<DappPeekTray>` portal (rendered as a sibling of children)
  *  - The `<DappConfirmationModal>` portal (also rendered as a sibling
  *    so it survives tab navigation)
  */
@@ -53,8 +53,8 @@ import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } fr
 import { AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { DappBubbleHost } from 'app/pages/Browser/DappBubbleHost';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
+import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
 import {
   INJECTION_SCRIPT,
@@ -1029,7 +1029,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           flow, the reset-required screen, or the import-account flow.
           The user shouldn't see persistent dApp chrome until they've
           actually unlocked the wallet and are inside the main shell. */}
-      {isMobile() && walletShellActive && <DappBubbleHost />}
+      {isMobile() && walletShellActive && <DappPeekTray />}
 
       {/* PR-5: card switcher portal — fullscreen modal for managing
           every open dApp. Mounted here so it survives tab navigation. */}
