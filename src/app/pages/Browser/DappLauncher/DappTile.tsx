@@ -77,23 +77,20 @@ export const DappTile: FC<DappTileProps> = ({
   return (
     <motion.button
       type="button"
-      // Entry animation: tiles drop from 48pt above their final
-      // position down into place. No `layoutId` on the button because
-      // nothing else in the app shares that id — the actual tile →
-      // capsule morph is handled by the INNER favicon + name elements
-      // which have their own `layoutId`s. Keeping layoutId off the
-      // button is what makes `initial` fire reliably; elements
-      // tracked by the launcher's `LayoutGroup` get their initial
-      // prop intercepted by framer-motion's layout system, which was
-      // causing the drop animation to be skipped entirely.
+      // Entry animation: tiles drop in from the upper-right diagonal.
+      // Explicit `x: 32` AND `y: -48` so the motion is unambiguous
+      // regardless of whether the parent TabLayout slide-in is still
+      // running. Both Recents and MyDapps use the same animation, so
+      // both sections show the same "fly in from top right" reveal.
+      // No `layoutId` on the button — nothing else in the app shares
+      // `dapp-tile-${url}` so it was dead code AND its presence
+      // caused framer-motion's LayoutGroup to suppress the entry
+      // animation entirely.
       //
       // Tween with explicit duration (not a spring) so the drop is
-      // visually unambiguous — the spring variants were settling in
-      // ~300ms and with the small drop distance it read as a fade
-      // rather than a drop. 500ms + ease-out is slow enough to be
-      // clearly perceived as a falling motion.
-      initial={{ opacity: 0, y: -48 }}
-      animate={{ opacity: 1, y: 0 }}
+      // visually unambiguous and consistent across mount times.
+      initial={{ opacity: 0, x: 32, y: -48 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
       transition={{
         duration: 0.5,
         ease: [0.22, 1, 0.36, 1],
