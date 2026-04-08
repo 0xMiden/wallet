@@ -111,14 +111,25 @@ export const DappActive: FC = () => {
   //
   // CAREFUL: TabLayout runs a `mobile-page-enter` slide-in animation
   // (translateX 8% → 0 over 150ms) on the contentRef wrapper that
-  // contains DappActive. getBoundingClientRect returns transformed
-  // coordinates, so any measurement taken DURING the slide-in lands
-  // ~32pt to the right of the real position. ResizeObserver only
-  // re-fires on size changes, not transform changes, so a stale,
-  // mid-animation rect would otherwise get locked into the slot state
-  // and the WKWebView would render shifted right by ~32pt. We schedule
-  // re-measures at 0/200/400ms after mount to make sure at least one
-  // lands after the animation has settled.
+  // contains DappActive. `getBoundingClientRect` returns coordinates
+  // that INCLUDE ancestor transforms, so any measurement taken
+  // DURING the slide-in lands ~32pt to the right of the real
+  // resting position. `ResizeObserver` only re-fires on size changes
+  // (not transform changes), so a stale mid-animation rect would
+  // otherwise get locked in and the WKWebView would render shifted
+  // right by ~32pt until the next re-measure.
+  //
+  // Guard: if any ancestor currently has an active (non-identity)
+  // transform when we mount, SKIP the immediate measurement. The
+  // 200ms and 400ms re-measures will catch the settled rect instead.
+  // This means `slotRect` stays null for ~200ms after mount, which
+  // delays the native webview appearance by the same amount — the
+  // provider's restore effect only fires `setVisible(true)` once
+  // slotRect has a value. Delaying the webview is the correct
+  // trade-off: the React expand overlay is still at the correct
+  // target size during that window, so the user sees a continuous
+  // static snapshot instead of a live webview that pops in at the
+  // wrong position and has to jump back.
   useEffect(() => {
     const el = slotRef.current;
     if (!el) return;
@@ -131,7 +142,31 @@ export const DappActive: FC = () => {
         height: Math.round(r.height)
       });
     };
-    update();
+    const hasActiveAncestorTransform = (): boolean => {
+      let current: HTMLElement | null = el.parentElement;
+      while (current && current !== document.body) {
+        const t = window.getComputedStyle(current).transform;
+        if (t && t !== 'none') {
+          // Transforms are reported as `matrix(a,b,c,d,tx,ty)` or
+          // `matrix3d(...)`. We only care whether there's a non-zero
+          // translation; a 1pt threshold absorbs float noise.
+          const m = t.match(/matrix(?:3d)?\(([^)]+)\)/);
+          if (m) {
+            const parts = m[1].split(',').map(s => parseFloat(s.trim()));
+            // matrix(a,b,c,d,tx,ty) → tx=idx4, ty=idx5
+            // matrix3d(...) → tx=idx12, ty=idx13
+            const tx = parts.length > 6 ? parts[12] : parts[4];
+            const ty = parts.length > 6 ? parts[13] : parts[5];
+            if (Math.abs(tx ?? 0) > 1 || Math.abs(ty ?? 0) > 1) return true;
+          }
+        }
+        current = current.parentElement;
+      }
+      return false;
+    };
+    if (!hasActiveAncestorTransform()) {
+      update();
+    }
     const t1 = window.setTimeout(update, 200);
     const t2 = window.setTimeout(update, 400);
     const ro = new ResizeObserver(update);
