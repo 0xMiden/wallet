@@ -33,14 +33,16 @@
  * new dApp actions sheet takes over the bottom of the screen.
  */
 
-import React, { type FC, useEffect, useState } from 'react';
+import React, { type FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import { AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
+import { type DappSession } from 'lib/dapp-browser';
 import { getSnapshot, subscribeSnapshots } from 'lib/dapp-browser/snapshot-store';
 
+import { DappExpanderOverlay, EXPAND_TOTAL_DURATION_MS } from './DappExpanderOverlay';
 import { CARD_HEIGHT, CARD_STACK_OFFSET, CARD_WIDTH, DappPeekCard } from './DappPeekCard';
 
 // Fallback anchor distance from the bottom of the viewport. This
@@ -61,10 +63,35 @@ const MAX_VISIBLE_CARDS = 3;
 // else visually.
 const EDGE_PADDING = 16;
 
+interface RestoringState {
+  session: DappSession;
+  snapshot: string | null;
+  sourceRect: DOMRect;
+  viewport: { width: number; height: number };
+}
+
+// Restore is called partway through the expand animation so the native
+// webview rises at roughly the same moment the overlay reaches full
+// size. Too early → the webview covers the mid-expand overlay and the
+// illusion breaks. Too late → the overlay sits at full size waiting,
+// showing a still snapshot while the user waits for the webview.
+// 320ms (of a 580ms total) lands the restore call near the point where
+// the expander has covered ~70% of the screen.
+const RESTORE_TRIGGER_DELAY_MS = 320;
+
 export const DappPeekTray: FC = () => {
   const { parkedSessions, restore, close, openSwitcher } = useDappBrowser();
   const [snapshotTick, setSnapshotTick] = useState(0);
   const [footerHeight, setFooterHeight] = useState(FOOTER_HEIGHT_FALLBACK);
+  // The currently-restoring session, if any. Set when a card's tap/
+  // swipe-up commits; cleared once the ExpanderOverlay animation
+  // completes and the native webview has taken over.
+  const [restoring, setRestoring] = useState<RestoringState | null>(null);
+  // Active timers we started for the restore sequence, so an unmount
+  // during an animation doesn't leave dangling setTimeouts pointing
+  // at stale state.
+  const restoreTriggerTimerRef = useRef<number | null>(null);
+  const restoreClearTimerRef = useRef<number | null>(null);
 
   // Re-render when the snapshot store updates so freshly-captured
   // snapshots swap in without unmounting their card.
@@ -89,6 +116,47 @@ export const DappPeekTray: FC = () => {
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
+
+  // Clean up any running restore timers on unmount so the setState
+  // calls below don't fire against a stale component.
+  useEffect(() => {
+    return () => {
+      if (restoreTriggerTimerRef.current != null) window.clearTimeout(restoreTriggerTimerRef.current);
+      if (restoreClearTimerRef.current != null) window.clearTimeout(restoreClearTimerRef.current);
+    };
+  }, []);
+
+  // Commit a restore: freeze the card's position in state, render the
+  // ExpanderOverlay (which flies from the source rect to fullscreen),
+  // trigger the actual provider restore partway through so the native
+  // webview arrives as the expander reaches full size, and finally
+  // clear the overlay state once the whole animation has played out.
+  const handleCommitRestore = useCallback(
+    (session: DappSession, sourceRect: DOMRect) => {
+      const snap = getSnapshot(session.id) ?? null;
+      setRestoring({
+        session,
+        snapshot: snap,
+        sourceRect,
+        viewport: { width: window.innerWidth, height: window.innerHeight }
+      });
+      // Kick the provider restore partway through the expand so the
+      // webview is ready by the time the overlay is at full size.
+      restoreTriggerTimerRef.current = window.setTimeout(() => {
+        void restore(session.id);
+        restoreTriggerTimerRef.current = null;
+      }, RESTORE_TRIGGER_DELAY_MS);
+      // Tear down the overlay after the full expand animation + a
+      // short tail for the fade-out. Leaves a little buffer so the
+      // native webview has definitely arrived before we unmount the
+      // React-side visual.
+      restoreClearTimerRef.current = window.setTimeout(() => {
+        setRestoring(null);
+        restoreClearTimerRef.current = null;
+      }, EXPAND_TOTAL_DURATION_MS + 100);
+    },
+    [restore]
+  );
 
   // Cards render newest-first so the dApp the user most recently
   // minimized is the frontmost card (closest to their thumb, unobscured,
@@ -148,13 +216,33 @@ export const DappPeekTray: FC = () => {
               // cards only peek ~30pt so they're too cramped to host
               // additional chrome.
               overflowCount={index === 0 ? overflowCount : 0}
-              onTap={() => void restore(state.session.id)}
+              // Fade this specific card to 0 opacity while the expander
+              // is playing so the expander looks like it grew directly
+              // out of the card (rather than visually duplicating it).
+              isExpanding={restoring?.session.id === state.session.id}
+              onCommitRestore={sourceRect => handleCommitRestore(state.session, sourceRect)}
               onClose={() => void close(state.session.id)}
               onShowAll={openSwitcher}
             />
           ))}
         </AnimatePresence>
       </div>
+      {/* ExpanderOverlay — rendered as a sibling of the tray cards when
+          a restore gesture has committed. It's a fixed-position portal
+          overlay that morphs from the source card's rect to the full
+          viewport, showing the snapshot as the background so the user
+          watches their card grow into the full dApp. Separate element
+          so its geometry animation (left/top/width/height) doesn't
+          interfere with the card's transform-based entry/exit
+          animations. */}
+      {restoring && (
+        <DappExpanderOverlay
+          sourceRect={restoring.sourceRect}
+          snapshot={restoring.snapshot}
+          origin={restoring.session.origin}
+          viewport={restoring.viewport}
+        />
+      )}
     </div>,
     document.body
   );

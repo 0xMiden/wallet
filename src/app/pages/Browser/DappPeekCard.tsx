@@ -62,7 +62,17 @@ interface DappPeekCardProps {
   stackIndex: number;
   /** Overflow count rendered as "+N" on the frontmost card only. */
   overflowCount?: number;
-  onTap: () => void;
+  /** Whether this specific card is being restored and should fade out
+   *  in-place while the ExpanderOverlay takes over. */
+  isExpanding?: boolean;
+  /**
+   * Called when a restore gesture commits (tap or swipe up). The callback
+   * receives the card's current DOM rect so the tray can render an
+   * `ExpanderOverlay` that flies from exactly the card's position to
+   * fullscreen. Also called for back-card taps (where `sourceRect` is
+   * still meaningful since the tap originates from their visible slice).
+   */
+  onCommitRestore: (sourceRect: DOMRect) => void;
   onClose: () => void;
   onShowAll: () => void;
 }
@@ -72,7 +82,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   snapshot,
   stackIndex,
   overflowCount = 0,
-  onTap,
+  isExpanding = false,
+  onCommitRestore,
   onClose,
   onShowAll
 }) => {
@@ -87,15 +98,26 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   //     from the fullscreen switcher).
   //   - 'close': downward dismissal. Card continues its drag motion
   //     further down and fades.
-  //   - 'restore': upward "shuffle out of the deck" expand. Card scales
-  //     up ~4× and translates toward the center of the screen while
-  //     the native webview fills in behind it.
-  const [exitMode, setExitMode] = useState<'default' | 'close' | 'restore'>('default');
+  // (Restore is no longer an exit variant — the tray's ExpanderOverlay
+  // takes over as the card fades out in-place.)
+  const [exitMode, setExitMode] = useState<'default' | 'close'>('default');
   // Ref so the tap handler can distinguish a real tap from a click
   // event that fires at the end of a drag gesture. framer-motion's
   // drag events don't automatically suppress the synthesized click on
   // the underlying <button>, so we track movement ourselves.
   const wasDraggedRef = useRef(false);
+  // The outer motion.div. We need its current bounding rect at the
+  // moment a restore gesture commits so the ExpanderOverlay can start
+  // at exactly the card's position — otherwise there's a visible jump
+  // between where the user was touching and where the expand begins.
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const commitRestore = () => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (rect) {
+      onCommitRestore(rect);
+    }
+  };
 
   const displayName = getDappDisplayName(session);
   const fallbackColor = getFallbackColor(session.origin);
@@ -136,8 +158,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       return;
     }
     hapticLight();
-    setExitMode('restore');
-    setTimeout(onTap, 0);
+    commitRestore();
   };
 
   // Only the front card is draggable. Back cards are partially hidden
@@ -159,11 +180,10 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   const handleDragEnd = (_: unknown, info: PanInfo) => {
     const dy = info.offset.y;
     const vy = info.velocity.y;
-    // Up: restore via the "shuffle out" expand exit.
+    // Up: restore via the ExpanderOverlay fly-out.
     if (dy < -SWIPE_OFFSET_THRESHOLD || vy < -SWIPE_VELOCITY_THRESHOLD) {
       hapticMedium();
-      setExitMode('restore');
-      setTimeout(onTap, 0);
+      commitRestore();
       return;
     }
     // Down: close with a continuation-of-drag fade.
@@ -173,9 +193,10 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       setTimeout(onClose, 0);
       return;
     }
-    // Below threshold — framer-motion will spring back to origin on its
-    // own. Clear the drag flag after a short delay so the tap-vs-click
-    // discriminator lets a subsequent real click through.
+    // Below threshold — framer-motion's dragSnapToOrigin will spring the
+    // card back to its resting x/y. Clear the drag flag after a short
+    // delay so the tap-vs-click discriminator lets a subsequent real
+    // click through.
     setTimeout(() => {
       wasDraggedRef.current = false;
     }, 100);
@@ -183,46 +204,43 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
 
   // Exit variant resolver. The default (non-gesture) exit just drops
   // the card down a bit and fades — used when the parked-sessions
-  // array shrinks from somewhere other than this card's own gesture
-  // (e.g. the user closed it from the fullscreen switcher or a
-  // programmatic close). The gesture-driven exits are more dramatic.
+  // array shrinks from somewhere other than this card's own gesture.
+  // For a swipe-down close, the card continues its downward motion.
   const exitVariant =
-    exitMode === 'restore'
+    exitMode === 'close'
       ? {
-          // "Shuffle out of the deck" — scale up while drifting toward
-          // the center-top of the screen. 3.6× ends at roughly the
-          // width of a phone viewport, so the card visually approaches
-          // the size the actual dApp will inhabit. Ease-out curve so
-          // the expansion feels propelled, then slows as the webview
-          // takes over behind it.
           opacity: 0,
-          scale: 3.6,
-          y: -260,
-          transition: { duration: 0.5, ease: [0.2, 0.8, 0.25, 1] }
+          y: 180,
+          scale: scale * 0.85,
+          transition: { duration: 0.32, ease: [0.4, 0, 1, 1] }
         }
-      : exitMode === 'close'
-        ? {
-            opacity: 0,
-            y: 180,
-            scale: scale * 0.85,
-            transition: { duration: 0.32, ease: [0.4, 0, 1, 1] }
-          }
-        : { opacity: 0, y: 40, scale: scale * 0.9 };
+      : { opacity: 0, y: 40, scale: scale * 0.9 };
+
+  // When this card is the one being restored, the tray's ExpanderOverlay
+  // is growing from its position to fullscreen. We fade the card to 0
+  // opacity in-place so it doesn't visually collide with the expander,
+  // while keeping the motion.div mounted until the parent filters it
+  // out (a tick later, once `restore()` removes it from parkedSessions).
+  const animatedOpacity = isExpanding ? 0 : opacity;
 
   return (
     <motion.div
+      ref={rootRef}
       // Animate layout so cards reflow smoothly when siblings are added
       // or removed (e.g. park a new dApp → existing cards slide left to
       // make room for the new frontmost card on the right).
       layout
       initial={{ opacity: 0, y: 40, scale: scale * 0.9 }}
-      animate={{ opacity, x: xOffset, y: 0, scale }}
+      animate={{ opacity: animatedOpacity, x: xOffset, y: 0, scale }}
       exit={exitVariant}
-      transition={springs.sheetPresent}
+      transition={isExpanding ? { duration: 0.15 } : springs.sheetPresent}
       // Front card is draggable (swipe up = restore, swipe down = close).
-      drag={isFront ? 'y' : false}
-      dragConstraints={{ top: -200, bottom: 200 }}
-      dragElastic={0.35}
+      // Zero-sized drag constraints + elastic pull mean framer-motion
+      // springs the card back to origin automatically when the release
+      // doesn't cross the swipe threshold — no manual reset needed.
+      drag={isFront && !isExpanding ? 'y' : false}
+      dragConstraints={{ top: 0, bottom: 0 }}
+      dragElastic={0.5}
       dragMomentum={false}
       onDragStart={handleDragStart}
       onDrag={handleDrag}
