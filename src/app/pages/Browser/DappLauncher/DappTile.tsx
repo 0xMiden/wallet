@@ -77,7 +77,7 @@ export const DappTile: FC<DappTileProps> = ({
   return (
     <motion.button
       type="button"
-      // Entry animation: tiles drop from 20pt above their final
+      // Entry animation: tiles drop from 48pt above their final
       // position down into place. No `layoutId` on the button because
       // nothing else in the app shares that id — the actual tile →
       // capsule morph is handled by the INNER favicon + name elements
@@ -86,11 +86,18 @@ export const DappTile: FC<DappTileProps> = ({
       // tracked by the launcher's `LayoutGroup` get their initial
       // prop intercepted by framer-motion's layout system, which was
       // causing the drop animation to be skipped entirely.
-      initial={{ opacity: 0, y: -20 }}
+      //
+      // Tween with explicit duration (not a spring) so the drop is
+      // visually unambiguous — the spring variants were settling in
+      // ~300ms and with the small drop distance it read as a fade
+      // rather than a drop. 500ms + ease-out is slow enough to be
+      // clearly perceived as a falling motion.
+      initial={{ opacity: 0, y: -48 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        ...springs.snappy,
-        delay: entryBaseDelay + animationIndex * 0.04
+        duration: 0.5,
+        ease: [0.22, 1, 0.36, 1],
+        delay: entryBaseDelay + animationIndex * 0.06
       }}
       onClick={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
