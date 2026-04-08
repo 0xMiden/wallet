@@ -28,7 +28,6 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { useSprings } from 'lib/animation';
 import {
   type DappSession,
   getDappDisplayName,
@@ -38,8 +37,6 @@ import {
   getFaviconUrl
 } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
-
-import { useMorphReady } from './BrowserScreen';
 
 interface CapsuleBarProps {
   session: DappSession;
@@ -69,13 +66,6 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
   tabsCount = 1
 }) => {
   const { t } = useTranslation();
-  // PR-7: reduce-motion aware springs. When the user has reduce-motion
-  // on, every transition below collapses to `{ duration: 0.001 }`.
-  const springs = useSprings();
-  // Mirror the gating done in DappTile so the tile→capsule morph still
-  // pairs the correct layoutIds. See MorphReadyContext doc in
-  // BrowserScreen.tsx for the rationale.
-  const morphReady = useMorphReady();
   const [faviconBroken, setFaviconBroken] = useState(false);
 
   const handleClose = () => {
@@ -164,10 +154,10 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
 
       {/* 56px content row */}
       <div className="flex h-14 items-center gap-3 px-4">
-        {/* Favicon — layoutId target for the launcher tile morph (PR-2). */}
-        <motion.div
-          layoutId={morphReady ? `dapp-favicon-${session.url}` : undefined}
-          transition={springs.morph}
+        {/* Favicon — was a layoutId target for the launcher tile morph
+            (PR-2), but the morph competed with TabLayout's CSS slide-in
+            and produced a visible jiggle. Reverted to a plain div. */}
+        <div
           className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md"
           style={{ background: faviconBroken || !faviconUrl ? fallbackColor : 'transparent' }}
         >
@@ -181,23 +171,14 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               onError={() => setFaviconBroken(true)}
             />
           )}
-        </motion.div>
+        </div>
 
-        {/* Title + hostname — title is the layoutId target so the tile
-            name morphs into the capsule title. The secondary line shows
-            the bare hostname so the tabs badge, minimize, reload, and
-            close buttons all fit without URL truncation. The secondary
-            line is hidden when the title already matches the hostname
-            (common case: <title> is just "miden.xyz") so we don't
-            stack two identical strings. */}
+        {/* Title + hostname — secondary hostname line is hidden when
+            the title already matches the hostname (common case: <title>
+            is just "miden.xyz") so we don't stack two identical
+            strings. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <motion.span
-            layoutId={morphReady ? `dapp-name-${session.url}` : undefined}
-            transition={springs.morph}
-            className="truncate text-base font-semibold text-black"
-          >
-            {displayTitle}
-          </motion.span>
+          <span className="truncate text-base font-semibold text-black">{displayTitle}</span>
           {showHostnameRow && <span className="truncate text-xs text-grey-500">{hostname}</span>}
         </div>
 
