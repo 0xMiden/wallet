@@ -142,6 +142,10 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
                 badge={dapp.badge}
                 onOpen={onOpen}
                 animationIndex={index}
+                // Delay past the 150ms `mobile-page-enter` tab slide-in
+                // so tiles animate from rest rather than mid-transform.
+                // Matches Recents' natural "after the tab settles" feel.
+                entryBaseDelay={0.2}
               />
             </div>
           ))}
@@ -158,7 +162,7 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
             aria-label={t('scrollLeft') ?? 'Scroll left'}
             className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-pure-white shadow-md"
           >
-            <Icon name={IconName.ChevronLeft} size="sm" className="text-grey-700" fill="currentColor" />
+            <Icon name={IconName.ChevronLeftLucide} size="sm" className="text-grey-700" />
           </button>
         )}
         {couldOverflow && canScrollRight && (
@@ -168,7 +172,7 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
             aria-label={t('scrollRight') ?? 'Scroll right'}
             className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-pure-white shadow-md"
           >
-            <Icon name={IconName.ChevronRight} size="sm" className="text-grey-700" fill="currentColor" />
+            <Icon name={IconName.ChevronRightLucide} size="sm" className="text-grey-700" />
           </button>
         )}
       </div>
