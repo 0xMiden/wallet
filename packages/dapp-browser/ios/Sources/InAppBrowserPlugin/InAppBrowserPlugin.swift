@@ -378,6 +378,12 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let xPos = call.getFloat("x")
         let yPos = call.getFloat("y")
 
+        // Miden patch: optional bottom strip whose hit-tests fall
+        // through to the host window. Used by the embedded dApp browser
+        // to let the wallet's bottom navbar stay tappable while the
+        // WKWebView visually extends behind it.
+        let bottomPassthrough = call.getFloat("bottomPassthrough")
+
         // Read disableOverscroll option (iOS only - controls WebView bounce effect)
         let disableOverscroll = call.getBool("disableOverscroll", false)
 
@@ -780,11 +786,22 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 let h = CGFloat(height ?? 0)
                 let x = CGFloat(xPos ?? 0)
                 let y = CGFloat(yPos ?? 0)
-                let window = UIWindow(windowScene: scene)
+                // Miden patch: use the passthrough subclass so the
+                // bottom strip can be made transparent to taps. When
+                // `bottomPassthrough` is provided in the open call,
+                // touches in that bottom slice fall through to the
+                // host window — letting the WKWebView visually extend
+                // behind the wallet's bottom navbar without breaking
+                // navbar taps. Legacy callers that omit the parameter
+                // get the original behavior (passthrough disabled).
+                let window = MidenDappPassthroughWindow(windowScene: scene)
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
                 window.windowLevel = UIWindow.Level.normal + 100
                 window.backgroundColor = .clear
                 window.rootViewController = instance.navigationController
+                if let bp = bottomPassthrough {
+                    window.bottomPassthroughHeight = CGFloat(bp)
+                }
                 window.isHidden = false
                 instance.containerWindow = window
                 presentedInWindow = true
@@ -1096,6 +1113,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let height = call.getFloat("height")
         let xPos = call.getFloat("x")
         let yPos = call.getFloat("y")
+        // Miden patch: optional bottom passthrough strip. See openWebView
+        // for the rationale; updateDimensions can change it on the fly
+        // (e.g. orientation change shifts the navbar position).
+        let bottomPassthrough = call.getFloat("bottomPassthrough")
         // Miden patch (PR-4 chunk 7): id-aware. Defaults to "default" so the
         // legacy single-instance call signature still works.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
@@ -1132,6 +1153,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 let y = CGFloat(yPos ?? Float(window.frame.minY))
                 window.frame = CGRect(x: x, y: y, width: w, height: h)
                 instance.rect = window.frame
+                if let bp = bottomPassthrough,
+                   let passthroughWindow = window as? MidenDappPassthroughWindow {
+                    passthroughWindow.bottomPassthroughHeight = CGFloat(bp)
+                }
             } else {
                 // Legacy modal path: forward to the controller's own
                 // dimension logic.

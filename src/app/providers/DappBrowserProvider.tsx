@@ -97,6 +97,18 @@ import { navigate } from 'lib/woozie';
 export type DappMode = 'launcher' | 'active' | 'parked';
 
 /**
+ * Height (in CSS pt) of the bottom strip of the dApp UIWindow that's
+ * masked out (visually transparent so the wallet's floating bottom
+ * navbar shows through) AND made transparent to hit-testing (so taps
+ * in the navbar reach the React layer underneath). Calibrated so the
+ * mask cuts exactly at the navbar pill's visible top edge on iPhone
+ * 17, leaving no cream gap of host background between the dApp
+ * content and the pill. Forwarded to the native plugin via
+ * `bottomPassthrough` on every open + setRect call.
+ */
+const NAVBAR_PASSTHROUGH = 78;
+
+/**
  * Provider-internal lifecycle status for a single session. Distinct from
  * `DappSessionStatus` in `lib/dapp-browser/dapp-session.ts`, which tracks
  * the public session model. We use a smaller set here keyed off the
@@ -461,7 +473,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           x: rect.x,
           y: rect.y,
           width: rect.width,
-          height: rect.height
+          height: rect.height,
+          // The slot rect extends to the bottom of the React viewport
+          // (DappActive dropped the footer spacer), so the WKWebView
+          // visually overlaps the wallet's bottom navbar. The native
+          // plugin makes the bottom NAVBAR_PASSTHROUGH points of the
+          // hosting UIWindow transparent to taps, so navbar clicks
+          // still reach the React layer.
+          bottomPassthrough: NAVBAR_PASSTHROUGH
         });
         updateSession(session.id, s => ({
           ...s,
@@ -668,7 +687,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     }
     if (state.instance) {
       void state.instance.setVisible(true);
-      void state.instance.setRect(slotRect);
+      void state.instance.setRect(slotRect, NAVBAR_PASSTHROUGH);
     }
     // openInternal is stable-ish; intentionally not in deps to avoid
     // re-running on every state change.

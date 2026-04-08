@@ -8,6 +8,35 @@ export const INJECTION_SCRIPT = `
 (function() {
   if (window.midenWallet) return; // Already injected
 
+  // The wallet's bottom navbar overlays the bottom of the WKWebView
+  // (see MidenDappPassthroughWindow + NAVBAR_PASSTHROUGH). Without
+  // this padding the dApp's last chunk of content is permanently
+  // hidden behind the navbar; with it the user can scroll the dApp
+  // content up so its bottom edge sits ABOVE the navbar's masked
+  // strip. Inject a small style block instead of mutating body.style
+  // directly so dApps with their own scroll containers (which set
+  // body { overflow: hidden }) still pick up the padding via the
+  // standard cascade.
+  try {
+    const installPadding = function() {
+      if (!document || !document.head || document.getElementById('miden-wallet-bottom-pad')) return;
+      const style = document.createElement('style');
+      style.id = 'miden-wallet-bottom-pad';
+      style.textContent =
+        'html, body { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }' +
+        'html { scroll-padding-bottom: 96px !important; }' +
+        'body { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }';
+      document.head.appendChild(style);
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', installPadding, { once: true });
+    } else {
+      installPadding();
+    }
+  } catch (e) {
+    // Best-effort — never block the wallet bridge on a styling failure.
+  }
+
   // Simple EventEmitter implementation
   class EventEmitter {
     constructor() {

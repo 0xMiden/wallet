@@ -2046,6 +2046,71 @@ class BlockBarButtonItem: UIBarButtonItem {
     var block: ((WKWebViewController) -> Void)?
 }
 
+/// UIWindow subclass for the dApp browser whose bottom strip is
+/// transparent to hit-testing AND visually masked out.
+///
+/// Why: the embedded dApp browser wants the WKWebView to fill the slot
+/// rect all the way to the bottom of the React viewport so the dApp's
+/// content visually butts right up against the wallet's bottom navbar,
+/// with no empty band of app background showing through. But:
+///
+/// 1. iOS picks the topmost UIWindow for any given touch point, so a
+///    regular UIWindow at +100 windowLevel covering the navbar would
+///    eat those taps. `bottomPassthroughHeight` returns nil from
+///    hitTest for points in the bottom strip so iOS falls through to
+///    the Capacitor host window, which restores navbar navigation.
+///
+/// 2. iOS also paints higher windows on top, so a regular UIWindow
+///    covering the navbar would visually hide it. We apply a CAShapeLayer
+///    mask to the rootViewController's view that cuts out the same
+///    bottom strip — the cut-out area becomes transparent and the
+///    navbar (rendered in the host window underneath) shows through.
+///
+/// The mask is rebuilt on layoutSubviews so it tracks frame changes
+/// from updateDimensions / orientation changes.
+class MidenDappPassthroughWindow: UIWindow {
+    /// Height of the bottom strip whose touches should fall through
+    /// to lower windows AND whose pixels should be masked out.
+    /// Measured from `self.bounds.maxY` upward. Set to 0 to disable
+    /// the passthrough entirely (useful for legacy callers).
+    var bottomPassthroughHeight: CGFloat = 0 {
+        didSet {
+            applyBottomPassthroughMask()
+        }
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if bottomPassthroughHeight > 0 {
+            let cutoff = bounds.height - bottomPassthroughHeight
+            if point.y >= cutoff {
+                // Returning nil makes iOS try the next window in the
+                // scene, which is the host Capacitor window.
+                return nil
+            }
+        }
+        return super.hitTest(point, with: event)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        applyBottomPassthroughMask()
+    }
+
+    private func applyBottomPassthroughMask() {
+        guard let view = rootViewController?.view else { return }
+        let bounds = view.bounds
+        if bottomPassthroughHeight <= 0 || bounds.isEmpty {
+            view.layer.mask = nil
+            return
+        }
+        let visibleHeight = max(0, bounds.height - bottomPassthroughHeight)
+        let maskRect = CGRect(x: 0, y: 0, width: bounds.width, height: visibleHeight)
+        let mask = CAShapeLayer()
+        mask.path = UIBezierPath(rect: maskRect).cgPath
+        view.layer.mask = mask
+    }
+}
+
 /// Custom view that passes touches outside a target frame to the underlying view
 class PassThroughView: UIView {
     var targetFrame: CGRect?

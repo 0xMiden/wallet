@@ -170,21 +170,14 @@ export const DappActive: FC = () => {
         )}
       </div>
 
-      {/* Footer spacer — reserves vertical space at the bottom of the
-          flex column so the slot (flex-1 above) doesn't extend into
-          the floating tabbar region. Without this, the native
-          WKWebView UIWindow covers the HOME/ACTIVITY/BROWSER tab area
-          and taps in that region never reach the React footer — the
-          user gets stuck on the current dApp with no way to navigate
-          away. (See InAppBrowserPlugin.swift's window-level hit-test
-          comment around L768.)
-
-          88px = the visible footer pill (~76pt) + a small breathing
-          gap above it. No safe-area-inset-bottom here — body already
-          applies it, so adding it again left a ~34pt empty band of
-          app background between the bottom of the dApp content and
-          the top of the toolbar pill. */}
-      <div className="shrink-0" style={{ height: '88px' }} aria-hidden="true" />
+      {/* No footer spacer — the slot (flex-1 above) deliberately
+          extends to the bottom of contentRef so the WKWebView visually
+          covers the area behind the wallet's floating bottom navbar.
+          The dApp UIWindow uses MidenDappPassthroughWindow with a
+          bottomPassthrough strip (set in DappBrowserProvider as
+          NAVBAR_PASSTHROUGH) that returns nil from hitTest for taps
+          in the navbar region, so the navbar stays clickable while
+          dApp content can scroll behind it like a native iOS app. */}
     </div>
   );
 };
