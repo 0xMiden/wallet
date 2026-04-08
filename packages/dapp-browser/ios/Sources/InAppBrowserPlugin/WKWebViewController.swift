@@ -2177,6 +2177,20 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// re-run animations on no-op state changes.
     private var compactMode: Bool = false
 
+    /// Tracks whether we're currently presented (visible on screen)
+    /// vs morphed-out (slid below the screen). Morphed-out state is
+    /// used when a bottom-sheet drawer is up and the navbar would
+    /// otherwise fight with it for the same real estate.
+    private var presented: Bool = true
+
+    /// The shadow-wrapping view that contains the blurred pill. We
+    /// animate its `transform.ty` to slide the pill off-screen for
+    /// the morph-out effect — the window itself stays at
+    /// windowLevel = .normal+200, but the visible content moves.
+    /// Promoted to a stored property (instead of a local in
+    /// `installBlurContainer`) so the morph methods can reach it.
+    private var shadowWrap: UIView!
+
     /// The pill background — a true Apple "liquid glass" blur via
     /// UIVisualEffectView. iOS 26+ uses the new UIGlassEffect class
     /// (the same effect Apple uses for the system Music / Mail /
@@ -2241,6 +2255,14 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// convert it via `convert(_:to:)` before hit-testing or every
     /// tap on the actual pill rectangle silently falls through.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // When morphed out, the pill is visually off-screen via a
+        // transform but its auto-layout frame is unchanged — return
+        // nil immediately so taps fall through to the drawer / host
+        // content underneath and aren't swallowed by the now-invisible
+        // button hit targets.
+        if !presented {
+            return nil
+        }
         guard let parent = blurContainer.superview else {
             return super.hitTest(point, with: event)
         }
@@ -2269,15 +2291,16 @@ class MidenNavbarOverlayWindow: UIWindow {
         // The shadow lives on a wrapper view because the blur view
         // clips its sublayers — the shadow has to live on an outer
         // view that doesn't clip.
-        let shadowWrap = UIView()
-        shadowWrap.translatesAutoresizingMaskIntoConstraints = false
-        shadowWrap.backgroundColor = .clear
-        shadowWrap.layer.shadowColor = UIColor.black.cgColor
-        shadowWrap.layer.shadowOpacity = 0.08
-        shadowWrap.layer.shadowOffset = CGSize(width: 0, height: 4)
-        shadowWrap.layer.shadowRadius = 20
-        view.addSubview(shadowWrap)
-        shadowWrap.addSubview(blurContainer)
+        let wrap = UIView()
+        wrap.translatesAutoresizingMaskIntoConstraints = false
+        wrap.backgroundColor = .clear
+        wrap.layer.shadowColor = UIColor.black.cgColor
+        wrap.layer.shadowOpacity = 0.08
+        wrap.layer.shadowOffset = CGSize(width: 0, height: 4)
+        wrap.layer.shadowRadius = 20
+        view.addSubview(wrap)
+        wrap.addSubview(blurContainer)
+        self.shadowWrap = wrap
         // Match React: <footer className="w-full px-4 pb-3 pt-2"> wrapping
         // the pill. The pill itself is <div className="px-2 py-2 ...">
         // — px-2 + py-2 = 8pt of inner gutter on every side. Each button
@@ -2285,14 +2308,14 @@ class MidenNavbarOverlayWindow: UIWindow {
         // so the outer pill height = 8 + 60 + 8 = 76pt. That's the value
         // we use here so the visual height matches the React side.
         NSLayoutConstraint.activate([
-            shadowWrap.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            shadowWrap.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            shadowWrap.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            shadowWrap.heightAnchor.constraint(equalToConstant: 76),
-            blurContainer.topAnchor.constraint(equalTo: shadowWrap.topAnchor),
-            blurContainer.leadingAnchor.constraint(equalTo: shadowWrap.leadingAnchor),
-            blurContainer.trailingAnchor.constraint(equalTo: shadowWrap.trailingAnchor),
-            blurContainer.bottomAnchor.constraint(equalTo: shadowWrap.bottomAnchor)
+            wrap.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            wrap.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            wrap.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            wrap.heightAnchor.constraint(equalToConstant: 76),
+            blurContainer.topAnchor.constraint(equalTo: wrap.topAnchor),
+            blurContainer.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+            blurContainer.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+            blurContainer.bottomAnchor.constraint(equalTo: wrap.bottomAnchor)
         ])
     }
 
@@ -2389,6 +2412,54 @@ class MidenNavbarOverlayWindow: UIWindow {
             for (_, button) in self.buttons {
                 button.applyCompactAlpha(true)
             }
+        }
+    }
+
+    /// Slide the pill down off-screen on a spring animation. Used when
+    /// a bottom-sheet drawer is presented over the current page — the
+    /// navbar would otherwise compete with the drawer for the same
+    /// bottom-of-screen real estate. `morphIn` reverses the animation.
+    ///
+    /// The translation target is (pill height + 12pt gap below pill +
+    /// safe area inset + a little slack) so the shadow is fully
+    /// clipped below the screen edge and doesn't leave a soft halo
+    /// peeking through.
+    func morphOut() {
+        if !presented { return }
+        presented = false
+        guard let hostView = rootViewController?.view else { return }
+        // Force a layout pass so shadowWrap.frame is up to date before
+        // we sample the dimension we need to slide past.
+        hostView.layoutIfNeeded()
+        let pillHeight = shadowWrap.bounds.height
+        let safeBottom = hostView.safeAreaInsets.bottom
+        // 12pt bottom gap from installBlurContainer + 8pt slack so the
+        // shadow halo clears the screen edge.
+        let targetTy = pillHeight + 12 + safeBottom + 8
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.88,
+            initialSpringVelocity: 0.4,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.shadowWrap.transform = CGAffineTransform(translationX: 0, y: targetTy)
+        }
+    }
+
+    /// Reverse the `morphOut` animation — slide the pill back into
+    /// position via the same spring curve.
+    func morphIn() {
+        if presented { return }
+        presented = true
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.88,
+            initialSpringVelocity: 0.4,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.shadowWrap.transform = .identity
         }
     }
 

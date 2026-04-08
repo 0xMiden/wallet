@@ -1,5 +1,6 @@
-import React, { FC, useCallback, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -26,6 +27,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { isMobile } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
@@ -205,6 +207,29 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const languageLabel = getCurrentLanguageLabel();
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
+
+  // On mobile, morph the native navbar OUT when a settings drawer /
+  // seed-warning overlay takes over the bottom of the screen. Both
+  // would otherwise fight with the pill for the same real estate.
+  // Morphs back IN when the drawer closes. No-op on desktop/extension.
+  const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (drawerOrSheetOpen) {
+      InAppBrowser.morphNavbarOut().catch(() => {});
+    } else {
+      InAppBrowser.morphNavbarIn().catch(() => {});
+    }
+    // Unmount cleanup: if the Settings page unmounts while a drawer
+    // is still open (e.g. user swipes back mid-open), force the
+    // navbar back in so it isn't stranded off-screen on the next page.
+    return () => {
+      if (!isMobile()) return;
+      if (drawerOrSheetOpen) {
+        InAppBrowser.morphNavbarIn().catch(() => {});
+      }
+    };
+  }, [drawerOrSheetOpen]);
 
   const handleSeedWarningClose = useCallback(() => {
     hapticLight();

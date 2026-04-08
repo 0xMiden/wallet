@@ -62,6 +62,12 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         // clearNavbarAction reverses the morph back to default mode.
         CAPPluginMethod(name: "setNavbarAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearNavbarAction", returnType: CAPPluginReturnPromise),
+        // morphNavbarOut slides the pill down off-screen on a spring;
+        // morphNavbarIn reverses it. Used when a bottom-sheet drawer
+        // is presented and the navbar would otherwise fight with it
+        // for the bottom of the viewport.
+        CAPPluginMethod(name: "morphNavbarOut", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "morphNavbarIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
     ]
     var navigationWebViewController: UINavigationController?
@@ -1309,6 +1315,20 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func clearNavbarAction(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             Self.navbarOverlay?.clearAction()
+            call.resolve()
+        }
+    }
+
+    @objc func morphNavbarOut(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            Self.navbarOverlay?.morphOut()
+            call.resolve()
+        }
+    }
+
+    @objc func morphNavbarIn(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            Self.navbarOverlay?.morphIn()
             call.resolve()
         }
     }
