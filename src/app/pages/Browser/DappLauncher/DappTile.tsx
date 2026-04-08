@@ -83,7 +83,7 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
       <motion.span
         layoutId={`dapp-name-${url}`}
         transition={springs.morph}
-        className="w-full truncate text-center text-xs font-medium text-grey-700"
+        className="w-full truncate text-center text-xs font-medium text-heading-gray"
         aria-hidden="true"
       >
         {name}
