@@ -16,6 +16,8 @@ import { useSprings } from 'lib/animation';
 import { type FeaturedDapp, type RecentDapp } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
+import { useMorphReady } from '../BrowserScreen';
+
 interface DappTileProps {
   url: string;
   name: string;
@@ -31,6 +33,11 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
   // tile → capsule collapses to an instant switch when the user has
   // reduce motion on.
   const springs = useSprings();
+  // Gate layoutId on whether the parent tab's CSS slide-in has
+  // settled. See MorphReadyContext in BrowserScreen.tsx — without
+  // this gate framer-motion fights the parent transform during the
+  // first 150ms and produces a visible jiggle.
+  const morphReady = useMorphReady();
 
   const handleClick = () => {
     hapticLight();
@@ -50,14 +57,14 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
   return (
     <motion.button
       type="button"
-      layoutId={`dapp-tile-${url}`}
+      layoutId={morphReady ? `dapp-tile-${url}` : undefined}
       transition={springs.morph}
       onClick={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
       aria-label={accessibleLabel}
     >
       <motion.div
-        layoutId={`dapp-favicon-${url}`}
+        layoutId={morphReady ? `dapp-favicon-${url}` : undefined}
         transition={springs.morph}
         className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
         style={{ background: showFallback ? fallbackBg : 'rgba(0,0,0,0.04)' }}
@@ -81,7 +88,7 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
         )}
       </motion.div>
       <motion.span
-        layoutId={`dapp-name-${url}`}
+        layoutId={morphReady ? `dapp-name-${url}` : undefined}
         transition={springs.morph}
         className="w-full truncate text-center text-xs font-medium text-grey-700"
         aria-hidden="true"
