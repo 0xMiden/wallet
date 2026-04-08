@@ -899,6 +899,27 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     navbarShownRef.current = true;
   }, [location.pathname, isWalletReady, t]);
 
+  // Mark the body when a dApp is foregrounded so the main.css rule
+  // that adds 88pt of bottom padding to reserve the navbar gutter
+  // can be opted out — dApp content is supposed to extend BEHIND
+  // the floating toolbar pill (the navbar's UIWindow uses a
+  // PassThroughView so taps still hit the pill), not stop above
+  // it. Without this opt-out, the slot rect computed from the
+  // shrunken React body lands ~88pt short of the screen bottom and
+  // the user sees the page background between the dApp and the
+  // toolbar.
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (foregroundId) {
+      document.body.setAttribute('data-dapp-foreground', '');
+    } else {
+      document.body.removeAttribute('data-dapp-foreground');
+    }
+    return () => {
+      document.body.removeAttribute('data-dapp-foreground');
+    };
+  }, [foregroundId]);
+
   // Forward native navbar taps to the woozie router. Subscribed once for
   // the lifetime of the provider so we don't lose taps mid-mode-change.
   useEffect(() => {
