@@ -61,7 +61,7 @@ const FeaturedCard: FC<{ dapp: FeaturedDapp; onOpen: (url: string) => void }> = 
     <button
       type="button"
       onClick={handleClick}
-      className="relative h-40 w-[260px] shrink-0 overflow-hidden rounded-3xl text-left shadow-[0_8px_24px_rgba(15,23,42,0.12)] active:scale-[0.98] transition-transform"
+      className="relative h-40 w-[260px] shrink-0 overflow-hidden rounded-3xl text-left shadow-[0_8px_24px_rgba(15,23,42,0.12)]"
       style={{ background: dapp.brandColor }}
       aria-label={dapp.name}
     >

@@ -34,12 +34,21 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
   const [recents, setRecents] = useState<RecentDapp[]>([]);
   const [category, setCategory] = useState<FeaturedDappCategory | null>(null);
 
-  // Load recents from preferences on mount.
+  // Load recents from preferences on mount, but DELAY the state update
+  // until after TabLayout's mobile-slide-in animation has settled
+  // (~150ms). Without this delay, the recents resolve mid-animation
+  // and the resulting re-render adds new tiles to MyDappsGrid, causing
+  // a layout reflow that visibly "jiggles" the slide-in. The 200ms
+  // gate is well past the 150ms animation end and well before the
+  // user could realistically interact with the page.
   useEffect(() => {
     let cancelled = false;
     getRecentDapps()
       .then(list => {
-        if (!cancelled) setRecents(list);
+        if (cancelled) return;
+        setTimeout(() => {
+          if (!cancelled) setRecents(list);
+        }, 200);
       })
       .catch(() => {
         if (!cancelled) setRecents([]);
