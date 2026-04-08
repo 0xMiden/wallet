@@ -23,9 +23,15 @@ interface DappTileProps {
   brandColor?: string;
   badge?: 'featured' | 'new' | 'verified';
   onOpen: (url: string) => void;
+  /**
+   * Index within the containing section. Used to stagger the entry
+   * animation so tiles fade in sequentially (~30ms between each).
+   * Defaults to 0 for uses that don't want a stagger.
+   */
+  animationIndex?: number;
 }
 
-export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge, onOpen }) => {
+export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge, onOpen, animationIndex = 0 }) => {
   const [iconBroken, setIconBroken] = useState(false);
   // PR-7: reduce-motion-aware springs so the shared-element morph from
   // tile → capsule collapses to an instant switch when the user has
@@ -51,7 +57,21 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
     <motion.button
       type="button"
       layoutId={`dapp-tile-${url}`}
-      transition={springs.morph}
+      // Entry animation: fade + slight lift so tiles reveal themselves
+      // even when the surrounding section mounts on first render.
+      // Staggered by `animationIndex` so each tile arrives ~30ms after
+      // the previous one, matching the feel of the Recents section
+      // which used to appear to animate in "for free" because its
+      // data load was async and the tiles popped in after a delay.
+      // Now both sections get the same visual treatment.
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        ...springs.morph,
+        // Stagger delay — keeping it small so the whole strip settles
+        // within ~300ms even for longer lists like My Dapps (7 items).
+        delay: 0.04 + animationIndex * 0.03
+      }}
       onClick={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
       aria-label={accessibleLabel}

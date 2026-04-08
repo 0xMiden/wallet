@@ -49,8 +49,15 @@ export const RecentsRow: FC<RecentsRowProps> = ({ recents, category, onOpen }) =
         {t('recents') ?? 'Recents'}
       </h2>
       <div className="grid grid-cols-4 gap-1 px-2">
-        {visible.map(dapp => (
-          <DappTile key={dapp.url} url={dapp.url} name={dapp.name} icon={dapp.favicon} onOpen={onOpen} />
+        {visible.map((dapp, index) => (
+          <DappTile
+            key={dapp.url}
+            url={dapp.url}
+            name={dapp.name}
+            icon={dapp.favicon}
+            onOpen={onOpen}
+            animationIndex={index}
+          />
         ))}
       </div>
     </section>
