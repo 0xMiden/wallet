@@ -19,7 +19,7 @@
  * fancy indexing.
  */
 
-import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 
 const SNAPSHOT_DIR = 'miden-dapp-snapshots';
 
@@ -44,14 +44,25 @@ async function ensureDir(): Promise<void> {
   }
 }
 
-/** Write a base64 data URL snapshot to disk for a given session. */
+/** Write a base64 data URL snapshot to disk for a given session.
+ *
+ * We store the whole `data:image/jpeg;base64,…` string as UTF-8 text
+ * so the read side can hand it straight back to the bubble as
+ * `background: url(…)`. Without `Encoding.UTF8` Capacitor treats the
+ * `data` argument as a base64-encoded string and tries to decode it
+ * into binary — but the dataURL prefix contains `:`, `/`, and `,`
+ * which aren't valid base64 characters, so the write silently stores
+ * garbage and every rehydrated bubble comes back as an empty white
+ * circle.
+ */
 export async function writeSnapshotToDisk(sessionId: string, dataUrl: string): Promise<void> {
   try {
     await ensureDir();
     await Filesystem.writeFile({
       path: pathFor(sessionId),
       data: dataUrl,
-      directory: Directory.Cache
+      directory: Directory.Cache,
+      encoding: Encoding.UTF8
     });
   } catch (error) {
     console.warn('[snapshot-persistence] write failed for', sessionId, error);
@@ -63,14 +74,27 @@ export async function readSnapshotFromDisk(sessionId: string): Promise<string | 
   try {
     const result = await Filesystem.readFile({
       path: pathFor(sessionId),
-      directory: Directory.Cache
+      directory: Directory.Cache,
+      encoding: Encoding.UTF8
     });
     const data = result.data;
-    if (typeof data === 'string') return data;
-    // `readFile` can return a Blob on the web platform — the web
-    // platform doesn't persist anything here so this branch is defensive
-    // and falls back to null.
-    return null;
+    if (typeof data !== 'string') {
+      // `readFile` can return a Blob on the web platform — the web
+      // platform doesn't persist anything here so this branch is
+      // defensive and falls back to null.
+      return null;
+    }
+    // Guard against legacy files written before this module specified
+    // `Encoding.UTF8`: those bytes are unrelated to a dataURL and would
+    // feed the bubble an invalid `background: url(…)`, leaving it as a
+    // featureless white circle until the next fresh park cycle.
+    if (!data.startsWith('data:')) {
+      // Try to delete the stale file so we stop re-reading it every
+      // rehydrate; best-effort, not fatal if it fails.
+      void removeSnapshotFromDisk(sessionId);
+      return null;
+    }
+    return data;
   } catch {
     // Missing file, permission denied, or cache was evicted. Treat all
     // as "not present" and let the caller fall back to a favicon tile.
