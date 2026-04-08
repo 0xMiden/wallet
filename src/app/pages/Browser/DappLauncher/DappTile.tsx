@@ -78,15 +78,19 @@ export const DappTile: FC<DappTileProps> = ({
     <motion.button
       type="button"
       layoutId={`dapp-tile-${url}`}
-      // Entry animation: fade + slight lift so tiles reveal themselves
-      // even when the surrounding section mounts on first render.
-      // Staggered by `animationIndex` so each tile arrives ~30ms after
-      // the previous one.
-      initial={{ opacity: 0, y: 6 }}
+      // Entry animation: tiles drop IN from 16pt above their final
+      // position (negative y in framer-motion = above) so the reveal
+      // reads as a clear "fall into place" rather than a subtle fade.
+      // Staggered by `animationIndex` so each tile arrives ~40ms after
+      // the previous one. `snappy` spring gives a crisp landing with
+      // just a hint of settle bounce — the `morph` spring used
+      // previously is tuned for the slower shared-element morph, and
+      // its lower stiffness made the drop look like a lazy fade.
+      initial={{ opacity: 0, y: -16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        ...springs.morph,
-        delay: entryBaseDelay + animationIndex * 0.03
+        ...springs.snappy,
+        delay: entryBaseDelay + animationIndex * 0.04
       }}
       onClick={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
