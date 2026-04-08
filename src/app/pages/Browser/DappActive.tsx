@@ -101,8 +101,13 @@ export const DappActive: FC = () => {
         tabsCount={sessionStates.length}
       />
 
-      {/* Spacer matching the capsule height (24 drag + 56 content + 1 hairline) */}
-      <div style={{ height: 'calc(env(safe-area-inset-top) + 81px)' }} className="shrink-0" />
+      {/* Spacer matching the capsule height (24 drag + 56 content + 1 hairline).
+          No safe-area-inset-top here — public/mobile.html applies it
+          on the body, which already pushes contentRef below the notch,
+          and CapsuleBar dropped its own paddingTop for the same reason.
+          Re-adding it would leave a ~50pt empty band between the
+          status bar and the drag handle. */}
+      <div style={{ height: '81px' }} className="shrink-0" />
       <ProgressBar loading={isLoading} />
 
       {/* The slot's bounding rect drives `updateDimensions`. Uses
@@ -153,10 +158,18 @@ export const DappActive: FC = () => {
       {/* Footer spacer — reserves vertical space at the bottom of the
           flex column so the slot (flex-1 above) doesn't extend into
           the floating tabbar region. Without this, the native
-          WKWebView window covers the HOME/ACTIVITY/BROWSER tab area
-          and taps never reach the React footer — the user gets stuck
-          on the current dApp with no way to navigate away. */}
-      <div className="shrink-0" style={{ height: 'calc(env(safe-area-inset-bottom) + 88px)' }} aria-hidden="true" />
+          WKWebView UIWindow covers the HOME/ACTIVITY/BROWSER tab area
+          and taps in that region never reach the React footer — the
+          user gets stuck on the current dApp with no way to navigate
+          away. (See InAppBrowserPlugin.swift's window-level hit-test
+          comment around L768.)
+
+          88px = the visible footer pill (~76pt) + a small breathing
+          gap above it. No safe-area-inset-bottom here — body already
+          applies it, so adding it again left a ~34pt empty band of
+          app background between the bottom of the dApp content and
+          the top of the toolbar pill. */}
+      <div className="shrink-0" style={{ height: '88px' }} aria-hidden="true" />
     </div>
   );
 };

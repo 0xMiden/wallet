@@ -115,7 +115,11 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
       role="banner"
       aria-label={t('dappBrowserCapsule') ?? 'dApp browser header'}
       style={{
-        paddingTop: 'env(safe-area-inset-top)',
+        // No paddingTop here — public/mobile.html already applies
+        // env(safe-area-inset-top) on the body, which becomes the
+        // containing block for this fixed header. Re-applying it
+        // would double-count the inset and leave an empty 50pt band
+        // above the drag handle on iPhone 17.
         background: 'rgba(255,255,255,0.85)',
         backdropFilter: 'blur(20px) saturate(1.6)',
         WebkitBackdropFilter: 'blur(20px) saturate(1.6)',
