@@ -2140,16 +2140,37 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// The id of the currently-active item, if any.
     private var activeItemId: String?
 
-    /// Container UIVisualEffectView (the blur pill).
-    private let blurContainer: UIVisualEffectView
+    /// Container view holding the buttons. Plain UIView (not a
+    /// UIVisualEffectView) so the navbar's background is a fixed
+    /// translucent white tint regardless of what's painted underneath
+    /// — matches the React Footer's `rgba(255,255,255,0.6) +
+    /// backdrop-filter: blur(6px)` look. UIVisualEffectView with
+    /// .systemChromeMaterial would otherwise sample the dApp content
+    /// and produce wildly different tints depending on the dApp's
+    /// theme (peach over Zoroswap light mode, near-black over
+    /// Zoroswap dark mode), which the user shouldn't see.
+    private let blurContainer: UIView
+    /// Subview that provides the contentView API for the buttons —
+    /// kept as a separate field so the layout code below can stay
+    /// almost identical to the previous UIVisualEffectView version.
+    private let contentContainer: UIView
 
     init(scene: UIWindowScene, items: [Item], activeId: String?) {
-        // Use the same .systemUltraThinMaterial that iOS Music and Mail
-        // use for their floating bars — natively backdrop-samples whatever
-        // is underneath, including a WKWebView, with proper Reduce
-        // Transparency fallback.
-        let effect = UIBlurEffect(style: .systemChromeMaterial)
-        self.blurContainer = UIVisualEffectView(effect: effect)
+        let container = UIView()
+        // The React Footer uses rgba(255,255,255,0.6) + backdrop-blur
+        // to produce a clean, near-white pill on top of the wallet's
+        // cream background. We can't replicate the blur behavior here
+        // (UIVisualEffectView samples the dApp content beneath, which
+        // produces wildly different tints depending on the dApp's
+        // theme — peach over Zoroswap light mode, near-black over
+        // dark mode). Instead, paint a near-opaque off-white that
+        // matches the *visible* color of the React pill regardless
+        // of what's below. The exact value matches the wallet's
+        // `--color-app-bg` (#F6F4F2) so the navbar visually melds
+        // with the rest of the wallet chrome.
+        container.backgroundColor = UIColor(red: 0.965, green: 0.957, blue: 0.949, alpha: 1.0)
+        self.blurContainer = container
+        self.contentContainer = container
         super.init(frame: scene.coordinateSpace.bounds)
         self.windowScene = scene
         self.windowLevel = UIWindow.Level.normal + 200
@@ -2201,11 +2222,13 @@ class MidenNavbarOverlayWindow: UIWindow {
     private func installBlurContainer() {
         guard let view = rootViewController?.view else { return }
         blurContainer.translatesAutoresizingMaskIntoConstraints = false
+        // React: rounded-[26px] on the outer pill container
         blurContainer.layer.cornerRadius = 26
         blurContainer.clipsToBounds = true
-        // A very subtle shadow lives on a wrapper view because the blur
-        // view itself clips its sublayers — the shadow has to live on
-        // an outer view that doesn't clip.
+        // React: shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]
+        // The shadow lives on a wrapper view because the blur view
+        // clips its sublayers — the shadow has to live on an outer
+        // view that doesn't clip.
         let shadowWrap = UIView()
         shadowWrap.translatesAutoresizingMaskIntoConstraints = false
         shadowWrap.backgroundColor = .clear
@@ -2215,11 +2238,17 @@ class MidenNavbarOverlayWindow: UIWindow {
         shadowWrap.layer.shadowRadius = 20
         view.addSubview(shadowWrap)
         shadowWrap.addSubview(blurContainer)
+        // Match React: <footer className="w-full px-4 pb-3 pt-2"> wrapping
+        // the pill. The pill itself is <div className="px-2 py-2 ...">
+        // — px-2 + py-2 = 8pt of inner gutter on every side. Each button
+        // is then ~60pt tall (py-2 + icon 22 + gap-2 + label ~14 + py-2),
+        // so the outer pill height = 8 + 60 + 8 = 76pt. That's the value
+        // we use here so the visual height matches the React side.
         NSLayoutConstraint.activate([
             shadowWrap.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             shadowWrap.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             shadowWrap.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            shadowWrap.heightAnchor.constraint(equalToConstant: 64),
+            shadowWrap.heightAnchor.constraint(equalToConstant: 76),
             blurContainer.topAnchor.constraint(equalTo: shadowWrap.topAnchor),
             blurContainer.leadingAnchor.constraint(equalTo: shadowWrap.leadingAnchor),
             blurContainer.trailingAnchor.constraint(equalTo: shadowWrap.trailingAnchor),
@@ -2231,15 +2260,16 @@ class MidenNavbarOverlayWindow: UIWindow {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.distribution = .fillEqually
-        stack.alignment = .center
+        stack.alignment = .fill
         stack.spacing = 0
         stack.translatesAutoresizingMaskIntoConstraints = false
-        blurContainer.contentView.addSubview(stack)
+        contentContainer.addSubview(stack)
+        // React outer pill: px-2 py-2 = 8pt gutter on every side
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: blurContainer.contentView.topAnchor, constant: 8),
-            stack.bottomAnchor.constraint(equalTo: blurContainer.contentView.bottomAnchor, constant: -8),
-            stack.leadingAnchor.constraint(equalTo: blurContainer.contentView.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: blurContainer.contentView.trailingAnchor, constant: -8)
+            stack.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -8),
+            stack.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
         ])
         for item in items {
             let button = NavbarButton(item: item)
@@ -2267,54 +2297,86 @@ private class MidenNavbarRootViewController: UIViewController {
 }
 
 /// Single navbar button — icon stacked over a label, with an
-/// orange-tinted oval background when active.
+/// orange-tinted oval background when active. Layout mirrors the
+/// React `<FooterNavButton>` component in `app/layouts/PageLayout/
+/// Footer.tsx` exactly:
+///   <div className="relative flex flex-col items-center gap-2
+///                   rounded-[28px] py-2 px-4">
+///     {active && <motion.div className="absolute inset-0
+///                                       rounded-full
+///                                       bg-pill-active/18" />}
+///     <Icon className="h-[22px] w-[22px]" />
+///     <p className="text-[10px] font-semibold uppercase">{name}</p>
+///   </div>
 private class NavbarButton: UIControl {
     private let iconView = UIImageView()
     private let label = UILabel()
     private let pillBackground = UIView()
     private let title: String
 
+    // Match Tailwind's `bg-pill-active/18` — the wallet's pill-active
+    // color is the brand orange #FF5700 at 18% opacity.
+    private static let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
+    private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
+    private static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
+
     init(item: MidenNavbarOverlayWindow.Item) {
         self.title = item.title
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        // Active-state pill background sized to inset by 6pt on each
-        // side so it visually nests inside the parent button frame.
+        // Active-state pill background fills the entire button (React
+        // uses `absolute inset-0`). The corner radius is set to half
+        // the button height in layoutSubviews so it ends up as a true
+        // `rounded-full` pill regardless of dynamic type / sizing.
         pillBackground.translatesAutoresizingMaskIntoConstraints = false
-        pillBackground.layer.cornerRadius = 22
-        pillBackground.backgroundColor = UIColor(red: 1.0, green: 0.42, blue: 0.13, alpha: 0.18)
+        pillBackground.backgroundColor = NavbarButton.activePillBg
         pillBackground.isHidden = true
+        pillBackground.isUserInteractionEnabled = false
         addSubview(pillBackground)
 
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        // SF Symbol configured to roughly match the 22pt React icons.
+        // The point size is 18 because SF Symbols are intrinsically a
+        // bit larger than their bounding box; 18pt symbol ≈ 22pt
+        // visual footprint.
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
         iconView.preferredSymbolConfiguration = symbolConfig
         iconView.image = UIImage(systemName: item.sfSymbol)
-        iconView.tintColor = UIColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1.0)
+        iconView.tintColor = NavbarButton.inactiveColor
         addSubview(iconView)
 
         label.translatesAutoresizingMaskIntoConstraints = false
         label.text = item.title.uppercased()
+        // React: text-[10px] font-semibold uppercase
         label.font = .systemFont(ofSize: 10, weight: .semibold)
-        label.textColor = UIColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1.0)
+        label.textColor = NavbarButton.inactiveColor
         label.textAlignment = .center
         addSubview(label)
 
+        // Layout matches React's `flex flex-col items-center gap-2 py-2 px-4`:
+        //   py-2 = 8pt top + 8pt bottom
+        //   gap-2 = 8pt between icon and label
+        //   icon h-[22px] w-[22px] = 22×22
+        //   text-[10px] = ~12pt line height
+        //   total height ≈ 8 + 22 + 8 + 12 + 8 = 58pt
+        // The button's actual height is determined by the parent
+        // stack view's fillEqually distribution; we just provide a
+        // `defaultHigh` priority intrinsic height as a hint.
         NSLayoutConstraint.activate([
-            pillBackground.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-            pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            pillBackground.topAnchor.constraint(equalTo: topAnchor),
+            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
+            pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
             iconView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.heightAnchor.constraint(equalToConstant: 22),
             iconView.widthAnchor.constraint(equalToConstant: 22),
-            label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 4),
+            label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 8),
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            heightAnchor.constraint(equalToConstant: 48)
+            label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8)
         ])
 
         // Accessibility
@@ -2327,11 +2389,17 @@ private class NavbarButton: UIControl {
         fatalError("init(coder:) is unavailable")
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // React's active pill is `rounded-full` (= half the height).
+        // Recompute on every layout pass so dynamic type / safe-area
+        // changes don't desync the corner radius from the bounds.
+        pillBackground.layer.cornerRadius = bounds.height / 2.0
+    }
+
     func setActive(_ active: Bool) {
         pillBackground.isHidden = !active
-        let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.13, alpha: 1.0)
-        let inactiveColor = UIColor(red: 0.4, green: 0.4, blue: 0.4, alpha: 1.0)
-        let color = active ? activeColor : inactiveColor
+        let color = active ? NavbarButton.activeColor : NavbarButton.inactiveColor
         iconView.tintColor = color
         label.textColor = color
         accessibilityTraits = active ? [.button, .selected] : .button

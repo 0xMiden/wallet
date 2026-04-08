@@ -825,9 +825,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     // SF Symbol names mirror the Footer.tsx icon set: house / chart /
     // globe — close enough to the React app's stylized icons that the
     // user shouldn't notice the swap.
+    // SF Symbols chosen to mirror the React Footer's filled SVG icons:
+    // - house.fill matches `home-new.svg` (filled house silhouette)
+    // - chart.line.uptrend.xyaxis matches `activity-new.svg` (zigzag
+    //   line over a baseline). There's no exact filled equivalent so
+    //   we use the regular variant which is the closest visual match.
+    // - globe matches `globe-new.svg` (circle with meridians).
     InAppBrowser.showNativeNavbar({
       items: [
-        { id: 'home', title: t('home'), sfSymbol: 'house' },
+        { id: 'home', title: t('home'), sfSymbol: 'house.fill' },
         { id: 'activity', title: t('activity'), sfSymbol: 'chart.line.uptrend.xyaxis' },
         { id: 'browser', title: t('browser'), sfSymbol: 'globe' }
       ],
