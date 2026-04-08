@@ -92,10 +92,15 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
     trackEvent('Footer/History', AnalyticsEventCategory.ButtonPress, { type: 'history' });
   };
 
-  const mobileBottomPadding = isMobile() ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : {};
+  // Mobile safe-area-inset-bottom is already applied on the body in
+  // public/mobile.html, so the footer doesn't need to re-apply it —
+  // stacking both pushes the pill ~34pt above where it should sit and
+  // leaves a huge empty band below the toolbar. The 12px gap between
+  // the pill and the safe-area floor comes from the Tailwind `pb-3`
+  // class below.
 
   return (
-    <footer className="w-full px-4 pb-3 pt-2 md:px-6" style={mobileBottomPadding}>
+    <footer className="w-full px-4 pb-3 pt-2 md:px-6">
       <div
         className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]"
         style={{
