@@ -2456,8 +2456,30 @@ private class NavbarButton: UIControl {
     private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
     private static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
 
+    // Default-mode icon constraints: top-pinned 22×22 with the label
+    // sitting below. Compact-mode icon constraints: center-pinned and
+    // larger (32×32) so the icon visually matches the action button's
+    // height inside its pill. We flip between these two sets on the
+    // same spring that drives the rest of the morph.
+    private var defaultIconTop: NSLayoutConstraint!
+    private var defaultIconHeight: NSLayoutConstraint!
+    private var defaultIconWidth: NSLayoutConstraint!
+    private var compactIconCenterY: NSLayoutConstraint!
+    private var compactIconHeight: NSLayoutConstraint!
+    private var compactIconWidth: NSLayoutConstraint!
+
+    // Two symbol configs — the compact one is proportionally larger so
+    // the rendered glyph actually fills the bigger 32pt iconView bounds.
+    // UIImageView scales the underlying image via contentMode but SF
+    // Symbols render best when the point size matches the target frame,
+    // so we swap the image alongside the constraint flip.
+    private let defaultSymbolConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+    private let compactSymbolConfig = UIImage.SymbolConfiguration(pointSize: 26, weight: .semibold)
+    private let sfSymbolName: String
+
     init(item: MidenNavbarOverlayWindow.Item) {
         self.title = item.title
+        self.sfSymbolName = item.sfSymbol
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -2472,13 +2494,12 @@ private class NavbarButton: UIControl {
         addSubview(pillBackground)
 
         // SF Symbol configured to roughly match the 22pt React icons.
-        // The point size is 18 because SF Symbols are intrinsically a
-        // bit larger than their bounding box; 18pt symbol ≈ 22pt
+        // The point size is 17 because SF Symbols are intrinsically a
+        // bit larger than their bounding box; 17pt symbol ≈ 22pt
         // visual footprint.
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
-        iconView.preferredSymbolConfiguration = symbolConfig
+        iconView.preferredSymbolConfiguration = defaultSymbolConfig
         iconView.image = UIImage(systemName: item.sfSymbol)
         iconView.tintColor = NavbarButton.inactiveColor
         addSubview(iconView)
@@ -2491,24 +2512,29 @@ private class NavbarButton: UIControl {
         label.textAlignment = .center
         addSubview(label)
 
-        // Layout matches React's `flex flex-col items-center gap-2 py-2 px-4`:
-        //   py-2 = 8pt top + 8pt bottom
-        //   gap-2 = 8pt between icon and label
-        //   icon h-[22px] w-[22px] = 22×22
-        //   text-[10px] = ~12pt line height
-        //   total height ≈ 8 + 22 + 8 + 12 + 8 = 58pt
-        // The button's actual height is determined by the parent
-        // stack view's fillEqually distribution; we just provide a
-        // `defaultHigh` priority intrinsic height as a hint.
+        // Build both constraint sets up-front. Only the default set is
+        // active at init. setCompact(_:) flips between them.
+        defaultIconTop = iconView.topAnchor.constraint(equalTo: topAnchor, constant: 8)
+        defaultIconHeight = iconView.heightAnchor.constraint(equalToConstant: 22)
+        defaultIconWidth = iconView.widthAnchor.constraint(equalToConstant: 22)
+        compactIconCenterY = iconView.centerYAnchor.constraint(equalTo: centerYAnchor)
+        compactIconHeight = iconView.heightAnchor.constraint(equalToConstant: 32)
+        compactIconWidth = iconView.widthAnchor.constraint(equalToConstant: 32)
+
+        // Layout matches React's `flex flex-col items-center gap-2 py-2 px-4`
+        // in default mode. Compact mode centers the icon and scales
+        // it up to visually match the action button's pill height.
         NSLayoutConstraint.activate([
             pillBackground.topAnchor.constraint(equalTo: topAnchor),
             pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
             pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
             pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            // Icon — X is the same in both modes (centered horizontally);
+            // Y + size differ and are toggled via setCompact.
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            iconView.heightAnchor.constraint(equalToConstant: 22),
-            iconView.widthAnchor.constraint(equalToConstant: 22),
+            defaultIconTop,
+            defaultIconHeight,
+            defaultIconWidth,
             label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 8),
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
@@ -2541,17 +2567,30 @@ private class NavbarButton: UIControl {
         accessibilityTraits = active ? [.button, .selected] : .button
     }
 
-    /// Switch into / out of compact layout. In compact mode the label
-    /// is hidden (faded out) so the icons read clean at the squeezed
-    /// width. The animation block in MidenNavbarOverlayWindow drives
-    /// the alpha transition; this method just toggles the source-of-
-    /// truth flag and lets the parent's `applyCompactAlpha` handle
-    /// the actual fade inside its UIView.animate block.
+    /// Switch into / out of compact layout. In compact mode the icon
+    /// grows and centers vertically (so it matches the action button's
+    /// pill height), and the label fades out via applyCompactAlpha.
+    /// The caller must invoke this OUTSIDE the animation block so the
+    /// layout engine knows the new constraint target before the parent
+    /// asks it to interpolate via layoutIfNeeded().
     func setCompact(_ compact: Bool, animated: Bool) {
-        // The actual alpha is set by applyCompactAlpha (called inside
-        // the parent's animation block). Nothing to do here at the
-        // moment, but kept as a hook for future state.
-        _ = compact
+        if compact {
+            defaultIconTop.isActive = false
+            defaultIconHeight.isActive = false
+            defaultIconWidth.isActive = false
+            compactIconCenterY.isActive = true
+            compactIconHeight.isActive = true
+            compactIconWidth.isActive = true
+            iconView.preferredSymbolConfiguration = compactSymbolConfig
+        } else {
+            compactIconCenterY.isActive = false
+            compactIconHeight.isActive = false
+            compactIconWidth.isActive = false
+            defaultIconTop.isActive = true
+            defaultIconHeight.isActive = true
+            defaultIconWidth.isActive = true
+            iconView.preferredSymbolConfiguration = defaultSymbolConfig
+        }
         _ = animated
     }
 
