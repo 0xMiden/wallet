@@ -132,6 +132,14 @@ export const DappPeekTray: FC = () => {
   // The currently-morphing session (either expanding-to-restore or
   // shrinking-to-minimize). Cleared once the animation completes.
   const [morphing, setMorphing] = useState<MorphingState | null>(null);
+  // Cyclic rotation pointer into `orderedAll` (the reversed parked list).
+  // The session at `orderedAll[activeIndex]` becomes the frontmost card.
+  // Swiping the front card left increments this (mod length) to rotate
+  // the next card forward; swiping right decrements to go back.
+  // Reset to 0 whenever a new session is parked so the freshly-minimized
+  // dApp is always the front on arrival (and the shrink animation
+  // lands on the right card).
+  const [activeIndex, setActiveIndex] = useState(0);
   // Active timers we started for the morph sequence, so an unmount
   // during an animation doesn't leave dangling setTimeouts pointing
   // at stale state.
@@ -233,11 +241,48 @@ export const DappPeekTray: FC = () => {
   // obvious tap target). `parkedSessions` is kept in session-creation
   // order by the provider, so we reverse it here — the last-added
   // parked session lands at index 0 and becomes the front-of-deck.
-  // We then slice to MAX_VISIBLE_CARDS and pass the overflow count to
-  // the last visible card as a "+N" badge.
-  const ordered = [...parkedSessions].reverse();
-  const visible = ordered.slice(0, MAX_VISIBLE_CARDS);
-  const overflowCount = Math.max(0, ordered.length - MAX_VISIBLE_CARDS);
+  // Then we CYCLICALLY ROTATE by `activeIndex` so the user-selected
+  // active card is at the front. Finally, slice to MAX_VISIBLE_CARDS
+  // and pass the overflow count to the front card as a "+N" badge.
+  const orderedAll = [...parkedSessions].reverse();
+  const rotated =
+    orderedAll.length > 0 && activeIndex > 0
+      ? [...orderedAll.slice(activeIndex), ...orderedAll.slice(0, activeIndex)]
+      : orderedAll;
+  const visible = rotated.slice(0, MAX_VISIBLE_CARDS);
+  // Overflow count stays independent of activeIndex (it's just the
+  // cards that don't fit in the visible slice at any given time).
+  const overflowCount = Math.max(0, rotated.length - MAX_VISIBLE_CARDS);
+
+  // Reset the rotation pointer whenever a new session is parked, so
+  // the newly-minimized dApp is always the front card (matches the
+  // shrink animation's landing position, and is what the user expects
+  // after hitting Minimize). Also clamp `activeIndex` if the list
+  // shrinks below it (e.g. a session was closed from the switcher).
+  const prevParkedLenRef = useRef(parkedSessions.length);
+  useEffect(() => {
+    const len = parkedSessions.length;
+    if (len > prevParkedLenRef.current) {
+      setActiveIndex(0);
+    } else if (activeIndex >= len && len > 0) {
+      setActiveIndex(0);
+    } else if (len === 0 && activeIndex !== 0) {
+      setActiveIndex(0);
+    }
+    prevParkedLenRef.current = len;
+  }, [parkedSessions.length, activeIndex]);
+
+  const handleNavigate = useCallback(
+    (direction: 'left' | 'right') => {
+      setActiveIndex(prev => {
+        const len = orderedAll.length;
+        if (len <= 1) return prev;
+        if (direction === 'left') return (prev + 1) % len;
+        return (prev - 1 + len) % len;
+      });
+    },
+    [orderedAll.length]
+  );
 
   // Width of the positioning box: front card is fully visible plus each
   // behind-card contributes CARD_STACK_OFFSET of left-side peek. This
@@ -354,6 +399,12 @@ export const DappPeekTray: FC = () => {
               onCommitRestore={sourceRect => handleCommitRestore(state.session, sourceRect)}
               onClose={() => void close(state.session.id)}
               onShowAll={openSwitcher}
+              // Only the front card (index 0) gets onNavigate. Back
+              // cards can't reliably host a drag handler anyway because
+              // the front card overlays their position. Disable nav
+              // entirely when there's only one session — nothing to
+              // rotate to.
+              onNavigate={index === 0 && orderedAll.length > 1 ? handleNavigate : undefined}
             />
           ))}
         </AnimatePresence>

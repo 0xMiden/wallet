@@ -84,6 +84,14 @@ interface DappPeekCardProps {
   onCommitRestore: (sourceRect: DOMRect) => void;
   onClose: () => void;
   onShowAll: () => void;
+  /**
+   * Called when a horizontal swipe gesture commits on the front card.
+   * 'left' → advance to next card in the deck (rotate forward).
+   * 'right' → retreat to previous card (rotate backward). Only wired
+   * up on the frontmost card since back cards are partially hidden
+   * and can't reliably hit their own drag handler.
+   */
+  onNavigate?: (direction: 'left' | 'right') => void;
 }
 
 export const DappPeekCard: FC<DappPeekCardProps> = ({
@@ -95,7 +103,8 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   isShrinking = false,
   onCommitRestore,
   onClose,
-  onShowAll
+  onShowAll,
+  onNavigate
 }) => {
   const { t } = useTranslation();
   const [faviconBroken, setFaviconBroken] = useState(false);
@@ -188,25 +197,53 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   };
 
   const handleDragEnd = (_: unknown, info: PanInfo) => {
+    const dx = info.offset.x;
     const dy = info.offset.y;
+    const vx = info.velocity.x;
     const vy = info.velocity.y;
-    // Up: restore via the ExpanderOverlay fly-out.
-    if (dy < -SWIPE_OFFSET_THRESHOLD || vy < -SWIPE_VELOCITY_THRESHOLD) {
-      hapticMedium();
-      commitRestore();
-      return;
+    // framer-motion's `dragDirectionLock` zeroes the non-dominant axis
+    // once a lock is established, so at drag end only one of {dx, dy}
+    // has meaningful motion. We still fall back to comparing absolute
+    // values in case the lock never triggered (extremely short drag).
+    const isVerticalDrag = Math.abs(dy) >= Math.abs(dx);
+    if (isVerticalDrag) {
+      // Up: restore via the ExpanderOverlay fly-out.
+      if (dy < -SWIPE_OFFSET_THRESHOLD || vy < -SWIPE_VELOCITY_THRESHOLD) {
+        hapticMedium();
+        commitRestore();
+        return;
+      }
+      // Down: close with a continuation-of-drag fade.
+      if (dy > SWIPE_OFFSET_THRESHOLD || vy > SWIPE_VELOCITY_THRESHOLD) {
+        hapticMedium();
+        setExitMode('close');
+        setTimeout(onClose, 0);
+        return;
+      }
+    } else {
+      // Left/right: navigate the deck (rotate which card is active).
+      // Only the front card has onNavigate wired; back cards don't.
+      if (onNavigate && (dx < -SWIPE_OFFSET_THRESHOLD || vx < -SWIPE_VELOCITY_THRESHOLD)) {
+        hapticLight();
+        onNavigate('left');
+        setTimeout(() => {
+          wasDraggedRef.current = false;
+        }, 100);
+        return;
+      }
+      if (onNavigate && (dx > SWIPE_OFFSET_THRESHOLD || vx > SWIPE_VELOCITY_THRESHOLD)) {
+        hapticLight();
+        onNavigate('right');
+        setTimeout(() => {
+          wasDraggedRef.current = false;
+        }, 100);
+        return;
+      }
     }
-    // Down: close with a continuation-of-drag fade.
-    if (dy > SWIPE_OFFSET_THRESHOLD || vy > SWIPE_VELOCITY_THRESHOLD) {
-      hapticMedium();
-      setExitMode('close');
-      setTimeout(onClose, 0);
-      return;
-    }
-    // Below threshold — framer-motion's dragSnapToOrigin will spring the
-    // card back to its resting x/y. Clear the drag flag after a short
-    // delay so the tap-vs-click discriminator lets a subsequent real
-    // click through.
+    // Below threshold — framer-motion's drag constraints (top/bottom/
+    // left/right = 0) spring the card back to its resting position
+    // automatically. Clear the drag flag after a short delay so the
+    // tap-vs-click discriminator lets a subsequent real click through.
     setTimeout(() => {
       wasDraggedRef.current = false;
     }, 100);
@@ -252,12 +289,17 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       animate={{ opacity: animatedOpacity, x: xOffset, y: 0, scale }}
       exit={exitVariant}
       transition={isExpanding ? { duration: 0.15 } : springs.sheetPresent}
-      // Front card is draggable (swipe up = restore, swipe down = close).
-      // Zero-sized drag constraints + elastic pull mean framer-motion
-      // springs the card back to origin automatically when the release
-      // doesn't cross the swipe threshold — no manual reset needed.
-      drag={isFront && !isExpanding ? 'y' : false}
-      dragConstraints={{ top: 0, bottom: 0 }}
+      // Front card is draggable in 2D with direction lock:
+      //   - Vertical drag: up = restore, down = close (existing behavior).
+      //   - Horizontal drag: left/right = navigate the deck (rotate
+      //     which card is active).
+      // `dragDirectionLock` commits to one axis after the first ~3pt
+      // of motion so diagonal drags don't fire both handlers. Zero-
+      // sized constraints + elastic pull mean the card springs back
+      // to origin on release-below-threshold in either axis.
+      drag={isFront && !isExpanding && !isShrinking ? true : false}
+      dragDirectionLock
+      dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
       dragElastic={0.5}
       dragMomentum={false}
       onDragStart={handleDragStart}
