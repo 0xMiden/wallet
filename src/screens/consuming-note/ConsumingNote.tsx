@@ -50,7 +50,7 @@ export const ConsumingNotePage: FC<ConsumingNotePageProps> = ({ noteId }) => {
       try {
         await consume({
           accountId: account.publicKey,
-          notes: [noteId]
+          noteIds: [noteId]
         });
         if (!cancelled) {
           setStatus(ConsumingNoteStatus.Completed);
