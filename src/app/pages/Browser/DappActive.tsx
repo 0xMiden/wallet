@@ -74,7 +74,7 @@ export const DappActive: FC = () => {
     });
   }, [session, close, open]);
 
-  // When the actions sheet is open:
+  // When the actions sheet opens:
   //   1. Morph out the floating navbar + park bubbles (same CSS/Swift
   //      pattern Settings uses — see Settings.tsx for the rationale).
   //   2. HIDE the dApp WKWebView via `setVisible(false)`. This is the
@@ -85,25 +85,25 @@ export const DappActive: FC = () => {
   //      layer and lets the sheet sit on top. The webview's JS context,
   //      scroll position, and in-flight requests all survive the
   //      hide/show cycle.
+  //
+  // IMPORTANT: this effect is a NO-OP while the sheet is closed — it only
+  // runs side effects on "open" and reverses them via the cleanup. An
+  // earlier revision also ran the reverse branch on close, which meant
+  // DappActive's first mount (actionsOpen=false) would call
+  // `morphNavbarIn()` + `setVisible(true)` even when neither were needed.
+  // That race with the provider's own restore flow (which also calls
+  // `setVisible(true)` + `setRect()` on bubble-tap) caused restored dApps
+  // to briefly appear and then get re-parked on the first click.
   useEffect(() => {
-    if (!isMobile() || !session) return;
+    if (!isMobile() || !session || !actionsOpen) return;
     const sessionId = session.id;
-    if (actionsOpen) {
-      document.body.setAttribute('data-drawer-open', '');
-      InAppBrowser.morphNavbarOut().catch(() => {});
-      InAppBrowser.setVisible({ id: sessionId, visible: false }).catch(() => {});
-    } else {
+    document.body.setAttribute('data-drawer-open', '');
+    InAppBrowser.morphNavbarOut().catch(() => {});
+    InAppBrowser.setVisible({ id: sessionId, visible: false }).catch(() => {});
+    return () => {
       document.body.removeAttribute('data-drawer-open');
       InAppBrowser.morphNavbarIn().catch(() => {});
       InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
-    }
-    return () => {
-      if (!isMobile()) return;
-      if (actionsOpen) {
-        document.body.removeAttribute('data-drawer-open');
-        InAppBrowser.morphNavbarIn().catch(() => {});
-        InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
-      }
     };
   }, [actionsOpen, session]);
 
