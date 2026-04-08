@@ -63,8 +63,20 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       className={classNames('relative m-auto bg-app-bg overflow-hidden', fullPage && 'rounded-3xl')}
       style={containerStyles}
     >
-      {/* Content area — fills entire container, scrolls behind footer */}
-      <div ref={contentRef} className="absolute inset-0 flex flex-col" style={{ willChange: 'transform, opacity' }}>
+      {/* Content area — fills entire container, scrolls behind footer.
+          translateZ(0) forces a permanent compositor layer so removing
+          the .mobile-page-enter class at animationend doesn't demote
+          the layer (which would cause a 1-frame subpixel snap that
+          looks like a reverse-jiggle on Browser, where the launcher's
+          dense content makes the snap most visible). The CSS animation
+          temporarily overrides the transform; after it ends the element
+          reverts to translateZ(0) which is visually identical but keeps
+          the layer alive. */}
+      <div
+        ref={contentRef}
+        className="absolute inset-0 flex flex-col"
+        style={{ willChange: 'transform, opacity', transform: 'translateZ(0)' }}
+      >
         {children}
       </div>
 
