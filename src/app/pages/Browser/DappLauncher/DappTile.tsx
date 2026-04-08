@@ -10,8 +10,13 @@
 
 import React, { type FC, useState } from 'react';
 
+import { motion } from 'framer-motion';
+
+import { useSprings } from 'lib/animation';
 import { type FeaturedDapp, type RecentDapp } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
+
+import { useMorphReady } from '../BrowserScreen';
 
 interface DappTileProps {
   url: string;
@@ -24,6 +29,15 @@ interface DappTileProps {
 
 export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge, onOpen }) => {
   const [iconBroken, setIconBroken] = useState(false);
+  // PR-7: reduce-motion-aware springs so the shared-element morph from
+  // tile → capsule collapses to an instant switch when the user has
+  // reduce motion on.
+  const springs = useSprings();
+  // Gate layoutId on whether the parent tab's CSS slide-in has
+  // settled. See MorphReadyContext in BrowserScreen.tsx — without
+  // this gate framer-motion fights the parent transform during the
+  // first 150ms and produces a visible jiggle.
+  const morphReady = useMorphReady();
 
   const handleClick = () => {
     hapticLight();
@@ -40,20 +54,18 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
   // a tile doesn't accidentally open the dApp. The browser fires
   // onClick only when the touch hasn't moved enough to be a drag,
   // which is the correct tap-vs-scroll discrimination.
-  //
-  // We use plain HTML elements (no motion.* / layoutId) here. The
-  // shared-element morph from tile → capsule was previously wired up,
-  // but framer-motion's layoutId machinery fought TabLayout's CSS
-  // slide-in animation and produced a visible jiggle on every Browser
-  // tab enter. Plain elements eliminate the source of the jiggle.
   return (
-    <button
+    <motion.button
       type="button"
+      layoutId={morphReady ? `dapp-tile-${url}` : undefined}
+      transition={springs.morph}
       onClick={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
       aria-label={accessibleLabel}
     >
-      <div
+      <motion.div
+        layoutId={morphReady ? `dapp-favicon-${url}` : undefined}
+        transition={springs.morph}
         className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
         style={{ background: showFallback ? fallbackBg : 'rgba(0,0,0,0.04)' }}
         aria-hidden="true"
@@ -74,14 +86,16 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
             ✓
           </span>
         )}
-      </div>
-      <span
+      </motion.div>
+      <motion.span
+        layoutId={morphReady ? `dapp-name-${url}` : undefined}
+        transition={springs.morph}
         className="w-full truncate text-center text-xs font-medium text-grey-700"
         aria-hidden="true"
       >
         {name}
-      </span>
-    </button>
+      </motion.span>
+    </motion.button>
   );
 };
 

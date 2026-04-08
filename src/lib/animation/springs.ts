@@ -29,14 +29,7 @@ export const springs = {
   settle: { type: 'spring', stiffness: 260, damping: 30, mass: 1 } as Transition,
   sheetPresent: { type: 'spring', stiffness: 380, damping: 34, mass: 1 } as Transition,
   pill: { type: 'spring', stiffness: 320, damping: 30 } as Transition,
-  // Critically damped: 2*sqrt(stiffness*mass) = 2*sqrt(220*1.2) = 32.5
-  // damping 40 puts the ratio at ~1.23 — definitively over-damped, so
-  // any layout-animation correction settles smoothly without overshoot.
-  // The previous value (damping 30, ratio ~0.92) caused a visible bounce
-  // at the end of TabLayout's mobile-page-enter slide-in on /browser
-  // because framer-motion's layoutId machinery tried to "correct" the
-  // children's bounding rects mid-transform.
-  morph: { type: 'spring', stiffness: 220, damping: 40, mass: 1.2 } as Transition,
+  morph: { type: 'spring', stiffness: 220, damping: 30, mass: 1.2 } as Transition,
   dragRelease: { type: 'spring', stiffness: 420, damping: 40, mass: 1 } as Transition
 };
 
