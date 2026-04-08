@@ -38,29 +38,43 @@ import { getFallbackColor } from 'lib/dapp-browser';
 
 interface DappExpanderOverlayProps {
   /**
-   * The exact DOMRect of the source card captured at the moment the
-   * gesture committed. The overlay starts here so there's zero visual
-   * discontinuity — the user's eye stays locked on the card they just
-   * touched as it balloons outward.
+   * The rect the overlay animates FROM. For a restore (expand), this is
+   * the source card's DOMRect captured at the moment the gesture
+   * committed. For a minimize (shrink), this is the DappActive slot rect
+   * (where the live webview was rendered). Using an absolute rect type
+   * (not DOMRect) lets the caller pass either.
    */
-  sourceRect: DOMRect;
+  sourceRect: { x: number; y: number; width: number; height: number } | DOMRect;
   /** The parked snapshot data URL, or null if we never captured one. */
   snapshot: string | null;
   /** Origin for the fallback brand-color background (used if no snapshot). */
   origin: string;
   /**
-   * The target rect the expander grows into. Crucially this is the
-   * DappActive SLOT rect (the area where the native webview will
-   * render), NOT the full viewport. The snapshot was captured from
-   * the slot area, so animating to the slot means the snapshot's
-   * aspect ratio matches its container exactly — `background-size:
-   * cover` produces a uniform scale with no cropping and the text in
-   * the snapshot lands at the same visual size as the live webview's
-   * text at handoff. Animating to the full viewport instead gives an
-   * ~25% text-size jump that reads as "ugly shrink" when the webview
-   * takes over.
+   * The rect the overlay animates TO. For a restore, this is the slot
+   * rect where the webview will render. For a minimize, this is the
+   * frontmost peek card's final position in the tray.
+   *
+   * The aspect ratio of the non-card endpoint matters a LOT: the
+   * snapshot is captured from the slot rect, so animating to any other
+   * aspect ratio makes `background-size: cover` scale the image by
+   * the larger dimension and crop, which is what causes the infamous
+   * "text shrinks/grows at handoff" artifact. Pass the measured slot
+   * rect here, not the viewport, for a clean handoff.
    */
   targetRect: { x: number; y: number; width: number; height: number };
+  /**
+   * Border radius the overlay starts at. Defaults to 16pt (matches the
+   * peek card's 2xl rounded corners) for the expand case. Pass 0 for
+   * a shrink so the overlay starts as a hard rect matching the
+   * webview's (unrounded) slot.
+   */
+  initialBorderRadius?: number;
+  /**
+   * Border radius the overlay ends at. Defaults to 0 for expand
+   * (becoming the hard-edged webview). Pass 16 for shrink (becoming
+   * a rounded peek card).
+   */
+  finalBorderRadius?: number;
 }
 
 // Duration tuning:
@@ -76,18 +90,29 @@ const EXPAND_EASE = [0.2, 0.85, 0.25, 1] as const;
 
 export const EXPAND_TOTAL_DURATION_MS = EXPAND_DURATION_MS;
 
-export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({ sourceRect, snapshot, origin, targetRect }) => {
+export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({
+  sourceRect,
+  snapshot,
+  origin,
+  targetRect,
+  initialBorderRadius = 16,
+  finalBorderRadius = 0
+}) => {
   const fallbackColor = getFallbackColor(origin);
+  // Normalize DOMRect → plain rect. DOMRect has `left/top`, plain rect
+  // has `x/y`; accept both.
+  const srcLeft = 'left' in sourceRect ? sourceRect.left : sourceRect.x;
+  const srcTop = 'top' in sourceRect ? sourceRect.top : sourceRect.y;
 
   return createPortal(
     <motion.div
       className="pointer-events-none fixed overflow-hidden"
       initial={{
-        left: sourceRect.left,
-        top: sourceRect.top,
+        left: srcLeft,
+        top: srcTop,
         width: sourceRect.width,
         height: sourceRect.height,
-        borderRadius: 16,
+        borderRadius: initialBorderRadius,
         opacity: 1
       }}
       animate={{
@@ -95,7 +120,7 @@ export const DappExpanderOverlay: FC<DappExpanderOverlayProps> = ({ sourceRect, 
         top: targetRect.y,
         width: targetRect.width,
         height: targetRect.height,
-        borderRadius: 0,
+        borderRadius: finalBorderRadius,
         opacity: 1
       }}
       exit={{ opacity: 0 }}

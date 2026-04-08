@@ -66,6 +66,15 @@ interface DappPeekCardProps {
    *  in-place while the ExpanderOverlay takes over. */
   isExpanding?: boolean;
   /**
+   * Whether this card is the landing target of a minimize-shrink
+   * animation in progress. When true, the card skips its entry
+   * animation and snaps directly to its steady state — it sits
+   * invisible (covered by the shrinking overlay above it) until the
+   * overlay unmounts, at which point the user sees the card already
+   * in position with no bounce-in jank.
+   */
+  isShrinking?: boolean;
+  /**
    * Called when a restore gesture commits (tap or swipe up). The callback
    * receives the card's current DOM rect so the tray can render an
    * `ExpanderOverlay` that flies from exactly the card's position to
@@ -83,6 +92,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   stackIndex,
   overflowCount = 0,
   isExpanding = false,
+  isShrinking = false,
   onCommitRestore,
   onClose,
   onShowAll
@@ -230,7 +240,15 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       // or removed (e.g. park a new dApp → existing cards slide left to
       // make room for the new frontmost card on the right).
       layout
-      initial={{ opacity: 0, y: 40, scale: scale * 0.9 }}
+      // When this card is the landing target of a shrink animation, skip
+      // the entry animation entirely (`initial={false}` tells framer-
+      // motion to start at the animate values). The shrinking overlay
+      // sits on top of the card throughout the morph, so the card would
+      // otherwise play its bounce-in under the overlay and be caught
+      // mid-spring the moment the overlay fades out. Skipping entry
+      // means when the overlay lands the card is already at its
+      // resting pose, producing a seamless handoff.
+      initial={isShrinking ? false : { opacity: 0, y: 40, scale: scale * 0.9 }}
       animate={{ opacity: animatedOpacity, x: xOffset, y: 0, scale }}
       exit={exitVariant}
       transition={isExpanding ? { duration: 0.15 } : springs.sheetPresent}
