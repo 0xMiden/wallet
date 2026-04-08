@@ -69,13 +69,13 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     badge: 'verified'
   },
   {
-    id: 'miden-x',
-    name: 'Miden on X',
-    url: 'https://x.com/0xMiden',
+    id: 'lumina',
+    name: 'Lumina Engine',
+    url: 'https://beta.luminaengine.ai/',
     icon: xIcon,
-    shortDescription: 'Follow the official Miden account',
+    shortDescription: 'AI engine on Miden',
     brandColor: '#000000',
-    category: 'social'
+    category: 'tools'
   }
 ];
 

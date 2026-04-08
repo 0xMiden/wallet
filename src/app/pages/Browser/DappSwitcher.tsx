@@ -107,8 +107,14 @@ export const DappSwitcher: FC<DappSwitcherProps> = ({ open, onClose }) => {
                 onClose();
               }}
             >
-              <span className="text-xl text-pure-white" aria-hidden="true">
-                ✕
+              {/* Use U+00D7 multiplication sign (basic Latin-1, supported
+                  by every font) instead of U+2715 (the system font we
+                  ship doesn't have it and renders a ?-in-square missing
+                  glyph). Plain text avoids the wallet's `IconName.Close`
+                  SVG which has `fill="none"` on the path and renders
+                  invisible — needs a separate fix to the asset itself. */}
+              <span className="text-2xl leading-none text-pure-white" aria-hidden="true">
+                ×
               </span>
             </button>
           </div>
@@ -229,8 +235,11 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
             if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
           }}
         >
-          <span className="text-xs text-pure-white" aria-hidden="true">
-            ✕
+          {/* See note above on the close switcher button: use the
+              multiplication sign (×, U+00D7) for a universally
+              available glyph instead of an Icon component or U+2715. */}
+          <span className="text-base leading-none text-pure-white" aria-hidden="true">
+            ×
           </span>
         </button>
       </div>
