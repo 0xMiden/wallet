@@ -34,19 +34,14 @@ export class DappWebViewInstance {
     this.id = id;
   }
 
-  /** Move the webview to the given rect (delegates to updateDimensions).
-   * Optional `bottomPassthrough` makes the bottom N points of the
-   * containing UIWindow transparent to taps so the wallet's bottom
-   * navbar stays clickable while the WKWebView visually extends
-   * behind it (iOS only — Android ignores it). */
-  setRect(rect, bottomPassthrough) {
+  /** Move the webview to the given rect (delegates to updateDimensions). */
+  setRect(rect) {
     return InAppBrowser.updateDimensions({
       id: this.id,
       x: rect.x,
       y: rect.y,
       width: rect.width,
-      height: rect.height,
-      ...(bottomPassthrough != null ? { bottomPassthrough } : {})
+      height: rect.height
     });
   }
 

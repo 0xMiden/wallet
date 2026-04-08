@@ -97,18 +97,6 @@ import { navigate } from 'lib/woozie';
 export type DappMode = 'launcher' | 'active' | 'parked';
 
 /**
- * Height (in CSS pt) of the bottom strip of the dApp UIWindow that's
- * masked out (visually transparent so the wallet's floating bottom
- * navbar shows through) AND made transparent to hit-testing (so taps
- * in the navbar reach the React layer underneath). Calibrated so the
- * mask cuts exactly at the navbar pill's visible top edge on iPhone
- * 17, leaving no cream gap of host background between the dApp
- * content and the pill. Forwarded to the native plugin via
- * `bottomPassthrough` on every open + setRect call.
- */
-const NAVBAR_PASSTHROUGH = 78;
-
-/**
  * Provider-internal lifecycle status for a single session. Distinct from
  * `DappSessionStatus` in `lib/dapp-browser/dapp-session.ts`, which tracks
  * the public session model. We use a smaller set here keyed off the
@@ -474,13 +462,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           y: rect.y,
           width: rect.width,
           height: rect.height,
-          // The slot rect extends to the bottom of the React viewport
-          // (DappActive dropped the footer spacer), so the WKWebView
-          // visually overlaps the wallet's bottom navbar. The native
-          // plugin makes the bottom NAVBAR_PASSTHROUGH points of the
-          // hosting UIWindow transparent to taps, so navbar clicks
-          // still reach the React layer.
-          bottomPassthrough: NAVBAR_PASSTHROUGH
+          // Expose the dApp WKWebView to Safari Web Inspector / inspect-cli
+          // / chrome-devtools-mcp in dev builds. Production builds drop
+          // this so users can't poke at the runtime. The flag is plumbed
+          // through to WKWebViewConfiguration.isInspectable in the iOS
+          // plugin (Capacitor inappbrowser openWebView option).
+          isInspectable: process.env.NODE_ENV !== 'production'
         });
         updateSession(session.id, s => ({
           ...s,
@@ -687,7 +674,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     }
     if (state.instance) {
       void state.instance.setVisible(true);
-      void state.instance.setRect(slotRect, NAVBAR_PASSTHROUGH);
+      void state.instance.setRect(slotRect);
+      // Re-run the injection script on restore so any CSS the wallet
+      // wants to layer onto the dApp (currently the navbar bottom
+      // padding) reaches sessions that were parked before the most
+      // recent app update. browserPageLoaded only fires on actual
+      // page loads, not when setVisible(true) un-parks an instance,
+      // so without this the CSS would never refresh on a hot-restored
+      // session.
+      void state.instance.executeScript(INJECTION_SCRIPT).catch(() => {});
     }
     // openInternal is stable-ish; intentionally not in deps to avoid
     // re-running on every state change.
@@ -807,6 +802,58 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const isLoading = foregroundState?.isLoading ?? false;
 
   const parkedSessions = useMemo(() => sessionStates.filter(s => s.status === 'parked'), [sessionStates]);
+
+  // ─── Native navbar overlay (Architecture A — quality path) ─────────────
+  //
+  // While a dApp is foregrounded the React-side navbar is hidden via the
+  // `body[data-dapp-foreground]` CSS hook installed below; in its place,
+  // a native MidenNavbarOverlayWindow at .normal+200 paints over the dApp
+  // WKWebView (.normal+100) and absorbs taps via standard iOS window
+  // hit-testing. Taps fire a `nativeNavbarTap` Capacitor event that we
+  // forward to the wallet's woozie router so HOME / ACTIVITY / BROWSER
+  // behave identically to the React navbar's <Link> elements.
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (mode !== 'active') {
+      // Mark the body for CSS hiding hook BEFORE we hide the native bar
+      // so the React bar doesn't briefly flash back in.
+      document.body.removeAttribute('data-dapp-foreground');
+      InAppBrowser.hideNativeNavbar().catch(() => {});
+      return;
+    }
+    document.body.setAttribute('data-dapp-foreground', '');
+    // SF Symbol names mirror the Footer.tsx icon set: house / chart /
+    // globe — close enough to the React app's stylized icons that the
+    // user shouldn't notice the swap.
+    InAppBrowser.showNativeNavbar({
+      items: [
+        { id: 'home', title: t('home'), sfSymbol: 'house' },
+        { id: 'activity', title: t('activity'), sfSymbol: 'chart.line.uptrend.xyaxis' },
+        { id: 'browser', title: t('browser'), sfSymbol: 'globe' }
+      ],
+      activeId: 'browser'
+    }).catch(() => {});
+  }, [mode, t]);
+
+  // Forward native navbar taps to the woozie router. Subscribed once for
+  // the lifetime of the provider so we don't lose taps mid-mode-change.
+  useEffect(() => {
+    if (!isMobile()) return;
+    let handle: { remove: () => void } | undefined;
+    (async () => {
+      const sub = await InAppBrowser.addListener('nativeNavbarTap', (event: { id: string }) => {
+        if (event?.id === 'home') navigate('/');
+        else if (event?.id === 'activity') navigate('/history');
+        else if (event?.id === 'browser') navigate('/browser');
+      });
+      handle = sub;
+    })();
+    return () => {
+      handle?.remove();
+      // Best-effort cleanup if the provider unmounts mid-active-state.
+      void InAppBrowser.hideNativeNavbar().catch(() => {});
+    };
+  }, []);
 
   const contextValue = useMemo<DappBrowserContextValue>(
     () => ({

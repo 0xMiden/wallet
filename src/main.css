@@ -264,6 +264,15 @@ button,
   animation: mobile-slide-in 0.15s ease-out both;
 }
 
+/* Native navbar overlay hook (Architecture A — see DappBrowserProvider).
+ * While a dApp is foregrounded the React-side footer is hidden because
+ * a native MidenNavbarOverlayWindow at .normal+200 paints over it.
+ * `data-dapp-foreground` is set on body by the provider when entering
+ * the active dApp state and removed on exit. */
+body[data-dapp-foreground] [data-tabbar-footer='true'] {
+  display: none !important;
+}
+
 @layer base {
   :root {
     --chart-1: oklch(0.646 0.222 41.116);

@@ -15,11 +15,8 @@ export interface Rect {
 export declare class DappWebViewInstance {
   readonly id: string;
   constructor(id: string);
-  /** Move the webview to the given rect (delegates to updateDimensions).
-   * Optional `bottomPassthrough` makes the bottom N points of the
-   * iOS UIWindow transparent to taps so the wallet's bottom navbar
-   * stays clickable while the WKWebView visually extends behind it. */
-  setRect(rect: Rect, bottomPassthrough?: number): Promise<void>;
+  /** Move the webview to the given rect (delegates to updateDimensions). */
+  setRect(rect: Rect): Promise<void>;
   /** Toggle this instance's visibility. The WebView's JS context survives. */
   setVisible(visible: boolean): Promise<void>;
   /** Take a JPEG snapshot of the current page as a base64 data URL. */

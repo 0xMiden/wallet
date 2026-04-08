@@ -6,24 +6,21 @@
 
 export const INJECTION_SCRIPT = `
 (function() {
-  if (window.midenWallet) return; // Already injected
-
-  // The wallet's bottom navbar overlays the bottom of the WKWebView
-  // (see MidenDappPassthroughWindow + NAVBAR_PASSTHROUGH). Without
-  // this padding the dApp's last chunk of content is permanently
-  // hidden behind the navbar; with it the user can scroll the dApp
-  // content up so its bottom edge sits ABOVE the navbar's masked
-  // strip. Inject a small style block instead of mutating body.style
-  // directly so dApps with their own scroll containers (which set
-  // body { overflow: hidden }) still pick up the padding via the
-  // standard cascade.
+  // CSS injection MUST run before the window.midenWallet early-return
+  // below, because the wallet bridge is idempotent across re-opens of
+  // the same session — but we may have updated the CSS we want to
+  // apply (e.g. when the navbar height or padding strategy changes),
+  // and the only way that lands on a previously-opened session is to
+  // rerun the style block on every executeScript call.
   try {
+    const STYLE_ID = 'miden-wallet-bottom-pad';
+    var existing = document.getElementById(STYLE_ID);
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     const installPadding = function() {
-      if (!document || !document.head || document.getElementById('miden-wallet-bottom-pad')) return;
+      if (!document || !document.head) return;
       const style = document.createElement('style');
-      style.id = 'miden-wallet-bottom-pad';
+      style.id = STYLE_ID;
       style.textContent =
-        'html, body { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }' +
         'html { scroll-padding-bottom: 96px !important; }' +
         'body { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }';
       document.head.appendChild(style);
@@ -36,6 +33,8 @@ export const INJECTION_SCRIPT = `
   } catch (e) {
     // Best-effort — never block the wallet bridge on a styling failure.
   }
+
+  if (window.midenWallet) return; // Already injected
 
   // Simple EventEmitter implementation
   class EventEmitter {
