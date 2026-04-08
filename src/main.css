@@ -266,13 +266,22 @@ button,
 
 /* Native navbar overlay hook (Architecture A — see DappBrowserProvider).
  * On mobile, the wallet replaces the React Footer with a native
- * MidenNavbarOverlayWindow at .normal+200 across every tab page (Home,
- * Activity, Browser). The provider sets `data-native-navbar` on body
- * whenever the user is on a tab page and the native navbar is up;
- * this rule keeps the React footer hidden so the two don't both
- * render at the same time. */
+ * MidenNavbarOverlayWindow at .normal+200 across every wallet page.
+ * The provider sets `data-native-navbar` on body whenever the user is
+ * past onboarding/unlock and the native navbar is up. */
 body[data-native-navbar] [data-tabbar-footer='true'] {
+  /* Hide the React footer — the native pill replaces it. */
   display: none !important;
+}
+body[data-native-navbar] {
+  /* Reserve the vertical space the native pill occupies so React
+   * content doesn't scroll under it. The pill is 76pt tall and sits
+   * 12pt above the home-indicator safe area (see WKWebViewController
+   * .swift: shadowWrap 76pt tall, bottom = safeArea.bottom - 12), so
+   * the total bottom gutter = existing safe-area padding + 88pt.
+   * Pages using `h-full` inside body automatically shrink to this
+   * smaller inner box, keeping their bottom edge above the pill. */
+  padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 88px);
 }
 
 @layer base {
