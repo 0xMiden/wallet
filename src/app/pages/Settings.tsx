@@ -239,6 +239,26 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     };
   }, [drawerOrSheetOpen]);
 
+  // Mark Settings as an edge-to-edge page so it extends behind the
+  // navbar pill (no 88pt bottom gutter from main.css). The list
+  // container below adds its own pb-[88px] so the last item can
+  // still be scrolled above the floating toolbar — without that
+  // internal padding the bottom item would sit permanently under
+  // the pill and be unreachable. Only apply when we're showing the
+  // settings root (not an active sub-tab with its own layout).
+  const showSettingsRoot = !activeTab;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (showSettingsRoot) {
+      document.body.setAttribute('data-edge-to-edge', '');
+    } else {
+      document.body.removeAttribute('data-edge-to-edge');
+    }
+    return () => {
+      document.body.removeAttribute('data-edge-to-edge');
+    };
+  }, [showSettingsRoot]);
+
   const handleSeedWarningClose = useCallback(() => {
     hapticLight();
     setShowSeedWarning(false);
@@ -267,7 +287,12 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             </>
           )
         ) : (
-          <div className="flex flex-col w-full py-4 gap-8 text-heading-gray px-4">
+          // pb-[88px] reserves space at the bottom equal to the native
+          // navbar pill's height (76 + 12 gap = 88pt) so the last menu
+          // item can be scrolled above the floating toolbar. Without
+          // this, opting out of the body gutter via data-edge-to-edge
+          // would leave the bottom row permanently hidden behind the pill.
+          <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
             {TAB_GROUPS.map(group => (
               <div key={group.titleI18nKey}>
                 <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>

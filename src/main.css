@@ -284,17 +284,19 @@ body[data-native-navbar] {
   padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 88px);
 }
 
-body[data-native-navbar][data-dapp-foreground] {
-  /* When a dApp is foregrounded, the WebView is supposed to extend
-   * BEHIND the navbar pill, not stop above it — the iOS native
-   * pattern (Safari, Chrome) is for the floating bar to overlay
-   * the page content. The navbar's PassThroughView still routes
-   * pill-area taps to the navbar window so the buttons stay live,
-   * but visually the dApp goes edge-to-edge.
+body[data-native-navbar][data-dapp-foreground],
+body[data-native-navbar][data-edge-to-edge] {
+  /* Pages that opt in to edge-to-edge layout (dApp browser, Settings
+   * list) extend BEHIND the navbar pill instead of stopping above it.
+   * The navbar's PassThroughView still routes pill-area taps to the
+   * navbar window so the buttons stay live; only the visual layer
+   * overlaps. Pages that opt in are responsible for their own internal
+   * bottom padding so scrollable content can be scrolled above the
+   * pill (otherwise the last item is permanently hidden behind it).
    *
    * Reset the gutter back to just the home-indicator safe area so
-   * the slot rect computed by DappActive's ResizeObserver lands at
-   * the true screen bottom. */
+   * h-full chains inside the body fill all the way to the screen
+   * bottom. */
   padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 
