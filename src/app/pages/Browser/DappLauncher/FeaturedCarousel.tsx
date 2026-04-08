@@ -59,15 +59,20 @@ const FeaturedCard: FC<{ dapp: FeaturedDapp; onOpen: (url: string) => void }> = 
       style={{ background: dapp.brandColor }}
       aria-label={dapp.name}
     >
-      {/* Top-right badge */}
+      {/* Top-right badge — no backdrop-blur here. iOS Safari's
+          backdrop-filter lags parent CSS transforms and snaps into
+          position at the end of TabLayout's mobile-slide-in, which
+          shows up as a visible reverse-jiggle on /browser. The plain
+          translucent white background looks fine on every brand
+          color we ship. */}
       {dapp.badge && (
-        <span className="absolute right-3 top-3 rounded-full bg-pure-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-pure-white backdrop-blur">
+        <span className="absolute right-3 top-3 rounded-full bg-pure-white/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-pure-white">
           {dapp.badge}
         </span>
       )}
 
-      {/* Icon top-left */}
-      <div className="absolute left-4 top-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-pure-white/15 backdrop-blur">
+      {/* Icon top-left — same reasoning, no backdrop-blur. */}
+      <div className="absolute left-4 top-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-pure-white/25">
         <img src={dapp.icon} alt="" className="h-9 w-9 object-contain" draggable={false} />
       </div>
 
