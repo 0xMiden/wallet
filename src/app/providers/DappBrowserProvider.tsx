@@ -486,6 +486,19 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     async (id: string) => {
       const state = getSessionStateById(id);
       if (!state?.instance) return;
+      // Clear the "was visible" watermark so the auto-park effect
+      // below doesn't treat a subsequent restore() as a stale-foreground
+      // → auto-park trigger. Without this, parking session A then
+      // tapping its bubble would:
+      //   1. restore() → setForegroundId(A)
+      //   2. React renders with slotRect=null (DappActive not yet mounted)
+      //   3. auto-park effect sees foregroundId=A && !slotRect && ref=A
+      //   4. fires parkInternal(A) again → session flashes then re-parks
+      // (User-visible: "dApp opens and closes immediately on first tap,
+      // works on second tap once the ref was cleared by step 4.")
+      if (slotRectShownForRef.current === id) {
+        slotRectShownForRef.current = null;
+      }
       // Snapshot first so the bubble has a frozen preview to render.
       let snapshotDataUrl: string | null = null;
       try {
