@@ -114,42 +114,42 @@ export const DappActive: FC = () => {
   // contains DappActive. `getBoundingClientRect` returns coordinates
   // that INCLUDE ancestor transforms, so any measurement taken
   // DURING the slide-in lands ~32pt to the right of the real
-  // resting position. `ResizeObserver` only re-fires on size changes
-  // (not transform changes), so a stale mid-animation rect would
-  // otherwise get locked in and the WKWebView would render shifted
-  // right by ~32pt until the next re-measure.
+  // resting position.
   //
-  // Guard: if any ancestor currently has an active (non-identity)
-  // transform when we mount, SKIP the immediate measurement. The
-  // 200ms and 400ms re-measures will catch the settled rect instead.
-  // This means `slotRect` stays null for ~200ms after mount, which
-  // delays the native webview appearance by the same amount — the
-  // provider's restore effect only fires `setVisible(true)` once
-  // slotRect has a value. Delaying the webview is the correct
-  // trade-off: the React expand overlay is still at the correct
-  // target size during that window, so the user sees a continuous
-  // static snapshot instead of a live webview that pops in at the
-  // wrong position and has to jump back.
+  // Additionally: `DappBrowserProvider` flips the `data-dapp-foreground`
+  // body attribute when a session becomes foreground, which in turn
+  // toggles main.css's body.padding-bottom from 122 → 34. That's a
+  // body-size change, which cascades through the flex chain and
+  // resizes the slot div from 607 to 695 pt tall. The ResizeObserver
+  // fires on that size change — and because the size change happens
+  // DURING the tab slide-in transform, the `getBoundingClientRect`
+  // call inside the RO callback returns mid-transition x coordinates.
+  // That wrong rect then flows into `setSlotRect` → provider's
+  // restore effect → `instance.setRect(wrong)` → WKWebView renders
+  // ~32pt too far right. 200ms later the transform settles, another
+  // re-measure pushes the correct x, webview jumps back. Visible
+  // flicker.
+  //
+  // GUARD (moved inside `update` itself so EVERY path — immediate,
+  // 200ms timer, 400ms timer, ResizeObserver — respects it): if any
+  // ancestor currently has a non-identity translation, skip the
+  // measurement. Measurements are suppressed until the transform
+  // settles, at which point the next scheduled timer or RO fire
+  // actually pushes the settled rect through. Delaying `slotRect`
+  // for ~150ms is correct: during that window the React expand
+  // overlay is still at its target size showing the snapshot, so
+  // the user sees a continuous image until the webview takes over.
   useEffect(() => {
     const el = slotRef.current;
     if (!el) return;
-    const update = () => {
-      const r = el.getBoundingClientRect();
-      setSlotRect({
-        x: Math.round(r.left),
-        y: Math.round(r.top),
-        width: Math.round(r.width),
-        height: Math.round(r.height)
-      });
-    };
     const hasActiveAncestorTransform = (): boolean => {
       let current: HTMLElement | null = el.parentElement;
       while (current && current !== document.body) {
         const t = window.getComputedStyle(current).transform;
         if (t && t !== 'none') {
           // Transforms are reported as `matrix(a,b,c,d,tx,ty)` or
-          // `matrix3d(...)`. We only care whether there's a non-zero
-          // translation; a 1pt threshold absorbs float noise.
+          // `matrix3d(...)`. We only care about the translation
+          // component; a 1pt threshold absorbs float noise.
           const m = t.match(/matrix(?:3d)?\(([^)]+)\)/);
           if (m) {
             const parts = m[1].split(',').map(s => parseFloat(s.trim()));
@@ -164,16 +164,29 @@ export const DappActive: FC = () => {
       }
       return false;
     };
-    if (!hasActiveAncestorTransform()) {
-      update();
-    }
+    const update = () => {
+      if (hasActiveAncestorTransform()) return;
+      const r = el.getBoundingClientRect();
+      setSlotRect({
+        x: Math.round(r.left),
+        y: Math.round(r.top),
+        width: Math.round(r.width),
+        height: Math.round(r.height)
+      });
+    };
+    update();
+    // Extra timers beyond the transform's expected ~150ms duration,
+    // so at least one measurement lands AFTER the transform settles
+    // even if the RO didn't fire on the transition's final frame.
     const t1 = window.setTimeout(update, 200);
     const t2 = window.setTimeout(update, 400);
+    const t3 = window.setTimeout(update, 700);
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      window.clearTimeout(t3);
       ro.disconnect();
     };
   }, [setSlotRect]);

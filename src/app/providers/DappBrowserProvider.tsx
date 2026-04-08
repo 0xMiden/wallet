@@ -686,8 +686,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       return;
     }
     if (state.instance) {
-      void state.instance.setVisible(true);
+      // Order matters: position the webview BEFORE making it visible.
+      // The instance remembers its last native rect from the previous
+      // foregrounding, and if that rect differs from the new slot
+      // (even by a few pt), calling `setVisible(true)` first shows
+      // the webview at the OLD position for one frame, then
+      // `setRect(new)` moves it — producing a visible jump at the
+      // end of the expand animation. Calling setRect first ensures
+      // the webview is already at the target before it appears.
       void state.instance.setRect(slotRect);
+      void state.instance.setVisible(true);
       // Re-run the injection script on restore so any CSS the wallet
       // wants to layer onto the dApp (currently the navbar bottom
       // padding) reaches sessions that were parked before the most
