@@ -43,12 +43,16 @@ export const DappTile: FC<DappTileProps> = ({ url, name, icon, brandColor, badge
   // readers announce verified status, not just the dApp name.
   const accessibleLabel = badge === 'verified' ? `${name}, verified dApp` : name;
 
+  // Use onClick (NOT onPointerDown) so a vertical scroll that grazes
+  // a tile doesn't accidentally open the dApp. The browser fires
+  // onClick only when the touch hasn't moved enough to be a drag,
+  // which is the correct tap-vs-scroll discrimination.
   return (
     <motion.button
       type="button"
       layoutId={`dapp-tile-${url}`}
       transition={springs.morph}
-      onPointerDown={handleClick}
+      onClick={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
       aria-label={accessibleLabel}
     >

@@ -47,10 +47,14 @@ const FeaturedCard: FC<{ dapp: FeaturedDapp; onOpen: (url: string) => void }> = 
     onOpen(dapp.url);
   };
 
+  // Use onClick (NOT onPointerDown) so the WebView can discriminate
+  // tap vs swipe. onPointerDown fires the instant a finger touches the
+  // card — before the horizontal scroll-snap can register a drag —
+  // which prevented the carousel from being swipeable at all.
   return (
     <button
       type="button"
-      onPointerDown={handleClick}
+      onClick={handleClick}
       className="relative h-40 w-[260px] shrink-0 snap-center overflow-hidden rounded-3xl text-left shadow-[0_8px_24px_rgba(15,23,42,0.12)] active:scale-[0.98] transition-transform"
       style={{ background: dapp.brandColor }}
       aria-label={dapp.name}
