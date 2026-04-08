@@ -18,6 +18,7 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, getTokenPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { ChartContainer } from 'lib/ui/charts';
@@ -155,7 +156,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         </div>
         <span className="text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>
         <div className="mt-3 h-20">
-          <ChartContainer config={{ price: { color: '#FF5500' } }} className="h-full w-full aspect-auto">
+          <ChartContainer config={{ price: { color: PRIMARY_HEX } }} className="h-full w-full aspect-auto">
             <LineChart data={chartData}>
               <YAxis domain={yDomain} hide />
               <Tooltip
@@ -173,10 +174,10 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
               <Line
                 type="monotone"
                 dataKey="value"
-                stroke="#FF5500"
+                stroke={PRIMARY_HEX}
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 4, stroke: '#FF5500', fill: '#fff', strokeWidth: 2 }}
+                activeDot={{ r: 4, stroke: PRIMARY_HEX, fill: '#fff', strokeWidth: 2 }}
               />
             </LineChart>
           </ChartContainer>

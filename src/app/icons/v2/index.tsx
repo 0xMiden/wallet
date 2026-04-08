@@ -2,6 +2,10 @@ import React from 'react';
 
 import classNames from 'clsx';
 
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+
+const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
+
 import { ReactComponent as LeoLogo } from '../leo-logo-blue.svg';
 import { ReactComponent as AddCircle } from './add-circle.svg';
 import { ReactComponent as Add } from './add.svg';
@@ -97,6 +101,7 @@ import { ReactComponent as Settings } from './settings.svg';
 import { ReactComponent as Share } from './share.svg';
 import { ReactComponent as SmileSad } from './smile-sad.svg';
 import { ReactComponent as Success } from './success.svg';
+import { ReactComponent as SuccessDevnet } from './success-devnet.svg';
 import { ReactComponent as TimeFill } from './time-fill.svg';
 import { ReactComponent as Time } from './time.svg';
 import { ReactComponent as Tokens } from './tokens.svg';
@@ -436,7 +441,7 @@ const IconSwitch = (props: IconProps) => {
     case IconName.Failed:
       return <Failed {...props} />;
     case IconName.Success:
-      return <Success {...props} />;
+      return isDevnet ? <SuccessDevnet {...props} /> : <Success {...props} />;
     case IconName.Tokens:
       return <Tokens {...props} />;
     default:

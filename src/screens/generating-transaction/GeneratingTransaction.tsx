@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { useAnalytics } from 'lib/analytics';
+import { PRIMARY_HEX, PRIMARY_HEX_LIGHT_ALPHA } from 'utils/brand-colors';
 import {
   safeGenerateTransactionsLoop as dbTransactionsLoop,
   getAllUncompletedTransactions,
@@ -196,8 +197,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return (
         <svg className="size-32" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="64" cy="64" r="64" fill="rgba(255,85,0,0.10)" />
-          <circle cx="64" cy="64" r="42" fill="#FF5500" />
+          <circle cx="64" cy="64" r="64" fill={PRIMARY_HEX_LIGHT_ALPHA} />
+          <circle cx="64" cy="64" r="42" fill={PRIMARY_HEX} />
           <path
             d="M48 64L58 74L80 52"
             stroke="white"

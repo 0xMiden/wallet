@@ -5,11 +5,15 @@ import classNames from 'clsx';
 import { ReactComponent as BtcLogo } from 'app/icons/logos/btc.svg';
 import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
 import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
+import { ReactComponent as MidenLogoDevnet } from 'app/icons/logos/miden-devnet.svg';
 import { ReactComponent as UsdcLogo } from 'app/icons/logos/usdc.svg';
 import { Avatar } from 'components/Avatar';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+
+const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 
 const TOKEN_LOGOS: Record<string, { Logo: FC<SVGProps<SVGSVGElement>>; bg: string }> = {
-  MIDEN: { Logo: MidenLogo, bg: 'bg-white' },
+  MIDEN: { Logo: isDevnet ? MidenLogoDevnet : MidenLogo, bg: 'bg-white' },
   ETH: { Logo: EthLogo, bg: 'bg-pure-black' },
   USDC: { Logo: UsdcLogo, bg: 'bg-[#0278D2]' },
   BTC: { Logo: BtcLogo, bg: 'bg-[#F7931A]' }

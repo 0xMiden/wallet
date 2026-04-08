@@ -6,7 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg';
+import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+
+const WalletLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? LogoVerticalTitleDevnet : LogoVerticalTitle;
 import { BiometricAvailability, checkBiometricAvailability, unlockWithBiometric } from 'lib/biometric';
 
 export interface BiometricUnlockProps {
@@ -80,7 +84,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
     <SimplePageLayout
       icon={
         <>
-          <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+          <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
         </>
       }
     >

@@ -4,8 +4,12 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as OnboardingLogo } from 'app/icons/v2/onboarding-logo.svg';
+import { ReactComponent as OnboardingLogoDevnet } from 'app/icons/v2/onboarding-logo-devnet.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
+
+const Logo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? OnboardingLogoDevnet : OnboardingLogo;
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
   onSubmit?: (action: Actions) => void;
@@ -19,7 +23,7 @@ export const WelcomeScreen = ({ onSubmit, ...props }: WelcomeScreenProps) => {
     <div className="flex flex-col items-center bg-app-bg max-w-full h-full" data-testid="onboarding-welcome">
       <div className="flex flex-col items-center justify-center pt-[120px]">
         <div className="flex flex-col items-center gap-6">
-          <OnboardingLogo style={{ width: 120, height: 100 }} />
+          <Logo style={{ width: 120, height: 100 }} />
           <h1 className="text-5xl font-semibold mb-4 font-heading text-heading-gray">Miden Wallet</h1>
         </div>
         <p className="text-xl text-heading-gray/75 text-center leading-relaxed font-semibold">
