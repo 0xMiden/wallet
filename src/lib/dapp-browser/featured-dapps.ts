@@ -79,7 +79,9 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     icon: luminaIcon,
     shortDescription: 'AI engine on Miden',
     brandColor: '#FACC15',
-    category: 'defi'
+    category: 'defi',
+    badge: 'new',
+    featured: true
   }
 ];
 
