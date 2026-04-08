@@ -195,26 +195,6 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           {showHostnameRow && <span className="truncate text-xs text-grey-500">{hostname}</span>}
         </div>
 
-        {/* PR-5 card switcher button — appears when there are 2+ open
-            dApps. Tapping opens the switcher with the current dApp
-            focused. Shows a count badge so the user knows how many are
-            open without having to think about it. */}
-        {onOpenSwitcher && tabsCount > 1 && (
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              onOpenSwitcher();
-            }}
-            aria-label={t('switchDapps') ?? 'Switch dApps'}
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
-          >
-            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-grey-700">
-              <span className="text-[10px] font-bold leading-none text-grey-700">{tabsCount}</span>
-            </div>
-          </button>
-        )}
-
         {/* Minimize button — drag handle is the gesture path on real devices,
             this button is the discoverable + accessible alternative. */}
         {onMinimize && (
@@ -252,6 +232,26 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
         >
           <Icon name={IconName.Close} size="sm" className="text-grey-700" />
         </button>
+
+        {/* PR-5 card switcher button — sits at the far right of the
+            capsule (after Close) so it visually anchors to the right
+            edge like Safari's tabs button. Shows a count badge of how
+            many dApps are open. Hidden when there's only one. */}
+        {onOpenSwitcher && tabsCount > 1 && (
+          <button
+            type="button"
+            onClick={() => {
+              hapticLight();
+              onOpenSwitcher();
+            }}
+            aria-label={t('switchDapps') ?? 'Switch dApps'}
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+          >
+            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-grey-700">
+              <span className="text-[10px] font-bold leading-none text-grey-700">{tabsCount}</span>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Hairline at the bottom edge */}
