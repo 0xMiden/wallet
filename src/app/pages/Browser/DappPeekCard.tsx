@@ -16,17 +16,29 @@
  * The card is positioned by its parent (`<DappPeekTray>`), which
  * cascades siblings from the right edge with diminishing scale so the
  * stack looks like a real deck.
+ *
+ * Gestures (front card only):
+ *  - Tap: restore this session (delegates to onTap).
+ *  - Swipe UP (offset < -60 or velocity < -450): restore with a
+ *    "shuffled out of the deck" exit animation — the card scales up
+ *    ~4× and flies toward the center while the native webview takes
+ *    over behind it. Feels like pulling a card off a deck and fanning
+ *    it to full size.
+ *  - Swipe DOWN (offset > 60 or velocity > 450): close this session.
+ *    Matches the minimize gesture's downward direction so "park" and
+ *    "dismiss from tray" share a visual language.
+ *  - Drag then release below the threshold: spring back to origin.
  */
 
-import React, { type FC, useState } from 'react';
+import React, { type FC, useRef, useState } from 'react';
 
-import { motion } from 'framer-motion';
+import { type PanInfo, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { springs } from 'lib/animation';
 import { type DappSession, getDappDisplayName, getFallbackColor, getFallbackLetter } from 'lib/dapp-browser';
-import { hapticLight } from 'lib/mobile/haptics';
+import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 
 export const CARD_WIDTH = 104;
 export const CARD_HEIGHT = 132;
@@ -36,6 +48,12 @@ export const CARD_HEIGHT = 132;
  * right edge — enough to read the favicon + a truncated word.
  */
 export const CARD_STACK_OFFSET = 30;
+
+// Swipe thresholds: release the drag with offset OR velocity past either
+// number to commit the gesture. The velocity floor lets a quick flick
+// commit even if the finger didn't travel far.
+const SWIPE_OFFSET_THRESHOLD = 60;
+const SWIPE_VELOCITY_THRESHOLD = 450;
 
 interface DappPeekCardProps {
   session: DappSession;
@@ -60,6 +78,24 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [faviconBroken, setFaviconBroken] = useState(false);
+  // `exitMode` drives which exit animation AnimatePresence plays when
+  // this card unmounts. We set it synchronously on commit inside the
+  // swipe handlers so that the next render (triggered by the parent
+  // state change a microtask later) captures the right exit variant.
+  //   - 'default': regular park/unmount exit (drop down + fade, used
+  //     when a card silently leaves the tray, e.g. the user closed it
+  //     from the fullscreen switcher).
+  //   - 'close': downward dismissal. Card continues its drag motion
+  //     further down and fades.
+  //   - 'restore': upward "shuffle out of the deck" expand. Card scales
+  //     up ~4× and translates toward the center of the screen while
+  //     the native webview fills in behind it.
+  const [exitMode, setExitMode] = useState<'default' | 'close' | 'restore'>('default');
+  // Ref so the tap handler can distinguish a real tap from a click
+  // event that fires at the end of a drag gesture. framer-motion's
+  // drag events don't automatically suppress the synthesized click on
+  // the underlying <button>, so we track movement ourselves.
+  const wasDraggedRef = useRef(false);
 
   const displayName = getDappDisplayName(session);
   const fallbackColor = getFallbackColor(session.origin);
@@ -78,7 +114,11 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
     hapticLight();
-    onClose();
+    setExitMode('close');
+    // Defer the parent state mutation so React has a chance to flush
+    // the setExitMode update into the next render — without this, the
+    // component can unmount with the previous (default) exit variant.
+    setTimeout(onClose, 0);
   };
 
   const handleShowAll = (e: React.MouseEvent) => {
@@ -88,9 +128,86 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
   };
 
   const handleTap = () => {
+    if (wasDraggedRef.current) {
+      // Synthesized click at the end of a drag — ignore so the tap
+      // doesn't double-fire the restore that the swipe handler
+      // already committed.
+      wasDraggedRef.current = false;
+      return;
+    }
     hapticLight();
-    onTap();
+    setExitMode('restore');
+    setTimeout(onTap, 0);
   };
+
+  // Only the front card is draggable. Back cards are partially hidden
+  // behind the front one, so drag interactions on them would be
+  // confusing (which card is the user dragging?) and they can't
+  // reliably hit their own tap target anyway.
+  const handleDragStart = () => {
+    wasDraggedRef.current = false;
+  };
+
+  const handleDrag = (_: unknown, info: PanInfo) => {
+    // Any non-trivial motion counts as a drag so the post-drag click
+    // event is suppressed. 4pt tolerance absorbs tap jitter.
+    if (Math.abs(info.offset.x) + Math.abs(info.offset.y) > 4) {
+      wasDraggedRef.current = true;
+    }
+  };
+
+  const handleDragEnd = (_: unknown, info: PanInfo) => {
+    const dy = info.offset.y;
+    const vy = info.velocity.y;
+    // Up: restore via the "shuffle out" expand exit.
+    if (dy < -SWIPE_OFFSET_THRESHOLD || vy < -SWIPE_VELOCITY_THRESHOLD) {
+      hapticMedium();
+      setExitMode('restore');
+      setTimeout(onTap, 0);
+      return;
+    }
+    // Down: close with a continuation-of-drag fade.
+    if (dy > SWIPE_OFFSET_THRESHOLD || vy > SWIPE_VELOCITY_THRESHOLD) {
+      hapticMedium();
+      setExitMode('close');
+      setTimeout(onClose, 0);
+      return;
+    }
+    // Below threshold — framer-motion will spring back to origin on its
+    // own. Clear the drag flag after a short delay so the tap-vs-click
+    // discriminator lets a subsequent real click through.
+    setTimeout(() => {
+      wasDraggedRef.current = false;
+    }, 100);
+  };
+
+  // Exit variant resolver. The default (non-gesture) exit just drops
+  // the card down a bit and fades — used when the parked-sessions
+  // array shrinks from somewhere other than this card's own gesture
+  // (e.g. the user closed it from the fullscreen switcher or a
+  // programmatic close). The gesture-driven exits are more dramatic.
+  const exitVariant =
+    exitMode === 'restore'
+      ? {
+          // "Shuffle out of the deck" — scale up while drifting toward
+          // the center-top of the screen. 3.6× ends at roughly the
+          // width of a phone viewport, so the card visually approaches
+          // the size the actual dApp will inhabit. Ease-out curve so
+          // the expansion feels propelled, then slows as the webview
+          // takes over behind it.
+          opacity: 0,
+          scale: 3.6,
+          y: -260,
+          transition: { duration: 0.5, ease: [0.2, 0.8, 0.25, 1] }
+        }
+      : exitMode === 'close'
+        ? {
+            opacity: 0,
+            y: 180,
+            scale: scale * 0.85,
+            transition: { duration: 0.32, ease: [0.4, 0, 1, 1] }
+          }
+        : { opacity: 0, y: 40, scale: scale * 0.9 };
 
   return (
     <motion.div
@@ -100,8 +217,16 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
       layout
       initial={{ opacity: 0, y: 40, scale: scale * 0.9 }}
       animate={{ opacity, x: xOffset, y: 0, scale }}
-      exit={{ opacity: 0, y: 40, scale: scale * 0.9 }}
+      exit={exitVariant}
       transition={springs.sheetPresent}
+      // Front card is draggable (swipe up = restore, swipe down = close).
+      drag={isFront ? 'y' : false}
+      dragConstraints={{ top: -200, bottom: 200 }}
+      dragElastic={0.35}
+      dragMomentum={false}
+      onDragStart={handleDragStart}
+      onDrag={handleDrag}
+      onDragEnd={handleDragEnd}
       // Each card sits at the right edge; the negative x from animate()
       // stacks the back cards leftward.
       className="pointer-events-auto absolute bottom-0 right-0 origin-bottom-right"
