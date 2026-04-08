@@ -860,7 +860,20 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     override open func viewWillLayoutSubviews() {
         restateViewHeight()
         // Don't override frame height when enabledSafeBottomMargin is true, as it would override our constraints
-        if self.currentViewHeight != nil && !self.enabledSafeBottomMargin {
+        //
+        // ALSO don't override when this controller is running inside a
+        // dApp instance UIWindow (Architecture A — windowLevel
+        // .normal+100). In that path the JS slot rect drives the
+        // window.frame via updateDimensions, and the controller's
+        // view should fill the window's full bounds via auto layout.
+        // Forcing view.frame.size.height to currentViewHeight (which
+        // is computed from the SCREEN's safeAreaLayoutGuide rather
+        // than the window's bounds) clamps the WKWebView shorter
+        // than its window — visible as the dApp content cutting off
+        // ~40% into the wallet's bottom toolbar instead of going
+        // edge-to-edge behind it.
+        let isWindowedInstance = (self.view.window?.windowLevel ?? .normal) > .normal
+        if self.currentViewHeight != nil && !self.enabledSafeBottomMargin && !isWindowedInstance {
             self.view.frame.size.height = self.currentViewHeight!
         }
     }
