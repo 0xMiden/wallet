@@ -13,6 +13,7 @@
  */
 
 import faucetIcon from 'app/misc/dapp-icons/faucet.png';
+import luminaIcon from 'app/misc/dapp-icons/lumina.png';
 import midenIcon from 'app/misc/dapp-icons/miden.png';
 import zoroIcon from 'app/misc/dapp-icons/zoro.png';
 
@@ -23,9 +24,11 @@ export interface FeaturedDapp {
   id: string;
   name: string;
   url: string;
-  /** Optional bundled icon. When omitted, tiles fall back to a
-   *  brand-color square with the dApp name's first letter. */
-  icon?: string;
+  /** Bundled icon — fetched from each dApp's homepage at packaging time
+   *  (see scripts/fetch-dapp-icons.mjs). All icons are normalized to
+   *  256×256 PNG with transparent backgrounds so the tile background
+   *  shows through uniformly. */
+  icon: string;
   /** One-line tagline shown under the dApp name in tiles and carousel cards. */
   shortDescription: string;
   /** Brand color used as the carousel card background and tile fallback. */
@@ -73,10 +76,9 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     id: 'lumina',
     name: 'Lumina Engine',
     url: 'https://beta.luminaengine.ai/',
-    // No bundled icon yet — DappTile shows the brand-color fallback
-    // square with an "L" until a real Lumina asset is added.
+    icon: luminaIcon,
     shortDescription: 'AI engine on Miden',
-    brandColor: '#000000',
+    brandColor: '#FACC15',
     category: 'defi'
   }
 ];
