@@ -74,61 +74,72 @@ export const DappTile: FC<DappTileProps> = ({
   // a tile doesn't accidentally open the dApp. The browser fires
   // onClick only when the touch hasn't moved enough to be a drag,
   // which is the correct tap-vs-scroll discrimination.
+  //
+  // Structure: an OUTER `motion.div` owns the entry animation
+  // (initial/animate/transition) and an INNER `motion.button` owns
+  // the shared-element `layoutId` for the tile → capsule morph.
+  // They must be separate elements: putting both sets of props on
+  // the same element doesn't work because the `LayoutGroup` wrapping
+  // the launcher intercepts layoutId elements and interferes with
+  // their `initial` prop — the drop animation either skips entirely
+  // or plays from a stale layout position. Splitting them isolates
+  // the entry from the layout tracker.
   return (
-    <motion.button
-      type="button"
-      layoutId={`dapp-tile-${url}`}
+    <motion.div
       // Entry animation: tiles drop IN from 16pt above their final
       // position (negative y in framer-motion = above) so the reveal
       // reads as a clear "fall into place" rather than a subtle fade.
       // Staggered by `animationIndex` so each tile arrives ~40ms after
       // the previous one. `snappy` spring gives a crisp landing with
-      // just a hint of settle bounce — the `morph` spring used
-      // previously is tuned for the slower shared-element morph, and
-      // its lower stiffness made the drop look like a lazy fade.
+      // just a hint of settle bounce.
       initial={{ opacity: 0, y: -16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
         ...springs.snappy,
         delay: entryBaseDelay + animationIndex * 0.04
       }}
-      onClick={handleClick}
-      className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
-      aria-label={accessibleLabel}
     >
-      <motion.div
-        layoutId={`dapp-favicon-${url}`}
-        transition={springs.morph}
-        className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
-        style={{ background: showFallback ? fallbackBg : 'rgba(0,0,0,0.04)' }}
-        aria-hidden="true"
+      <motion.button
+        type="button"
+        layoutId={`dapp-tile-${url}`}
+        onClick={handleClick}
+        className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
+        aria-label={accessibleLabel}
       >
-        {showFallback ? (
-          <span className="text-lg font-semibold text-pure-white">{name.charAt(0).toUpperCase()}</span>
-        ) : (
-          <img
-            src={icon}
-            alt=""
-            className="h-9 w-9 object-contain"
-            onError={() => setIconBroken(true)}
-            draggable={false}
-          />
-        )}
-        {badge === 'verified' && (
-          <span className="absolute -bottom-0 -right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-pure-white bg-primary-500 text-[10px] text-pure-white">
-            ✓
-          </span>
-        )}
-      </motion.div>
-      <motion.span
-        layoutId={`dapp-name-${url}`}
-        transition={springs.morph}
-        className="w-full truncate text-center text-xs font-medium text-heading-gray"
-        aria-hidden="true"
-      >
-        {name}
-      </motion.span>
-    </motion.button>
+        <motion.div
+          layoutId={`dapp-favicon-${url}`}
+          transition={springs.morph}
+          className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
+          style={{ background: showFallback ? fallbackBg : 'rgba(0,0,0,0.04)' }}
+          aria-hidden="true"
+        >
+          {showFallback ? (
+            <span className="text-lg font-semibold text-pure-white">{name.charAt(0).toUpperCase()}</span>
+          ) : (
+            <img
+              src={icon}
+              alt=""
+              className="h-9 w-9 object-contain"
+              onError={() => setIconBroken(true)}
+              draggable={false}
+            />
+          )}
+          {badge === 'verified' && (
+            <span className="absolute -bottom-0 -right-0 flex h-4 w-4 items-center justify-center rounded-full border-2 border-pure-white bg-primary-500 text-[10px] text-pure-white">
+              ✓
+            </span>
+          )}
+        </motion.div>
+        <motion.span
+          layoutId={`dapp-name-${url}`}
+          transition={springs.morph}
+          className="w-full truncate text-center text-xs font-medium text-heading-gray"
+          aria-hidden="true"
+        >
+          {name}
+        </motion.span>
+      </motion.button>
+    </motion.div>
   );
 };
 
