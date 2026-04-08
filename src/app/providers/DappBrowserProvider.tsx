@@ -806,18 +806,21 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // ─── Native navbar overlay (Architecture A — quality path) ─────────────
   //
   // The native MidenNavbarOverlayWindow at .normal+200 replaces the
-  // React Footer for ALL tab pages on mobile, not just inside an
-  // active dApp — Home, Activity, and Browser all use it. The React
-  // Footer is hidden via the `body[data-native-navbar]` CSS hook in
-  // main.css whenever the overlay is up.
+  // React Footer across the entire wallet on mobile. It shows on every
+  // page EXCEPT onboarding / lock screens. The React Footer is hidden
+  // via the `body[data-native-navbar]` CSS hook in main.css whenever
+  // the overlay is up.
   //
-  // We track the active pill via the current woozie route, not via
-  // the dApp browser mode, so the navbar:
-  //   - shows on every tab page (/, /history, /browser)
-  //   - tears down when the user navigates to a non-tab page
-  //     (settings, send flow, etc.)
-  //   - stays up when the user enters / exits an active dApp inside
-  //     /browser (the route doesn't change)
+  // The active pill highlights based on the current woozie route:
+  //   /                           → home
+  //   /history*, /history-details → activity
+  //   /browser, /select-account*, → browser
+  //     /manage-assets*
+  //   anything else (send, receive, settings, etc.) → no pill active
+  //
+  // The navbar stays mounted across tab switches; we just call
+  // setNativeNavbarActive to update which pill is highlighted, which
+  // avoids the teardown/rebuild flicker showNativeNavbar would cause.
   //
   // Taps fire a `nativeNavbarTap` Capacitor event that the listener
   // below forwards to woozie.navigate so HOME / ACTIVITY / BROWSER
@@ -827,11 +830,22 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     if (!isMobile()) return;
     const path = location.pathname;
-    const isTabPage = path === '/' || path.startsWith('/history') || path === '/browser';
 
-    if (!isTabPage) {
-      // Mark the body for CSS hiding hook BEFORE we hide the native bar
-      // so the React bar doesn't briefly flash back in.
+    // Onboarding and lock screen routes never get the navbar — the
+    // user shouldn't see wallet chrome before they're authenticated /
+    // have set up an account.
+    const isOnboardingRoute =
+      path === '/welcome' ||
+      path.startsWith('/onboarding') ||
+      path === '/loading' ||
+      path === '/forgot-password' ||
+      path === '/forgot-password-info' ||
+      path === '/reset-required' ||
+      path === '/reset-wallet' ||
+      path === '/import-account' ||
+      path.startsWith('/import-account/');
+
+    if (isOnboardingRoute) {
       document.body.removeAttribute('data-native-navbar');
       if (navbarShownRef.current) {
         InAppBrowser.hideNativeNavbar().catch(() => {});
@@ -840,9 +854,17 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       return;
     }
 
-    let activeId = 'home';
-    if (path.startsWith('/history')) activeId = 'activity';
-    else if (path === '/browser') activeId = 'browser';
+    // Determine which pill should be highlighted. Pages that aren't
+    // a top-level destination (send, receive, settings, faucet, etc.)
+    // pass null so no pill is active — the navbar still shows but
+    // none of the three pills look "selected". Same pattern iOS uses
+    // when you drill into a settings sub-page from a tab bar.
+    let activeId: string | null = null;
+    if (path === '/') activeId = 'home';
+    else if (path.startsWith('/history') || path.startsWith('/history-details') || path.startsWith('/token-history'))
+      activeId = 'activity';
+    else if (path === '/browser' || path.startsWith('/select-account') || path.startsWith('/manage-assets'))
+      activeId = 'browser';
 
     document.body.setAttribute('data-native-navbar', '');
 

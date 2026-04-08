@@ -2134,11 +2134,48 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// event back to JS.
     var onItemTap: ((String) -> Void)?
 
+    /// Tap handler for the primary action button (compact mode).
+    /// Fires `nativeNavbarActionTap` when set + the action button
+    /// is tapped. No payload because the navbar holds at most one
+    /// action at a time.
+    var onActionTap: (() -> Void)?
+
     /// The buttons, indexed by item id. Used to update active state.
     private var buttons: [String: NavbarButton] = [:]
 
     /// The id of the currently-active item, if any.
     private var activeItemId: String?
+
+    /// The primary action button shown in compact mode. Initially
+    /// hidden via the navStackFullWidth constraint being active and
+    /// the action's own width / alpha set to 0.
+    private let actionButton = NavbarActionButton()
+
+    /// Inner stack holding only the 3 nav buttons (HOME / ACTIVITY /
+    /// BROWSER). Lives inside `contentStack` alongside the action
+    /// button so we can flip width constraints between modes.
+    private let navStack = UIStackView()
+
+    /// Outermost horizontal stack containing [navStack, actionButton].
+    /// Both arranged subviews are always present; mode switching
+    /// happens by toggling navStack / actionButton width multipliers
+    /// inside an animation block.
+    private let contentStack = UIStackView()
+
+    /// Width constraints for the nav stack. Exactly one of these is
+    /// active at a time:
+    /// - navStackFullWidth → default mode, navStack fills 100%
+    /// - navStackHalfWidth → compact mode, navStack fills 50%
+    private var navStackFullWidth: NSLayoutConstraint!
+    private var navStackHalfWidth: NSLayoutConstraint!
+
+    /// Width constraint for the action button (50% of contentStack).
+    /// Only activated in compact mode.
+    private var actionHalfWidth: NSLayoutConstraint!
+
+    /// Tracks whether we're currently in compact mode so we don't
+    /// re-run animations on no-op state changes.
+    private var compactMode: Bool = false
 
     /// The pill background — a true Apple "liquid glass" blur via
     /// UIVisualEffectView. iOS 26+ uses the new UIGlassEffect class
@@ -2260,28 +2297,124 @@ class MidenNavbarOverlayWindow: UIWindow {
     }
 
     private func installButtons(_ items: [Item]) {
-        let stack = UIStackView()
-        stack.axis = .horizontal
-        stack.distribution = .fillEqually
-        stack.alignment = .fill
-        stack.spacing = 0
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        contentContainer.addSubview(stack)
+        // Inner nav stack holds the 3 nav buttons (HOME / ACTIVITY /
+        // BROWSER) at equal width. The action button isn't part of
+        // this stack — it lives in the outer contentStack so we can
+        // proportion navStack and action against each other.
+        navStack.axis = .horizontal
+        navStack.distribution = .fillEqually
+        navStack.alignment = .fill
+        navStack.spacing = 0
+        navStack.translatesAutoresizingMaskIntoConstraints = false
+
+        // Outer content stack holds [navStack, actionButton].
+        // Both arranged subviews are always present; we control
+        // proportional widths via constraints, not via the stack's
+        // distribution setting (which can't do 50/50 conditionally).
+        contentStack.axis = .horizontal
+        contentStack.distribution = .fill
+        contentStack.alignment = .fill
+        contentStack.spacing = 0
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.alpha = 0
+        actionButton.addAction(UIAction { [weak self] _ in
+            guard let self = self, self.actionButton.isEnabled else { return }
+            self.onActionTap?()
+        }, for: .touchUpInside)
+
+        contentContainer.addSubview(contentStack)
+        contentStack.addArrangedSubview(navStack)
+        contentStack.addArrangedSubview(actionButton)
+
         // React outer pill: px-2 py-2 = 8pt gutter on every side
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
-            stack.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -8),
-            stack.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
+            contentStack.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
+            contentStack.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -8),
+            contentStack.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 8),
+            contentStack.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
         ])
+
+        // Default mode: navStack fills the entire content stack
+        navStackFullWidth = navStack.widthAnchor.constraint(equalTo: contentStack.widthAnchor)
+        // Compact mode: navStack takes 50%, action button takes 50%
+        navStackHalfWidth = navStack.widthAnchor.constraint(equalTo: contentStack.widthAnchor, multiplier: 0.5)
+        actionHalfWidth = actionButton.widthAnchor.constraint(equalTo: contentStack.widthAnchor, multiplier: 0.5)
+        navStackFullWidth.isActive = true
+
         for item in items {
             let button = NavbarButton(item: item)
             button.setActive(item.id == activeItemId)
             button.addAction(UIAction { [weak self] _ in
                 self?.onItemTap?(item.id)
             }, for: .touchUpInside)
-            stack.addArrangedSubview(button)
+            navStack.addArrangedSubview(button)
             buttons[item.id] = button
+        }
+    }
+
+    /// Switch the navbar to compact mode with a primary action button
+    /// taking 50% of the pill width. Animates the morph with a spring
+    /// curve so it feels native to iOS. Cribbed spring values from
+    /// the system Music mini-player → full-player morph.
+    func setAction(label: String, enabled: Bool) {
+        actionButton.setLabel(label)
+        actionButton.setEnabled(enabled)
+        if compactMode {
+            // Already in compact mode — just update the button content,
+            // no animation needed.
+            return
+        }
+        compactMode = true
+        // Toggle constraints OUTSIDE the animation block so the layout
+        // engine knows the new target before we ask it to interpolate.
+        navStackFullWidth.isActive = false
+        navStackHalfWidth.isActive = true
+        actionHalfWidth.isActive = true
+        // Tell the nav buttons they're going compact so their labels
+        // can fade out instead of being abruptly clipped.
+        for (_, button) in buttons {
+            button.setCompact(true, animated: false)
+        }
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.85,
+            initialSpringVelocity: 0.55,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.contentStack.layoutIfNeeded()
+            self.actionButton.alpha = 1
+            for (_, button) in self.buttons {
+                button.applyCompactAlpha(true)
+            }
+        }
+    }
+
+    /// Switch the navbar back to default mode. Reverses the spring
+    /// animation from setAction.
+    func clearAction() {
+        if !compactMode { return }
+        compactMode = false
+        navStackHalfWidth.isActive = false
+        actionHalfWidth.isActive = false
+        navStackFullWidth.isActive = true
+        for (_, button) in buttons {
+            button.setCompact(false, animated: false)
+        }
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.85,
+            initialSpringVelocity: 0.55,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.contentStack.layoutIfNeeded()
+            self.actionButton.alpha = 0
+            for (_, button) in self.buttons {
+                button.applyCompactAlpha(false)
+            }
         }
     }
 
@@ -2406,6 +2539,105 @@ private class NavbarButton: UIControl {
         iconView.tintColor = color
         label.textColor = color
         accessibilityTraits = active ? [.button, .selected] : .button
+    }
+
+    /// Switch into / out of compact layout. In compact mode the label
+    /// is hidden (faded out) so the icons read clean at the squeezed
+    /// width. The animation block in MidenNavbarOverlayWindow drives
+    /// the alpha transition; this method just toggles the source-of-
+    /// truth flag and lets the parent's `applyCompactAlpha` handle
+    /// the actual fade inside its UIView.animate block.
+    func setCompact(_ compact: Bool, animated: Bool) {
+        // The actual alpha is set by applyCompactAlpha (called inside
+        // the parent's animation block). Nothing to do here at the
+        // moment, but kept as a hook for future state.
+        _ = compact
+        _ = animated
+    }
+
+    /// Apply the label alpha for compact / default mode. Called from
+    /// inside the parent's UIView.animate block so the change rides
+    /// the same spring.
+    func applyCompactAlpha(_ compact: Bool) {
+        label.alpha = compact ? 0 : 1
+    }
+}
+
+/// The primary action button shown in compact mode. Big rounded pill
+/// with a single label, orange when enabled, greyed when disabled.
+/// Lives inside MidenNavbarOverlayWindow's contentStack so the morph
+/// animation between default / compact mode picks up the shared
+/// width-constraint flip.
+private class NavbarActionButton: UIControl {
+    private let label = UILabel()
+    private let pillBackground = UIView()
+
+    // Match Tailwind's `bg-pill-active` — the wallet's primary orange.
+    private static let enabledBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
+    // Greyed out when disabled — same hue but heavily desaturated /
+    // dimmed so the user understands the action exists but isn't ready.
+    private static let disabledBg = UIColor(red: 0.74, green: 0.74, blue: 0.76, alpha: 1.0)
+    private static let labelColor = UIColor.white
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        pillBackground.translatesAutoresizingMaskIntoConstraints = false
+        pillBackground.backgroundColor = NavbarActionButton.enabledBg
+        pillBackground.isUserInteractionEnabled = false
+        addSubview(pillBackground)
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 15, weight: .semibold)
+        label.textColor = NavbarActionButton.labelColor
+        label.textAlignment = .center
+        label.lineBreakMode = .byTruncatingTail
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.85
+        addSubview(label)
+
+        // Inset the pill 4pt from the button's outer frame so when
+        // the action lives next to the nav buttons there's a small
+        // breathing gap, matching how the React active pill insets
+        // inside its FooterNavButton container.
+        NSLayoutConstraint.activate([
+            pillBackground.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            label.leadingAnchor.constraint(equalTo: pillBackground.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: pillBackground.trailingAnchor, constant: -12),
+            label.centerYAnchor.constraint(equalTo: pillBackground.centerYAnchor)
+        ])
+
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Rounded-full pill — match the nav buttons' shape so the
+        // visual rhythm is consistent across the morph.
+        pillBackground.layer.cornerRadius = pillBackground.bounds.height / 2.0
+    }
+
+    func setLabel(_ text: String) {
+        label.text = text
+        accessibilityLabel = text
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+        pillBackground.backgroundColor = enabled
+            ? NavbarActionButton.enabledBg
+            : NavbarActionButton.disabledBg
+        label.alpha = enabled ? 1.0 : 0.7
+        accessibilityTraits = enabled ? .button : [.button, .notEnabled]
     }
 }
 

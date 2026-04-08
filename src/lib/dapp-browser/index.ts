@@ -12,6 +12,7 @@ export {
 export { buildFaviconUrl, getFaviconUrl, setFavicon, getFallbackColor, getFallbackLetter } from './favicon-cache';
 export { rectFromDOMRect, rectsEqual, type WebViewRect } from './webview-rect';
 export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-confirmation';
+export { useNativeNavbarAction, type NavbarAction } from './use-native-navbar-action';
 export {
   FEATURED_DAPPS,
   CAROUSEL_DAPPS,

@@ -55,6 +55,13 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "showNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hideNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setNativeNavbarActive", returnType: CAPPluginReturnPromise),
+        // Miden patch: navbar compact mode with primary action button.
+        // setNavbarAction switches the navbar to compact mode where
+        // the 3 nav buttons take 50% of the pill width and the action
+        // button fills the remaining 50%. Spring-animated morph.
+        // clearNavbarAction reverses the morph back to default mode.
+        CAPPluginMethod(name: "setNavbarAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearNavbarAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
     ]
     var navigationWebViewController: UINavigationController?
@@ -1280,6 +1287,31 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     // item is updated via setNativeNavbarActive without rebuilding the
     // window.
     private static var navbarOverlay: MidenNavbarOverlayWindow?
+
+    @objc func setNavbarAction(_ call: CAPPluginCall) {
+        guard let label = call.getString("label") else {
+            call.reject("label is required")
+            return
+        }
+        let enabled = call.getBool("enabled") ?? true
+        DispatchQueue.main.async {
+            // Wire the tap handler the first time we're called so the
+            // overlay can fire `nativeNavbarActionTap` back to JS.
+            // Re-set on every call to be safe (cheap to assign).
+            Self.navbarOverlay?.onActionTap = { [weak self] in
+                self?.notifyListeners("nativeNavbarActionTap", data: [:])
+            }
+            Self.navbarOverlay?.setAction(label: label, enabled: enabled)
+            call.resolve()
+        }
+    }
+
+    @objc func clearNavbarAction(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            Self.navbarOverlay?.clearAction()
+            call.resolve()
+        }
+    }
 
     @objc func showNativeNavbar(_ call: CAPPluginCall) {
         guard let itemsRaw = call.getArray("items") else {
