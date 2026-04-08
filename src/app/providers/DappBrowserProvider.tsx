@@ -832,25 +832,36 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // apart by pathname alone — without this guard the navbar would
   // appear over the password input on app launch / re-lock.
   const isWalletReady = useWalletStore(selectIsReady);
+
+  // Derived flag: true when the user is past onboarding / unlock and
+  // viewing a normal wallet page. Both the native navbar and the
+  // parked-dApp bubble host gate on this — neither should be visible
+  // while the user is still on a welcome / unlock / forgot-password
+  // / reset / import-account route. Memoized so children that read
+  // it don't re-render on unrelated provider state changes.
+  const walletShellActive = useMemo(() => {
+    if (!isWalletReady) return false;
+    const path = location.pathname;
+    if (path === '/welcome') return false;
+    if (path.startsWith('/onboarding')) return false;
+    if (path === '/loading') return false;
+    if (path === '/forgot-password') return false;
+    if (path === '/forgot-password-info') return false;
+    if (path === '/reset-required') return false;
+    if (path === '/reset-wallet') return false;
+    if (path === '/import-account') return false;
+    if (path.startsWith('/import-account/')) return false;
+    return true;
+  }, [location.pathname, isWalletReady]);
+
   useEffect(() => {
     if (!isMobile()) return;
     const path = location.pathname;
 
-    // Onboarding, lock screen, and not-yet-ready states never get the
-    // navbar — the user shouldn't see wallet chrome before they're
-    // authenticated. The lock screen renders at `/` so we can't gate
-    // on path alone; we also gate on the wallet's `ready` status.
-    const isOnboardingRoute =
-      !isWalletReady ||
-      path === '/welcome' ||
-      path.startsWith('/onboarding') ||
-      path === '/loading' ||
-      path === '/forgot-password' ||
-      path === '/forgot-password-info' ||
-      path === '/reset-required' ||
-      path === '/reset-wallet' ||
-      path === '/import-account' ||
-      path.startsWith('/import-account/');
+    // Reuse the derived flag — `!walletShellActive` is the inverse
+    // of "show wallet chrome" which is exactly the condition under
+    // which we want to hide the navbar.
+    const isOnboardingRoute = !walletShellActive;
 
     if (isOnboardingRoute) {
       document.body.removeAttribute('data-native-navbar');
@@ -897,7 +908,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       activeId
     }).catch(() => {});
     navbarShownRef.current = true;
-  }, [location.pathname, isWalletReady, t]);
+  }, [location.pathname, walletShellActive, t]);
 
   // Mark the body when a dApp is foregrounded so the main.css rule
   // that adds 88pt of bottom padding to reserve the navbar gutter
@@ -999,8 +1010,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     <DappBrowserContext.Provider value={contextValue}>
       {children}
 
-      {/* Bubble portal — one bubble per parked dApp. */}
-      {isMobile() && <DappBubbleHost />}
+      {/* Bubble portal — one bubble per parked dApp. Gated on
+          `walletShellActive` so the bubbles never render on the lock
+          screen, the welcome / onboarding flow, the forgot-password
+          flow, the reset-required screen, or the import-account flow.
+          The user shouldn't see persistent dApp chrome until they've
+          actually unlocked the wallet and are inside the main shell. */}
+      {isMobile() && walletShellActive && <DappBubbleHost />}
 
       {/* PR-5: card switcher portal — fullscreen modal for managing
           every open dApp. Mounted here so it survives tab navigation. */}
