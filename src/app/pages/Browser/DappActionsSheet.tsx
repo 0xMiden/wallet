@@ -12,12 +12,18 @@
  * already wired up via `DappActive`'s `data-drawer-open` effect.
  */
 
-import React, { type FC, useCallback } from 'react';
+import React, { type FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { type DappSession, getDappDisplayName, recordRecentDapp } from 'lib/dapp-browser';
+import {
+  type DappSession,
+  forgetRecentDapp,
+  getDappDisplayName,
+  getRecentDapps,
+  recordRecentDapp
+} from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -46,6 +52,28 @@ const ActionButton: FC<ActionButtonProps> = ({ icon, label, onClick }) => (
 
 export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onOpenChange, onReopen }) => {
   const { t } = useTranslation();
+  // Whether the current session is already in the user's recents
+  // ("My Dapps" from the user's POV). When true the add/remove
+  // button toggles to the "Remove" state (filled icon, opposite
+  // label, opposite handler). Re-checked every time the sheet
+  // opens, so re-opening after an add/remove shows the fresh state.
+  const [isInMyDapps, setIsInMyDapps] = useState(false);
+
+  useEffect(() => {
+    if (!open || !session) return;
+    let cancelled = false;
+    getRecentDapps()
+      .then(list => {
+        if (cancelled) return;
+        setIsInMyDapps(list.some(entry => entry.url === session.url));
+      })
+      .catch(() => {
+        if (!cancelled) setIsInMyDapps(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, session]);
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
@@ -59,17 +87,21 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
     close();
   }, [session, close]);
 
-  const handleAddToMyDapps = useCallback(() => {
+  const handleToggleMyDapps = useCallback(() => {
     if (!session) return;
     hapticLight();
-    void recordRecentDapp({
-      url: session.url,
-      name: getDappDisplayName(session),
-      origin: session.origin,
-      favicon: session.favicon ?? undefined
-    }).catch(() => {});
+    if (isInMyDapps) {
+      void forgetRecentDapp(session.url).catch(() => {});
+    } else {
+      void recordRecentDapp({
+        url: session.url,
+        name: getDappDisplayName(session),
+        origin: session.origin,
+        favicon: session.favicon ?? undefined
+      }).catch(() => {});
+    }
     close();
-  }, [session, close]);
+  }, [session, isInMyDapps, close]);
 
   const handleReopen = useCallback(() => {
     if (!session) return;
@@ -90,9 +122,18 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
         <div className="flex items-start justify-around gap-2 px-4 pb-8">
           <ActionButton icon={IconName.Copy} label={t('dappActionCopyLink') ?? 'Copy link'} onClick={handleCopyLink} />
           <ActionButton
-            icon={IconName.AddCircle}
-            label={t('dappActionAddToMyDapps') ?? 'Add to My Dapps'}
-            onClick={handleAddToMyDapps}
+            // Toggle: the AddCircle plus-in-outline-circle is the
+            // default, swapped for CheckboxCircleFill (filled check)
+            // when the dApp is already in the user's recents. The
+            // filled icon + "Remove" label reads as "this one is
+            // already saved; tap to un-save."
+            icon={isInMyDapps ? IconName.CheckboxCircleFill : IconName.AddCircle}
+            label={
+              isInMyDapps
+                ? (t('dappActionRemoveFromMyDapps') ?? 'Remove from My Dapps')
+                : (t('dappActionAddToMyDapps') ?? 'Add to My Dapps')
+            }
+            onClick={handleToggleMyDapps}
           />
           <ActionButton icon={IconName.Refresh} label={t('dappActionReopen') ?? 'Reopen'} onClick={handleReopen} />
         </div>

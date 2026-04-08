@@ -6,7 +6,8 @@
  *   <HeroSearch/>        search/URL bar
  *   <FeaturedCarousel/>  large brand-color cards
  *   <CategoryRow/>       chip filters (DeFi, NFT, Tools, Social)
- *   <MyDappsGrid/>       4-col recents + featured tiles
+ *   <MyDappsGrid/>       4-col featured tiles
+ *   <RecentsRow/>        1-row of up to 4 recent opens
  *
  * The launcher reads recents from `recent-dapps.ts` storage on mount.
  * Tile + carousel taps call `onOpen(url)` which the parent
@@ -23,6 +24,7 @@ import { CategoryRow } from './CategoryRow';
 import { FeaturedCarousel } from './FeaturedCarousel';
 import { HeroSearch } from './HeroSearch';
 import { MyDappsGrid } from './MyDappsGrid';
+import { RecentsRow } from './RecentsRow';
 
 interface DappLauncherProps {
   onOpen: (url: string) => void;
@@ -60,7 +62,9 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
 
         <CategoryRow active={category} onToggle={setCategory} />
 
-        <MyDappsGrid recents={recents} category={category} onOpen={onOpen} />
+        <MyDappsGrid category={category} onOpen={onOpen} />
+
+        <RecentsRow recents={recents} category={category} onOpen={onOpen} />
       </main>
     </>
   );
