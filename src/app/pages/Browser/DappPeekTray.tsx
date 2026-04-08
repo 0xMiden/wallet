@@ -94,10 +94,14 @@ interface RestoringState {
 const RESTORE_TRIGGER_DELAY_MS = 320;
 
 // When the live slot rect isn't available (no dApp has been foregrounded
-// this session yet), fall back to a computed slot rect that matches the
-// DappActive layout: below the 81pt capsule and extending all the way
-// to the viewport bottom (the native navbar is a UIWindow overlay, not
-// an inline footer, so the slot covers the full remaining height).
+// this session yet AND nothing is cached), fall back to a computed slot
+// that matches DappActive's layout: below the 81pt capsule + its
+// top-safe-area pad, extending to the BOTTOM-safe-area inset (not the
+// raw viewport bottom, because the home-indicator inset reduces the
+// usable content area by ~34pt on devices that have one). Using
+// `document.body.clientHeight` instead of `window.innerHeight` picks
+// up the `env(safe-area-inset-bottom)` padding mobile.html applies on
+// the body, giving us the actual drawable height.
 const FALLBACK_CAPSULE_HEIGHT = 145;
 
 function resolveTargetRect(liveSlotRect: { x: number; y: number; width: number; height: number } | null): {
@@ -109,11 +113,12 @@ function resolveTargetRect(liveSlotRect: { x: number; y: number; width: number; 
   if (liveSlotRect && liveSlotRect.width > 0 && liveSlotRect.height > 0) {
     return liveSlotRect;
   }
+  const drawableHeight = document.body.clientHeight || window.innerHeight;
   return {
     x: 0,
     y: FALLBACK_CAPSULE_HEIGHT,
-    width: window.innerWidth,
-    height: window.innerHeight - FALLBACK_CAPSULE_HEIGHT
+    width: document.body.clientWidth || window.innerWidth,
+    height: drawableHeight - FALLBACK_CAPSULE_HEIGHT
   };
 }
 
@@ -130,6 +135,18 @@ export const DappPeekTray: FC = () => {
   // at stale state.
   const restoreTriggerTimerRef = useRef<number | null>(null);
   const restoreClearTimerRef = useRef<number | null>(null);
+  // Remember the last ground-truth slot rect the provider reported, so
+  // subsequent restore gestures animate to the right place even after
+  // the current foreground dApp is parked (which nulls the provider's
+  // `slotRect`). Without this cache, the second and subsequent restores
+  // would fall through to `resolveTargetRect`'s pure-fallback branch,
+  // which is only approximately correct.
+  const lastKnownSlotRectRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  useEffect(() => {
+    if (slotRect && slotRect.width > 0 && slotRect.height > 0) {
+      lastKnownSlotRectRef.current = { x: slotRect.x, y: slotRect.y, width: slotRect.width, height: slotRect.height };
+    }
+  }, [slotRect]);
 
   // Re-render when the snapshot store updates so freshly-captured
   // snapshots swap in without unmounting their card.
@@ -172,7 +189,10 @@ export const DappPeekTray: FC = () => {
   const handleCommitRestore = useCallback(
     (session: DappSession, sourceRect: DOMRect) => {
       const snap = getSnapshot(session.id) ?? null;
-      const targetRect = resolveTargetRect(slotRect);
+      // Prefer the live slot rect (the current foreground dApp's rect,
+      // if any) over the cached one (set by a previous foreground) over
+      // the pure computed fallback (if neither is available yet).
+      const targetRect = resolveTargetRect(slotRect ?? lastKnownSlotRectRef.current);
       setRestoring({
         session,
         snapshot: snap,
