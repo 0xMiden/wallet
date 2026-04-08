@@ -32,14 +32,14 @@ let cache: RecentDapp[] | null = null;
 
 /**
  * Hostnames that were once shipped as featured dApps but have since
- * been removed (e.g. X / twitter when it was replaced by Lumina
- * Engine). Stale entries can survive in user `@capacitor/preferences`
- * storage indefinitely, and there's no UI to delete a recent yet —
- * so we sweep them on every read. Match is by hostname (with the
- * `www.` prefix stripped) so any URL pointing at the same site is
- * caught regardless of path.
+ * been removed (X / Twitter when replaced by Lumina; Uniswap when
+ * replaced by Qash). Stale entries can survive in user
+ * `@capacitor/preferences` storage indefinitely, and there's no UI to
+ * delete a recent yet — so we sweep them on every read. Match is by
+ * hostname (with the `www.` prefix stripped) so any URL pointing at
+ * the same site is caught regardless of path.
  */
-const PURGED_RECENT_HOSTS = new Set(['x.com', 'twitter.com']);
+const PURGED_RECENT_HOSTS = new Set(['x.com', 'twitter.com', 'app.uniswap.org', 'uniswap.org']);
 
 /**
  * One-time normalization of legacy entries.

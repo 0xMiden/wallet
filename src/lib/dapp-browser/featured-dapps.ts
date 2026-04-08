@@ -14,7 +14,10 @@
 
 import faucetIcon from 'app/misc/dapp-icons/faucet.png';
 import luminaIcon from 'app/misc/dapp-icons/lumina.png';
+import midenNameIcon from 'app/misc/dapp-icons/miden-name.png';
 import midenIcon from 'app/misc/dapp-icons/miden.png';
+import playgroundIcon from 'app/misc/dapp-icons/playground.png';
+import qashIcon from 'app/misc/dapp-icons/qash.png';
 import zoroIcon from 'app/misc/dapp-icons/zoro.png';
 
 export type FeaturedDappCategory = 'defi' | 'nft' | 'tools' | 'social';
@@ -82,6 +85,34 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     category: 'defi',
     badge: 'new',
     featured: true
+  },
+  {
+    id: 'qash',
+    name: 'Qash',
+    url: 'https://qash.finance/',
+    icon: qashIcon,
+    shortDescription: 'Private banking for global businesses',
+    brandColor: '#2563EB',
+    category: 'defi'
+  },
+  {
+    id: 'playground',
+    name: 'Playground',
+    url: 'https://playground.miden.xyz/',
+    icon: playgroundIcon,
+    shortDescription: 'Build and test Miden contracts',
+    brandColor: '#FF5700',
+    category: 'tools',
+    badge: 'verified'
+  },
+  {
+    id: 'miden-name',
+    name: 'Miden Name',
+    url: 'https://miden.name/',
+    icon: midenNameIcon,
+    shortDescription: 'Naming service for the Miden network',
+    brandColor: '#10B981',
+    category: 'tools'
   }
 ];
 
