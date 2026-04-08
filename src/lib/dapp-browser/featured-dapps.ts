@@ -14,7 +14,6 @@
 
 import faucetIcon from 'app/misc/dapp-icons/faucet.png';
 import midenIcon from 'app/misc/dapp-icons/miden.png';
-import xIcon from 'app/misc/dapp-icons/x.png';
 import zoroIcon from 'app/misc/dapp-icons/zoro.png';
 
 export type FeaturedDappCategory = 'defi' | 'nft' | 'tools' | 'social';
@@ -24,7 +23,9 @@ export interface FeaturedDapp {
   id: string;
   name: string;
   url: string;
-  icon: string;
+  /** Optional bundled icon. When omitted, tiles fall back to a
+   *  brand-color square with the dApp name's first letter. */
+  icon?: string;
   /** One-line tagline shown under the dApp name in tiles and carousel cards. */
   shortDescription: string;
   /** Brand color used as the carousel card background and tile fallback. */
@@ -72,10 +73,11 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     id: 'lumina',
     name: 'Lumina Engine',
     url: 'https://beta.luminaengine.ai/',
-    icon: xIcon,
+    // No bundled icon yet — DappTile shows the brand-color fallback
+    // square with an "L" until a real Lumina asset is added.
     shortDescription: 'AI engine on Miden',
     brandColor: '#000000',
-    category: 'tools'
+    category: 'defi'
   }
 ];
 

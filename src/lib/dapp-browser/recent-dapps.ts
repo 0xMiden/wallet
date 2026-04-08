@@ -31,31 +31,50 @@ export interface RecentDapp {
 let cache: RecentDapp[] | null = null;
 
 /**
+ * Hostnames that were once shipped as featured dApps but have since
+ * been removed (e.g. X / twitter when it was replaced by Lumina
+ * Engine). Stale entries can survive in user `@capacitor/preferences`
+ * storage indefinitely, and there's no UI to delete a recent yet —
+ * so we sweep them on every read. Match is by hostname (with the
+ * `www.` prefix stripped) so any URL pointing at the same site is
+ * caught regardless of path.
+ */
+const PURGED_RECENT_HOSTS = new Set(['x.com', 'twitter.com']);
+
+/**
  * One-time normalization of legacy entries.
  *
- * Before BrowserScreen.handleOpen started deriving a hostname-style
- * name, recents were written with the raw `https://…` URL as `name`.
- * Those entries persist in `@capacitor/preferences` across upgrades and
- * make every tile fall back to the 'H' avatar letter (the first char
- * of `https`). Migrate any such entry on read by replacing the bad
- * name with the hostname; persist the migrated list so subsequent
+ * 1. Before BrowserScreen.handleOpen started deriving a hostname-
+ *    style name, recents were written with the raw `https://…` URL
+ *    as `name`. Those entries persist in `@capacitor/preferences`
+ *    across upgrades and make every tile fall back to the 'H' avatar
+ *    letter. Replace the bad name with the hostname.
+ * 2. Drop any entry whose host is in PURGED_RECENT_HOSTS (see above).
+ *
+ * Persists the migrated list when anything changed so subsequent
  * reads don't re-process.
  */
 function migrateLegacyEntries(list: RecentDapp[]): { list: RecentDapp[]; migrated: boolean } {
   let migrated = false;
-  const next = list.map(entry => {
-    if (!entry.name || !entry.name.startsWith('http')) return entry;
+  const next: RecentDapp[] = [];
+  for (const entry of list) {
+    let host = '';
     try {
-      const host = new URL(entry.url).hostname.replace(/^www\./, '');
-      if (host && host !== entry.name) {
-        migrated = true;
-        return { ...entry, name: host };
-      }
+      host = new URL(entry.url).hostname.replace(/^www\./, '');
     } catch {
-      // Leave the entry alone if the URL doesn't parse.
+      // Unparseable URL — keep the entry as-is, no host to match against.
     }
-    return entry;
-  });
+    if (host && PURGED_RECENT_HOSTS.has(host)) {
+      migrated = true;
+      continue; // drop the entry
+    }
+    if (entry.name && entry.name.startsWith('http') && host && host !== entry.name) {
+      migrated = true;
+      next.push({ ...entry, name: host });
+      continue;
+    }
+    next.push(entry);
+  }
   return { list: next, migrated };
 }
 
