@@ -89,9 +89,9 @@ interface RestoringState {
 // size. Too early → the webview covers the mid-expand overlay and the
 // illusion breaks. Too late → the overlay sits at full size waiting,
 // showing a still snapshot while the user waits for the webview.
-// 320ms (of a 580ms total) lands the restore call near the point where
-// the expander has covered ~70% of the screen.
-const RESTORE_TRIGGER_DELAY_MS = 320;
+// 215ms (of a 390ms total, ~55%) lands the restore call near the point
+// where the expander has covered ~70% of the screen.
+const RESTORE_TRIGGER_DELAY_MS = 215;
 
 // When the live slot rect isn't available (no dApp has been foregrounded
 // this session yet AND nothing is cached), fall back to a computed slot

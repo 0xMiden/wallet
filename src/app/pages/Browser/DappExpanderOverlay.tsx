@@ -64,14 +64,14 @@ interface DappExpanderOverlayProps {
 }
 
 // Duration tuning:
-//  - The whole expand takes ~580ms with a snappy ease-out curve so it
+//  - The whole expand takes ~390ms with a snappy ease-out curve so it
 //    feels propelled (user gesture → response is immediate, settles
-//    into position).
+//    into position). Tightened from an earlier 580ms value that read
+//    as sluggish; 390ms keeps all the morph readable but gets the
+//    user to the live webview faster.
 //  - Border radius morphs from 16pt (rounded card) to 0 (hard rect)
 //    over the same duration, so the "card becomes app" illusion sells.
-//  - A tail fade to opacity 0 plays from 500→580ms, handing off to the
-//    native webview that arrives at roughly the same time.
-const EXPAND_DURATION_MS = 580;
+const EXPAND_DURATION_MS = 390;
 const EXPAND_EASE = [0.2, 0.85, 0.25, 1] as const;
 
 export const EXPAND_TOTAL_DURATION_MS = EXPAND_DURATION_MS;
