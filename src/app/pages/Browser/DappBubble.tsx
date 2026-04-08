@@ -45,16 +45,16 @@ interface DappBubbleProps {
   onTap: () => void;
 }
 
-const SIZE = 64;
+const SIZE = 72;
 const EDGE_PADDING = 16;
 /**
  * When multiple bubbles share a corner, each gets a diagonal offset from
- * the next so they're all visible. 18pt is the smallest value where 3
- * overlapping 64pt circles remain visually distinguishable — tighter
+ * the next so they're all visible. 20pt is the smallest value where 3
+ * overlapping 72pt circles remain visually distinguishable — tighter
  * offsets blur into a single unreadable pile. Beyond 3 bubbles the
  * `<DappBubbleHost>` switches to overflow-badge mode instead.
  */
-const STACK_OFFSET = 18;
+const STACK_OFFSET = 20;
 
 interface Corner {
   x: number;
@@ -215,6 +215,15 @@ export const DappBubble: FC<DappBubbleProps> = ({
   const showFavicon = !!session.favicon && !iconBroken;
   const hasSnapshot = !!snapshot;
 
+  // Layered shadow for depth: a tight contact shadow + a wider soft
+  // halo. The halo picks up a subtle brand-color tint by reusing the
+  // dApp's fallback color (deterministic per origin) at low alpha so
+  // the bubble has a faint colored aura matching its identity. Plain
+  // grey shadows look generic; tinted shadows tie the bubble to the
+  // dApp it represents.
+  const haloColor = `${fallbackColor}55`; // brand color at ~33% alpha
+  const bubbleShadow = `0 1px 2px rgba(15,23,42,0.18), 0 8px 24px rgba(15,23,42,0.18), 0 12px 32px ${haloColor}`;
+
   // PR-7: aria-label reads better as an affordance description. Screen
   // reader users map "activate" (double-tap) to the button role
   // automatically, so we just state what the button does. Use the
@@ -249,26 +258,53 @@ export const DappBubble: FC<DappBubbleProps> = ({
           handleClick();
         }
       }}
-      className="absolute left-0 top-0 flex h-16 w-16 cursor-grab items-center justify-center overflow-hidden rounded-full bg-pure-white shadow-[0_8px_24px_rgba(15,23,42,0.18),_0_2px_4px_rgba(15,23,42,0.08)] active:cursor-grabbing"
+      className="absolute left-0 top-0 flex h-[72px] w-[72px] cursor-grab items-center justify-center overflow-hidden rounded-full active:cursor-grabbing"
       style={{
+        // Layered look: snapshot (or fallback brand color) as the base,
+        // then a subtle white inner ring via box-shadow inset for the
+        // "lens" feel, then the multi-layer drop shadow with the
+        // brand-color halo. The ring is INSIDE the rounded clip so it
+        // hugs the snapshot edge cleanly.
         background: hasSnapshot ? `center/cover no-repeat url(${snapshot})` : fallbackColor,
+        boxShadow: `${bubbleShadow}, inset 0 0 0 1.5px rgba(255,255,255,0.55)`,
+        // Liquid glass treatment when there's no snapshot — the
+        // background fallback color shows through and the blur picks
+        // up whatever's behind the bubble (the wallet's pale chrome).
+        // When a snapshot is present we skip the blur because the
+        // snapshot already provides the visual mass.
+        backdropFilter: hasSnapshot ? undefined : 'blur(12px) saturate(1.4)',
+        WebkitBackdropFilter: hasSnapshot ? undefined : 'blur(12px) saturate(1.4)',
         touchAction: 'none',
         WebkitTouchCallout: 'none',
         userSelect: 'none'
       }}
     >
+      {/* Subtle gradient overlay on top of the snapshot for depth —
+          a soft white-to-transparent at the top adds a "rim light"
+          effect that makes the bubble feel like a 3D lens. */}
+      {hasSnapshot && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 35%)'
+          }}
+        />
+      )}
       {!hasSnapshot && (
         <>
           {showFavicon ? (
             <img
               src={session.favicon ?? undefined}
               alt=""
-              className="h-7 w-7 object-contain"
+              className="h-8 w-8 object-contain drop-shadow-[0_1px_2px_rgba(15,23,42,0.25)]"
               onError={() => setIconBroken(true)}
               draggable={false}
             />
           ) : (
-            <span className="text-xl font-semibold text-pure-white">{fallbackLetter}</span>
+            <span className="text-2xl font-semibold text-pure-white drop-shadow-[0_1px_2px_rgba(15,23,42,0.35)]">
+              {fallbackLetter}
+            </span>
           )}
         </>
       )}

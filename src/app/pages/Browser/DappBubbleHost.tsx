@@ -24,7 +24,15 @@ import { getSnapshot, subscribeSnapshots } from 'lib/dapp-browser/snapshot-store
 
 import { DappBubble } from './DappBubble';
 
-const FOOTER_HEIGHT_FALLBACK = 88;
+// Bumped from 88 → 110 (+22) so the bubbles sit flush above the
+// native navbar pill with a 4pt visible gap. The pill is 76pt tall
+// and sits 12pt above the home-indicator safe area, plus the typical
+// safe area inset of ~34pt — the 22pt bump pushes the bubble up by
+// the difference so its bottom edge sits cleanly at the pill's top
+// edge instead of overlapping the upper portion of the pill (which
+// the previous 88 value did, hiding ~18pt of the bubble behind the
+// native navbar UIWindow).
+const FOOTER_HEIGHT_FALLBACK = 110;
 const MAX_VISIBLE_BUBBLES = 3;
 
 export const DappBubbleHost: FC = () => {
