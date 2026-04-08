@@ -67,9 +67,14 @@ export const BrowserScreen: FC = () => {
     [open]
   );
 
-  // The shared LayoutGroup id ties the tile's `layoutId={`dapp-tile-${url}`}`
-  // (and child favicon/name layoutIds) to the matching ones on `<CapsuleBar>`,
-  // so opening a dApp from the launcher morphs the tile into the capsule.
+  // The shared LayoutGroup id ties the launcher tile's child favicon +
+  // name `layoutId`s (`dapp-favicon-${url}`, `dapp-name-${url}`) to the
+  // matching ones on `<CapsuleBar>`, so opening a dApp from the launcher
+  // morphs those elements into the capsule. The outer tile button
+  // deliberately has NO `layoutId` — earlier it had `dapp-tile-${url}`
+  // but nothing else in the tree shared that id, so it was tracked by
+  // LayoutGroup for nothing useful AND caused framer-motion's layout
+  // tracker to suppress the tile's drop-in entry animation.
   return (
     <LayoutGroup id="dapp-browser">
       {mode === 'active' ? <DappActive /> : <DappLauncher onOpen={handleOpen} />}

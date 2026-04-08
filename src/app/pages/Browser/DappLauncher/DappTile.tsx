@@ -8,7 +8,7 @@
  * up at `BrowserScreen` level) wires the two surfaces together.
  */
 
-import React, { type FC, useEffect, useState } from 'react';
+import React, { type FC, useState } from 'react';
 
 import { motion } from 'framer-motion';
 
@@ -58,23 +58,6 @@ export const DappTile: FC<DappTileProps> = ({
   // tile → capsule collapses to an instant switch when the user has
   // reduce motion on.
   const springs = useSprings();
-  // State-driven entry animation: tiles start hidden (y: -16, opacity
-  // 0) and flip visible after `entryBaseDelay + animationIndex * 0.04`
-  // seconds. This sidesteps framer-motion's `initial` prop entirely,
-  // which doesn't play nicely with elements inside a `LayoutGroup` —
-  // when the outer `<BrowserScreen>` wraps the launcher in
-  // `<LayoutGroup id="dapp-browser">` for the tile → capsule morph,
-  // framer-motion's layout tracker intercepts any element that has
-  // a `layoutId` and its `initial` → `animate` entry gets suppressed
-  // or distorted. By driving the animation through a React state
-  // flip (isVisible false → true) instead of initial, we use the
-  // normal `animate` path which layout-tracked elements respect.
-  const [isVisible, setIsVisible] = useState(false);
-  useEffect(() => {
-    const delayMs = Math.round((entryBaseDelay + animationIndex * 0.04) * 1000);
-    const timer = window.setTimeout(() => setIsVisible(true), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [entryBaseDelay, animationIndex]);
 
   const handleClick = () => {
     hapticLight();
@@ -94,18 +77,21 @@ export const DappTile: FC<DappTileProps> = ({
   return (
     <motion.button
       type="button"
-      layoutId={`dapp-tile-${url}`}
-      // `initial={false}` tells framer-motion to start at the current
-      // `animate` values without playing an entry animation from
-      // `initial`. Combined with the state-driven `isVisible` flip
-      // above, the first render places the tile at (opacity 0, y -16)
-      // and the timeout-triggered state change animates it to
-      // (opacity 1, y 0). This avoids the `initial` → LayoutGroup
-      // interference bug where layoutId-tracked elements skip their
-      // entry animation entirely.
-      initial={false}
-      animate={{ opacity: isVisible ? 1 : 0, y: isVisible ? 0 : -16 }}
-      transition={springs.snappy}
+      // Entry animation: tiles drop from 20pt above their final
+      // position down into place. No `layoutId` on the button because
+      // nothing else in the app shares that id — the actual tile →
+      // capsule morph is handled by the INNER favicon + name elements
+      // which have their own `layoutId`s. Keeping layoutId off the
+      // button is what makes `initial` fire reliably; elements
+      // tracked by the launcher's `LayoutGroup` get their initial
+      // prop intercepted by framer-motion's layout system, which was
+      // causing the drop animation to be skipped entirely.
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        ...springs.snappy,
+        delay: entryBaseDelay + animationIndex * 0.04
+      }}
       onClick={handleClick}
       className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
       aria-label={accessibleLabel}
