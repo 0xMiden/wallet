@@ -142,10 +142,18 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
                 badge={dapp.badge}
                 onOpen={onOpen}
                 animationIndex={index}
-                // Delay past the 150ms `mobile-page-enter` tab slide-in
-                // so tiles animate from rest rather than mid-transform.
-                // Matches Recents' natural "after the tab settles" feel.
-                entryBaseDelay={0.2}
+                // No `entryBaseDelay` override — tiles animate
+                // immediately after mount (with per-index stagger),
+                // WHICH OVERLAPS THE TAB SLIDE-IN TRANSFORM. This is
+                // intentional: the parent's `translateX(8%) → 0`
+                // animation composes with the tile's own `y: -48 → 0`
+                // to produce a diagonal "drop in from top right"
+                // motion that matches Recents (which also mounts
+                // during the tab transition, via its async data
+                // load). Earlier we delayed past the transition to
+                // isolate the drop, but that produced a PURELY
+                // vertical fall while Recents got the diagonal —
+                // visually inconsistent.
               />
             </div>
           ))}
