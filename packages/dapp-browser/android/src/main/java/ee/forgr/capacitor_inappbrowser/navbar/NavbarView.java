@@ -1,6 +1,7 @@
 package ee.forgr.capacitor_inappbrowser.navbar;
 
 import android.content.Context;
+import android.os.Build;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -108,12 +109,19 @@ public final class NavbarView extends FrameLayout {
 
         // ─── Build the pill hierarchy ────────────────────────────
 
-        // Shadow wrap — outer view that hosts elevation so the blur
-        // container can clip its own contents without clipping the
-        // drop shadow. Matches iOS `shadowWrap`.
+        // Shadow wrap — outer view that exists only to prevent
+        // clipping of the blurContainer's drop shadow. It has no
+        // background of its own; the actual shadow lives on
+        // blurContainer via its elevation + its rounded outline
+        // (derived from the pill background shape drawable).
+        //
+        // Without shadowWrap.clipChildren=false + our own
+        // setClipChildren(false), Android would clip the shadow
+        // to shadowWrap's bounds, cutting off the bottom of the
+        // shadow below the pill.
         shadowWrap = new FrameLayout(context);
-        shadowWrap.setElevation(dp(8));
         shadowWrap.setClipChildren(false);
+        shadowWrap.setClipToPadding(false);
         addView(
             shadowWrap,
             new FrameLayout.LayoutParams(
@@ -121,6 +129,11 @@ public final class NavbarView extends FrameLayout {
                 LayoutParams.WRAP_CONTENT
             )
         );
+        // Ensure THIS view (NavbarView) also doesn't clip its
+        // children's shadows — otherwise the pill shadow would
+        // be cropped by our own bounds.
+        setClipChildren(false);
+        setClipToPadding(false);
 
         // Blur container — the actual pill. Rounded 26dp corners,
         // translucent white fill.
@@ -144,6 +157,22 @@ public final class NavbarView extends FrameLayout {
         blurContainer = new FrameLayout(context);
         blurContainer.setBackgroundResource(R.drawable.navbar_pill_bg);
         blurContainer.setClipToOutline(true);
+        // Drop shadow — elevation lives on the pill itself because
+        // the pill has a background drawable (rounded 26dp shape)
+        // which Android uses as the outline for the shadow render.
+        // Without a background, elevation would render no shadow.
+        //
+        // iOS uses shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]. On
+        // Android we can't directly set the blur radius or y-offset
+        // (elevation maps to a composite of both), so we pick
+        // elevation=10dp which visually approximates the iOS 20pt
+        // blur at 8% alpha. Shadow tinting on API 28+ matches iOS's
+        // pure-black color exactly.
+        blurContainer.setElevation(dp(10));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            blurContainer.setOutlineAmbientShadowColor(0xFF000000);
+            blurContainer.setOutlineSpotShadowColor(0xFF000000);
+        }
         FrameLayout.LayoutParams blurLp = new FrameLayout.LayoutParams(
             LayoutParams.MATCH_PARENT,
             LayoutParams.WRAP_CONTENT

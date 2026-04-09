@@ -3,11 +3,21 @@
     <color name="disable">#36262626</color>
     <color name="enable">#262626</color>
 
-    <!-- Miden navbar tokens — match iOS MidenNavbarOverlayWindow. -->
-    <!-- Main-row active color: pill-active orange #FF6B00 -->
+    <!-- Miden navbar tokens — match iOS MidenNavbarOverlayWindow
+         exactly. Each color is derived by converting the iOS
+         UIColor(red/green/blue/alpha) floats to 0-255 bytes,
+         respecting standard rounding rules so the hex is pixel-
+         identical to the iOS render. -->
+    <!-- Main-row active color: pill-active orange.
+         iOS: UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
+         → rgb(255, 107, 0) -->
     <color name="navbar_active">#FFFF6B00</color>
-    <!-- Main-row inactive color: heading gray (#4C4C56 matches iOS) -->
-    <color name="navbar_inactive">#FF4C4C56</color>
-    <!-- Secondary-row active background: slate @ 8% -->
+    <!-- Main-row inactive color: heading gray.
+         iOS: UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
+         → rgb(77, 77, 87) (0.30*255=76.5, 0.34*255=86.7, rounded) -->
+    <color name="navbar_inactive">#FF4D4D57</color>
+    <!-- Secondary-row active background: slate @ 8%.
+         iOS: UIColor(red: 15/255, green: 23/255, blue: 42/255, alpha: 0.08)
+         → rgba(15, 23, 42, 20) -->
     <color name="navbar_secondary_active_bg">#140F172A</color>
 </resources>

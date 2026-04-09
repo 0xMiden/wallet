@@ -98,16 +98,29 @@ public final class NavbarOverlayManager {
     }
 
     /**
-     * Detach and destroy the Activity-scoped view. Called when the
-     * plugin is being shut down (e.g. Activity destroy).
+     * Detach and destroy every NavbarView instance tracked by this
+     * manager — the Activity-scoped one AND any lingering
+     * Dialog-scoped ones. Called when the plugin is being shut
+     * down (e.g. Activity destroy), so the state holder has zero
+     * observers left and all View references are released for GC.
      */
     public void destroyActivityView() {
-        if (activityView == null) return;
-        ViewGroup parent = (ViewGroup) activityView.getParent();
-        if (parent != null) parent.removeView(activityView);
-        activityView.onDetachedFromManager();
-        activityView = null;
-        Log.d(TAG, "activity view destroyed");
+        // Tear down any Dialog-scoped instances first so the
+        // `dialogStack` is empty when we touch the activity view.
+        for (DialogEntry entry : dialogStack) {
+            ViewGroup parent = (ViewGroup) entry.view.getParent();
+            if (parent != null) parent.removeView(entry.view);
+            entry.view.onDetachedFromManager();
+        }
+        dialogStack.clear();
+
+        if (activityView != null) {
+            ViewGroup parent = (ViewGroup) activityView.getParent();
+            if (parent != null) parent.removeView(activityView);
+            activityView.onDetachedFromManager();
+            activityView = null;
+        }
+        Log.d(TAG, "manager destroyed (observers=" + stateHolder.observerCount() + ")");
     }
 
     // ─── Dialog-scoped view lifecycle ──────────────────────────────────

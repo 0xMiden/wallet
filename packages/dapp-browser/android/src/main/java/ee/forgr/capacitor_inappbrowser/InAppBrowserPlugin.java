@@ -1250,6 +1250,20 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             }
             webViewDialog = null;
         }
+        // Miden navbar — tear down the overlay manager so the
+        // Activity-scoped NavbarView detaches from the decor view
+        // and unsubscribes from the state holder. Without this,
+        // rapid Activity recreate cycles (e.g. rotation with
+        // config changes enabled) could leak NavbarView instances
+        // still subscribed to stale holders.
+        if (navbarManager != null) {
+            try {
+                navbarManager.destroyActivityView();
+            } catch (Exception e) {
+                Log.w("InAppBrowser", "navbar manager destroy failed: " + e.getMessage());
+            }
+            navbarManager = null;
+        }
         currentPermissionRequest = null;
         customTabsClient = null;
         currentSession = null;
