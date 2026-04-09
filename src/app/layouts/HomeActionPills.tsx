@@ -40,7 +40,7 @@
  *    positioning container (same gotcha the peek tray hit).
  */
 
-import React, { type FC, useCallback, useEffect, useState } from 'react';
+import React, { type FC, useCallback } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
@@ -51,13 +51,6 @@ import { springs } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate, useLocation } from 'lib/woozie';
 
-// The tray's bottom offset in main.css is driven by the native
-// navbar pill's height + the home-indicator safe area. We measure
-// the React footer element the same way `DappPeekTray` does so the
-// pill sits right at the peek-tray's vertical level regardless of
-// device.
-const FOOTER_HEIGHT_FALLBACK = 130;
-const MIN_MEASURED_FOOTER = 110;
 // The parked-dApp peek tray occupies the right portion of the same
 // vertical band (card width 104 + 2×30pt cascade offsets + 16pt
 // right margin ≈ 180pt). Anything to the left of that is empty
@@ -67,6 +60,13 @@ const EDGE_PADDING = 16;
 // Pill visual height — intentionally shorter than the main toolbar
 // pill (which is ~76pt) so the secondary row reads as ancillary.
 const PILL_HEIGHT = 56;
+// The native navbar pill's top edge sits approximately 130pt above
+// the viewport's bottom edge (navbar height ~88pt + home-indicator
+// safe area ~34pt + a bit of gutter on iPhone 17). We position our
+// pill's bottom at exactly this value so it sits flush against the
+// navbar's top edge with no visible seam — looks like one
+// integrated two-row unit.
+const NAVBAR_TOP_FROM_BOTTOM = 130;
 
 type PillAction = 'send' | 'receive';
 
@@ -80,7 +80,6 @@ interface PillDef {
 export const HomeActionPills: FC = () => {
   const { t } = useTranslation();
   const { pathname } = useLocation();
-  const [footerHeight, setFooterHeight] = useState(FOOTER_HEIGHT_FALLBACK);
 
   // Visible on Home + the two full-screen flows that the pills
   // launch. Everywhere else the component returns null (and its
@@ -88,23 +87,6 @@ export const HomeActionPills: FC = () => {
   // animation).
   const isVisible =
     pathname === '/' || pathname === '/send' || pathname.startsWith('/send/') || pathname === '/receive';
-
-  // Measure the React footer (same method as `DappPeekTray`). The
-  // footer is `display: none` on mobile once the native navbar is
-  // up, so the measurement goes through the MIN_MEASURED_FOOTER
-  // sanity check — any value below 110pt is almost certainly the
-  // React footer's pre-overlay render and we fall back to the
-  // constant.
-  useEffect(() => {
-    const measure = () => {
-      const footer = document.querySelector('[data-tabbar-footer="true"]') as HTMLElement | null;
-      const measured = footer?.offsetHeight ?? 0;
-      setFooterHeight(measured >= MIN_MEASURED_FOOTER ? measured : FOOTER_HEIGHT_FALLBACK);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
 
   const pills: PillDef[] = [
     {
@@ -149,21 +131,27 @@ export const HomeActionPills: FC = () => {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 24, scale: 0.92 }}
           transition={springs.sheetPresent}
-          className="fixed flex items-center rounded-full"
+          // Container styling mirrors the main toolbar pill in
+          // `<Footer>` so both pills read as the same class of
+          // element: same `rounded-[26px]` corner radius, same
+          // `bg-white/60` translucent fill, same `blur(6px)` backdrop,
+          // same `shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]` drop
+          // shadow. The only difference is this pill's left anchor +
+          // limited width — the main toolbar stretches full-width.
+          className="fixed flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]"
           style={{
-            bottom: footerHeight + 4,
+            // Flush against the top of the native navbar — the
+            // pill's bottom edge sits exactly where the navbar's
+            // top edge is, so there's no visible seam and the two
+            // pills read as one integrated unit.
+            bottom: NAVBAR_TOP_FROM_BOTTOM,
             left: EDGE_PADDING,
             width: pillWidth,
             height: PILL_HEIGHT,
-            // Matches the main toolbar pill's glassy background — a
-            // soft white with heavy backdrop blur so the underlying
-            // page shows through subtly.
-            background: 'rgba(255,255,255,0.82)',
-            backdropFilter: 'blur(24px) saturate(1.6)',
-            WebkitBackdropFilter: 'blur(24px) saturate(1.6)',
-            boxShadow: '0 4px 24px rgba(15,23,42,0.12), 0 1px 3px rgba(15,23,42,0.08)',
-            zIndex: 55,
-            padding: 4
+            backgroundColor: 'rgba(255, 255, 255, 0.6)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            zIndex: 55
           }}
           aria-label={t('homeActionPills') ?? 'Quick actions'}
         >
@@ -176,17 +164,32 @@ export const HomeActionPills: FC = () => {
                 onClick={() => handleTap(pill.path)}
                 aria-label={pill.label}
                 aria-pressed={active}
-                className="relative flex flex-1 items-center justify-center gap-1.5 rounded-full transition-colors"
+                className="relative flex flex-1 items-center justify-center gap-1.5 rounded-full"
                 style={{
-                  height: PILL_HEIGHT - 8,
-                  // Active state uses a pale gray fill (matches the
-                  // main toolbar's active indicator) so the user
-                  // instantly sees which flow they're in.
-                  background: active ? 'rgba(15,23,42,0.08)' : 'transparent'
+                  height: PILL_HEIGHT - 16
                 }}
               >
-                <Icon name={pill.icon} size="sm" className="text-heading-gray" fill="currentColor" />
-                <span className="text-xs font-semibold text-heading-gray">{pill.label}</span>
+                {/* Active-state pill background — mirrors the main
+                    toolbar nav button's styling (bg-pill-active/18 +
+                    rounded-full absolute fill) so a tapped Send /
+                    Receive pill looks identical to a tapped Home /
+                    Activity / Browser tab. */}
+                {active && <span className="absolute inset-0 rounded-full bg-pill-active/18" aria-hidden="true" />}
+                <Icon
+                  name={pill.icon}
+                  size="sm"
+                  className={active ? 'relative z-10 text-pill-active' : 'relative z-10 text-heading-gray'}
+                  fill="currentColor"
+                />
+                <span
+                  className={
+                    active
+                      ? 'relative z-10 text-xs font-semibold text-pill-active'
+                      : 'relative z-10 text-xs font-semibold text-heading-gray'
+                  }
+                >
+                  {pill.label}
+                </span>
               </button>
             );
           })}
