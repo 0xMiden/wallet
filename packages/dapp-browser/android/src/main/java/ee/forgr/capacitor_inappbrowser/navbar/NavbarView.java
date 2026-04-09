@@ -163,34 +163,40 @@ public final class NavbarView extends FrameLayout {
         // Without a background, elevation would render no shadow.
         //
         // iOS uses shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] — a
-        // very soft 20pt blur at 8% alpha.
+        // very soft 20pt blur at 8% alpha. That's subtle enough
+        // that dropping the Android shadow entirely reads as
+        // visually consistent with iOS.
         //
-        // Android shadow reality (gotcha): the alpha component of
-        // setOutlineAmbientShadowColor / setOutlineSpotShadowColor
-        // is IGNORED — only RGB matters. Setting 0xFF000000 (solid
-        // black) yields a fully black shadow at whatever density
-        // the current elevation dictates. With elevation=10dp the
-        // shadow fades from dark grey to nothing over ~20px below
-        // the pill — reading to users as a "grey outline at the
-        // bottom of the navbar" that follows the pill across every
-        // dApp (because it's the pill's own shadow, not dApp
-        // content).
+        // Android shadow gotchas that burned us:
         //
-        // Fix: use a light-grey RGB for the shadow color so the
-        // rendered shadow is much subtler, AND drop elevation from
-        // 10dp to 4dp so the shadow doesn't extend as far below
-        // the pill. The combination matches iOS's 8% black soft
-        // shadow far more closely than the previous 10dp + solid
-        // black did.
-        blurContainer.setElevation(dp(4));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            // 0xFF808080 = middle grey. Alpha is ignored by the
-            // platform; only the RGB channels modulate the shadow
-            // darkness. This yields a faint shadow instead of a
-            // solid black band.
-            blurContainer.setOutlineAmbientShadowColor(0xFF808080);
-            blurContainer.setOutlineSpotShadowColor(0xFF808080);
-        }
+        // 1. setOutline{Ambient,Spot}ShadowColor IGNORES the alpha
+        //    channel — only RGB matters. 0xFF000000 produces a
+        //    fully black shadow at whatever density the elevation
+        //    dictates, far heavier than iOS.
+        //
+        // 2. The elevation shadow follows the view's Outline
+        //    (which for a rounded-rect background drawable is the
+        //    rounded rect). The shadow wraps around the corners,
+        //    so even a faint shadow at the straight edges becomes
+        //    a clearly visible curved grey outline at the rounded
+        //    bottom corners. Users perceive this as a permanent
+        //    "grey outline" below the pill that follows it across
+        //    every dApp.
+        //
+        // 3. Lowering elevation + using a light-grey RGB makes the
+        //    straight-edge shadow fade but STILL leaves a visible
+        //    corner outline because the corner-wrapping
+        //    concentrates any remaining shadow into a curve that
+        //    contrasts with its surroundings.
+        //
+        // The only reliable cure is setting elevation to 0 — no
+        // shadow at all. iOS's 8% alpha shadow is faint enough
+        // that a flat Android pill looks equivalent to a user
+        // glancing between platforms. If we later need a subtle
+        // shadow we can fake it with a multi-layer
+        // GradientDrawable background rather than trusting the
+        // platform shadow pipeline.
+        blurContainer.setElevation(0f);
         FrameLayout.LayoutParams blurLp = new FrameLayout.LayoutParams(
             LayoutParams.MATCH_PARENT,
             LayoutParams.WRAP_CONTENT

@@ -3188,36 +3188,69 @@ public class WebViewDialog extends Dialog {
 
         getWindow().setAttributes(params);
 
-        // Miden patch: ensure the inner content_browser_layout
-        // fills the full Dialog frame (i.e. extends down to the
-        // screen bottom when in blank-toolbar mode). The WebView
-        // inside it inherits the size via MATCH_PARENT, so dApp
-        // content can scroll behind the translucent navbar pill
-        // all the way to the gesture bar — matching iOS, where
-        // the WKWebView is stacked beneath the translucent navbar
-        // UIWindow with no visible gap.
-        ensureContentFillsDialog();
+        // Miden patch: reserve the bottom strip of the Dialog for
+        // the floating navbar pill by pushing the content_browser_
+        // layout up with a bottom margin. The WebView inside it
+        // shrinks accordingly, so dApp content no longer extends
+        // behind the navbar pill — eliminating the "grey outline"
+        // users saw when dApp fixed-bottom content (sticky CTAs,
+        // progress bars, footers) rendered just under the pill
+        // and bled through the pill's translucent background and
+        // around its rounded corners.
+        //
+        // The reservation is 120dp — large enough to fit:
+        //   - 76dp pill content (60dp main button + 16dp padding)
+        //   - 12dp pill→gesture-bar gap (BOTTOM_GAP_DP)
+        //   - 24dp gesture-bar inset on Android gesture nav
+        //   - 8dp breathing room above the pill so dApp content
+        //     doesn't crash into the pill's top edge
+        //
+        // The dApp Dialog is only used in dapp-foreground mode
+        // where the native navbar hides its secondary row (see
+        // DappBrowserProvider.tsx), so we only need to account for
+        // the single-row pill height. When secondary row is active
+        // the user is on a non-dApp tab and this Dialog isn't
+        // shown.
+        //
+        // Below the WebView, the Dialog decor is transparent
+        // (set in setupToolbar's blank branch), so the Activity's
+        // wallet background shows through — a beige strip around
+        // and below the floating pill. This matches the iOS
+        // layering where the Capacitor host window is visible in
+        // the pill's side margins and in the gap between pill
+        // and home indicator.
+        ensureContentReservesNavbarSpace();
     }
 
     /**
-     * Miden patch — guarantee the {@code content_browser_layout}
-     * (which hosts the WebView) uses MATCH_PARENT height so it
-     * fills the full Dialog frame. The layout XML defaults to
-     * match_parent, but historically we experimented with pinning
-     * the height to the slot rect — that left visible gaps at the
-     * pill's rounded corners and below the pill where the Activity
-     * background showed through. Always resetting the height here
-     * makes the operation idempotent and immune to any previous
-     * override that's still held by a cached LayoutParams.
+     * Miden patch — set the bottom margin on
+     * {@code content_browser_layout} to reserve 120dp of vertical
+     * space at the bottom of the Dialog for the navbar pill. The
+     * inner WebView inherits this via MATCH_PARENT, so its visible
+     * bottom edge lands ~120dp above the Dialog bottom (= above
+     * the pill top).
+     *
+     * Idempotent: safe to call on every applyDimensions pass.
      */
-    private void ensureContentFillsDialog() {
+    private void ensureContentReservesNavbarSpace() {
         View contentBrowserLayout = findViewById(R.id.content_browser_layout);
         if (contentBrowserLayout == null) return;
         ViewGroup.LayoutParams lp = contentBrowserLayout.getLayoutParams();
-        if (lp == null) return;
-        if (lp.height != ViewGroup.LayoutParams.MATCH_PARENT) {
-            lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
-            contentBrowserLayout.setLayoutParams(lp);
+        if (!(lp instanceof ViewGroup.MarginLayoutParams)) return;
+        ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+        int reservedPx = (int) getPixels(120);
+        boolean changed = false;
+        if (mlp.height != ViewGroup.LayoutParams.MATCH_PARENT) {
+            mlp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            changed = true;
+        }
+        if (mlp.bottomMargin != reservedPx) {
+            mlp.bottomMargin = reservedPx;
+            changed = true;
+        }
+        if (changed) {
+            contentBrowserLayout.setLayoutParams(mlp);
+            Log.d("InAppBrowser", "reserved " + reservedPx + "px for navbar below content");
         }
     }
 
