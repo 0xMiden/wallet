@@ -11,8 +11,8 @@ const test = base.extend({
 });
 
 test('creates a wallet and syncs state via MidenClient.createMock', async ({ sdk, mockClient }) => {
+  // Defaults to a mutable wallet when `type` is omitted.
   const wallet = await mockClient.accounts.create({
-    type: sdk.AccountType.MutableWallet,
     storage: sdk.StorageMode.Public,
     seed: TEST_SEED
   });
