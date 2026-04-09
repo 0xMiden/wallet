@@ -894,13 +894,22 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     }
 
     // Determine which pill should be highlighted. Pages that aren't
-    // a top-level destination (send, receive, settings, faucet, etc.)
-    // pass null so no pill is active — the navbar still shows but
-    // none of the three pills look "selected". Same pattern iOS uses
-    // when you drill into a settings sub-page from a tab bar.
+    // a top-level destination (send, receive, faucet, etc.) pass null
+    // so no pill is active — the navbar still shows but none of the
+    // three pills look "selected". Same pattern iOS uses when you
+    // drill into a sub-page from a tab bar.
+    //
+    // /token-detail/:tokenId is the per-token activity view reached
+    // by tapping a token row on Home. It's conceptually part of the
+    // activity surface — the entire page is the token's transaction
+    // history — so it highlights the activity pill, not home.
     let activeId: string | null = null;
     if (path === '/') activeId = 'home';
-    else if (path.startsWith('/history') || path.startsWith('/history-details') || path.startsWith('/token-history'))
+    else if (
+      path.startsWith('/history') ||
+      path.startsWith('/history-details') ||
+      path.startsWith('/token-detail')
+    )
       activeId = 'activity';
     else if (path === '/browser' || path.startsWith('/select-account') || path.startsWith('/manage-assets'))
       activeId = 'browser';
@@ -931,12 +940,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     navbarShownRef.current = true;
   }, [location.pathname, walletShellActive, t]);
 
-  // Drive the native navbar's secondary row (Send / Receive quick
-  // actions). Visible on Home / Send / Receive routes only. When
-  // visible on /send or /receive, the matching pill gets highlighted
-  // (mirrors the main nav row's active state). On other routes we
-  // clear the row by passing an empty items array, which animates
-  // the pill back to its single-row height on a spring curve.
+  // Drive the native navbar's secondary row (Send / Receive / Settings
+  // quick actions). Visible on Home / Send / Receive / Settings routes.
+  // When visible on /send, /receive, or /settings, the matching pill
+  // gets highlighted (mirrors the main nav row's active state). On
+  // other routes we clear the row by passing an empty items array,
+  // which animates the pill back to its single-row height on a spring
+  // curve.
   //
   // Gated on `navbarShownRef` so we don't try to populate a secondary
   // row on a navbar that hasn't been created yet — the main navbar
@@ -946,7 +956,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (!navbarShownRef.current) return;
     const path = location.pathname;
 
-    const isSecondaryVisible = path === '/' || path === '/send' || path.startsWith('/send/') || path === '/receive';
+    const isSecondaryVisible =
+      path === '/' ||
+      path === '/send' ||
+      path.startsWith('/send/') ||
+      path === '/receive' ||
+      path === '/settings' ||
+      path.startsWith('/settings/');
 
     if (!isSecondaryVisible) {
       InAppBrowser.setNavbarSecondaryRow({ items: [] }).catch(() => {});
@@ -954,19 +970,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     }
 
     // Highlight the pill matching the current route. On `/` nothing is
-    // active (both pills are inert taps that launch their flow).
+    // active (the pills are inert taps that launch their flow). On any
+    // settings sub-tab the Settings pill stays highlighted.
     let secondaryActiveId: string | null = null;
     if (path === '/send' || path.startsWith('/send/')) secondaryActiveId = 'send';
     else if (path === '/receive') secondaryActiveId = 'receive';
+    else if (path === '/settings' || path.startsWith('/settings/')) secondaryActiveId = 'settings';
 
-    // SF Symbols chosen to mirror the React `ArrowRightUp` /
-    // `ArrowRightDown` icons used by the previous React-based pills:
+    // SF Symbols chosen to mirror the React icons used across the
+    // wallet:
     // - arrow.up.right is the filled-diagonal "send" arrow
     // - arrow.down.left is its mirror for "receive"
+    // - gearshape.fill is the standard iOS settings glyph
     InAppBrowser.setNavbarSecondaryRow({
       items: [
         { id: 'send', title: t('send'), sfSymbol: 'arrow.up.right' },
-        { id: 'receive', title: t('receive'), sfSymbol: 'arrow.down.left' }
+        { id: 'receive', title: t('receive'), sfSymbol: 'arrow.down.left' },
+        { id: 'settings', title: t('settings'), sfSymbol: 'gearshape.fill' }
       ],
       activeId: secondaryActiveId
     }).catch(() => {});
@@ -1013,10 +1033,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     };
   }, []);
 
-  // Forward secondary-row (Send / Receive) taps from the native navbar
-  // to the woozie router. Tapping the pill for a route you're already
-  // on is a no-op — mirrors the main nav row behavior where tapping
-  // HOME while on Home doesn't stack a duplicate history entry.
+  // Forward secondary-row (Send / Receive / Settings) taps from the
+  // native navbar to the woozie router. Tapping the pill for a route
+  // you're already on is a no-op — mirrors the main nav row behavior
+  // where tapping HOME while on Home doesn't stack a duplicate
+  // history entry.
   useEffect(() => {
     if (!isMobile()) return;
     let handle: { remove: () => void } | undefined;
@@ -1029,6 +1050,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         } else if (event?.id === 'receive') {
           if (path === '/receive') return;
           navigate('/receive');
+        } else if (event?.id === 'settings') {
+          // Any /settings/* sub-tab counts as "already on settings"
+          // to avoid bouncing the user off the sub-tab they picked.
+          if (path === '/settings' || path.startsWith('/settings/')) return;
+          navigate('/settings');
         }
       });
       handle = sub;
