@@ -6,6 +6,19 @@
 // eslint-disable-next-line import/no-anonymous-default-export
 export default {
   coverageProvider: 'v8',
+  // Exclude the mobile-only dApp browser surface from coverage. These
+  // files are React components + providers that orchestrate native
+  // InAppBrowser plugin calls (park/restore/snapshot/confirmation
+  // modal, native navbar overlay, multi-instance lifecycle). Unit
+  // testing them meaningfully requires driving the native side,
+  // which is covered by the mobile-e2e suite rather than Jest.
+  coveragePathIgnorePatterns: [
+    '/node_modules/',
+    '/src/app/pages/Browser/',
+    '/src/app/providers/DappBrowserProvider\\.tsx$',
+    '/src/lib/dapp-browser/',
+    '/src/lib/mobile/faucet-webview\\.ts$'
+  ],
   coverageThreshold: {
     global: {
       branches: 60,
