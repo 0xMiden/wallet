@@ -148,6 +148,17 @@ public final class NavbarOverlayManager {
     }
 
     /**
+     * Called after {@code Dialog.hide()} or {@code Dialog.show()} is
+     * invoked by the plugin's setVisible handler. Re-runs the
+     * visibility arbitration so the right NavbarView instance takes
+     * over. Needed because Android's Dialog class has no OnHide
+     * callback — we have to plumb this through the plugin manually.
+     */
+    public void notifyDialogVisibilityChanged(Dialog dialog) {
+        refreshVisibility();
+    }
+
+    /**
      * Detach the NavbarView from a WebViewDialog that's being
      * dismissed. Called from an {@code OnDismissListener} registered
      * on every WebViewDialog.
@@ -177,17 +188,36 @@ public final class NavbarOverlayManager {
     /**
      * Decide which of the active NavbarView instances should be
      * visible and which should be hidden. Called whenever the stack
-     * changes (dialog shown/dismissed) or the state toggles visible.
+     * changes (dialog shown/dismissed/hidden/shown-again) or the
+     * state toggles visible.
      *
-     * Rule: the topmost view in the stack wins. If there are Dialog
-     * views, the most recently added is visible. Otherwise the
-     * Activity view is visible (if it exists).
+     * Rule: the topmost CURRENTLY-SHOWING view in the stack wins.
+     * A Dialog that's been hidden via {@code Dialog.hide()} (our
+     * {@code setVisible(false)} plugin method) still has its
+     * NavbarView attached to the Dialog's decor view, but the
+     * Dialog Window is detached from the screen — so the Dialog
+     * NavbarView is not actually visible. We skip hidden Dialogs
+     * when picking the top so the Activity NavbarView takes over,
+     * which IS visible.
+     *
+     * Without this filter, parking a dApp makes the navbar
+     * disappear entirely: the Activity view is hidden (because
+     * a Dialog is still "top" by insertion order) AND the Dialog
+     * view is invisible (because the Dialog itself is hidden).
      */
     private void refreshVisibility() {
         NavbarView top = null;
-        if (!dialogStack.isEmpty()) {
-            top = dialogStack.get(dialogStack.size() - 1).view;
-        } else if (activityView != null) {
+        // Walk the Dialog stack from most-recent to oldest and pick
+        // the first one whose Dialog is currently showing.
+        for (int i = dialogStack.size() - 1; i >= 0; i--) {
+            DialogEntry entry = dialogStack.get(i);
+            if (entry.dialog.isShowing()) {
+                top = entry.view;
+                break;
+            }
+        }
+        // No showing Dialog → fall back to the Activity instance.
+        if (top == null && activityView != null) {
             top = activityView;
         }
         // Hide all non-top views.

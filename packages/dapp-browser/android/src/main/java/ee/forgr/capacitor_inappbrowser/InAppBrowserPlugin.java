@@ -1408,6 +1408,15 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                                 dialog.hide();
                             }
                         }
+                        // Miden navbar — notify the overlay manager so
+                        // it re-picks the topmost visible NavbarView.
+                        // Without this, parking a dApp leaves the
+                        // hidden Dialog's NavbarView as "top" in the
+                        // stack while its Window is detached, and the
+                        // Activity-scoped navbar never takes over.
+                        if (navbarManager != null) {
+                            navbarManager.notifyDialogVisibilityChanged(dialog);
+                        }
                         call.resolve();
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "setVisible failed: " + e.getMessage());
