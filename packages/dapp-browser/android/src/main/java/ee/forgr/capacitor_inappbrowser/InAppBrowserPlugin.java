@@ -30,6 +30,8 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import ee.forgr.capacitor_inappbrowser.navbar.NavbarOverlayManager;
+import ee.forgr.capacitor_inappbrowser.navbar.NavbarState;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -62,12 +64,190 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     private ActivityResultLauncher<Intent> fileChooserLauncher;
 
+    // Miden patch — Android port of iOS MidenNavbarOverlayWindow.
+    // Lazily-initialized the first time a native navbar plugin method
+    // is called (showNativeNavbar). Owns the NavbarStateHolder, all
+    // NavbarView instances (Activity + Dialog-scoped), and the
+    // re-parenting arbitration logic.
+    private NavbarOverlayManager navbarManager;
+
     @Override
     public void load() {
         super.load();
         fileChooserLauncher = getActivity().registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
             this::handleFileChooserResult
+        );
+    }
+
+    /**
+     * Lazily construct the navbar manager on the UI thread. Every
+     * navbar plugin method funnels through this to avoid races where
+     * multiple JS calls land before the manager has been created.
+     */
+    private NavbarOverlayManager getOrCreateNavbarManager() {
+        if (navbarManager == null) {
+            navbarManager = new NavbarOverlayManager(getActivity());
+            navbarManager.setTapCallback(
+                new NavbarOverlayManager.TapCallback() {
+                    @Override
+                    public void onItemTap(String id) {
+                        JSObject data = new JSObject();
+                        data.put("id", id);
+                        notifyListeners("nativeNavbarTap", data);
+                    }
+
+                    @Override
+                    public void onSecondaryTap(String id) {
+                        JSObject data = new JSObject();
+                        data.put("id", id);
+                        notifyListeners("nativeNavbarSecondaryTap", data);
+                    }
+
+                    @Override
+                    public void onActionTap() {
+                        notifyListeners("nativeNavbarActionTap", new JSObject());
+                    }
+                }
+            );
+        }
+        return navbarManager;
+    }
+
+    /**
+     * Parse a JS array of {@code {id, title, sfSymbol}} objects into
+     * {@link NavbarState.Item} instances. The iOS side uses
+     * {@code sfSymbol} for the icon name; on Android we reuse the
+     * same field but look up an Android drawable by a matching name
+     * mapping (nav_home, nav_activity, nav_browser, nav_send, etc).
+     */
+    private java.util.List<NavbarState.Item> decodeNavbarItems(JSArray raw) throws JSONException {
+        java.util.List<NavbarState.Item> out = new java.util.ArrayList<>();
+        if (raw == null) return out;
+        for (int i = 0; i < raw.length(); i++) {
+            JSONObject obj = raw.getJSONObject(i);
+            String id = obj.optString("id", null);
+            String title = obj.optString("title", "");
+            // Both "sfSymbol" and "iconDrawableName" are accepted so
+            // the JS side can keep sending iOS-style SF Symbol names
+            // and the Android Java side will map them to local
+            // drawables at bind time.
+            String icon = obj.optString("sfSymbol", null);
+            if (icon == null) icon = obj.optString("iconDrawableName", null);
+            if (id == null) continue;
+            out.add(new NavbarState.Item(id, title, icon));
+        }
+        return out;
+    }
+
+    @PluginMethod
+    public void showNativeNavbar(PluginCall call) {
+        final JSArray itemsRaw = call.getArray("items");
+        if (itemsRaw == null) {
+            call.reject("items array is required");
+            return;
+        }
+        final String activeId = call.getString("activeId");
+        this.getActivity().runOnUiThread(
+            () -> {
+                try {
+                    java.util.List<NavbarState.Item> items = decodeNavbarItems(itemsRaw);
+                    if (items.isEmpty()) {
+                        call.reject("at least one item is required");
+                        return;
+                    }
+                    getOrCreateNavbarManager().show(items, activeId);
+                    call.resolve();
+                } catch (Exception e) {
+                    Log.e("InAppBrowser", "showNativeNavbar failed", e);
+                    call.reject("showNativeNavbar failed: " + e.getMessage());
+                }
+            }
+        );
+    }
+
+    @PluginMethod
+    public void hideNativeNavbar(PluginCall call) {
+        this.getActivity().runOnUiThread(
+            () -> {
+                if (navbarManager != null) navbarManager.hide();
+                call.resolve();
+            }
+        );
+    }
+
+    @PluginMethod
+    public void setNativeNavbarActive(PluginCall call) {
+        final String id = call.getString("id");
+        this.getActivity().runOnUiThread(
+            () -> {
+                if (navbarManager != null) navbarManager.setActive(id);
+                call.resolve();
+            }
+        );
+    }
+
+    @PluginMethod
+    public void setNavbarSecondaryRow(PluginCall call) {
+        final JSArray itemsRaw = call.getArray("items");
+        final String activeId = call.getString("activeId");
+        this.getActivity().runOnUiThread(
+            () -> {
+                try {
+                    java.util.List<NavbarState.Item> items = decodeNavbarItems(itemsRaw);
+                    getOrCreateNavbarManager().setSecondaryItems(items, activeId);
+                    call.resolve();
+                } catch (Exception e) {
+                    Log.e("InAppBrowser", "setNavbarSecondaryRow failed", e);
+                    call.reject("setNavbarSecondaryRow failed: " + e.getMessage());
+                }
+            }
+        );
+    }
+
+    @PluginMethod
+    public void setNavbarAction(PluginCall call) {
+        final String label = call.getString("label");
+        if (label == null) {
+            call.reject("label is required");
+            return;
+        }
+        final boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", true));
+        this.getActivity().runOnUiThread(
+            () -> {
+                getOrCreateNavbarManager().setAction(label, enabled);
+                call.resolve();
+            }
+        );
+    }
+
+    @PluginMethod
+    public void clearNavbarAction(PluginCall call) {
+        this.getActivity().runOnUiThread(
+            () -> {
+                if (navbarManager != null) navbarManager.clearAction();
+                call.resolve();
+            }
+        );
+    }
+
+    @PluginMethod
+    public void morphNavbarOut(PluginCall call) {
+        this.getActivity().runOnUiThread(
+            () -> {
+                if (navbarManager != null) navbarManager.morphOut();
+                call.resolve();
+            }
+        );
+    }
+
+    @PluginMethod
+    public void morphNavbarIn(PluginCall call) {
+        this.getActivity().runOnUiThread(
+            () -> {
+                if (navbarManager != null) navbarManager.morphIn();
+                call.resolve();
+            }
         );
     }
 
