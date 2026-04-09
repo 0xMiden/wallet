@@ -169,7 +169,7 @@ async function fetchNotesFromLocalClient(
 
 // -------------------- Extension hook (reads from Zustand) --------------------
 
-function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
+function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
   const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);

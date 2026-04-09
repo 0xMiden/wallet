@@ -2252,6 +2252,165 @@
     "message": "Favoris",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Rechercher des dApps ou coller l'URL",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "En vedette",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Mes dApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Récents",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Faites défiler vers la gauche",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Faites défiler vers la droite",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Actions rapides",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Parcourir",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DéFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Outils",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Sociale",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "Pas encore de dApps dans cette catégorie",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Explorez l'écosystème Miden",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Minimiser",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Changer de dApp",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Recharger",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Plus d'options",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Actions dApp",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Copier le lien",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Ajouter à mes Dapps",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Supprimer de mes Dapps",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Rouvrir",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Restaurer $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Fermer $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ plus de dApps garées",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Lien copié",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Ajouté à Mes Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Impossible de charger cette dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Vérifiez votre connexion et réessayez.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "En-tête du navigateur dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Faites glisser vers le bas pour minimiser",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "sélecteur dApp",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Fermer le sélecteur dApp",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 application ouverte",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} dApps ouvertes",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Approuver",
     "englishSource": "Approve"

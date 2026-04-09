@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { InputNoteState } from '@miden-sdk/miden-sdk';
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +15,7 @@ import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { QRCode } from 'components/QRCode';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { formatBigInt } from 'lib/i18n/numbers';
 import {
   getFailedTransactions,
@@ -25,7 +27,6 @@ import {
 import { AssetMetadata, useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { InputNoteState } from '@miden-sdk/miden-sdk';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
@@ -250,10 +251,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     const noteIds = freshUnclaimedNotes.map(n => n!.id);
     setClaimingNoteIds(new Set(noteIds));
 
-    // Track results
-    let failed = 0;
-    let queueFailed = 0;
-
     // Clear previous failures
     setFailedNoteIds(new Set());
 
@@ -267,7 +264,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
           transactionIds.push({ noteId: note.id, txId: id });
         } catch (err) {
           console.error('Error queuing note for claim:', note.id, err);
-          queueFailed++;
           // Mark as failed and remove from claiming set
           setFailedNoteIds(prev => new Set(prev).add(note.id));
           setClaimingNoteIds(prev => {
@@ -324,6 +320,21 @@ export const Receive: React.FC<ReceiveProps> = () => {
     claimingNoteIds,
     individualClaimingIds
   ]);
+
+  // Lift the Claim All button into the native navbar overlay on mobile.
+  // The navbar morphs to compact mode when claimableNotes appear and
+  // back to default when they're all gone — handles the dynamic case
+  // where the background sync surfaces claimable notes mid-page-life.
+  const isClaimingAll = claimingNoteIds.size > 0;
+  useNativeNavbarAction(
+    unclaimedNotes.length > 0
+      ? {
+          label: t('claimAll'),
+          onTap: handleClaimAll,
+          enabled: !isClaimingAll
+        }
+      : null
+  );
 
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
   const containerClass =
@@ -425,7 +436,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
               </div>
             </>
           )}
-          {unclaimedNotes.length > 0 && (
+          {unclaimedNotes.length > 0 && !isMobile() && (
             <div className="flex justify-center mt-4 pb-4 shrink-0">
               <Button
                 className="w-30 h-10 text-md"
@@ -507,17 +518,17 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
   const claimingCount = notes.filter(n => n.isBeingClaimed || claimingNoteIds.has(n.id)).length;
 
   // Single note - render inline without collapsible
-  if (notes.length === 1) {
-    const note = notes[0];
+  const soloNote = notes.length === 1 ? notes[0] : null;
+  if (soloNote) {
     return (
       <SingleNoteRow
-        note={note}
+        note={soloNote}
         account={account}
         mutateClaimableNotes={mutateClaimableNotes}
         isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-        isClaimingFromParent={claimingNoteIds.has(note.id)}
-        hasFailedFromParent={failedNoteIds.has(note.id)}
-        isCheckingFromParent={checkingNoteIds.has(note.id)}
+        isClaimingFromParent={claimingNoteIds.has(soloNote.id)}
+        hasFailedFromParent={failedNoteIds.has(soloNote.id)}
+        isCheckingFromParent={checkingNoteIds.has(soloNote.id)}
         onClaimingStateChange={onClaimingStateChange}
       />
     );
@@ -695,7 +706,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
         setIsLoading(false);
       }
     }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note]);
+  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
 
   const { metadata, faucetId } = note;
   const symbol = metadata?.symbol || 'UNKNOWN';
@@ -820,7 +831,7 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
         setIsLoading(false);
       }
     }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note]);
+  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
 
   const { metadata } = note;
   const formattedAmount = formatBigInt(BigInt(note.amount), metadata?.decimals || 6);

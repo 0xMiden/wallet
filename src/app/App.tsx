@@ -12,6 +12,7 @@ import ErrorBoundary from 'app/ErrorBoundary';
 import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
+import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider } from 'lib/miden/front';
@@ -44,7 +45,21 @@ const App: FC<AppProps> = ({ env }) => {
             <AwaitI18N />
 
             <AwaitFonts name="Geist" weights={[300, 400, 500, 600]} className="antialiased font-geist">
-              <BootAnimation>{env.confirmWindow ? <ConfirmPage /> : <PageRouter />}</BootAnimation>
+              <BootAnimation>
+                {env.confirmWindow ? (
+                  <ConfirmPage />
+                ) : checkIsMobile() ? (
+                  // The DappBrowserProvider owns the embedded dApp webview lifecycle
+                  // and the bubble host. It must live ABOVE PageRouter so it survives
+                  // tab navigation — a parked dApp's bubble stays interactive even
+                  // when the user moves to a different tab.
+                  <DappBrowserProvider>
+                    <PageRouter />
+                  </DappBrowserProvider>
+                ) : (
+                  <PageRouter />
+                )}
+              </BootAnimation>
             </AwaitFonts>
           </AppProvider>
         </Suspense>

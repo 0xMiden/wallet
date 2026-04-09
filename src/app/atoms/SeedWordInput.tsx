@@ -23,7 +23,6 @@ export const SeedWordInput: FC<SeedWordInputProps> = ({
   submitted,
   showSeed,
   value,
-  isFirstAccount,
   autoComplete = 'off',
   setShowSeed,
   onChange,

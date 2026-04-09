@@ -1,5 +1,6 @@
 import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
 
+import { RpcClient } from '@miden-sdk/miden-sdk';
 import clsx from 'clsx';
 import { addDays, addHours, addMinutes, format, differenceInSeconds } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -9,7 +10,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
-import { RpcClient } from '@miden-sdk/miden-sdk';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -72,7 +73,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   addressError,
   recallDate,
   recallTime,
-  note,
   onAction,
   onGoBack,
   onAmountChange,
@@ -80,8 +80,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   onScannedAddress,
   onYourAccounts,
   onRecallDateChange,
-  onRecallTimeChange,
-  onNoteChange
+  onRecallTimeChange
 }) => {
   const { t } = useTranslation();
   const [syncHeight, setSyncHeight] = useState(0);
@@ -118,7 +117,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
     (date: Date, time: string) => {
       const [hours, minutes] = time.split(':').map(Number);
       const dateWithTime = new Date(date);
-      dateWithTime.setHours(hours, minutes, 0, 0);
+      dateWithTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
       onRecallDateChange(date);
       onRecallTimeChange(time);
       computeAndSetRecallBlocks(dateWithTime);
@@ -148,6 +147,15 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
   const canProceed = isValidAmount && isValidAddress;
 
+  // On mobile, the primary CTA is hoisted to the always-on native navbar
+  // (morphs into compact mode with a 50/50 split). The React button below
+  // is hidden on mobile via !isMobile() so we don't render both.
+  useNativeNavbarAction({
+    label: t('continue'),
+    onTap: handleReviewOpen,
+    enabled: canProceed
+  });
+
   const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
   return (
@@ -162,7 +170,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               className="self-stretch text-black"
               value={amount}
               label={token.name}
-              onValueChange={(value, name, values) => onAmountChange(values?.formatted || value || '')}
+              onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
             />
             <div className="flex items-center justify-center">
               {amountError ? (
@@ -334,15 +342,17 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {/* Continue Button */}
         </div>
 
-        <div className="pt-4 pb-4 shrink-0">
-          <Button
-            title={t('continue')}
-            variant={ButtonVariant.Primary}
-            onClick={handleReviewOpen}
-            disabled={!canProceed}
-            className="w-full rounded-[10px] text-base font-semibold"
-          />
-        </div>
+        {!isMobile() && (
+          <div className="pt-4 pb-4 shrink-0">
+            <Button
+              title={t('continue')}
+              variant={ButtonVariant.Primary}
+              onClick={handleReviewOpen}
+              disabled={!canProceed}
+              className="w-full rounded-[10px] text-base font-semibold"
+            />
+          </div>
+        )}
 
         {/* Calendar Drawer */}
         <Drawer open={showCalendar} onOpenChange={setShowCalendar}>

@@ -13,7 +13,7 @@ type ConnectBannerProps = {
   className?: string;
 };
 
-const ConnectBanner: FC<ConnectBannerProps> = ({ type, origin }) => {
+const ConnectBanner: FC<ConnectBannerProps> = ({ origin }) => {
   return (
     <div className={classNames('w-full', 'mb-4', 'flex flex-col')}>
       <div className={classNames('w-full flex items-center justify-center mb-4')}>

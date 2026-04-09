@@ -26,7 +26,7 @@ const mockFromBech32 = jest.fn();
 const mockFromAccount = jest.fn();
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
-  RpcClient: function (...args: unknown[]) {
+  RpcClient: function (..._args: unknown[]) {
     return mockRpcClient();
   },
   Address: {

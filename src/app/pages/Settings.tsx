@@ -1,5 +1,6 @@
-import React, { FC, useCallback, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -26,6 +27,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { isMobile } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
@@ -206,6 +208,57 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
 
+  // On mobile, morph the native navbar AND the parked-dApp bubbles
+  // OUT when a settings drawer / seed-warning overlay takes over the
+  // bottom of the screen — both would otherwise fight with the drawer
+  // for the same real estate. The navbar morph is a Swift spring
+  // animation on the native UIWindow; the bubbles morph via a CSS
+  // rule keyed on `body[data-drawer-open]` (see main.css).
+  //
+  // Morphs back IN when the drawer closes. No-op on desktop/extension.
+  const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (drawerOrSheetOpen) {
+      document.body.setAttribute('data-drawer-open', '');
+      InAppBrowser.morphNavbarOut().catch(() => {});
+    } else {
+      document.body.removeAttribute('data-drawer-open');
+      InAppBrowser.morphNavbarIn().catch(() => {});
+    }
+    // Unmount cleanup: if the Settings page unmounts while a drawer
+    // is still open (e.g. user swipes back mid-open), force both the
+    // navbar and the bubbles back in so nothing is stranded
+    // off-screen on the next page.
+    return () => {
+      if (!isMobile()) return;
+      if (drawerOrSheetOpen) {
+        document.body.removeAttribute('data-drawer-open');
+        InAppBrowser.morphNavbarIn().catch(() => {});
+      }
+    };
+  }, [drawerOrSheetOpen]);
+
+  // Mark Settings as an edge-to-edge page so it extends behind the
+  // navbar pill (no 88pt bottom gutter from main.css). The list
+  // container below adds its own pb-[88px] so the last item can
+  // still be scrolled above the floating toolbar — without that
+  // internal padding the bottom item would sit permanently under
+  // the pill and be unreachable. Only apply when we're showing the
+  // settings root (not an active sub-tab with its own layout).
+  const showSettingsRoot = !activeTab;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (showSettingsRoot) {
+      document.body.setAttribute('data-edge-to-edge', '');
+    } else {
+      document.body.removeAttribute('data-edge-to-edge');
+    }
+    return () => {
+      document.body.removeAttribute('data-edge-to-edge');
+    };
+  }, [showSettingsRoot]);
+
   const handleSeedWarningClose = useCallback(() => {
     hapticLight();
     setShowSeedWarning(false);
@@ -234,7 +287,12 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             </>
           )
         ) : (
-          <div className="flex flex-col w-full py-4 gap-8 text-heading-gray px-4">
+          // pb-[88px] reserves space at the bottom equal to the native
+          // navbar pill's height (76 + 12 gap = 88pt) so the last menu
+          // item can be scrolled above the floating toolbar. Without
+          // this, opting out of the body gutter via data-edge-to-edge
+          // would leave the bottom row permanently hidden behind the pill.
+          <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
             {TAB_GROUPS.map(group => (
               <div key={group.titleI18nKey}>
                 <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>

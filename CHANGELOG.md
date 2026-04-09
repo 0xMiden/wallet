@@ -4,6 +4,7 @@
 
 ### Features
 
+* [FEATURE][mobile] **Embedded dApp browser** for iOS and Android with multi-instance tabs, parked-dApp switcher tray, and native navbar overlay.
 * [FEATURE][all] Migrated backend from `WasmWebClient` to the new `MidenClient` TypeScript API. All service-worker WASM access now goes through `MidenClientInterface` wrapping the high-level `MidenClient` surface.
 * [FEATURE][all] Migrated frontend to `@miden-sdk/react` hooks (`useMiden`, `useSyncState`, `useAccount`, etc.), replacing manual sync and balance-polling logic.
 

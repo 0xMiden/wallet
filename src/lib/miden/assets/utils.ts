@@ -61,7 +61,7 @@ export function useFilteredAssets(assets: { slug: string; id: string }[]) {
   };
 }
 
-function useDebounce(arg0: string, arg1: number): [any] {
+function useDebounce(_arg0: string, _arg1: number): [any] {
   throw new Error('Function not implemented.');
 }
 

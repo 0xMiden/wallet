@@ -6,6 +6,17 @@
 // eslint-disable-next-line import/no-anonymous-default-export
 export default {
   coverageProvider: 'v8',
+  // The React-heavy UI subcomponents under `src/app/pages/Browser/`
+  // (DappLauncher, DappPeekCard, DappSwitcher, DappExpanderOverlay,
+  // etc.) are snapshot/E2E territory — they render framer-motion
+  // animations and drag handlers that are only meaningfully
+  // exercised by the mobile-e2e suite. The `faucet-webview.ts` file
+  // is a Capacitor InAppBrowser wrapper with no unit-testable logic.
+  coveragePathIgnorePatterns: [
+    '/node_modules/',
+    '/src/app/pages/Browser/',
+    '/src/lib/mobile/faucet-webview\\.ts$'
+  ],
   coverageThreshold: {
     global: {
       branches: 60,
@@ -15,6 +26,11 @@ export default {
     }
   },
   moduleNameMapper: {
+    // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
+    // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the
+    // stub instead of trying to execute the PNG bytes as JavaScript.
+    '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
+    '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
     '^lib/(.*)$': '<rootDir>/src/lib/$1',
     '^shared/(.*)$': '<rootDir>/src/shared/$1',
     '^app/(.*)$': '<rootDir>/src/app/$1',
@@ -22,8 +38,7 @@ export default {
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
     '@miden-sdk/miden-sdk': '<rootDir>/__mocks__/wasmMock.js',
-    '@miden-sdk/react': '<rootDir>/__mocks__/@miden-sdk/react.ts',
-    '\\.svg$': '<rootDir>/__mocks__/svgMock.js'
+    '@miden-sdk/react': '<rootDir>/__mocks__/@miden-sdk/react.ts'
   },
   testEnvironment: 'jsdom',
   transform: {

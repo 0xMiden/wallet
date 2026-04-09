@@ -59,6 +59,15 @@ async function initMobile() {
 
     const root = createRoot(container);
     root.render(<App env={{ windowType: WindowType.FullPage }} />);
+
+    // Remove the static splash placeholder now that React has mounted.
+    // The splash exists in mobile.html so iOS 26+ has something to paint
+    // before the WASM-bearing module finishes top-level await — see
+    // mobile.html for the full explanation.
+    requestAnimationFrame(() => {
+      document.getElementById('miden-splash')?.remove();
+    });
+
     console.log('Mobile app: UI rendered');
   } catch (error) {
     showError('Failed to initialize', error);

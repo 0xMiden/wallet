@@ -209,7 +209,11 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 };
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const note = result.executedTransaction().inputNotes().notes()[0].note();
+  const firstInputNote = result.executedTransaction().inputNotes().notes()[0];
+  if (!firstInputNote) {
+    throw new Error('completeConsumeTransaction: no input notes on executed transaction');
+  }
+  const note = firstInputNote.note();
   const sender = getBech32AddressFromAccountId(note.metadata().sender());
   const executedTransaction = result.executedTransaction();
 
@@ -218,6 +222,9 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
   const secondaryAccountId = reclaimed ? undefined : sender;
   const asset = note.assets().fungibleAssets()[0];
+  if (!asset) {
+    throw new Error('completeConsumeTransaction: note has no fungible assets');
+  }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
   const amount = asset.amount();
 
@@ -260,12 +267,13 @@ const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
     const outputNotes = result.executedTransaction().outputNotes().notes();
 
-    if (!outputNotes || outputNotes.length === 0) {
+    const firstOutput = outputNotes?.[0];
+    if (!firstOutput) {
       console.error('No output notes found for executed transaction');
       return undefined;
     }
 
-    const fullNote = outputNotes[0].intoFull();
+    const fullNote = firstOutput.intoFull();
 
     if (!fullNote) {
       console.error('intoFull() returned undefined for first output note');
@@ -526,11 +534,10 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
         return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
       });
 
-      if (noteDetails.length === 0) {
+      const note = noteDetails[0];
+      if (!note) {
         continue;
       }
-
-      const note = noteDetails[0];
 
       if (CONSUMED_NOTE_STATES.includes(note.state)) {
         // Note has been consumed on-chain - mark transaction as completed
@@ -669,6 +676,7 @@ export const generateTransactionsLoop = async (
 
   // Process next transaction
   const nextTransaction = queuedTransactions[0];
+  if (!nextTransaction) return; // redundant after length check but satisfies the type narrower
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {

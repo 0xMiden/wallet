@@ -31,7 +31,7 @@ describe('miden repo export/import', () => {
 
     const imported = await transactions.toArray();
     expect(imported).toHaveLength(1);
-    expect(imported[0].amount).toBe(BigInt(42));
-    expect(imported[0].requestBytes).toEqual(new Uint8Array([1, 2, 3]));
+    expect(imported[0]!.amount).toBe(BigInt(42));
+    expect(imported[0]!.requestBytes).toEqual(new Uint8Array([1, 2, 3]));
   });
 });

@@ -8,7 +8,7 @@ export interface RadioProps {
   onChange?: (value: boolean) => void;
 }
 
-export const RadioButton: React.FC<RadioProps> = ({ name, value, onChange }) => {
+export const RadioButton: React.FC<RadioProps> = ({ value, onChange }) => {
   const borderWidth = value ? 'border-0' : 'border-2';
   const backgroundColor = value ? 'bg-primary-500' : 'bg-white';
 

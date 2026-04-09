@@ -117,10 +117,12 @@ describe('env', () => {
       it('does nothing when no handler registered', () => {
         const { result } = renderHook(() => useAppEnv(), { wrapper });
 
-        // Should not throw
-        act(() => {
-          result.current.onBack();
-        });
+        // Should not throw when onBack is called without a registered handler.
+        expect(() =>
+          act(() => {
+            result.current.onBack();
+          })
+        ).not.toThrow();
       });
     });
 

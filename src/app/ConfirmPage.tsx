@@ -192,7 +192,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <hr className="h-px bg-grey-100 my-4" />
           {payload.transactionMessages.slice(2).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Amount') {
               const microcredits = Number(value);
               const amount = microcredits / 10 ** MIDEN_METADATA.decimals;
@@ -239,7 +239,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <hr className="h-px bg-grey-100 my-4" />
           {payload.transactionMessages.slice(1).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Recipient') {
               value = truncateAddress(value);
             }
@@ -498,7 +498,7 @@ const ConfirmDAppForm: FC = () => {
       throw new Error(t('notIdentified'));
     }
     return pageId;
-  }, [loc.search]);
+  }, [loc.search, t]);
 
   const { data } = useRetryableSWR<MidenDAppPayload>([id], getDAppPayload, {
     suspense: true,
@@ -585,7 +585,7 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
   );
 
   const handleConfirmClick = useCallback(async () => {
@@ -787,7 +787,7 @@ const ConfirmDAppForm: FC = () => {
           )
         };
     }
-  }, [error, payload, privateDataPermission, isPublicAccount]);
+  }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
   return (
     <CustomRpsContext.Provider value={'TODO'}>

@@ -4,9 +4,6 @@ type Listener = (isOpen: boolean) => void;
 let isModalOpen = false;
 const listeners: Set<Listener> = new Set();
 
-// Module instance ID for debugging duplicate module issues
-const moduleId = Math.random().toString(36).substring(7);
-
 export const transactionModalState = {
   open: () => {
     // Don't re-open if already open

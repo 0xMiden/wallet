@@ -84,6 +84,7 @@ jest.mock('./store', () => ({
 }));
 
 jest.mock('./dapp', () => ({
+  dappDebug: jest.fn(),
   getAllDApps: jest.fn(),
   removeDApp: jest.fn(),
   getCurrentPermission: jest.fn(),
@@ -415,7 +416,9 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.PermissionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestPermission).toHaveBeenCalledWith('https://example.com', req);
+      // PR-4 chunk 8: processDApp threads sessionId (undefined for legacy
+      // single-instance callers) through to handlers.
+      expect(requestPermission).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ approved: true });
     });
 
@@ -454,7 +457,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.TransactionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ txId: 'tx-123' });
     });
 
@@ -465,7 +468,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.SendTransactionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestSendTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestSendTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ sent: true });
     });
 
@@ -476,7 +479,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.ConsumeRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestConsumeTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestConsumeTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ consumed: true });
     });
 

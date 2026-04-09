@@ -25,7 +25,7 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
     <Popper
       placement="bottom-end"
       strategy="fixed"
-      popup={({ opened, setOpened }) => (
+      popup={({ opened }) => (
         <DropdownWrapper opened={opened} className="origin-top-right">
           <div className={styles.scroll}>
             <h2
@@ -44,7 +44,7 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
         </DropdownWrapper>
       )}
     >
-      {({ ref, opened, toggleOpened }) => (
+      {({ ref, opened }) => (
         <Button
           ref={ref}
           className={classNames(

@@ -60,7 +60,7 @@ export const SeedPhraseInput: FC<SeedPhraseInputProps> = ({
       setSeedError(newSeedError);
       onChange(newSeedError ? '' : joinedDraftSeed);
     },
-    [setDraftSeed, setSeedError, onChange]
+    [setDraftSeed, setSeedError, onChange, t]
   );
 
   const onSeedWordChange = useCallback(

@@ -242,21 +242,27 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     storeResetConfirmation();
   }, [storeResetConfirmation]);
 
-  // Stub implementations for unimplemented actions
-  const decryptCiphertexts = useCallback(async (accPublicKey: string, ciphertexts: string[]) => {}, []);
-  const revealViewKey = useCallback(async (accountPublicKey: string, password: string) => {}, []);
-  const revealPrivateKey = useCallback(async (accountPublicKey: string, password: string) => {}, []);
-  const removeAccount = useCallback(async (accountPublicKey: string, password: string) => {}, []);
-  const importAccount = useCallback(async (privateKey: string, encPassword?: string) => {}, []);
-  const importWatchOnlyAccount = useCallback(async (viewKey: string) => {}, []);
+  // Stub implementations for unimplemented actions. Parameters are
+  // prefixed with `_` so TypeScript's noUnusedParameters allows them
+  // to stay as part of the public stub signatures; implementations
+  // will wire them up when the features land.
+  const decryptCiphertexts = useCallback(async (_accPublicKey: string, _ciphertexts: string[]) => {}, []);
+  const revealViewKey = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
+  const revealPrivateKey = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
+  const removeAccount = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
+  const importAccount = useCallback(async (_privateKey: string, _encPassword?: string) => {}, []);
+  const importWatchOnlyAccount = useCallback(async (_viewKey: string) => {}, []);
   const importMnemonicAccount = useCallback(
-    async (mnemonic: string, password?: string, derivationPath?: string) => {},
+    async (_mnemonic: string, _password?: string, _derivationPath?: string) => {},
     []
   );
-  const confirmDAppDecrypt = useCallback(async (id: string, confirmed: boolean) => {}, []);
-  const confirmDAppBulkTransactions = useCallback(async (id: string, confirmed: boolean, delegate: boolean) => {}, []);
-  const confirmDAppDeploy = useCallback(async (id: string, confirmed: boolean, delegate: boolean) => {}, []);
-  const getOwnedRecords = useCallback(async (accPublicKey: string) => {}, []);
+  const confirmDAppDecrypt = useCallback(async (_id: string, _confirmed: boolean) => {}, []);
+  const confirmDAppBulkTransactions = useCallback(
+    async (_id: string, _confirmed: boolean, _delegate: boolean) => {},
+    []
+  );
+  const confirmDAppDeploy = useCallback(async (_id: string, _confirmed: boolean, _delegate: boolean) => {}, []);
+  const getOwnedRecords = useCallback(async (_accPublicKey: string) => {}, []);
 
   return {
     state,

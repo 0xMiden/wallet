@@ -92,8 +92,8 @@ describe('transactions utilities', () => {
 
       const result = await getTransactionsInProgress();
 
-      expect(result[0].id).toBe('tx-2'); // Earlier initiatedAt first
-      expect(result[1].id).toBe('tx-1');
+      expect(result[0]!.id).toBe('tx-2'); // Earlier initiatedAt first
+      expect(result[1]!.id).toBe('tx-1');
     });
   });
 
@@ -123,7 +123,7 @@ describe('transactions utilities', () => {
 
       const result = await getFailedTransactions();
 
-      expect(result[0].id).toBe('tx-2');
+      expect(result[0]!.id).toBe('tx-2');
     });
   });
 
@@ -140,7 +140,7 @@ describe('transactions utilities', () => {
       const result = await getCompletedTransactions('acc-1');
 
       expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('tx-1');
+      expect(result[0]!.id).toBe('tx-1');
     });
 
     it('includes failed transactions when includeFailed is true', async () => {
@@ -472,7 +472,7 @@ describe('transactions utilities', () => {
       await cancelTransaction(tx, new Error('Network failure'));
 
       expect(mockModify).toHaveBeenCalled();
-      const modifyFn = mockModify.mock.calls[0][0];
+      const modifyFn = mockModify.mock.calls[0]![0];
       const dbTx: any = {};
       modifyFn(dbTx);
 
@@ -489,7 +489,7 @@ describe('transactions utilities', () => {
       const tx = { id: 'tx-1' } as Transaction;
       await cancelTransaction(tx, 'simple error string');
 
-      const modifyFn = mockModify.mock.calls[0][0];
+      const modifyFn = mockModify.mock.calls[0]![0];
       const dbTx: any = {};
       modifyFn(dbTx);
 

@@ -159,8 +159,12 @@ const Toolbar: FC<ToolbarProps> = ({
     });
   }, [registerBackHandler, historyPosition, inHome]);
 
+  // `sticked` is intentionally unread — the setter fires an
+  // IntersectionObserver-driven state change that could be consumed
+  // later (e.g. to swap a sticky-header shadow). Prefix-underscore to
+  // keep TS's noUnusedLocals happy without losing the slot.
   // eslint-disable-next-line
-  const [sticked, setSticked] = useState(false);
+  const [, setSticked] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -169,6 +173,7 @@ const Toolbar: FC<ToolbarProps> = ({
     if ('IntersectionObserver' in window && toolbarEl) {
       const observer = new IntersectionObserver(
         ([entry]) => {
+          if (!entry) return;
           setSticked(entry.boundingClientRect.y < entry.rootBounds!.y);
         },
         { threshold: [1] }

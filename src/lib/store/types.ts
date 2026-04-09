@@ -73,8 +73,21 @@ export interface TransactionModalSlice {
   isTransactionModalOpen: boolean;
   /** Whether the user explicitly dismissed the modal (prevents auto-reopen until transactions complete) */
   isTransactionModalDismissedByUser: boolean;
-  /** Whether the dApp browser is open (mobile only) */
+  /**
+   * Whether the dApp browser is open (mobile only).
+   *
+   * Backwards-compat boolean — kept in lockstep with `activeDappSessionId`.
+   * Existing consumers like `native-notifications.ts` continue to read this.
+   * New code should prefer `activeDappSessionId` (a string id is friendlier
+   * for the multi-instance world that lands in PR-4).
+   */
   isDappBrowserOpen: boolean;
+  /**
+   * The id of the dApp session currently in the foreground, or null when the
+   * launcher is showing. Single-session in PR-1; PR-3 adds a parked-session
+   * list; PR-4 generalizes to a per-instance map.
+   */
+  activeDappSessionId: string | null;
 }
 
 /**
@@ -179,6 +192,11 @@ export interface TransactionModalActions {
   /** Reset the dismissed flag (called when all transactions complete) */
   resetTransactionModalDismiss: () => void;
   setDappBrowserOpen: (isOpen: boolean) => void;
+  /**
+   * Set the active dApp session id (or clear it). Updates `isDappBrowserOpen`
+   * in lockstep so legacy consumers stay correct.
+   */
+  setActiveDappSession: (sessionId: string | null) => void;
 }
 
 /**

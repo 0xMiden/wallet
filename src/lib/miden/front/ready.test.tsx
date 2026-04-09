@@ -24,7 +24,7 @@ import {
 const mockSetStoredValue = jest.fn();
 let mockStoredValue = '';
 jest.mock('lib/miden/front/storage', () => ({
-  usePassiveStorage: jest.fn((key: string, defaultValue: string) => {
+  usePassiveStorage: jest.fn((_key: string, defaultValue: string) => {
     return [mockStoredValue || defaultValue, mockSetStoredValue];
   })
 }));
@@ -179,7 +179,7 @@ describe('ready hooks', () => {
       renderHook(() => useAccount());
 
       expect(dispatchEventSpy).toHaveBeenCalledWith(expect.any(CustomEvent));
-      const event = dispatchEventSpy.mock.calls[0][0] as CustomEvent;
+      const event = dispatchEventSpy.mock.calls[0]![0] as CustomEvent;
       expect(event.type).toBe('reseterrorboundary');
 
       dispatchEventSpy.mockRestore();

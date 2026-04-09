@@ -57,7 +57,7 @@ export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[];
 
       const currentRoute = cardStack[cardStack.length - 1];
 
-      if (currentRoute.animationIn === 'push' && route.animationIn === 'present') {
+      if (currentRoute?.animationIn === 'push' && route.animationIn === 'present') {
         setNavigationDirection('up');
       } else {
         setNavigationDirection('forward');
@@ -84,7 +84,7 @@ export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[];
     if (cardStack.length > 1) {
       const currentRoute = cardStack[cardStack.length - 1];
       const previousRoute = cardStack[cardStack.length - 2];
-      if (currentRoute.animationIn === 'present' && previousRoute.animationIn === 'push') {
+      if (currentRoute?.animationIn === 'present' && previousRoute?.animationIn === 'push') {
         setNavigationDirection('down');
       }
       setCardStack(cardStack.slice(0, -1));

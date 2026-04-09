@@ -1,5 +1,3 @@
-import browser from 'webextension-polyfill';
-
 import { REFRESH_MSGTYPE, onInited, updateLocale } from './loading';
 
 // Mock platform detection - default to extension context

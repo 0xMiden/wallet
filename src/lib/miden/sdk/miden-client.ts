@@ -78,7 +78,12 @@ class AsyncMutex {
         this.drainingIdle = false;
         return;
       }
-      tasks[index]()
+      const task = tasks[index];
+      if (!task) {
+        runNext(index + 1);
+        return;
+      }
+      task()
         .catch(err => console.warn('Idle task failed:', err))
         .finally(() => runNext(index + 1));
     };

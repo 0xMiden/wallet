@@ -9,7 +9,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount, useAllAccounts, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
-import { goBack, navigate, useLocation } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 const SelectAccount: FC = () => {
