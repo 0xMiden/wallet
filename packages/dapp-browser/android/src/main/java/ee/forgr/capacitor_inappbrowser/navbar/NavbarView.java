@@ -162,16 +162,34 @@ public final class NavbarView extends FrameLayout {
         // which Android uses as the outline for the shadow render.
         // Without a background, elevation would render no shadow.
         //
-        // iOS uses shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]. On
-        // Android we can't directly set the blur radius or y-offset
-        // (elevation maps to a composite of both), so we pick
-        // elevation=10dp which visually approximates the iOS 20pt
-        // blur at 8% alpha. Shadow tinting on API 28+ matches iOS's
-        // pure-black color exactly.
-        blurContainer.setElevation(dp(10));
+        // iOS uses shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] — a
+        // very soft 20pt blur at 8% alpha.
+        //
+        // Android shadow reality (gotcha): the alpha component of
+        // setOutlineAmbientShadowColor / setOutlineSpotShadowColor
+        // is IGNORED — only RGB matters. Setting 0xFF000000 (solid
+        // black) yields a fully black shadow at whatever density
+        // the current elevation dictates. With elevation=10dp the
+        // shadow fades from dark grey to nothing over ~20px below
+        // the pill — reading to users as a "grey outline at the
+        // bottom of the navbar" that follows the pill across every
+        // dApp (because it's the pill's own shadow, not dApp
+        // content).
+        //
+        // Fix: use a light-grey RGB for the shadow color so the
+        // rendered shadow is much subtler, AND drop elevation from
+        // 10dp to 4dp so the shadow doesn't extend as far below
+        // the pill. The combination matches iOS's 8% black soft
+        // shadow far more closely than the previous 10dp + solid
+        // black did.
+        blurContainer.setElevation(dp(4));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            blurContainer.setOutlineAmbientShadowColor(0xFF000000);
-            blurContainer.setOutlineSpotShadowColor(0xFF000000);
+            // 0xFF808080 = middle grey. Alpha is ignored by the
+            // platform; only the RGB channels modulate the shadow
+            // darkness. This yields a faint shadow instead of a
+            // solid black band.
+            blurContainer.setOutlineAmbientShadowColor(0xFF808080);
+            blurContainer.setOutlineSpotShadowColor(0xFF808080);
         }
         FrameLayout.LayoutParams blurLp = new FrameLayout.LayoutParams(
             LayoutParams.MATCH_PARENT,
