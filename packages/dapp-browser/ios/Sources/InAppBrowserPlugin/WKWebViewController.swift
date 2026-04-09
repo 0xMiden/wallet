@@ -2251,6 +2251,18 @@ class MidenNavbarOverlayWindow: UIWindow {
     }
     private var indicatorCurrentTarget: IndicatorTarget = .none
 
+    /// Whether a `refreshIndicator` pass is already scheduled on
+    /// the current run loop iteration. Set to true on the first
+    /// `scheduleRefreshIndicator()` of an iteration; reset back to
+    /// false inside the async block. This coalesces multiple state
+    /// updates (e.g. `setActive(null)` followed by
+    /// `setSecondaryActive('send')` in the same React effect burst)
+    /// into ONE indicator refresh, so we don't briefly see a "no
+    /// active anywhere" state that hides the indicator and then
+    /// cold-snaps it to the new target without animation. This is
+    /// what was breaking the Home → Send morph.
+    private var indicatorRefreshPending: Bool = false
+
     /// Tracks whether we're currently presented (visible on screen)
     /// vs morphed-out (slid below the screen). Morphed-out state is
     /// used when a bottom-sheet drawer is up and the navbar would
@@ -2363,7 +2375,7 @@ class MidenNavbarOverlayWindow: UIWindow {
             button.setActive(id == itemId)
         }
 
-        refreshIndicator()
+        scheduleIndicatorRefresh()
     }
 
     /// Show or update the secondary-row buttons. Pass an empty array
@@ -2403,9 +2415,9 @@ class MidenNavbarOverlayWindow: UIWindow {
             // Hide path — collapse the arranged subview and animate.
             activeSecondaryId = nil
             // The shared indicator may have been bound to a secondary
-            // button — clear the binding BEFORE we animate the row
-            // away so the indicator can retarget / hide cleanly.
-            refreshIndicator()
+            // button — schedule a refresh so it retargets to the main
+            // row (if anything is active there) or hides cleanly.
+            scheduleIndicatorRefresh()
             UIView.animate(
                 withDuration: 0.42,
                 delay: 0,
@@ -2433,7 +2445,7 @@ class MidenNavbarOverlayWindow: UIWindow {
             secondaryButtons[item.id] = button
         }
 
-        refreshIndicator()
+        scheduleIndicatorRefresh()
 
         // If already visible, don't re-animate height — just update
         // the content. Prevents jitter when only the active state
@@ -2467,7 +2479,25 @@ class MidenNavbarOverlayWindow: UIWindow {
             button.setActive(id == itemId)
         }
 
-        refreshIndicator()
+        scheduleIndicatorRefresh()
+    }
+
+    /// Schedule an indicator refresh for the next run loop spin.
+    /// Coalesces multiple state updates in the same JS batch (e.g.
+    /// `setActive(null)` followed by `setSecondaryActive('send')`
+    /// when navigating Home → Send) into ONE animated refresh.
+    /// Without this coalescing, the intermediate "main cleared,
+    /// secondary not yet set" state would hide the indicator,
+    /// causing a cold-snap + no slide animation on the final
+    /// target.
+    private func scheduleIndicatorRefresh() {
+        if indicatorRefreshPending { return }
+        indicatorRefreshPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.indicatorRefreshPending = false
+            self.refreshIndicator()
+        }
     }
 
     /// Rebind the shared indicator to whichever button is currently
@@ -2481,6 +2511,11 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// row updates, which guarantees the shared pill morphs across
     /// rows (e.g. HOME main → SEND secondary) just like a framer-
     /// motion layoutId on the web.
+    ///
+    /// Callers should normally use `scheduleIndicatorRefresh()`
+    /// instead of calling this directly, so that multiple state
+    /// updates batched in the same run loop iteration don't each
+    /// trigger their own refresh.
     private func refreshIndicator() {
         // Pick a target — the secondary row has priority because
         // it's semantically "more specific" (main=home is the
