@@ -7,7 +7,6 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Chip } from 'components/Chip';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
-import colors from 'utils/tailwind-colors';
 
 import { UIToken } from './types';
 export interface SelectAmountProps {

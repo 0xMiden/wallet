@@ -110,5 +110,5 @@ export function useNativeNavbarAction(action: NavbarAction | null): void {
     };
     // Re-run on every change of label / enabled / onTap reference so
     // the native button stays in sync with React state.
-  }, [ownerId, action?.label, action?.enabled, action?.onTap]);
+  }, [ownerId, action, action?.label, action?.enabled, action?.onTap]);
 }

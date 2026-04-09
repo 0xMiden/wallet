@@ -2,12 +2,9 @@ import React, { FC, useCallback, useState } from 'react';
 
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
-
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
 

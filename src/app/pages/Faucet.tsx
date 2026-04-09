@@ -4,7 +4,6 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';

@@ -6,7 +6,6 @@ import InfiniteScroll from 'react-infinite-scroller';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
-import { isMobile } from 'lib/platform';
 
 import HistoryItem from './HistoryItem';
 import { IHistoryEntry } from './IHistoryEntry';

@@ -32,7 +32,7 @@ const CleanButton: FC<CleanButtonProps> = ({
       content: t('clean'),
       animation: 'shift-away-subtle'
     }),
-    []
+    [t]
   );
 
   const buttonRef = useTippy<HTMLButtonElement>(tippyProps);

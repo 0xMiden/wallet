@@ -18,6 +18,7 @@ import React, { type FC, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { type DappSessionState, useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { useSprings } from 'lib/animation';
 import {
   type DappSession,
@@ -28,8 +29,6 @@ import {
 } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
-
-import { type DappSessionState, useDappBrowser } from 'app/providers/DappBrowserProvider';
 
 interface DappSwitcherProps {
   open: boolean;

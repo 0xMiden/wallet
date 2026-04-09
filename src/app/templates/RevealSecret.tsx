@@ -29,7 +29,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const accountBadgeTitle = useAccountBadgeTitle();
   const { revealMnemonic } = useMidenContext();
   const account = useAccount();
-  const { fieldRef: secretFieldRef, copy, copied } = useCopyToClipboard();
+  const { fieldRef: secretFieldRef } = useCopyToClipboard();
 
   const {
     register,

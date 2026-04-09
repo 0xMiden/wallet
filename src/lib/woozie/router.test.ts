@@ -57,7 +57,6 @@ describe('woozie router', () => {
   describe('resolve', () => {
     const homeComponent = React.createElement('div', null, 'Home');
     const aboutComponent = React.createElement('div', null, 'About');
-    const userComponent = React.createElement('div', null, 'User');
 
     let routeMap: RouteMap<{}>;
 

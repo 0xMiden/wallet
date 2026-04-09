@@ -3,7 +3,7 @@ import { store } from 'lib/miden/back/store';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { MobileIntercomAdapter, getMobileIntercomAdapter } from './mobile-adapter';
+import { MobileIntercomAdapter } from './mobile-adapter';
 
 // Mock the dependencies
 jest.mock('lib/miden/back/actions', () => ({

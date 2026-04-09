@@ -110,8 +110,12 @@ function DrawerFooter({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
   return <div data-slot="drawer-footer" className={cn('mt-auto flex flex-col gap-2 p-4', className)} {...props} />;
 }
 
-function DrawerTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 data-slot="drawer-title" className={cn('text-base font-medium text-black', className)} {...props} />;
+function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+  return (
+    <h2 data-slot="drawer-title" className={cn('text-base font-medium text-black', className)} {...props}>
+      {children}
+    </h2>
+  );
 }
 
 function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {

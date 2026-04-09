@@ -6,19 +6,16 @@ import { Button } from 'app/atoms/Button';
 import ColorIdenticon from 'app/atoms/ColorIdenticon';
 import Name from 'app/atoms/Name';
 import { openInFullPage, useAppEnv } from 'app/env';
-import { ReactComponent as ChevronDownIcon } from 'app/icons/chevron-down.svg';
 import { ReactComponent as MaximiseIcon } from 'app/icons/maximise.svg';
 import { ReactComponent as MinimiseIcon } from 'app/icons/minimise.svg';
-import { isExtension } from 'lib/platform';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
 import AddressChip from 'app/templates/AddressChip';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { Link, navigate } from 'lib/woozie';
-
-import { HeaderSelectors } from './Header.selectors';
+import { navigate } from 'lib/woozie';
 
 const Header: FC = () => {
   const appEnv = useAppEnv();

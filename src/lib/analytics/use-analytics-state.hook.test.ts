@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 
 import { AnalyticsEventCategory } from 'lib/miden/analytics-types';
 import { WalletMessageType } from 'lib/shared/types';

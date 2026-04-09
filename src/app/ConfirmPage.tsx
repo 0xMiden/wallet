@@ -498,7 +498,7 @@ const ConfirmDAppForm: FC = () => {
       throw new Error(t('notIdentified'));
     }
     return pageId;
-  }, [loc.search]);
+  }, [loc.search, t]);
 
   const { data } = useRetryableSWR<MidenDAppPayload>([id], getDAppPayload, {
     suspense: true,
@@ -585,7 +585,7 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
   );
 
   const handleConfirmClick = useCallback(async () => {
@@ -787,7 +787,7 @@ const ConfirmDAppForm: FC = () => {
           )
         };
     }
-  }, [error, payload, privateDataPermission, isPublicAccount]);
+  }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
   return (
     <CustomRpsContext.Provider value={'TODO'}>

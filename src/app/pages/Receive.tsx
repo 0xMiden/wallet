@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { InputNoteState } from '@miden-sdk/miden-sdk';
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +15,7 @@ import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { QRCode } from 'components/QRCode';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { formatBigInt } from 'lib/i18n/numbers';
 import {
   getFailedTransactions,
@@ -22,11 +24,9 @@ import {
   verifyStuckTransactionsFromNode,
   waitForConsumeTx
 } from 'lib/miden/activity';
-import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { AssetMetadata, useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { InputNoteState } from '@miden-sdk/miden-sdk';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
@@ -251,10 +251,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     const noteIds = freshUnclaimedNotes.map(n => n!.id);
     setClaimingNoteIds(new Set(noteIds));
 
-    // Track results
-    let failed = 0;
-    let queueFailed = 0;
-
     // Clear previous failures
     setFailedNoteIds(new Set());
 
@@ -268,7 +264,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
           transactionIds.push({ noteId: note.id, txId: id });
         } catch (err) {
           console.error('Error queuing note for claim:', note.id, err);
-          queueFailed++;
           // Mark as failed and remove from claiming set
           setFailedNoteIds(prev => new Set(prev).add(note.id));
           setClaimingNoteIds(prev => {
@@ -711,7 +706,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
         setIsLoading(false);
       }
     }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note]);
+  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
 
   const { metadata, faucetId } = note;
   const symbol = metadata?.symbol || 'UNKNOWN';
@@ -836,7 +831,7 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
         setIsLoading(false);
       }
     }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note]);
+  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
 
   const { metadata } = note;
   const formattedAmount = formatBigInt(BigInt(note.amount), metadata?.decimals || 6);

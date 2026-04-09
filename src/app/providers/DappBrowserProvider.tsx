@@ -610,7 +610,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       setForegroundId(next.id);
       setActiveDappSession(next.id);
     },
-    [getSessionStateById, parkInternal, setActiveDappSession, updateSession]
+    [getSessionStateById, parkInternal, setActiveDappSession]
   );
 
   const close = useCallback(

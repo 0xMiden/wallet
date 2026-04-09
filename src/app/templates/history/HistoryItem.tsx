@@ -1,4 +1,4 @@
-import React, { FC, memo, useCallback, useMemo } from 'react';
+import React, { FC, memo, useCallback } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,6 @@ import { Button } from 'app/atoms/Button';
 import { useAppEnv } from 'app/env';
 import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { isMobile } from 'lib/platform';
-import { formatAmount } from 'lib/shared/format';
 import { Link } from 'lib/woozie';
 
 import { IHistoryEntry } from './IHistoryEntry';
