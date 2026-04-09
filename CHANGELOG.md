@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.14.0 (TBD)
+
+### Features
+
+* [FEATURE][mobile] **Embedded dApp browser** for iOS and Android with multi-instance tabs, parked-dApp switcher tray, and native navbar overlay.
+
+---
+
 ## 1.13.2 (TBD)
 
 ### Features
