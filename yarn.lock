@@ -2155,14 +2155,21 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@^0.13.0":
-  version "0.13.0"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.13.0.tgz#df7f639f90931d279761a62bb513374366d755e4"
-  integrity sha512-N0qUCZW9Dvk3Oqj37IrGmm0b0v3Nq5qHsX3BtQIzZIwDXKXKPBxy/0lO40oCwDtwI8AfriZQyMLbJR81Fo4Vpg==
+"@miden-sdk/miden-sdk@^0.14.0":
+  version "0.14.0"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.0.tgz#b76b93e71953b86fe42a31a428c26c42655a1c39"
+  integrity sha512-2aUADXrjbjUE8/JE341urq7CuxFqKIOZD5pZCSkvr8o4simsuWBJ6Wy7p4danncst/y+h7rzvTpbhFkQkb6YCA==
   dependencies:
     "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
     glob "^11.0.0"
+
+"@miden-sdk/react@^0.14.0":
+  version "0.14.0"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.0.tgz#efedd9100c4aa33b00e5222c90e9c73e6691ee09"
+  integrity sha512-idTt+mZQyWXvN2eaLJWzGjqoqj9J/s3j1GSxFs8Y8sLeP+1HYfVw6nB6TGfZ9X3m4e27ZBAMtVO2S8uUeC5LqQ==
+  dependencies:
+    zustand "^5.0.0"
 
 "@napi-rs/wasm-runtime@^0.2.11":
   version "0.2.12"
@@ -13227,6 +13234,11 @@ zlib@^1.0.5:
   version "1.0.5"
   resolved "https://registry.yarnpkg.com/zlib/-/zlib-1.0.5.tgz#6e7c972fc371c645a6afb03ab14769def114fcc0"
   integrity sha512-40fpE2II+Cd3k8HWTWONfeKE2jL+P42iWJ1zzps5W51qcTsOUKM5Q5m2PFb0CLxlmFAaUuUdJGc3OfZy947v0w==
+
+zustand@^5.0.0:
+  version "5.0.11"
+  resolved "https://registry.yarnpkg.com/zustand/-/zustand-5.0.11.tgz#99f912e590de1ca9ce6c6d1cab6cdb1f034ab494"
+  integrity sha512-fdZY+dk7zn/vbWNCYmzZULHRrss0jx5pPFiOuMZ/5HJN6Yv3u+1Wswy/4MpZEkEGhtNH+pwxZB8OKgUBPzYAGg==
 
 zustand@^5.0.9:
   version "5.0.10"

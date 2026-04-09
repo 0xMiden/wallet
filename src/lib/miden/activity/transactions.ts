@@ -1,17 +1,6 @@
-import {
-  Address,
-  InputNoteState,
-  Note,
-  NoteFilter,
-  NoteFilterTypes,
-  NoteId,
-  TransactionResult
-} from '@miden-sdk/miden-sdk';
+import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk';
 import { liveQuery } from 'dexie';
 
-import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
-import { sendTransaction } from 'lib/miden-worker/sendTransaction';
-import { submitTransaction } from 'lib/miden-worker/submitTransaction';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -101,8 +90,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
         try {
           await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-          const recipientAccountAddress = Address.fromBech32(transaction.secondaryAccountId!);
-          await midenClient.sendPrivateNote(fullNote, recipientAccountAddress);
+          await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
         } catch (error) {
           console.error('Failed to send private note through the transport layer', {
             txId: transaction.id,
@@ -133,7 +121,7 @@ export const initiateConsumeTransactionFromId = async (
   const sdkNote = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
 
-    return midenClient.webClient.getInputNote(noteId);
+    return midenClient.getInputNote(noteId);
   });
   if (!sdkNote) {
     throw new Error(`Note with id ${noteId} not found`);
@@ -304,8 +292,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       try {
         const midenClient = await getMidenClient();
         await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-        const recipientAccountAddress = Address.fromBech32(tx.secondaryAccountId);
-        await midenClient.sendPrivateNote(note, recipientAccountAddress);
+        await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         return { success: true };
       } catch (error) {
         return { success: false, errorType: 'transport', error };
@@ -536,9 +523,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
     try {
       const noteDetails = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        const noteId = NoteId.fromHex(tx.noteId);
-        const noteFilter = new NoteFilter(NoteFilterTypes.List, [noteId]);
-        return await midenClient.getInputNoteDetails(noteFilter);
+        return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
       });
 
       if (noteDetails.length === 0) {
@@ -581,8 +566,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
 
 export const generateTransaction = async (
   transaction: Transaction,
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
@@ -599,8 +583,6 @@ export const generateTransaction = async (
     processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
 
-  // Process transaction
-  let result: TransactionResult;
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       const keyString = Buffer.from(publicKey).toString('hex');
@@ -609,8 +591,8 @@ export const generateTransaction = async (
     }
   };
 
-  // Wrap WASM client operations in a lock to prevent concurrent access
-  const transactionResultBytes = await withWasmClientLock(async () => {
+  // MidenClient handles the full pipeline (execute → prove → submit → apply)
+  const result = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
@@ -619,49 +601,23 @@ export const generateTransaction = async (
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'execute':
       default:
-        return midenClient.newTransaction(transaction.accountId, transaction.requestBytes!);
+        return midenClient.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes!,
+          transaction.delegateTransaction
+        );
     }
   });
 
-  // On mobile, always delegate transactions to avoid memory issues with local proving
-  const shouldDelegate = isMobile() ? true : transaction.delegateTransaction;
-
   switch (transaction.type) {
     case 'send':
-      if (useWorker) {
-        const resultBytes = await sendTransaction(transactionResultBytes, shouldDelegate);
-        result = TransactionResult.deserialize(resultBytes);
-      } else {
-        result = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          return await midenClient.submitTransaction(transactionResultBytes, shouldDelegate);
-        });
-      }
       await completeSendTransaction(transaction as SendTransaction, result);
       break;
     case 'consume':
-      if (useWorker) {
-        const resultBytes = await consumeNoteId(transactionResultBytes, shouldDelegate);
-        result = TransactionResult.deserialize(resultBytes);
-      } else {
-        result = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          return await midenClient.submitTransaction(transactionResultBytes, shouldDelegate);
-        });
-      }
       await completeConsumeTransaction(transaction.id, result);
       break;
     case 'execute':
     default:
-      if (useWorker) {
-        const resultBytes = await submitTransaction(transactionResultBytes, shouldDelegate);
-        result = TransactionResult.deserialize(resultBytes);
-      } else {
-        result = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          return await midenClient.submitTransaction(transactionResultBytes, shouldDelegate);
-        });
-      }
       await completeCustomTransaction(transaction, result);
       break;
   }
@@ -690,8 +646,7 @@ export const getTransactionById = async (id: string) => {
 };
 
 export const generateTransactionsLoop = async (
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
@@ -717,7 +672,7 @@ export const generateTransactionsLoop = async (
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
-    await generateTransaction(nextTransaction, signCallback, useWorker);
+    await generateTransaction(nextTransaction, signCallback);
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
@@ -729,14 +684,13 @@ export const generateTransactionsLoop = async (
 };
 
 export const safeGenerateTransactionsLoop = async (
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
   return navigator.locks
     .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return;
 
-      const result = await generateTransactionsLoop(signCallback, useWorker);
+      const result = await generateTransactionsLoop(signCallback);
       if (result === false) {
         return false;
       }
@@ -757,8 +711,7 @@ export const safeGenerateTransactionsLoop = async (
  * Polls every 5 seconds until all queued transactions are processed.
  */
 export const startBackgroundTransactionProcessing = (
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = false
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
   // Process transactions in a loop until none are left
   const processLoop = async () => {
@@ -768,7 +721,7 @@ export const startBackgroundTransactionProcessing = (
 
     while (hasMore && attempts < maxAttempts) {
       attempts++;
-      await safeGenerateTransactionsLoop(signCallback, useWorker);
+      await safeGenerateTransactionsLoop(signCallback);
 
       // Check if there are more transactions to process
       const remaining = await getAllUncompletedTransactions();

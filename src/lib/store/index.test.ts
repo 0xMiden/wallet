@@ -23,11 +23,6 @@ jest.mock('lib/miden/metadata', () => ({
   MIDEN_METADATA: { name: 'Miden', symbol: 'MIDEN', decimals: 8 }
 }));
 
-// Mock fetchBalances utility
-jest.mock('./utils/fetchBalances', () => ({
-  fetchBalances: jest.fn().mockResolvedValue([])
-}));
-
 describe('useWalletStore', () => {
   beforeEach(() => {
     // Reset store to initial state before each test
@@ -38,9 +33,6 @@ describe('useWalletStore', () => {
       networks: [],
       settings: null,
       ownMnemonic: null,
-      balances: {},
-      balancesLoading: {},
-      balancesLastFetched: {},
       assetsMetadata: {},
       selectedNetworkId: null,
       confirmation: null,
@@ -396,55 +388,6 @@ describe('useWalletStore', () => {
       const result = await getAuthSecretKey('key-id');
 
       expect(result).toBe('secret-key-123');
-    });
-  });
-
-  describe('Balance actions', () => {
-    const { fetchBalances: mockFetchBalances } = jest.requireMock('./utils/fetchBalances');
-
-    beforeEach(() => {
-      mockFetchBalances.mockReset();
-    });
-
-    it('fetchBalances updates store with results', async () => {
-      const mockBalances = [{ tokenId: 'token1', tokenSlug: 'TK1', balance: 100, fiatPrice: 1, metadata: {} }];
-      mockFetchBalances.mockResolvedValueOnce(mockBalances);
-
-      const { fetchBalances } = useWalletStore.getState();
-      await fetchBalances('account-addr', { token1: { name: 'Token', symbol: 'TK1', decimals: 8 } });
-
-      const state = useWalletStore.getState();
-      expect(state.balances['account-addr']).toEqual(mockBalances);
-      expect(state.balancesLoading['account-addr']).toBe(false);
-      expect(state.balancesLastFetched['account-addr']).toBeGreaterThan(0);
-    });
-
-    it('fetchBalances skips if already loading', async () => {
-      useWalletStore.setState({
-        balancesLoading: { 'account-addr': true }
-      });
-
-      const { fetchBalances } = useWalletStore.getState();
-      await fetchBalances('account-addr', {});
-
-      expect(mockFetchBalances).not.toHaveBeenCalled();
-    });
-
-    it('fetchBalances handles errors', async () => {
-      mockFetchBalances.mockRejectedValueOnce(new Error('Fetch failed'));
-
-      const { fetchBalances } = useWalletStore.getState();
-      await expect(fetchBalances('account-addr', {})).rejects.toThrow('Fetch failed');
-
-      const state = useWalletStore.getState();
-      expect(state.balancesLoading['account-addr']).toBe(false);
-    });
-
-    it('setBalancesLoading updates loading state', () => {
-      const { setBalancesLoading } = useWalletStore.getState();
-      setBalancesLoading('account-addr', true);
-
-      expect(useWalletStore.getState().balancesLoading['account-addr']).toBe(true);
     });
   });
 

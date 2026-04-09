@@ -62,7 +62,7 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         const results: SerializedInputNoteDetail[] = [];
         for (const noteId of req.noteIds) {
           try {
-            const record = await client.webClient.getInputNote(noteId);
+            const record = await client.getInputNote(noteId);
             if (!record) continue;
             const assets = record
               .details()

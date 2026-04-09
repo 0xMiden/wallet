@@ -22,6 +22,7 @@ export default {
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
     '@miden-sdk/miden-sdk': '<rootDir>/__mocks__/wasmMock.js',
+    '@miden-sdk/react': '<rootDir>/__mocks__/@miden-sdk/react.ts',
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js'
   },
   testEnvironment: 'jsdom',
