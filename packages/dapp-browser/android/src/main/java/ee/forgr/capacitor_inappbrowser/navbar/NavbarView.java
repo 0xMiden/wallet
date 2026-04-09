@@ -278,50 +278,90 @@ public final class NavbarView extends FrameLayout {
 
         // ─── Window insets for safe-area-aware bottom gap ────────
         //
-        // Historical bug: `ViewCompat.setOnApplyWindowInsetsListener`
-        // alone is unreliable here. The Activity's Capacitor WebView
-        // sits as a sibling of the NavbarView under the decor view
-        // and consumes the system-bar insets before they reach us —
-        // the listener fires with bottom=0, giving the pill only
-        // {@code BOTTOM_GAP_DP} (12dp) of bottom margin, so it sits
-        // flush against the gesture bar on Activity-scoped use.
+        // Goal: position the pill so its bottom sits at a FIXED
+        // SCREEN Y (= screen_bottom - gesture_bar - BOTTOM_GAP_DP),
+        // REGARDLESS of whether this NavbarView is attached to the
+        // Activity's decor view (which fills the screen) or to a
+        // WebViewDialog's decor view (which only fills the slot
+        // rect = ends roughly at the gesture-bar top). Both hosts
+        // must produce the exact same visible screen-y for the
+        // pill, otherwise the pill visibly jumps when maximizing a
+        // dApp.
         //
-        // The Dialog-scoped instance doesn't hit this because we
-        // call {@code setDecorFitsSystemWindows(false)} on the
-        // Dialog's window, which bypasses the decor's default inset
-        // consumption — the listener gets the full 24dp gesture
-        // inset there.
+        // Target is computed in absolute screen coordinates. The
+        // bottomMargin is then whatever offset is needed from the
+        // host's decor-view bottom (also in screen coords) to land
+        // the pill bottom on that target:
         //
-        // Fix: always compute bottomMargin from the ROOT window
-        // insets via {@code ViewCompat.getRootWindowInsets(view)},
-        // which returns the unconsumed platform insets regardless
-        // of what sibling views have consumed. We still register
-        // the listener so the pill re-lays-out on system UI
-        // visibility changes (e.g. keyboard), but the listener's
-        // value is ignored in favor of the root query.
+        //   targetScreenY = screenHeight - gestureInset - BOTTOM_GAP
+        //   bottomMargin  = rootBottomScreenY - targetScreenY
+        //
+        // For the Activity host (rootBottom = screenHeight):
+        //   bottomMargin = screenHeight - target
+        //                = gestureInset + BOTTOM_GAP
+        //                ≈ 24dp + 12dp = 36dp
+        //
+        // For the slot-rect Dialog host (rootBottom ≈ slot_bottom
+        // ≈ screen - gestureInset, i.e. already above the gesture
+        // bar):
+        //   bottomMargin ≈ (screen - gestureInset) - target
+        //                = BOTTOM_GAP - 0
+        //                ≈ 0dp (pill sits flush with dialog bottom)
+        //
+        // We DO NOT use ViewCompat.getRootWindowInsets because:
+        //   (1) For the Activity, the Capacitor WebView consumes
+        //       the systemBars inset before this listener fires, so
+        //       we see bottom=0 even though the host reaches the
+        //       screen edge.
+        //   (2) For the Dialog, it may return an inset even though
+        //       the Dialog's window frame doesn't touch the gesture
+        //       bar — we'd over-inset and the pill would sit too
+        //       high.
+        //
+        // Computing from geometry + the navigation_bar_height dimen
+        // resource is the only reliable path.
         Runnable applyRootInsets = () -> {
-            WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(this);
-            int bottomInset = 0;
-            if (rootInsets != null) {
-                bottomInset = rootInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
-            }
-            // Fallback for pre-listener phase or if the root insets
-            // haven't been attached yet — query the Android
-            // navigation_bar_height resource directly. Matches the
-            // status_bar_height trick used in WebViewDialog.
-            if (bottomInset == 0) {
-                int resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
-                if (resId > 0) {
-                    bottomInset = getResources().getDimensionPixelSize(resId);
-                }
-            }
             ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) getLayoutParams();
-            if (lp != null) {
-                lp.bottomMargin = dp(BOTTOM_GAP_DP) + bottomInset;
-                lp.leftMargin = dp(SIDE_MARGIN_DP);
-                lp.rightMargin = dp(SIDE_MARGIN_DP);
-                setLayoutParams(lp);
+            if (lp == null) return;
+
+            // Real screen height (includes all system bar areas) —
+            // WindowMetrics on API 30+, DisplayMetrics.heightPixels
+            // as a fallback (sufficient for target computation).
+            int screenHeightPx = 0;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    android.view.WindowManager wm = (android.view.WindowManager) getContext()
+                        .getSystemService(android.content.Context.WINDOW_SERVICE);
+                    screenHeightPx = wm.getCurrentWindowMetrics().getBounds().height();
+                } catch (Throwable ignored) {}
             }
+            if (screenHeightPx == 0) {
+                screenHeightPx = getResources().getDisplayMetrics().heightPixels;
+            }
+
+            // Platform gesture-bar / nav-bar height from resources.
+            int gestureInsetPx = 0;
+            int navResId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+            if (navResId > 0) {
+                gestureInsetPx = getResources().getDimensionPixelSize(navResId);
+            }
+
+            // Absolute screen y that the pill's bottom should land on.
+            int targetScreenY = screenHeightPx - gestureInsetPx - dp(BOTTOM_GAP_DP);
+
+            // Root window's bottom in screen coords.
+            View root = getRootView();
+            int[] rootLoc = new int[2];
+            root.getLocationOnScreen(rootLoc);
+            int rootBottomScreen = rootLoc[1] + root.getHeight();
+
+            int bottomMargin = rootBottomScreen - targetScreenY;
+            if (bottomMargin < 0) bottomMargin = 0;
+
+            lp.bottomMargin = bottomMargin;
+            lp.leftMargin = dp(SIDE_MARGIN_DP);
+            lp.rightMargin = dp(SIDE_MARGIN_DP);
+            setLayoutParams(lp);
         };
         ViewCompat.setOnApplyWindowInsetsListener(this, (v, insets) -> {
             applyRootInsets.run();

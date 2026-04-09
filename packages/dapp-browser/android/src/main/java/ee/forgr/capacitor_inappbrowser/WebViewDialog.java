@@ -3107,75 +3107,37 @@ public class WebViewDialog extends Dialog {
             statusBarHeightPx = getContext().getResources().getDimensionPixelSize(resourceId);
         }
 
-        // Miden patch: in "blank" toolbar mode (dApp browser),
-        // extend the Dialog frame from the slot top all the way
-        // down to the bottom of the screen, instead of capping at
-        // the slot height. Rationale:
+        // Miden patch: the Dialog frame is set to match the slot
+        // rect passed by the wallet — same y/width/height, just
+        // shifted down by the status bar inset (because Android
+        // Dialog Windows are in absolute screen coordinates while
+        // the wallet's JS measures getBoundingClientRect relative
+        // to the viewport-top which excludes the status bar).
         //
-        // The floating NavbarView is attached to the Dialog's decor
-        // view via {@code NavbarOverlayManager.onDialogShown}. Its
-        // bottom-gravity position + system-bar inset listener give
-        // it the screen's gesture-bar inset as bottom margin, so it
-        // sits ~80pt above the gesture bar. That's only correct if
-        // the Dialog's decor view ACTUALLY reaches the screen bottom
-        // — if the Dialog frame stops at (slot.y + slot.height), the
-        // navbar sits inside that smaller frame and appears ~100px
-        // higher than the Activity-scoped navbar that renders on
-        // the grid screen. The user sees a jump when maximizing a
-        // dApp, and a white band of the Activity's background is
-        // visible below the Dialog.
+        // This matches iOS's dApp UIWindow frame = slot rect exactly.
+        // When the wallet's React expand-overlay animates to the
+        // slot rect and then hands off to the native WebView, the
+        // handoff lands at the same y/height so there's no visible
+        // jump or pop at the end of the animation.
         //
-        // Mirrors iOS's architecture: on iOS the floating-navbar
-        // overlay is a SEPARATE UIWindow at .normal+200, independent
-        // of the dApp UIWindow's frame — so the pill sits at a
-        // stable screen-y regardless of the dApp's frame. On Android
-        // we can't have a separate Window for the navbar (see
-        // {@code NavbarOverlayManager} for why), so we instead
-        // stretch the Dialog frame itself down to the screen edge.
-        //
-        // The inner WebView fills the taller Dialog via MATCH_PARENT,
-        // so dApp content scrolls continuously behind the translucent
-        // navbar pill all the way to the gesture bar — no visible
-        // gap between the dApp viewport and the screen bottom. This
-        // matches iOS visual behavior where the navbar's passthrough
-        // region keeps the pill tappable but lets the dApp layer
-        // paint underneath. See {@code ensureContentFillsDialog()}.
-        boolean extendToScreenBottom =
-            android.text.TextUtils.equals(_options.getToolbarType(), "blank") &&
-            y != null &&
-            height != null;
-        // Resolve the REAL screen height (including status bar and
-        // gesture bar areas). `DisplayMetrics.heightPixels` can
-        // return the app-usable height that excludes system bars
-        // on some API levels, which would underreport the real
-        // screen size. `WindowMetrics.getBounds()` on API 30+ and
-        // `Display.getRealSize()` below are the reliable sources.
-        int screenHeightPx;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && getWindow() != null) {
-            android.view.WindowManager wm = (android.view.WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
-            screenHeightPx = wm.getCurrentWindowMetrics().getBounds().height();
-        } else {
-            android.graphics.Point realSize = new android.graphics.Point();
-            getWindow().getWindowManager().getDefaultDisplay().getRealSize(realSize);
-            screenHeightPx = realSize.y;
-        }
+        // The floating navbar pill is positioned via NavbarView's
+        // own inset logic — which detects whether its host window
+        // extends to the screen bottom (Activity) or stops at the
+        // slot bottom (this Dialog) and picks the right bottom
+        // margin for each case. See NavbarView's applyRootInsets.
 
         // If both width and height are specified, use custom dimensions
         if (width != null && height != null) {
             params.width = (int) getPixels(width);
             int dialogY = (int) getPixels(y) + statusBarHeightPx;
-            params.height = extendToScreenBottom
-                ? Math.max((int) getPixels(height), screenHeightPx - dialogY)
-                : (int) getPixels(height);
+            params.height = (int) getPixels(height);
             params.x = (x != null) ? (int) getPixels(x) : 0;
             params.y = (y != null) ? dialogY : statusBarHeightPx;
         } else if (height != null && width == null) {
             // If only height is specified, use custom height with fullscreen width
             params.width = WindowManager.LayoutParams.MATCH_PARENT;
             int dialogY = (y != null) ? ((int) getPixels(y) + statusBarHeightPx) : statusBarHeightPx;
-            params.height = extendToScreenBottom
-                ? Math.max((int) getPixels(height), screenHeightPx - dialogY)
-                : (int) getPixels(height);
+            params.height = (int) getPixels(height);
             params.x = 0;
             params.y = dialogY;
         } else {
@@ -3188,69 +3150,38 @@ public class WebViewDialog extends Dialog {
 
         getWindow().setAttributes(params);
 
-        // Miden patch: reserve the bottom strip of the Dialog for
-        // the floating navbar pill by pushing the content_browser_
-        // layout up with a bottom margin. The WebView inside it
-        // shrinks accordingly, so dApp content no longer extends
-        // behind the navbar pill — eliminating the "grey outline"
-        // users saw when dApp fixed-bottom content (sticky CTAs,
-        // progress bars, footers) rendered just under the pill
-        // and bled through the pill's translucent background and
-        // around its rounded corners.
-        //
-        // The reservation is 120dp — large enough to fit:
-        //   - 76dp pill content (60dp main button + 16dp padding)
-        //   - 12dp pill→gesture-bar gap (BOTTOM_GAP_DP)
-        //   - 24dp gesture-bar inset on Android gesture nav
-        //   - 8dp breathing room above the pill so dApp content
-        //     doesn't crash into the pill's top edge
-        //
-        // The dApp Dialog is only used in dapp-foreground mode
-        // where the native navbar hides its secondary row (see
-        // DappBrowserProvider.tsx), so we only need to account for
-        // the single-row pill height. When secondary row is active
-        // the user is on a non-dApp tab and this Dialog isn't
-        // shown.
-        //
-        // Below the WebView, the Dialog decor is transparent
-        // (set in setupToolbar's blank branch), so the Activity's
-        // wallet background shows through — a beige strip around
-        // and below the floating pill. This matches the iOS
-        // layering where the Capacitor host window is visible in
-        // the pill's side margins and in the gap between pill
-        // and home indicator.
-        ensureContentReservesNavbarSpace();
+        // Miden patch: ensure content_browser_layout fills the full
+        // Dialog frame with no bottom margin, so the WebView matches
+        // the slot rect exactly (and therefore matches what the React
+        // expand animation targets). This is a reset/safety so any
+        // previous override from this session doesn't leak through.
+        ensureContentFillsDialog();
     }
 
     /**
-     * Miden patch — set the bottom margin on
-     * {@code content_browser_layout} to reserve 120dp of vertical
-     * space at the bottom of the Dialog for the navbar pill. The
-     * inner WebView inherits this via MATCH_PARENT, so its visible
-     * bottom edge lands ~120dp above the Dialog bottom (= above
-     * the pill top).
-     *
-     * Idempotent: safe to call on every applyDimensions pass.
+     * Miden patch — reset content_browser_layout to MATCH_PARENT
+     * with no bottom margin. The Dialog frame is sized to the slot
+     * rect, so filling it exactly matches the wallet's slot
+     * measurements — required for the React expand animation to
+     * hand off to the native WebView with no visible jump.
      */
-    private void ensureContentReservesNavbarSpace() {
+    private void ensureContentFillsDialog() {
         View contentBrowserLayout = findViewById(R.id.content_browser_layout);
         if (contentBrowserLayout == null) return;
         ViewGroup.LayoutParams lp = contentBrowserLayout.getLayoutParams();
         if (!(lp instanceof ViewGroup.MarginLayoutParams)) return;
         ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
-        int reservedPx = (int) getPixels(120);
         boolean changed = false;
         if (mlp.height != ViewGroup.LayoutParams.MATCH_PARENT) {
             mlp.height = ViewGroup.LayoutParams.MATCH_PARENT;
             changed = true;
         }
-        if (mlp.bottomMargin != reservedPx) {
-            mlp.bottomMargin = reservedPx;
+        if (mlp.bottomMargin != 0) {
+            mlp.bottomMargin = 0;
             changed = true;
         }
         if (changed) {
             contentBrowserLayout.setLayoutParams(mlp);
-            Log.d("InAppBrowser", "reserved " + reservedPx + "px for navbar below content");
         }
     }
 
