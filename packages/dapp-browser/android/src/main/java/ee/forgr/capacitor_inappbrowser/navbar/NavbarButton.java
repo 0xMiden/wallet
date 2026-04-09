@@ -129,9 +129,12 @@ public final class NavbarButton extends FrameLayout {
     public void setActive(boolean active) {
         if (this.active == active) return;
         this.active = active;
-        // Toggle the pill background drawable as the FrameLayout's
-        // actual background so the measure pass isn't disturbed.
-        setBackgroundResource(active ? R.drawable.navbar_button_active_bg : 0);
+        // No pill background set on the button anymore — the active
+        // state fill is now a single shared `NavbarIndicatorView` at
+        // the NavbarView level that slides from button to button on
+        // a spring animation (see NavbarView.refreshIndicator). We
+        // only swap icon + label tint synchronously here, matching
+        // the iOS NavbarButton.setActive behavior.
         int colorAttr = active ? R.color.navbar_active : R.color.navbar_inactive;
         int color = ContextCompat.getColor(getContext(), colorAttr);
         iconView.setImageTintList(ColorStateList.valueOf(color));

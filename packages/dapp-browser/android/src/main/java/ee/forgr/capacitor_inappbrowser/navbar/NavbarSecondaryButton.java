@@ -121,10 +121,12 @@ public final class NavbarSecondaryButton extends LinearLayout {
     public void setActive(boolean active) {
         if (this.active == active) return;
         this.active = active;
-        // Icon + label color stays heading-gray in both states —
-        // only the pale slate pill background fades in/out to
-        // indicate which secondary pill is currently active.
-        setBackgroundResource(active ? R.drawable.navbar_secondary_active_bg : 0);
+        // No pill background set on the button anymore — the active
+        // state fill is a shared `NavbarIndicatorView` at the
+        // NavbarView level that slides between buttons (including
+        // across rows) on a spring animation. Icon + label tint
+        // stays the same in both states for secondary buttons —
+        // only the sliding pill indicates which one is active.
     }
 
     /** Same icon map as NavbarButton — any SF Symbol name or internal id resolves here. */

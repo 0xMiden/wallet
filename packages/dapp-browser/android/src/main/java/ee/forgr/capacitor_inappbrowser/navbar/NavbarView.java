@@ -1,7 +1,12 @@
 package ee.forgr.capacitor_inappbrowser.navbar;
 
+import android.animation.ArgbEvaluator;
+import android.animation.ValueAnimator;
 import android.content.Context;
+import android.graphics.Rect;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -13,6 +18,7 @@ import androidx.annotation.NonNull;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.FloatPropertyCompat;
 import androidx.dynamicanimation.animation.SpringAnimation;
 import androidx.dynamicanimation.animation.SpringForce;
 import ee.forgr.capacitor_inappbrowser.R;
@@ -20,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Miden patch — Android port of iOS MidenNavbarOverlayWindow view
@@ -89,6 +96,85 @@ public final class NavbarView extends FrameLayout {
 
     /** Whether we're currently in the morphed-out state. */
     private boolean morphedOut;
+
+    // ─── Shared sliding indicator (active state pill) ──────────────────
+    //
+    // Mirrors iOS MidenNavbarOverlayWindow.sharedIndicator — a single
+    // view whose frame animates to whichever button is currently
+    // active, including cross-row transitions (HOME main → SEND
+    // secondary). Replaces the per-button background drawables we
+    // used to set on NavbarButton / NavbarSecondaryButton.
+
+    /** The floating pill view itself. Child of blurContainer so it can
+     *  overlay both rows while sitting behind the outerVStack in
+     *  z-order (outerVStack is added AFTER the indicator → drawn on
+     *  top → icons/labels stay visible over the pill). */
+    private final NavbarIndicatorView sharedIndicator;
+
+    /** 4 parallel spring animators — one per dimension — so the
+     *  indicator morphs its frame (x, y, width, height) with a single
+     *  spring curve feel. Using 4 separate springs lets us use
+     *  View.X / View.Y natively for position and custom
+     *  FloatPropertyCompat for width/height. */
+    private SpringAnimation indicatorXAnim;
+    private SpringAnimation indicatorYAnim;
+    private SpringAnimation indicatorWidthAnim;
+    private SpringAnimation indicatorHeightAnim;
+
+    /** Color-crossfade animator. Runs in parallel with the spring
+     *  animators via ValueAnimator.ofArgb, so the pill shifts from
+     *  the main row's orange tint to the secondary row's slate tint
+     *  (or back) on the same 420ms timeline. */
+    private ValueAnimator indicatorColorAnim;
+
+    /** Target screen the indicator should land on. `null` means
+     *  the indicator is hidden. Used to detect no-op refreshes and
+     *  cold-start snapping. */
+    private IndicatorTarget indicatorCurrentTarget = null;
+
+    /** Coalescing flag. When a state update schedules a refresh, we
+     *  post it via the main-thread handler instead of running
+     *  synchronously — multiple updates in the same dispatch (e.g.
+     *  {@code setActive(null)} followed by secondary row update with
+     *  a new active id on a Home → Send navigation) coalesce into
+     *  ONE refresh that sees the final state and animates correctly
+     *  instead of hiding briefly between them. */
+    private boolean indicatorRefreshPending = false;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    /** Last-applied active ids. These are separate from
+     *  lastSecondarySignature (which tracks items only) so we can
+     *  refresh the indicator whenever the active changes without
+     *  having to rebuild buttons. */
+    private String lastActiveMainId = null;
+    private String lastActiveSecondaryId = null;
+
+    /** Spring target colors — resolved once, reused for each refresh. */
+    private int mainActivePillColor;
+    private int secondaryActivePillColor;
+
+    /** Identifies which row + item the indicator is currently on. */
+    private static final class IndicatorTarget {
+        final boolean secondary;
+        final String id;
+
+        IndicatorTarget(boolean secondary, String id) {
+            this.secondary = secondary;
+            this.id = id;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof IndicatorTarget)) return false;
+            IndicatorTarget other = (IndicatorTarget) o;
+            return secondary == other.secondary && Objects.equals(id, other.id);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(secondary, id);
+        }
+    }
 
     // ─── State wiring ─────────────────────────────────────────────────
 
@@ -203,6 +289,34 @@ public final class NavbarView extends FrameLayout {
         );
         shadowWrap.addView(blurContainer, blurLp);
 
+        // Shared indicator — child of blurContainer, ADDED BEFORE
+        // outerVStack so it sits behind the rows in z-order. We set
+        // its size manually in refreshIndicator() (NOT via layout
+        // params tied to a button) — computing the target button's
+        // frame in blurContainer's coordinate space via
+        // offsetDescendantRectToMyCoords and animating x/y/width/
+        // height via 4 parallel SpringAnimations. See
+        // refreshIndicator() for the full logic.
+        //
+        // The pre-resolved colors match the old XML drawables that
+        // used to live on NavbarButton / NavbarSecondaryButton
+        // (navbar_button_active_bg.xml = #2EFF6B00 orange 18%,
+        // navbar_secondary_active_bg.xml = slate 8%) — so the
+        // visual doesn't change, only how it's applied.
+        mainActivePillColor = 0x2EFF6B00;
+        secondaryActivePillColor = androidx.core.content.ContextCompat.getColor(
+            context,
+            R.color.navbar_secondary_active_bg
+        );
+        sharedIndicator = new NavbarIndicatorView(context);
+        sharedIndicator.setBackgroundColor(mainActivePillColor);
+        sharedIndicator.setVisibility(INVISIBLE);
+        // FrameLayout.LayoutParams width/height are set in
+        // refreshIndicator — here we install with 0×0 so the layout
+        // pass doesn't measure the view until we bind it.
+        FrameLayout.LayoutParams indicatorLp = new FrameLayout.LayoutParams(0, 0);
+        blurContainer.addView(sharedIndicator, indicatorLp);
+
         // Outer vertical stack — holds [secondaryRow, contentStack].
         // Secondary row is GONE by default; setNavbarSecondaryRow
         // populates it and animates it in.
@@ -269,6 +383,26 @@ public final class NavbarView extends FrameLayout {
                 manager.dispatchActionTap();
             }
         });
+
+        // Register layout change listeners for the indicator target
+        // tracking. When the secondary row animates its height
+        // (growing from 0 to 32dp, or collapsing), blurContainer
+        // grows/shrinks and the main row gets pushed around.
+        // Without a re-bind the shared indicator stays at its old
+        // screen Y — visually it appears glued to where the button
+        // USED to be. We track layout changes of BOTH rows so the
+        // indicator always matches its target button's current
+        // position. `retargetIndicatorIfNeeded` handles the
+        // snap-vs-redirect logic based on whether an animation is
+        // in-flight.
+        View.OnLayoutChangeListener layoutListener = (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (left == oldLeft && top == oldTop && right == oldRight && bottom == oldBottom) return;
+            if (indicatorCurrentTarget == null) return;
+            retargetIndicatorIfNeeded();
+        };
+        outerVStack.addOnLayoutChangeListener(layoutListener);
+        navStack.addOnLayoutChangeListener(layoutListener);
+        secondaryRow.addOnLayoutChangeListener(layoutListener);
 
         // ─── Subscribe to state ──────────────────────────────────
 
@@ -433,6 +567,20 @@ public final class NavbarView extends FrameLayout {
         rebuildSecondaryRow(state.secondaryItems, state.secondaryActiveId);
         applyActionState(state.action);
         applyMorphState(state.morphedOut);
+
+        // Track the active ids here (independently of the button
+        // rebuild paths) so `refreshIndicator` always picks from the
+        // latest state. Using a coalesced refresh (main-thread
+        // post) batches multi-step transitions like Home → Send
+        // where both the main activeId and the secondary activeId
+        // change in the same state update — without the batching
+        // the intermediate "main cleared, secondary not yet set"
+        // would hide the indicator and then cold-snap to the new
+        // target.
+        lastActiveMainId = state.activeId;
+        lastActiveSecondaryId = state.secondaryActiveId;
+        scheduleIndicatorRefresh();
+
         Log.d(
             TAG,
             "onStateChanged: visible=" + state.visible +
@@ -440,9 +588,286 @@ public final class NavbarView extends FrameLayout {
             " secondary=" + state.secondaryItems.size() +
             " action=" + (state.action != null) +
             " morph=" + state.morphedOut +
-            " active=" + state.activeId
+            " active=" + state.activeId +
+            " secondaryActive=" + state.secondaryActiveId
         );
     }
+
+    // ─── Shared sliding indicator ─────────────────────────────────────
+
+    /**
+     * Schedule a refresh on the main thread handler. Multiple
+     * calls in the same run loop iteration coalesce to one. See
+     * the iOS `scheduleIndicatorRefresh` for the symmetric
+     * implementation — the problem and fix are identical.
+     */
+    private void scheduleIndicatorRefresh() {
+        if (indicatorRefreshPending) return;
+        indicatorRefreshPending = true;
+        mainHandler.post(() -> {
+            indicatorRefreshPending = false;
+            refreshIndicator(true);
+        });
+    }
+
+    /**
+     * Pick the target button and either snap (cold start) or
+     * animate (warm state) the shared indicator to its frame.
+     * Priority rule: secondary row active wins over main row
+     * active, because the secondary row represents a more
+     * specific in-flow state (e.g. /send clears main active and
+     * sets secondary active=send).
+     *
+     * @param animated true on warm refresh (state update after
+     *                 initial layout), false for cold bind.
+     */
+    private void refreshIndicator(boolean animated) {
+        View targetButton = null;
+        IndicatorTarget nextTarget = null;
+        int nextColor = mainActivePillColor;
+
+        if (lastActiveSecondaryId != null) {
+            NavbarSecondaryButton b = secondaryButtons.get(lastActiveSecondaryId);
+            if (b != null && b.getVisibility() == VISIBLE) {
+                targetButton = b;
+                nextTarget = new IndicatorTarget(true, lastActiveSecondaryId);
+                nextColor = secondaryActivePillColor;
+            }
+        }
+        if (targetButton == null && lastActiveMainId != null) {
+            NavbarButton b = mainButtons.get(lastActiveMainId);
+            if (b != null && b.getVisibility() == VISIBLE) {
+                targetButton = b;
+                nextTarget = new IndicatorTarget(false, lastActiveMainId);
+                nextColor = mainActivePillColor;
+            }
+        }
+
+        // Nothing active → hide the indicator.
+        if (targetButton == null) {
+            cancelIndicatorAnims();
+            sharedIndicator.setVisibility(INVISIBLE);
+            indicatorCurrentTarget = null;
+            return;
+        }
+
+        // Same target as before AND already visible → no-op.
+        if (
+            indicatorCurrentTarget != null &&
+            indicatorCurrentTarget.equals(nextTarget) &&
+            sharedIndicator.getVisibility() == VISIBLE
+        ) {
+            return;
+        }
+
+        // Compute the target button's frame in blurContainer's
+        // coordinate space. offsetDescendantRectToMyCoords walks
+        // up the view hierarchy accumulating offsets.
+        Rect targetRect = new Rect(0, 0, targetButton.getWidth(), targetButton.getHeight());
+        blurContainer.offsetDescendantRectToMyCoords(targetButton, targetRect);
+
+        // If the target button hasn't been measured yet (post-
+        // construction, before the first layout pass), postpone
+        // to the next layout pass.
+        if (targetRect.width() <= 0 || targetRect.height() <= 0) {
+            sharedIndicator.post(() -> refreshIndicator(animated));
+            return;
+        }
+
+        boolean wasHidden =
+            sharedIndicator.getVisibility() != VISIBLE || indicatorCurrentTarget == null;
+        indicatorCurrentTarget = nextTarget;
+
+        if (!animated || wasHidden) {
+            // Cold start — snap to the target rect without
+            // animation so the pill doesn't fly in from (0,0).
+            cancelIndicatorAnims();
+            applyIndicatorFrame(targetRect.left, targetRect.top, targetRect.width(), targetRect.height());
+            sharedIndicator.setBackgroundColor(nextColor);
+            sharedIndicator.setVisibility(VISIBLE);
+            return;
+        }
+
+        sharedIndicator.setVisibility(VISIBLE);
+        animateIndicatorTo(targetRect, nextColor);
+    }
+
+    /**
+     * Directly set the indicator's frame (x, y, width, height)
+     * without animation. Used for cold-start snapping and as the
+     * ground truth underneath the spring animators — the
+     * FloatPropertyCompat setters below update the same
+     * LayoutParams fields.
+     */
+    private void applyIndicatorFrame(int x, int y, int width, int height) {
+        sharedIndicator.setX((float) x);
+        sharedIndicator.setY((float) y);
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) sharedIndicator.getLayoutParams();
+        if (lp.width != width || lp.height != height) {
+            lp.width = width;
+            lp.height = height;
+            sharedIndicator.setLayoutParams(lp);
+        }
+    }
+
+    /**
+     * Recompute the current target button's frame and either snap
+     * (if no animation is running) or redirect the running spring
+     * animation to the new frame (without canceling it). Called
+     * whenever a row's layout bounds change so the indicator
+     * tracks buttons that are being pushed around by a sibling
+     * row's height animation.
+     */
+    private void retargetIndicatorIfNeeded() {
+        if (indicatorCurrentTarget == null) return;
+        View targetButton = indicatorCurrentTarget.secondary
+            ? secondaryButtons.get(indicatorCurrentTarget.id)
+            : mainButtons.get(indicatorCurrentTarget.id);
+        if (targetButton == null) return;
+        if (targetButton.getWidth() == 0 || targetButton.getHeight() == 0) return;
+
+        Rect r = new Rect(0, 0, targetButton.getWidth(), targetButton.getHeight());
+        blurContainer.offsetDescendantRectToMyCoords(targetButton, r);
+
+        boolean anyRunning =
+            (indicatorXAnim != null && indicatorXAnim.isRunning()) ||
+            (indicatorYAnim != null && indicatorYAnim.isRunning()) ||
+            (indicatorWidthAnim != null && indicatorWidthAnim.isRunning()) ||
+            (indicatorHeightAnim != null && indicatorHeightAnim.isRunning());
+
+        if (!anyRunning) {
+            // No in-flight slide — snap to the new button position
+            // immediately so the indicator tracks the button as it
+            // moves (e.g. during a secondary row grow).
+            applyIndicatorFrame(r.left, r.top, r.width(), r.height());
+            return;
+        }
+
+        // In-flight slide — redirect each spring's final position
+        // without canceling, so the in-flight animation continues
+        // toward the new target. This handles the case where the
+        // user taps a button while another layout change is
+        // happening mid-animation (rare but possible).
+        if (indicatorXAnim != null && indicatorXAnim.isRunning()) {
+            indicatorXAnim.animateToFinalPosition((float) r.left);
+        }
+        if (indicatorYAnim != null && indicatorYAnim.isRunning()) {
+            indicatorYAnim.animateToFinalPosition((float) r.top);
+        }
+        if (indicatorWidthAnim != null && indicatorWidthAnim.isRunning()) {
+            indicatorWidthAnim.animateToFinalPosition((float) r.width());
+        }
+        if (indicatorHeightAnim != null && indicatorHeightAnim.isRunning()) {
+            indicatorHeightAnim.animateToFinalPosition((float) r.height());
+        }
+    }
+
+    /** Cancel any in-flight indicator animators so two refreshes
+     *  in quick succession don't fight over the same properties. */
+    private void cancelIndicatorAnims() {
+        if (indicatorXAnim != null && indicatorXAnim.isRunning()) indicatorXAnim.cancel();
+        if (indicatorYAnim != null && indicatorYAnim.isRunning()) indicatorYAnim.cancel();
+        if (indicatorWidthAnim != null && indicatorWidthAnim.isRunning()) indicatorWidthAnim.cancel();
+        if (indicatorHeightAnim != null && indicatorHeightAnim.isRunning()) indicatorHeightAnim.cancel();
+        if (indicatorColorAnim != null && indicatorColorAnim.isRunning()) indicatorColorAnim.cancel();
+    }
+
+    /**
+     * Kick off 4 parallel SpringAnimations (x, y, width, height)
+     * and a ValueAnimator.ofArgb for the background color, all
+     * targeting the same rect + color. Uses a medium stiffness +
+     * low bouncy damping to match the iOS spring feel and the
+     * Chrome extension's framer-motion default for layoutId pills.
+     */
+    private void animateIndicatorTo(Rect rect, int color) {
+        cancelIndicatorAnims();
+
+        indicatorXAnim = newPositionSpring(
+            sharedIndicator,
+            DynamicAnimation.X,
+            rect.left
+        );
+        indicatorYAnim = newPositionSpring(
+            sharedIndicator,
+            DynamicAnimation.Y,
+            rect.top
+        );
+        indicatorWidthAnim = newLayoutSpring(sharedIndicator, WIDTH_PROP, rect.width());
+        indicatorHeightAnim = newLayoutSpring(sharedIndicator, HEIGHT_PROP, rect.height());
+
+        int startColor = sharedIndicator.getBackground() != null
+            ? ((android.graphics.drawable.ColorDrawable) sharedIndicator.getBackground()).getColor()
+            : color;
+        indicatorColorAnim = ValueAnimator.ofObject(new ArgbEvaluator(), startColor, color);
+        indicatorColorAnim.setDuration(420);
+        indicatorColorAnim.addUpdateListener(anim ->
+            sharedIndicator.setBackgroundColor((int) anim.getAnimatedValue())
+        );
+
+        indicatorXAnim.start();
+        indicatorYAnim.start();
+        indicatorWidthAnim.start();
+        indicatorHeightAnim.start();
+        indicatorColorAnim.start();
+    }
+
+    private SpringAnimation newPositionSpring(
+        View target,
+        DynamicAnimation.ViewProperty prop,
+        int finalValue
+    ) {
+        SpringAnimation anim = new SpringAnimation(target, prop, finalValue);
+        anim.getSpring()
+            .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY)
+            .setStiffness(SpringForce.STIFFNESS_MEDIUM);
+        return anim;
+    }
+
+    private SpringAnimation newLayoutSpring(
+        View target,
+        FloatPropertyCompat<View> prop,
+        int finalValue
+    ) {
+        SpringAnimation anim = new SpringAnimation(target, prop, finalValue);
+        anim.getSpring()
+            .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY)
+            .setStiffness(SpringForce.STIFFNESS_MEDIUM);
+        return anim;
+    }
+
+    /** FloatPropertyCompat for LayoutParams.width. */
+    private static final FloatPropertyCompat<View> WIDTH_PROP = new FloatPropertyCompat<View>(
+        "indicatorWidth"
+    ) {
+        @Override
+        public float getValue(View object) {
+            return object.getLayoutParams().width;
+        }
+
+        @Override
+        public void setValue(View object, float value) {
+            ViewGroup.LayoutParams lp = object.getLayoutParams();
+            lp.width = (int) value;
+            object.setLayoutParams(lp);
+        }
+    };
+
+    /** FloatPropertyCompat for LayoutParams.height. */
+    private static final FloatPropertyCompat<View> HEIGHT_PROP = new FloatPropertyCompat<View>(
+        "indicatorHeight"
+    ) {
+        @Override
+        public float getValue(View object) {
+            return object.getLayoutParams().height;
+        }
+
+        @Override
+        public void setValue(View object, float value) {
+            ViewGroup.LayoutParams lp = object.getLayoutParams();
+            lp.height = (int) value;
+            object.setLayoutParams(lp);
+        }
+    };
 
     /**
      * Animate the pill off-screen (morph out) or back into view
@@ -548,7 +973,31 @@ public final class NavbarView extends FrameLayout {
         requestLayout();
     }
 
+    private String lastMainSignature = "";
+
     private void rebuildMainRow(List<NavbarState.Item> items, String activeId) {
+        // Signature over items ONLY (not active) so a /home → /browser
+        // path change doesn't rebuild the button tree — that would
+        // invalidate the shared indicator's target references and
+        // kill the slide animation, same problem we fixed on the
+        // secondary row.
+        StringBuilder sigBuilder = new StringBuilder();
+        for (NavbarState.Item item : items) {
+            sigBuilder.append(item.id).append('/').append(item.title).append(';');
+        }
+        String signature = sigBuilder.toString();
+        if (signature.equals(lastMainSignature) && !mainButtons.isEmpty()) {
+            // Items unchanged — just sync the button tints with the
+            // new active id (the shared indicator is handled
+            // separately via scheduleIndicatorRefresh).
+            for (NavbarState.Item item : items) {
+                NavbarButton btn = mainButtons.get(item.id);
+                if (btn != null) btn.setActive(item.id.equals(activeId));
+            }
+            return;
+        }
+        lastMainSignature = signature;
+
         navStack.removeAllViews();
         mainButtons.clear();
 
@@ -589,20 +1038,31 @@ public final class NavbarView extends FrameLayout {
      * by id unless the signature changes.
      */
     private void rebuildSecondaryRow(List<NavbarState.Item> items, String activeId) {
-        // Build a simple signature of the items list to avoid
-        // rebuild+reanimate on every state tick when only the main
-        // row changed.
+        // Build a signature of the items LIST ONLY (not the active
+        // id) — we track the active id separately via
+        // lastActiveSecondaryId and use the shared sliding indicator
+        // for the active highlight, so a path change that only
+        // flips the active id should NOT trigger a button rebuild.
+        // Rebuilding the buttons nukes their references and forces
+        // the indicator to retarget a brand-new view, killing the
+        // slide animation — exactly what was breaking Send ↔
+        // Receive ↔ Settings transitions on iOS before the recent
+        // fix. This mirrors the iOS `itemsUnchanged` short-circuit.
         StringBuilder sigBuilder = new StringBuilder();
         for (NavbarState.Item item : items) {
             sigBuilder.append(item.id).append('/').append(item.title).append(';');
         }
-        sigBuilder.append("active=").append(activeId);
         String signature = sigBuilder.toString();
         boolean sameSignature = signature.equals(lastSecondarySignature);
 
         if (sameSignature) {
-            // Items/active unchanged — just re-bind active states
-            // for safety (cheap) but skip the animation.
+            // Items unchanged — nothing to rebuild. The active id
+            // has already been copied into `lastActiveSecondaryId`
+            // in `onStateChanged` and `scheduleIndicatorRefresh`
+            // will animate the indicator to the new target on the
+            // next run-loop tick. We DO want to update each
+            // button's setActive so icon tint stays in sync, but
+            // leave the button layout untouched.
             for (NavbarState.Item item : items) {
                 NavbarSecondaryButton btn = secondaryButtons.get(item.id);
                 if (btn != null) btn.setActive(item.id.equals(activeId));
