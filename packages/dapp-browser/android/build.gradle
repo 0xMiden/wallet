@@ -55,6 +55,10 @@ dependencies {
     implementation 'com.caverock:androidsvg:1.4'
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.window:window:1.5.1"
+    // Miden patch — used by the navbar overlay's show/hide + morph
+    // animations (SpringAnimation, DynamicAnimation). Spring tuned
+    // to match iOS (dampingRatio ~0.85, stiffness MEDIUM).
+    implementation "androidx.dynamicanimation:dynamicanimation:1.0.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

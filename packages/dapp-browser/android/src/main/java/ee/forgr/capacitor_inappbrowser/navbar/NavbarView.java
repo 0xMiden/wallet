@@ -11,6 +11,9 @@ import android.widget.LinearLayout;
 import androidx.annotation.NonNull;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.SpringAnimation;
+import androidx.dynamicanimation.animation.SpringForce;
 import ee.forgr.capacitor_inappbrowser.R;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -57,6 +60,7 @@ public final class NavbarView extends FrameLayout {
 
     // ─── View refs ────────────────────────────────────────────────────
 
+    private final LinearLayout secondaryRow;
     private final LinearLayout navStack;
     private final LinearLayout contentStack;
     private final LinearLayout outerVStack;
@@ -65,6 +69,15 @@ public final class NavbarView extends FrameLayout {
 
     /** Map of item id → NavbarButton so we can update active state without rebuilding. */
     private final Map<String, NavbarButton> mainButtons = new HashMap<>();
+
+    /** Map of item id → NavbarSecondaryButton for the secondary row. */
+    private final Map<String, NavbarSecondaryButton> secondaryButtons = new HashMap<>();
+
+    /** Animator controlling the secondary row's grow/collapse height transition. */
+    private SpringAnimation secondaryHeightAnim;
+
+    /** Last signature of the secondary items list — used to avoid unnecessary rebuilds. */
+    private String lastSecondarySignature = "";
 
     // ─── State wiring ─────────────────────────────────────────────────
 
@@ -112,7 +125,8 @@ public final class NavbarView extends FrameLayout {
         shadowWrap.addView(blurContainer, blurLp);
 
         // Outer vertical stack — holds [secondaryRow, contentStack].
-        // Secondary row is hidden in Phase 2.
+        // Secondary row is GONE by default; setNavbarSecondaryRow
+        // populates it and animates it in.
         outerVStack = new LinearLayout(context);
         outerVStack.setOrientation(LinearLayout.VERTICAL);
         FrameLayout.LayoutParams outerLp = new FrameLayout.LayoutParams(
@@ -121,6 +135,20 @@ public final class NavbarView extends FrameLayout {
         );
         outerLp.setMargins(dp(PILL_PADDING_DP), dp(PILL_PADDING_DP), dp(PILL_PADDING_DP), dp(PILL_PADDING_DP));
         blurContainer.addView(outerVStack, outerLp);
+
+        // Secondary row — horizontal LinearLayout with equal-weight
+        // children for Send / Receive / Settings. Collapsed by
+        // default via height=0; the spring animation grows it to
+        // intrinsic height when populated.
+        secondaryRow = new LinearLayout(context);
+        secondaryRow.setOrientation(LinearLayout.HORIZONTAL);
+        secondaryRow.setWeightSum(3f);
+        LinearLayout.LayoutParams secondaryLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0 // Start collapsed; animation will set the target height
+        );
+        secondaryLp.bottomMargin = 0; // Gap added dynamically in rebuildSecondaryRow
+        outerVStack.addView(secondaryRow, secondaryLp);
 
         // Content stack — holds [navStack, actionButton]. Phase 4
         // will add the action button as a sibling.
@@ -215,26 +243,21 @@ public final class NavbarView extends FrameLayout {
     // ─── State binding ────────────────────────────────────────────────
 
     private void onStateChanged(NavbarState state) {
-        // Rebuild the main row if the items list has changed, else
-        // just update active state. For now (Phase 2) we rebuild
-        // every time because diffing adds complexity without a
-        // measurable benefit at 3 items.
         rebuildMainRow(state.items, state.activeId);
+        rebuildSecondaryRow(state.secondaryItems, state.secondaryActiveId);
         Log.d(
             TAG,
             "onStateChanged: visible=" + state.visible +
             " items=" + state.items.size() +
+            " secondary=" + state.secondaryItems.size() +
             " active=" + state.activeId
         );
     }
 
     private void rebuildMainRow(List<NavbarState.Item> items, String activeId) {
-        // Remove previous buttons. Phase 3 will make this smarter
-        // (diff on id) but the current impl is correct.
         navStack.removeAllViews();
         mainButtons.clear();
 
-        List<NavbarButton> built = new ArrayList<>(items.size());
         for (NavbarState.Item item : items) {
             NavbarButton button = new NavbarButton(getContext());
             boolean isActive = item.id.equals(activeId);
@@ -249,8 +272,152 @@ public final class NavbarView extends FrameLayout {
             );
             navStack.addView(button, lp);
             mainButtons.put(item.id, button);
-            built.add(button);
         }
+    }
+
+    /**
+     * Rebuild the secondary row on a state change. Handles three
+     * scenarios:
+     *   1. Empty → empty: no-op (common case, avoids animation
+     *      churn)
+     *   2. Items present: rebuild content + animate grow to
+     *      intrinsic height
+     *   3. Items removed: animate collapse to 0
+     *
+     * Rebuilds are cheap (≤3 buttons) so we don't bother diffing
+     * by id unless the signature changes.
+     */
+    private void rebuildSecondaryRow(List<NavbarState.Item> items, String activeId) {
+        // Build a simple signature of the items list to avoid
+        // rebuild+reanimate on every state tick when only the main
+        // row changed.
+        StringBuilder sigBuilder = new StringBuilder();
+        for (NavbarState.Item item : items) {
+            sigBuilder.append(item.id).append('/').append(item.title).append(';');
+        }
+        sigBuilder.append("active=").append(activeId);
+        String signature = sigBuilder.toString();
+        boolean sameSignature = signature.equals(lastSecondarySignature);
+
+        if (sameSignature) {
+            // Items/active unchanged — just re-bind active states
+            // for safety (cheap) but skip the animation.
+            for (NavbarState.Item item : items) {
+                NavbarSecondaryButton btn = secondaryButtons.get(item.id);
+                if (btn != null) btn.setActive(item.id.equals(activeId));
+            }
+            return;
+        }
+        lastSecondarySignature = signature;
+
+        // Rebuild content.
+        secondaryRow.removeAllViews();
+        secondaryButtons.clear();
+
+        if (items.isEmpty()) {
+            // Animate collapse to height=0. The row's content is
+            // already empty so there's nothing to see mid-animation;
+            // the height transition just retracts the reserved
+            // vertical space cleanly.
+            animateSecondaryHeight(0);
+            return;
+        }
+
+        // Dynamic weightSum so rows with N buttons distribute
+        // correctly. Matches iOS NavbarSecondaryButton's
+        // .fillEqually distribution.
+        secondaryRow.setWeightSum((float) items.size());
+        for (NavbarState.Item item : items) {
+            NavbarSecondaryButton btn = new NavbarSecondaryButton(getContext());
+            boolean isActive = item.id.equals(activeId);
+            btn.bind(item, isActive);
+            btn.setOnClickListener(v -> {
+                if (manager != null) manager.dispatchSecondaryTap(item.id);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f
+            );
+            secondaryRow.addView(btn, lp);
+            secondaryButtons.put(item.id, btn);
+        }
+
+        // Animate grow to the row's intrinsic height — for a single
+        // row of 32dp pills that's 32dp + padding. We use a
+        // measured height instead of a hardcoded constant so future
+        // content size changes don't need a magic-number update.
+        int targetHeight = dp(NavbarSecondaryButton.BUTTON_HEIGHT_DP);
+        // Also add the spacing gap between secondary row and
+        // content stack so the two rows don't touch.
+        addSecondaryBottomMargin();
+        animateSecondaryHeight(targetHeight);
+    }
+
+    /**
+     * Ensure the secondary row has the correct bottom margin so
+     * there's a visible gap between it and the main content stack.
+     * Idempotent — safe to call on every populated rebuild.
+     */
+    private void addSecondaryBottomMargin() {
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) secondaryRow.getLayoutParams();
+        if (lp.bottomMargin != dp(OUTER_STACK_SPACING_DP)) {
+            lp.bottomMargin = dp(OUTER_STACK_SPACING_DP);
+            secondaryRow.setLayoutParams(lp);
+        }
+    }
+
+    /**
+     * Animate the secondary row's height to the given target using
+     * a spring with iOS-matching parameters (dampingRatio 0.85,
+     * medium stiffness). When the target is 0 we also clear the
+     * bottom margin on animation end so the collapsed row doesn't
+     * leave a ghost gap.
+     */
+    private void animateSecondaryHeight(int targetHeight) {
+        // Cancel any in-flight animation so we don't have two
+        // springs fighting for the same property.
+        if (secondaryHeightAnim != null && secondaryHeightAnim.isRunning()) {
+            secondaryHeightAnim.cancel();
+        }
+
+        // Custom property: animate the LinearLayout.LayoutParams
+        // height. SpringAnimation wants a FloatPropertyCompat so we
+        // wrap the layout height mutation in one.
+        secondaryHeightAnim = new SpringAnimation(
+            secondaryRow,
+            new androidx.dynamicanimation.animation.FloatPropertyCompat<View>("secondaryHeight") {
+                @Override
+                public float getValue(View object) {
+                    return object.getLayoutParams().height;
+                }
+
+                @Override
+                public void setValue(View object, float value) {
+                    ViewGroup.LayoutParams lp = object.getLayoutParams();
+                    lp.height = (int) value;
+                    object.setLayoutParams(lp);
+                }
+            }
+        );
+        secondaryHeightAnim.setSpring(
+            new SpringForce(targetHeight)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY) // ~0.75 — iOS uses ~0.85 but this reads smoother on Android
+                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+        );
+        secondaryHeightAnim.addEndListener((animation, canceled, value, velocity) -> {
+            if (targetHeight == 0) {
+                // Fully collapsed — clear the bottom margin so the
+                // row doesn't leave a reserved gap.
+                LinearLayout.LayoutParams lp =
+                    (LinearLayout.LayoutParams) secondaryRow.getLayoutParams();
+                if (lp.bottomMargin != 0) {
+                    lp.bottomMargin = 0;
+                    secondaryRow.setLayoutParams(lp);
+                }
+            }
+        });
+        secondaryHeightAnim.start();
     }
 
     private int dp(int value) {
