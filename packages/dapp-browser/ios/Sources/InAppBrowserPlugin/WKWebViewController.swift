@@ -2215,6 +2215,32 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// re-run animations on no-op state changes.
     private var compactMode: Bool = false
 
+    /// Shared "active item" indicator for the main row. Replaces the
+    /// per-button pillBackground with a single view that slides from
+    /// one button to another on setActive, matching the framer-motion
+    /// `layoutId` behavior used by the Chrome extension footer.
+    ///
+    /// The indicator is a non-arranged subview of `navStack`
+    /// positioned with Auto Layout constraints pinned to the currently
+    /// active button. On setActive we flip the constraints to the new
+    /// active button and call layoutIfNeeded inside a spring animate
+    /// block — the layout engine interpolates the frame across the
+    /// spring curve, producing the slide.
+    private let mainRowIndicator = UIView()
+    private var mainIndicatorLeading: NSLayoutConstraint?
+    private var mainIndicatorTrailing: NSLayoutConstraint?
+    private var mainIndicatorTop: NSLayoutConstraint?
+    private var mainIndicatorBottom: NSLayoutConstraint?
+
+    /// Same shared-indicator pattern for the secondary row. Different
+    /// background color (pale slate instead of orange-tint) to match
+    /// the existing NavbarSecondaryButton visual style.
+    private let secondaryRowIndicator = UIView()
+    private var secondaryIndicatorLeading: NSLayoutConstraint?
+    private var secondaryIndicatorTrailing: NSLayoutConstraint?
+    private var secondaryIndicatorTop: NSLayoutConstraint?
+    private var secondaryIndicatorBottom: NSLayoutConstraint?
+
     /// Tracks whether we're currently presented (visible on screen)
     /// vs morphed-out (slid below the screen). Morphed-out state is
     /// used when a bottom-sheet drawer is up and the navbar would
@@ -2292,6 +2318,19 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// PARENT's coordinate space, not the window's. We have to
     /// convert it via `convert(_:to:)` before hit-testing or every
     /// tap on the actual pill rectangle silently falls through.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Keep the shared indicator pills rounded-full as their
+        // parent buttons get laid out. Recomputed every layout pass
+        // so dynamic type / safe-area / row resize all stay in sync.
+        if mainRowIndicator.bounds.height > 0 {
+            mainRowIndicator.layer.cornerRadius = mainRowIndicator.bounds.height / 2.0
+        }
+        if secondaryRowIndicator.bounds.height > 0 {
+            secondaryRowIndicator.layer.cornerRadius = secondaryRowIndicator.bounds.height / 2.0
+        }
+    }
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // When morphed out, the pill is visually off-screen via a
         // transform but its auto-layout frame is unchanged — return
@@ -2311,11 +2350,57 @@ class MidenNavbarOverlayWindow: UIWindow {
         return super.hitTest(point, with: event)
     }
 
-    /// Refresh the active item highlight without rebuilding the window.
+    /// Refresh the active item highlight without rebuilding the
+    /// window. Animates the shared main-row indicator from the old
+    /// active button's position to the new one with a spring curve,
+    /// matching the Chrome extension footer's framer-motion
+    /// `layoutId` pill behavior.
     func setActive(_ itemId: String?) {
+        let previousId = activeItemId
         activeItemId = itemId
+
+        // Update icon / label colors immediately — only the pill
+        // background is animated; the text/icon colors swap
+        // synchronously (same as the Chrome version, which uses
+        // className-based color classes).
         for (id, button) in buttons {
             button.setActive(id == itemId)
+        }
+
+        // No visible indicator if nothing is active.
+        guard let id = itemId, let activeButton = buttons[id] else {
+            mainRowIndicator.isHidden = true
+            return
+        }
+
+        // First time showing the indicator (cold-bind): snap
+        // without animation so the pill doesn't fly in from
+        // (0,0) on first appearance.
+        if mainRowIndicator.isHidden || previousId == nil {
+            bindMainIndicator(to: activeButton)
+            mainRowIndicator.isHidden = false
+            navStack.layoutIfNeeded()
+            return
+        }
+
+        // Same active id as before → nothing to animate.
+        if previousId == id {
+            return
+        }
+
+        // Rebind the pinning constraints OUTSIDE the animation so the
+        // layout engine knows the new target. Then animate
+        // layoutIfNeeded with a spring curve so the indicator slides
+        // from its current rect to the new button's rect.
+        bindMainIndicator(to: activeButton)
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.82,
+            initialSpringVelocity: 0.6,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.navStack.layoutIfNeeded()
         }
     }
 
@@ -2331,10 +2416,22 @@ class MidenNavbarOverlayWindow: UIWindow {
             button.removeFromSuperview()
         }
         secondaryButtons.removeAll()
+        // Pin constraints on the secondary indicator reference dead
+        // buttons after removeFromSuperview — clear them so we rebind
+        // to the new buttons below.
+        secondaryIndicatorLeading?.isActive = false
+        secondaryIndicatorTrailing?.isActive = false
+        secondaryIndicatorTop?.isActive = false
+        secondaryIndicatorBottom?.isActive = false
+        secondaryIndicatorLeading = nil
+        secondaryIndicatorTrailing = nil
+        secondaryIndicatorTop = nil
+        secondaryIndicatorBottom = nil
 
         if items.isEmpty {
             // Hide path — collapse the arranged subview and animate.
             activeSecondaryId = nil
+            secondaryRowIndicator.isHidden = true
             UIView.animate(
                 withDuration: 0.42,
                 delay: 0,
@@ -2362,6 +2459,17 @@ class MidenNavbarOverlayWindow: UIWindow {
             secondaryButtons[item.id] = button
         }
 
+        // Bind the secondary indicator to the initially-active button
+        // so it has a resting position when the row unhides. Without
+        // this bind the indicator stays hidden even when there's an
+        // activeId, and first tap would have nothing to slide from.
+        if let activeId = activeId, let activeButton = secondaryButtons[activeId] {
+            bindSecondaryIndicator(to: activeButton)
+            secondaryRowIndicator.isHidden = false
+        } else {
+            secondaryRowIndicator.isHidden = true
+        }
+
         // If already visible, don't re-animate height — just update
         // the content. Prevents jitter when only the active state
         // changed (e.g. user navigated between Send and Receive).
@@ -2384,11 +2492,42 @@ class MidenNavbarOverlayWindow: UIWindow {
 
     /// Update the highlighted state of the secondary row without
     /// rebuilding it. Cheaper than setSecondaryItems when the caller
-    /// just wants to flip which pill is active.
+    /// just wants to flip which pill is active. Drives the same
+    /// sliding-indicator spring animation as setActive does for the
+    /// main row.
     func setSecondaryActive(_ itemId: String?) {
+        let previousId = activeSecondaryId
         activeSecondaryId = itemId
+
         for (id, button) in secondaryButtons {
             button.setActive(id == itemId)
+        }
+
+        guard let id = itemId, let activeButton = secondaryButtons[id] else {
+            secondaryRowIndicator.isHidden = true
+            return
+        }
+
+        if secondaryRowIndicator.isHidden || previousId == nil {
+            bindSecondaryIndicator(to: activeButton)
+            secondaryRowIndicator.isHidden = false
+            secondaryRow.layoutIfNeeded()
+            return
+        }
+
+        if previousId == id {
+            return
+        }
+
+        bindSecondaryIndicator(to: activeButton)
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.82,
+            initialSpringVelocity: 0.6,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.secondaryRow.layoutIfNeeded()
         }
     }
 
@@ -2447,6 +2586,18 @@ class MidenNavbarOverlayWindow: UIWindow {
         navStack.spacing = 0
         navStack.translatesAutoresizingMaskIntoConstraints = false
 
+        // Install the shared main-row indicator BEFORE the buttons
+        // are added so it sits behind them in the z-order. It's a
+        // non-arranged subview of navStack (addSubview, NOT
+        // addArrangedSubview) so UIStackView doesn't try to
+        // participate in its layout — we pin it with constraints
+        // to whichever button is active.
+        mainRowIndicator.translatesAutoresizingMaskIntoConstraints = false
+        mainRowIndicator.backgroundColor = NavbarButton.activePillBg
+        mainRowIndicator.isUserInteractionEnabled = false
+        mainRowIndicator.isHidden = true
+        navStack.addSubview(mainRowIndicator)
+
         // Outer content stack holds [navStack, actionButton].
         // Both arranged subviews are always present; we control
         // proportional widths via constraints, not via the stack's
@@ -2488,6 +2639,16 @@ class MidenNavbarOverlayWindow: UIWindow {
         secondaryRow.isHidden = true
         secondaryRow.alpha = 0
 
+        // Install the shared secondary-row indicator BEFORE buttons
+        // so it sits underneath. Same pattern as mainRowIndicator —
+        // non-arranged subview, pinned to the active button via
+        // constraints that we flip in setSecondaryActive.
+        secondaryRowIndicator.translatesAutoresizingMaskIntoConstraints = false
+        secondaryRowIndicator.backgroundColor = NavbarSecondaryButton.activePillBg
+        secondaryRowIndicator.isUserInteractionEnabled = false
+        secondaryRowIndicator.isHidden = true
+        secondaryRow.addSubview(secondaryRowIndicator)
+
         contentContainer.addSubview(outerVStack)
         outerVStack.addArrangedSubview(secondaryRow)
         outerVStack.addArrangedSubview(contentStack)
@@ -2516,6 +2677,50 @@ class MidenNavbarOverlayWindow: UIWindow {
             navStack.addArrangedSubview(button)
             buttons[item.id] = button
         }
+
+        // Pin the main-row indicator to the initially-active button
+        // (if any) so it appears in the right place on first layout.
+        // setActive(_:) will rebind these constraints whenever the
+        // user taps a different button and drive the slide animation.
+        if let activeId = activeItemId, let activeButton = buttons[activeId] {
+            bindMainIndicator(to: activeButton)
+            mainRowIndicator.isHidden = false
+        }
+    }
+
+    /// Rebind the main-row indicator's pinning constraints to the
+    /// given button. Does NOT animate — the caller runs this inside
+    /// (or just before) an animation block and drives the transition
+    /// via `layoutIfNeeded`.
+    private func bindMainIndicator(to button: NavbarButton) {
+        mainIndicatorLeading?.isActive = false
+        mainIndicatorTrailing?.isActive = false
+        mainIndicatorTop?.isActive = false
+        mainIndicatorBottom?.isActive = false
+        mainIndicatorLeading = mainRowIndicator.leadingAnchor.constraint(equalTo: button.leadingAnchor)
+        mainIndicatorTrailing = mainRowIndicator.trailingAnchor.constraint(equalTo: button.trailingAnchor)
+        mainIndicatorTop = mainRowIndicator.topAnchor.constraint(equalTo: button.topAnchor)
+        mainIndicatorBottom = mainRowIndicator.bottomAnchor.constraint(equalTo: button.bottomAnchor)
+        mainIndicatorLeading?.isActive = true
+        mainIndicatorTrailing?.isActive = true
+        mainIndicatorTop?.isActive = true
+        mainIndicatorBottom?.isActive = true
+    }
+
+    /// Mirror of bindMainIndicator for the secondary row.
+    private func bindSecondaryIndicator(to button: NavbarSecondaryButton) {
+        secondaryIndicatorLeading?.isActive = false
+        secondaryIndicatorTrailing?.isActive = false
+        secondaryIndicatorTop?.isActive = false
+        secondaryIndicatorBottom?.isActive = false
+        secondaryIndicatorLeading = secondaryRowIndicator.leadingAnchor.constraint(equalTo: button.leadingAnchor)
+        secondaryIndicatorTrailing = secondaryRowIndicator.trailingAnchor.constraint(equalTo: button.trailingAnchor)
+        secondaryIndicatorTop = secondaryRowIndicator.topAnchor.constraint(equalTo: button.topAnchor)
+        secondaryIndicatorBottom = secondaryRowIndicator.bottomAnchor.constraint(equalTo: button.bottomAnchor)
+        secondaryIndicatorLeading?.isActive = true
+        secondaryIndicatorTrailing?.isActive = true
+        secondaryIndicatorTop?.isActive = true
+        secondaryIndicatorBottom?.isActive = true
     }
 
     /// Switch the navbar to compact mode with a primary action button
@@ -2659,14 +2864,15 @@ private class MidenNavbarRootViewController: UIViewController {
 private class NavbarButton: UIControl {
     private let iconView = UIImageView()
     private let label = UILabel()
-    private let pillBackground = UIView()
     private let title: String
 
     // Match Tailwind's `bg-pill-active/18` — the wallet's pill-active
     // color is the brand orange #FF5700 at 18% opacity.
+    // `activePillBg` is internal (not private) so MidenNavbarOverlayWindow's
+    // shared row indicator can reuse the exact same color.
     private static let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
     private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
-    private static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
+    static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
 
     // Default-mode icon constraints: top-pinned 22×22 with the label
     // sitting below. Compact-mode icon constraints: center-pinned and
@@ -2714,15 +2920,10 @@ private class NavbarButton: UIControl {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        // Active-state pill background fills the entire button (React
-        // uses `absolute inset-0`). The corner radius is set to half
-        // the button height in layoutSubviews so it ends up as a true
-        // `rounded-full` pill regardless of dynamic type / sizing.
-        pillBackground.translatesAutoresizingMaskIntoConstraints = false
-        pillBackground.backgroundColor = NavbarButton.activePillBg
-        pillBackground.isHidden = true
-        pillBackground.isUserInteractionEnabled = false
-        addSubview(pillBackground)
+        // No per-button pill background — the active-state pill is
+        // now a single shared indicator view at the navStack level
+        // that slides between buttons on setActive. See
+        // MidenNavbarOverlayWindow.mainRowIndicator.
 
         // SF Symbol configured to roughly match the 22pt React icons.
         // The point size is 17 because SF Symbols are intrinsically a
@@ -2762,10 +2963,6 @@ private class NavbarButton: UIControl {
             // Pin button height so compact mode can't force the
             // whole toolbar to grow — see `buttonHeight` docs above.
             heightAnchor.constraint(equalToConstant: NavbarButton.buttonHeight),
-            pillBackground.topAnchor.constraint(equalTo: topAnchor),
-            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
-            pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
             // Icon — X is the same in both modes (centered horizontally);
             // Y + size differ and are toggled via setCompact.
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -2788,16 +2985,10 @@ private class NavbarButton: UIControl {
         fatalError("init(coder:) is unavailable")
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // React's active pill is `rounded-full` (= half the height).
-        // Recompute on every layout pass so dynamic type / safe-area
-        // changes don't desync the corner radius from the bounds.
-        pillBackground.layer.cornerRadius = bounds.height / 2.0
-    }
-
     func setActive(_ active: Bool) {
-        pillBackground.isHidden = !active
+        // Only update icon/label colors — the active pill background
+        // is now a shared indicator at the navStack level (see
+        // MidenNavbarOverlayWindow.mainRowIndicator + setActive).
         let color = active ? NavbarButton.activeColor : NavbarButton.inactiveColor
         iconView.tintColor = color
         label.textColor = color
@@ -2862,7 +3053,6 @@ private class NavbarButton: UIControl {
 private class NavbarSecondaryButton: UIControl {
     private let iconView = UIImageView()
     private let label = UILabel()
-    private let pillBackground = UIView()
     // Inner horizontal stack holding [iconView, label]. Wrapping the
     // pair in a UIStackView and center-anchoring the stack itself is
     // the cleanest way to center a multi-subview group in Auto
@@ -2877,20 +3067,17 @@ private class NavbarSecondaryButton: UIControl {
     // better next to the orange main-row active pill than a second
     // orange fill would.
     private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
-    private static let activePillBg = UIColor(red: 15.0 / 255.0, green: 23.0 / 255.0, blue: 42.0 / 255.0, alpha: 0.08)
+    // Exposed to the enclosing MidenNavbarOverlayWindow so the shared
+    // secondary-row indicator can reuse the exact same pill color.
+    static let activePillBg = UIColor(red: 15.0 / 255.0, green: 23.0 / 255.0, blue: 42.0 / 255.0, alpha: 0.08)
 
     init(item: MidenNavbarOverlayWindow.Item) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        // Active-state pill background fills the entire button —
-        // same structure as NavbarButton's pillBackground but
-        // attached to a shorter button.
-        pillBackground.translatesAutoresizingMaskIntoConstraints = false
-        pillBackground.backgroundColor = NavbarSecondaryButton.activePillBg
-        pillBackground.isHidden = true
-        pillBackground.isUserInteractionEnabled = false
-        addSubview(pillBackground)
+        // No per-button pill background — the active-state pill is
+        // a shared indicator at the secondaryRow level that slides
+        // between buttons on setSecondaryActive.
 
         // Inline icon + label — smaller symbol size (13pt) than the
         // main nav row (17pt) so the secondary row reads as the
@@ -2924,12 +3111,6 @@ private class NavbarSecondaryButton: UIControl {
             // has a predictable size regardless of dynamic type.
             heightAnchor.constraint(equalToConstant: 32),
 
-            // Pill background fills the button.
-            pillBackground.topAnchor.constraint(equalTo: topAnchor),
-            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
-            pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
-
             // Icon has a fixed square size — the stack view handles
             // its horizontal position via the center anchor below.
             iconView.widthAnchor.constraint(equalToConstant: 16),
@@ -2956,17 +3137,12 @@ private class NavbarSecondaryButton: UIControl {
         fatalError("init(coder:) is unavailable")
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // Rounded-full pill background — half the button height.
-        pillBackground.layer.cornerRadius = bounds.height / 2.0
-    }
-
     func setActive(_ active: Bool) {
         // Icon + label color stays heading-gray in both states — only
         // the pale slate pill background fades in to indicate which
-        // pill is currently active.
-        pillBackground.isHidden = !active
+        // pill is currently active. The pill is now a shared
+        // indicator at the secondaryRow level (see
+        // MidenNavbarOverlayWindow.secondaryRowIndicator).
         accessibilityTraits = active ? [.button, .selected] : .button
     }
 }
