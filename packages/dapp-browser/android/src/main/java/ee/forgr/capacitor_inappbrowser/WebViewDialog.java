@@ -1760,41 +1760,37 @@ public class WebViewDialog extends Dialog {
                 getWindow().setDecorFitsSystemWindows(false);
             }
 
-            // Also set window background color to match status bar for blank toolbar
+            // Miden patch: the Dialog Window frame extends BELOW the
+            // slot rect (see `applyDimensions` comment) so the
+            // floating navbar can sit at the screen bottom. The
+            // inner WebView is pinned to the slot height via
+            // `applyInnerWebViewSlotHeight`, so the ~34dp strip
+            // between the WebView bottom and the Dialog bottom is
+            // empty space that needs to be TRANSPARENT — otherwise
+            // the Dialog decor's background color (previously white/
+            // black depending on theme) shows as a solid band below
+            // the WebView, creating the exact "white bar at bottom"
+            // bug this architecture was meant to solve.
+            //
+            // Mirrors iOS's setup: the dApp UIWindow has a clear
+            // backgroundColor so the Capacitor host window beneath
+            // (the wallet's React app with its beige body padding)
+            // shows through in the gaps outside the WKWebView frame.
+            if (getWindow() != null) {
+                getWindow().getDecorView().setBackgroundColor(Color.TRANSPARENT);
+                // Also clear the Window background drawable so the
+                // platform default (which draws a solid pane) doesn't
+                // reintroduce a background behind our decor.
+                getWindow().setBackgroundDrawable(
+                    new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+                );
+            }
+            // The status_bar_color_view is a 0dp-height placeholder
+            // in the layout; no longer used for background in blank
+            // mode but we clear its background just in case.
             View statusBarColorView = findViewById(R.id.status_bar_color_view);
-            if (_options.getToolbarColor() != null && !_options.getToolbarColor().isEmpty()) {
-                try {
-                    int toolbarColor = Color.parseColor(_options.getToolbarColor());
-                    if (getWindow() != null) {
-                        getWindow().getDecorView().setBackgroundColor(toolbarColor);
-                    }
-                    // Also set status bar color view background if available
-                    if (statusBarColorView != null) {
-                        statusBarColorView.setBackgroundColor(toolbarColor);
-                    }
-                } catch (IllegalArgumentException e) {
-                    // Fallback to system default if color parsing fails
-                    boolean isDarkTheme = isDarkThemeEnabled();
-                    int windowBackgroundColor = isDarkTheme ? Color.BLACK : Color.WHITE;
-                    if (getWindow() != null) {
-                        getWindow().getDecorView().setBackgroundColor(windowBackgroundColor);
-                    }
-                    // Also set status bar color view background if available
-                    if (statusBarColorView != null) {
-                        statusBarColorView.setBackgroundColor(windowBackgroundColor);
-                    }
-                }
-            } else {
-                // Follow system dark mode
-                boolean isDarkTheme = isDarkThemeEnabled();
-                int windowBackgroundColor = isDarkTheme ? Color.BLACK : Color.WHITE;
-                if (getWindow() != null) {
-                    getWindow().getDecorView().setBackgroundColor(windowBackgroundColor);
-                }
-                // Also set status bar color view background if available
-                if (statusBarColorView != null) {
-                    statusBarColorView.setBackgroundColor(windowBackgroundColor);
-                }
+            if (statusBarColorView != null) {
+                statusBarColorView.setBackgroundColor(Color.TRANSPARENT);
             }
         } else {
             _toolbar.findViewById(R.id.forwardButton).setVisibility(View.GONE);
@@ -3111,18 +3107,82 @@ public class WebViewDialog extends Dialog {
             statusBarHeightPx = getContext().getResources().getDimensionPixelSize(resourceId);
         }
 
+        // Miden patch: in "blank" toolbar mode (dApp browser),
+        // extend the Dialog frame from the slot top all the way
+        // down to the bottom of the screen, instead of capping at
+        // the slot height. Rationale:
+        //
+        // The floating NavbarView is attached to the Dialog's decor
+        // view via {@code NavbarOverlayManager.onDialogShown}. Its
+        // bottom-gravity position + system-bar inset listener give
+        // it the screen's gesture-bar inset as bottom margin, so it
+        // sits ~80pt above the gesture bar. That's only correct if
+        // the Dialog's decor view ACTUALLY reaches the screen bottom
+        // — if the Dialog frame stops at (slot.y + slot.height), the
+        // navbar sits inside that smaller frame and appears ~100px
+        // higher than the Activity-scoped navbar that renders on
+        // the grid screen. The user sees a jump when maximizing a
+        // dApp, and a white band of the Activity's background is
+        // visible below the Dialog.
+        //
+        // Mirrors iOS's architecture: on iOS the floating-navbar
+        // overlay is a SEPARATE UIWindow at .normal+200, independent
+        // of the dApp UIWindow's frame — so the pill sits at a
+        // stable screen-y regardless of the dApp's frame. On Android
+        // we can't have a separate Window for the navbar (see
+        // {@code NavbarOverlayManager} for why), so we instead
+        // stretch the Dialog frame itself down to the screen edge.
+        //
+        // The inner WebView (content_browser_layout) is still
+        // constrained to the slot.height so the dApp's CSS viewport
+        // matches the slot rect — identical to iOS's dApp UIWindow
+        // frame. Without this constraint, the WebView would fill
+        // the taller Dialog and any dApp with a {@code position:
+        // fixed; bottom: 0} element (e.g. a sticky "Connect Wallet"
+        // CTA) would render that element below the navbar pill in
+        // the gesture bar area, producing an orange sliver across
+        // the bottom of the screen. iOS doesn't suffer this because
+        // its WKWebView frame = slot rect, so bottom-fixed dApp
+        // content lands at slot_bottom (hidden behind the pill).
+        // See {@code applyInnerWebViewSlotHeight()} below.
+        boolean extendToScreenBottom =
+            android.text.TextUtils.equals(_options.getToolbarType(), "blank") &&
+            y != null &&
+            height != null;
+        // Resolve the REAL screen height (including status bar and
+        // gesture bar areas). `DisplayMetrics.heightPixels` can
+        // return the app-usable height that excludes system bars
+        // on some API levels, which would underreport the real
+        // screen size. `WindowMetrics.getBounds()` on API 30+ and
+        // `Display.getRealSize()` below are the reliable sources.
+        int screenHeightPx;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && getWindow() != null) {
+            android.view.WindowManager wm = (android.view.WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+            screenHeightPx = wm.getCurrentWindowMetrics().getBounds().height();
+        } else {
+            android.graphics.Point realSize = new android.graphics.Point();
+            getWindow().getWindowManager().getDefaultDisplay().getRealSize(realSize);
+            screenHeightPx = realSize.y;
+        }
+
         // If both width and height are specified, use custom dimensions
         if (width != null && height != null) {
             params.width = (int) getPixels(width);
-            params.height = (int) getPixels(height);
+            int dialogY = (int) getPixels(y) + statusBarHeightPx;
+            params.height = extendToScreenBottom
+                ? Math.max((int) getPixels(height), screenHeightPx - dialogY)
+                : (int) getPixels(height);
             params.x = (x != null) ? (int) getPixels(x) : 0;
-            params.y = (y != null) ? ((int) getPixels(y) + statusBarHeightPx) : statusBarHeightPx;
+            params.y = (y != null) ? dialogY : statusBarHeightPx;
         } else if (height != null && width == null) {
             // If only height is specified, use custom height with fullscreen width
             params.width = WindowManager.LayoutParams.MATCH_PARENT;
-            params.height = (int) getPixels(height);
+            int dialogY = (y != null) ? ((int) getPixels(y) + statusBarHeightPx) : statusBarHeightPx;
+            params.height = extendToScreenBottom
+                ? Math.max((int) getPixels(height), screenHeightPx - dialogY)
+                : (int) getPixels(height);
             params.x = 0;
-            params.y = (y != null) ? ((int) getPixels(y) + statusBarHeightPx) : statusBarHeightPx;
+            params.y = dialogY;
         } else {
             // Default to fullscreen
             params.width = WindowManager.LayoutParams.MATCH_PARENT;
@@ -3132,6 +3192,41 @@ public class WebViewDialog extends Dialog {
         }
 
         getWindow().setAttributes(params);
+
+        // Miden patch: pin the inner WebView's layout height to the
+        // requested slot.height so the dApp's CSS viewport matches
+        // iOS exactly, even though the Dialog window frame was
+        // extended to the screen bottom (see comment above).
+        applyInnerWebViewSlotHeight(extendToScreenBottom, height);
+    }
+
+    /**
+     * Miden patch — when the Dialog frame has been stretched down
+     * to the screen bottom (see {@code applyDimensions}), pin the
+     * inner {@code content_browser_layout} to the original slot
+     * height so the dApp viewport still matches iOS. The extra
+     * vertical space below the WebView remains transparent (the
+     * blank-toolbar branch sets the Dialog window background to
+     * transparent) so the Activity behind shows through — which
+     * happens to be the React CapsuleBar's host (beige body
+     * padding-bottom area) — and the floating navbar pill sits
+     * on top of all of it.
+     *
+     * This method is idempotent — safe to call on every dimension
+     * update. It has no effect unless the toolbar is "blank" AND
+     * a valid height was provided.
+     */
+    private void applyInnerWebViewSlotHeight(boolean extendToScreenBottom, Integer heightDp) {
+        if (!extendToScreenBottom || heightDp == null) return;
+        View contentBrowserLayout = findViewById(R.id.content_browser_layout);
+        if (contentBrowserLayout == null) return;
+        ViewGroup.LayoutParams lp = contentBrowserLayout.getLayoutParams();
+        if (lp == null) return;
+        int slotHeightPx = (int) getPixels(heightDp);
+        if (lp.height == slotHeightPx) return;
+        lp.height = slotHeightPx;
+        contentBrowserLayout.setLayoutParams(lp);
+        Log.d("InAppBrowser", "pinned content_browser_layout height to slot=" + slotHeightPx + "px");
     }
 
     /**
