@@ -24,11 +24,6 @@ Wallet. Forked from [`@capgo/inappbrowser`](https://github.com/Cap-go/capacitor-
   Canvas snapshot path mirroring the iOS one.
 - **Android `InAppBrowserPlugin.snapshot(call)`** — `@PluginMethod` wrapper.
 
-PR-4 of the wechat-style dApp browser plan adds multi-instance support
-(WebViewRegistry, per-instance UIWindow, setVisible/listInstances/closeAll
-methods, per-session message routing). PR-5 + PR-6 build the card switcher
-and persistence layer on top.
-
 The plugin is consumed via:
 
 ```ts
