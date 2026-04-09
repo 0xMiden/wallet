@@ -2680,6 +2680,25 @@ private class NavbarButton: UIControl {
     private var compactIconHeight: NSLayoutConstraint!
     private var compactIconWidth: NSLayoutConstraint!
 
+    // Label vertical constraints are stored so we can deactivate them
+    // in compact mode. In default mode the label sits below the icon
+    // (topAnchor = iconView.bottomAnchor + 8) and is bounded by the
+    // button's bottom (bottomAnchor <= bottom - 8). In compact mode
+    // the icon gets center-pinned at 32pt, and those same label
+    // constraints would force the button to be ~92pt tall (icon
+    // center + 16 + 8 + label 14 + 8 from bottom ≥ 92). The label
+    // is alpha-0 in compact mode anyway, so we simply deactivate
+    // both constraints — the label drifts to wherever Auto Layout
+    // prefers but it's invisible, and the button sticks to its
+    // fixed 60pt height.
+    private var labelTopConstraint: NSLayoutConstraint!
+    private var labelBottomConstraint: NSLayoutConstraint!
+
+    // Fixed button height — pinned so compact mode can't force the
+    // whole toolbar to grow. Value matches the default-mode minimum
+    // intrinsic height (8 + 22 + 8 + 14 + 8 = 60).
+    private static let buttonHeight: CGFloat = 60
+
     // Two symbol configs — the compact one is proportionally larger so
     // the rendered glyph actually fills the bigger 32pt iconView bounds.
     // UIImageView scales the underlying image via contentMode but SF
@@ -2733,10 +2752,16 @@ private class NavbarButton: UIControl {
         compactIconHeight = iconView.heightAnchor.constraint(equalToConstant: 32)
         compactIconWidth = iconView.widthAnchor.constraint(equalToConstant: 32)
 
+        labelTopConstraint = label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 8)
+        labelBottomConstraint = label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8)
+
         // Layout matches React's `flex flex-col items-center gap-2 py-2 px-4`
         // in default mode. Compact mode centers the icon and scales
         // it up to visually match the action button's pill height.
         NSLayoutConstraint.activate([
+            // Pin button height so compact mode can't force the
+            // whole toolbar to grow — see `buttonHeight` docs above.
+            heightAnchor.constraint(equalToConstant: NavbarButton.buttonHeight),
             pillBackground.topAnchor.constraint(equalTo: topAnchor),
             pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
             pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -2747,10 +2772,10 @@ private class NavbarButton: UIControl {
             defaultIconTop,
             defaultIconHeight,
             defaultIconWidth,
-            label.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 8),
+            labelTopConstraint,
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8)
+            labelBottomConstraint
         ])
 
         // Accessibility
@@ -2793,6 +2818,16 @@ private class NavbarButton: UIControl {
             compactIconCenterY.isActive = true
             compactIconHeight.isActive = true
             compactIconWidth.isActive = true
+            // Release the label's vertical constraints so they don't
+            // fight the fixed button height. In compact mode the
+            // label is alpha-0 anyway, so where it drifts to is
+            // invisible. Without this release, the
+            // `label.bottomAnchor <= bottom - 8` constraint forces
+            // the button (and therefore the whole toolbar) to grow
+            // to ~92pt to accommodate the center-pinned 32pt icon +
+            // the still-constrained label below it.
+            labelTopConstraint.isActive = false
+            labelBottomConstraint.isActive = false
             iconView.preferredSymbolConfiguration = compactSymbolConfig
         } else {
             compactIconCenterY.isActive = false
@@ -2801,6 +2836,8 @@ private class NavbarButton: UIControl {
             defaultIconTop.isActive = true
             defaultIconHeight.isActive = true
             defaultIconWidth.isActive = true
+            labelTopConstraint.isActive = true
+            labelBottomConstraint.isActive = true
             iconView.preferredSymbolConfiguration = defaultSymbolConfig
         }
         _ = animated
@@ -2970,19 +3007,25 @@ private class NavbarActionButton: UIControl {
         label.minimumScaleFactor = 0.85
         addSubview(label)
 
-        // The parent NavbarButton in compact mode renders its 32pt SF
-        // Symbol centered inside the ~88pt-tall stack cell (88 =
-        // icon 32 + stacked label 14 + gap 8 + py-2 16 + ~ safe-area
-        // measurements). Without matching inset, the action pill's
-        // visible fill stretches to the full cell height and reads
-        // like a giant orange blob next to three tiny icons. Inset
-        // top/bottom by (cellHeight - iconHeight) / 2 ≈ 27pt so its
-        // visible height matches the ~34pt visible icon next to it.
-        // The outer button frame stays the full cell height so the
-        // hit target stays large and tappable.
+        // The contentStack is pinned to NavbarButton.buttonHeight
+        // (60pt) so every action button placed next to the nav row
+        // renders in a 60pt-tall cell. The nav row's compact-mode
+        // icon is 32pt centered in the same cell. Without matching
+        // inset, the action pill's fill stretches to the full cell
+        // height and reads like a giant orange blob next to three
+        // tiny icons. Inset the pill top/bottom by
+        // (cellHeight - iconHeight) / 2 = (60 - 34) / 2 = 13pt so
+        // its visible height matches the ~34pt icon next to it. The
+        // outer button frame stays the full cell height so the hit
+        // target stays large and tappable.
+        //
+        // This inset applies to EVERY action button the toolbar
+        // surfaces (not just Continue) — any future compact-mode
+        // action button uses the same NavbarActionButton class and
+        // inherits this sizing.
         NSLayoutConstraint.activate([
-            pillBackground.topAnchor.constraint(equalTo: topAnchor, constant: 27),
-            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -27),
+            pillBackground.topAnchor.constraint(equalTo: topAnchor, constant: 13),
+            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -13),
             pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             label.leadingAnchor.constraint(equalTo: pillBackground.leadingAnchor, constant: 12),
