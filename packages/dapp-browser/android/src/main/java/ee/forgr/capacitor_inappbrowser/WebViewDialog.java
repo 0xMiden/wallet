@@ -3088,18 +3088,41 @@ public class WebViewDialog extends Dialog {
             params.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
         }
 
+        // Miden patch: the wallet's JS measures the slot rect via
+        // `getBoundingClientRect()` on an element inside the
+        // Capacitor host WebView. On mobile.html the body has
+        // `padding-top: env(safe-area-inset-top)` applied, which
+        // pushes the viewport ~24dp below the status bar — the
+        // measured y=83dp is therefore relative to viewport-top
+        // (below status bar), not screen-top.
+        //
+        // iOS handles this implicitly because WKWebView slot
+        // coordinates are in the parent UIView's space, which is
+        // already inset for the safe area. Android Dialog Windows
+        // are positioned in absolute screen coordinates, so we
+        // have to add the status bar inset ourselves or the
+        // Dialog ends up ~24dp too high, overlapping the bottom
+        // of the React CapsuleBar.
+        int statusBarHeightPx = 0;
+        int resourceId = getContext()
+            .getResources()
+            .getIdentifier("status_bar_height", "dimen", "android");
+        if (resourceId > 0) {
+            statusBarHeightPx = getContext().getResources().getDimensionPixelSize(resourceId);
+        }
+
         // If both width and height are specified, use custom dimensions
         if (width != null && height != null) {
             params.width = (int) getPixels(width);
             params.height = (int) getPixels(height);
             params.x = (x != null) ? (int) getPixels(x) : 0;
-            params.y = (y != null) ? (int) getPixels(y) : 0;
+            params.y = (y != null) ? ((int) getPixels(y) + statusBarHeightPx) : statusBarHeightPx;
         } else if (height != null && width == null) {
             // If only height is specified, use custom height with fullscreen width
             params.width = WindowManager.LayoutParams.MATCH_PARENT;
             params.height = (int) getPixels(height);
             params.x = 0;
-            params.y = (y != null) ? (int) getPixels(y) : 0;
+            params.y = (y != null) ? ((int) getPixels(y) + statusBarHeightPx) : statusBarHeightPx;
         } else {
             // Default to fullscreen
             params.width = WindowManager.LayoutParams.MATCH_PARENT;
