@@ -16,7 +16,7 @@ const SyncBanner = memo<SyncBannerProps>(({ syncText, fullPage }: SyncBannerProp
   const appEnv = useAppEnv();
   const maximizeClick = () => {
     openInFullPage();
-    if (appEnv.popup) {
+    if (appEnv.compact) {
       window.close();
     }
   };

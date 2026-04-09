@@ -43,6 +43,7 @@ const appConfig = {
     fullpage: './src/fullpage.tsx',
     options: './src/options.tsx',
     popup: './src/popup.tsx',
+    sidepanel: './src/sidepanel.tsx',
     contentScript: './src/contentScript.ts',
     addToWindow: './src/addToWindow.ts'
   },
@@ -94,6 +95,7 @@ const appConfig = {
     new Dotenv(),
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
+      TARGET_BROWSER: TARGET_BROWSER,
       MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
     }),
 
@@ -288,6 +290,7 @@ const backgroundConfig = {
     new Dotenv(),
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
+      TARGET_BROWSER: TARGET_BROWSER,
       MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
     }),
 
@@ -466,6 +469,7 @@ const workerConfig = {
     new Dotenv(),
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
+      TARGET_BROWSER: TARGET_BROWSER,
       MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
     }),
 

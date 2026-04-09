@@ -2611,5 +2611,17 @@
   "advancedOptions": {
     "message": "詳細オプション",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "ピンミデンウォレット",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "パズル アイコンをクリックして Miden Wallet を固定すると、ツールバーから簡単にアクセスできます。",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "わかった",
+    "englishSource": "Got it"
   }
 }
