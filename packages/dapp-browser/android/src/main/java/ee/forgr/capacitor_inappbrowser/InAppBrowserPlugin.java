@@ -913,6 +913,38 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         getBridge().getWebView()
                     );
                     webViewDialog.activity = InAppBrowserPlugin.this.getActivity();
+
+                    // Miden navbar — register show/dismiss listeners so the
+                    // navbar manager can attach a Dialog-scoped NavbarView
+                    // instance once the Dialog's decor view is available,
+                    // and detach it on dismiss. This is the Phase 6
+                    // two-instance architecture: one NavbarView lives in
+                    // the Activity, another (fresh) lives inside each
+                    // WebViewDialog's own Window, so the pill stays above
+                    // the dApp content without any Window z-order
+                    // wrestling.
+                    final WebViewDialog createdDialog = webViewDialog;
+                    createdDialog.setOnShowListener(
+                        new android.content.DialogInterface.OnShowListener() {
+                            @Override
+                            public void onShow(android.content.DialogInterface d) {
+                                if (navbarManager != null) {
+                                    navbarManager.onDialogShown(createdDialog);
+                                }
+                            }
+                        }
+                    );
+                    createdDialog.setOnDismissListener(
+                        new android.content.DialogInterface.OnDismissListener() {
+                            @Override
+                            public void onDismiss(android.content.DialogInterface d) {
+                                if (navbarManager != null) {
+                                    navbarManager.onDialogDismissed(createdDialog);
+                                }
+                            }
+                        }
+                    );
+
                     webViewDialog.presentWebView();
                     // Mirror in the multi-instance registry. Unlike iOS,
                     // Android Dialog already supports multiple concurrent
