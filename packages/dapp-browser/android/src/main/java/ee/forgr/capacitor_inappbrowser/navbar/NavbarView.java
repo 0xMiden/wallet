@@ -83,6 +83,12 @@ public final class NavbarView extends FrameLayout {
     /** Whether we're currently rendering the compact mode layout (action button visible). */
     private boolean compactMode;
 
+    /** Animator that slides the pill off-screen / back for drawer morphs. */
+    private SpringAnimation morphTranslationAnim;
+
+    /** Whether we're currently in the morphed-out state. */
+    private boolean morphedOut;
+
     // ─── State wiring ─────────────────────────────────────────────────
 
     private final NavbarStateHolder stateHolder;
@@ -117,8 +123,24 @@ public final class NavbarView extends FrameLayout {
         );
 
         // Blur container — the actual pill. Rounded 26dp corners,
-        // translucent white fill. Phase 5 adds RenderEffect blur
-        // on API 31+.
+        // translucent white fill.
+        //
+        // On Android we can't cleanly replicate iOS's UIGlassEffect
+        // backdrop blur. The only reliable Android primitives for
+        // backdrop blur (Window.setBackgroundBlurRadius, the
+        // BLUR_BEHIND_WINDOW_FLAG) only work on Windows (Dialogs),
+        // and we deliberately architected the navbar as a child
+        // View of the Activity/Dialog decor view — not its own
+        // Window — so it can share the host's z-order for free
+        // (see NavbarOverlayManager docs).
+        //
+        // View.setRenderEffect(createBlurEffect(...)) blurs the
+        // view's OWN rendered content (including children), not
+        // what's behind it — the opposite of what we want. So we
+        // stick with a solid translucent pill, which reads as a
+        // native Material surface on Android devices. This is the
+        // same compromise the system Material Bottom App Bar
+        // makes.
         blurContainer = new FrameLayout(context);
         blurContainer.setBackgroundResource(R.drawable.navbar_pill_bg);
         blurContainer.setClipToOutline(true);
@@ -268,14 +290,57 @@ public final class NavbarView extends FrameLayout {
         rebuildMainRow(state.items, state.activeId);
         rebuildSecondaryRow(state.secondaryItems, state.secondaryActiveId);
         applyActionState(state.action);
+        applyMorphState(state.morphedOut);
         Log.d(
             TAG,
             "onStateChanged: visible=" + state.visible +
             " items=" + state.items.size() +
             " secondary=" + state.secondaryItems.size() +
             " action=" + (state.action != null) +
+            " morph=" + state.morphedOut +
             " active=" + state.activeId
         );
+    }
+
+    /**
+     * Animate the pill off-screen (morph out) or back into view
+     * (morph in) in response to drawer-open state. The animation
+     * runs on the {@code shadowWrap}'s translationY so the child
+     * tree (buttons, labels, icons) moves as one rigid unit.
+     *
+     * Off-screen target = pill height + bottom margin, so the pill
+     * is fully hidden below the screen edge when morphed out.
+     */
+    private void applyMorphState(boolean newMorphedOut) {
+        if (this.morphedOut == newMorphedOut) return;
+        this.morphedOut = newMorphedOut;
+
+        // Cancel any in-flight morph so we don't have two springs
+        // fighting for the translation property.
+        if (morphTranslationAnim != null && morphTranslationAnim.isRunning()) {
+            morphTranslationAnim.cancel();
+        }
+
+        // Target = 0 when morphed in, pill_height + margin when
+        // morphed out. We use the laid-out height at call time; if
+        // the pill hasn't been measured yet we fall back to a
+        // reasonable constant.
+        float targetTranslationY;
+        if (newMorphedOut) {
+            int pillHeight = shadowWrap.getHeight();
+            if (pillHeight <= 0) pillHeight = dp(120); // reasonable fallback
+            targetTranslationY = pillHeight + dp(BOTTOM_GAP_DP) + dp(40);
+        } else {
+            targetTranslationY = 0f;
+        }
+
+        morphTranslationAnim = new SpringAnimation(shadowWrap, DynamicAnimation.TRANSLATION_Y);
+        morphTranslationAnim.setSpring(
+            new SpringForce(targetTranslationY)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY)
+                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+        );
+        morphTranslationAnim.start();
     }
 
     /**
