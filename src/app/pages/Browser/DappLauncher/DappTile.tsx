@@ -41,6 +41,20 @@ interface DappTileProps {
    * settled by the time they mount.
    */
   entryBaseDelay?: number;
+  /**
+   * Whether this tile's favicon + name participate in the shared-layout
+   * morph that transitions tile → capsule (and back on minimize). Only
+   * ONE tile per URL in the launcher tree can carry the layoutId —
+   * framer-motion's LayoutGroup unifies any elements sharing a
+   * layoutId, so if the same URL appears in two sections (e.g. a
+   * Featured dApp that's also in Recents) BOTH tiles get projected to
+   * a single merged position, leaving the non-primary instance
+   * rendered at 0×0 or the merged rect's size. The primary owner
+   * (MyDappsGrid) defaults to `true`; secondary sections like
+   * RecentsRow pass `false` so their tile renders normally and the
+   * MyDappsGrid tile remains the unique morph target.
+   */
+  enableSharedLayout?: boolean;
 }
 
 export const DappTile: FC<DappTileProps> = ({
@@ -51,7 +65,8 @@ export const DappTile: FC<DappTileProps> = ({
   badge,
   onOpen,
   animationIndex = 0,
-  entryBaseDelay = 0.04
+  entryBaseDelay = 0.04,
+  enableSharedLayout = true
 }) => {
   const [iconBroken, setIconBroken] = useState(false);
   // PR-7: reduce-motion-aware springs so the shared-element morph from
@@ -110,7 +125,7 @@ export const DappTile: FC<DappTileProps> = ({
       aria-label={accessibleLabel}
     >
       <motion.div
-        layoutId={`dapp-favicon-${url}`}
+        layoutId={enableSharedLayout ? `dapp-favicon-${url}` : undefined}
         transition={springs.morph}
         className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
         style={{ background: showFallback ? fallbackBg : 'rgba(0,0,0,0.04)' }}
@@ -134,7 +149,7 @@ export const DappTile: FC<DappTileProps> = ({
         )}
       </motion.div>
       <motion.span
-        layoutId={`dapp-name-${url}`}
+        layoutId={enableSharedLayout ? `dapp-name-${url}` : undefined}
         transition={springs.morph}
         className="w-full truncate text-center text-xs font-medium text-heading-gray"
         aria-hidden="true"

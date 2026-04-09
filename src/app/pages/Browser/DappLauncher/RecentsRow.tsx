@@ -57,6 +57,13 @@ export const RecentsRow: FC<RecentsRowProps> = ({ recents, category, onOpen }) =
             icon={dapp.favicon}
             onOpen={onOpen}
             animationIndex={index}
+            // Don't participate in the capsule morph — if this URL also
+            // lives in MyDappsGrid (Featured dApp opened recently), that
+            // section is the primary morph target and sharing the
+            // layoutId here would cause framer-motion to merge both
+            // instances into one projected rect (rendering this tile at
+            // 0×0 OR the MyDapps tile at the wrong size).
+            enableSharedLayout={false}
           />
         ))}
       </div>
