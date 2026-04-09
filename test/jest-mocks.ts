@@ -1,5 +1,6 @@
 jest.mock('webextension-polyfill');
 jest.mock('@demox-labs/miden-wallet-adapter-base');
+jest.mock('@miden-sdk/react');
 jest.mock('nanoid');
 jest.mock('app/hooks/useGasToken');
 jest.mock('app/hooks/useMidenFaucetId');

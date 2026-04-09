@@ -2771,5 +2771,17 @@
   "advancedOptions": {
     "message": "Додаткові параметри",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden Wallet",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Клацніть піктограму головоломки та закріпіть Miden Wallet для швидкого доступу з панелі інструментів.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "зрозумів",
+    "englishSource": "Got it"
   }
 }

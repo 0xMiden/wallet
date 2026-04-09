@@ -2757,5 +2757,17 @@
   "advancedOptions": {
     "message": "Options avancées",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Portefeuille Pin Miden",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Cliquez sur l'icône du puzzle et épinglez Miden Wallet pour un accès rapide depuis votre barre d'outils.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "J'ai compris",
+    "englishSource": "Got it"
   }
 }

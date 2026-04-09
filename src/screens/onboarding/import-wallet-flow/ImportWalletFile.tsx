@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 
+import { useImportStore } from '@miden-sdk/react';
 import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -9,7 +10,6 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { Icon, IconName } from 'app/icons/v2';
 import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/passworder';
 import { importDb } from 'lib/miden/repo';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { DecryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
 interface FormData {
@@ -28,6 +28,7 @@ type WalletFile = EncryptedWalletFile & {
 // TODO: This needs to move forward in the onboarding steps, likely needs some sort of next thing feature
 export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ className, onSubmit }) => {
   const { t } = useTranslation();
+  const { importStore } = useImportStore();
   const walletFileRef = useRef<HTMLInputElement>(null);
   const [walletFile, setWalletFile] = useState<WalletFile | null>(null);
   const [isWrongPassword, setIsWrongPassword] = useState(false);
@@ -77,11 +78,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       const walletDbContent = decryptedWallet.walletDbContent;
       const seedPhrase = decryptedWallet.seedPhrase;
 
-      // Wrap WASM client operations in a lock to prevent concurrent access
-      await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await midenClient.importDb(midenClientDbContent);
-      });
+      await importStore(midenClientDbContent, 'miden-wallet');
       await importDb(walletDbContent);
 
       onSubmit(seedPhrase);

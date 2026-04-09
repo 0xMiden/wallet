@@ -13,6 +13,7 @@ import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
+import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
@@ -81,6 +82,7 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
     <AppEnvProvider {...env}>
       <Woozie.Provider>
         <ExtensionMessageListener />
+        {isExtension() && <PinExtensionPrompt />}
         {checkIsMobile() && <MobileBackBridge />}
         {checkIsDesktop() && (
           <Suspense fallback={null}>

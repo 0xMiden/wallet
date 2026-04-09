@@ -9,12 +9,6 @@ import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 
 import { MidenContextProvider, useMidenContext } from './client';
 
-jest.mock('./autoSync', () => ({
-  AutoSync: {
-    updateState: jest.fn()
-  }
-}));
-
 jest.mock('lib/intercom', () => {
   class MockIntercomClient {
     request = jest.fn(async (req: any) => {

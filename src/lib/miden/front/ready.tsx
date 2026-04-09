@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
+import { DEFAULT_NETWORK, NETWORK_STORAGE_ID } from 'lib/miden-chain/constants';
 import { usePassiveStorage } from 'lib/miden/front/storage';
 import { useWalletStore } from 'lib/store';
 
@@ -22,7 +23,7 @@ export function useAllNetworks(): MidenNetwork[] {
  */
 export function useSetNetworkId(): (id: string) => void {
   const setSelectedNetworkId = useWalletStore(s => s.setSelectedNetworkId);
-  const [, setStoredNetworkId] = usePassiveStorage<string>('network_id', '');
+  const [, setStoredNetworkId] = usePassiveStorage<string>(NETWORK_STORAGE_ID, '');
 
   return useCallback(
     (id: string) => {
@@ -44,8 +45,8 @@ export function useNetwork(): MidenNetwork {
   const validationDone = useRef(false);
 
   // Load from storage on mount and sync to store
-  const defaultNetId = networks[0]?.id ?? '';
-  const [storedNetworkId, setStoredNetworkId] = usePassiveStorage('network_id', defaultNetId);
+  const defaultNetId = DEFAULT_NETWORK;
+  const [storedNetworkId, setStoredNetworkId] = usePassiveStorage(NETWORK_STORAGE_ID, defaultNetId);
 
   // Sync storage to Zustand once on mount
   useEffect(() => {
@@ -67,7 +68,7 @@ export function useNetwork(): MidenNetwork {
   }, [networks, selectedNetworkId, storedNetworkId, setSelectedNetworkId, setStoredNetworkId, defaultNetId]);
 
   const effectiveNetworkId = selectedNetworkId || storedNetworkId;
-  const defaultNet = networks[0];
+  const defaultNet = networks.find(n => n.id === DEFAULT_NETWORK) ?? networks[0];
   return useMemo(
     () => networks.find(n => n.id === effectiveNetworkId) ?? defaultNet,
     [networks, effectiveNetworkId, defaultNet]

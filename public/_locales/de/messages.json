@@ -2770,5 +2770,17 @@
   "advancedOptions": {
     "message": "Erweiterte Optionen",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden-Geldbörse",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Klicken Sie auf das Puzzle-Symbol und heften Sie Miden Wallet an, um über Ihre Symbolleiste schnell darauf zugreifen zu können.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Habe es",
+    "englishSource": "Got it"
   }
 }

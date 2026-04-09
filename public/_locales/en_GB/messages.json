@@ -2798,5 +2798,17 @@
   "advancedOptions": {
     "message": "Advanced Options",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden Wallet",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Got it",
+    "englishSource": "Got it"
   }
 }

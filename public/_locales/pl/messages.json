@@ -2695,5 +2695,17 @@
   "advancedOptions": {
     "message": "Opcje zaawansowane",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Przypnij portfel Miden",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Kliknij ikonę puzzli i przypnij portfel Miden, aby uzyskać szybki dostęp z paska narzędzi.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Rozumiem",
+    "englishSource": "Got it"
   }
 }

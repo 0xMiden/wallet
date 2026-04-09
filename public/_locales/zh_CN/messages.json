@@ -2770,5 +2770,17 @@
   "advancedOptions": {
     "message": "高级选项",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden 钱包",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "单击拼图图标并固定 Miden Wallet，以便从工具栏快速访问。",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "知道了",
+    "englishSource": "Got it"
   }
 }

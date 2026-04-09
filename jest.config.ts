@@ -39,7 +39,8 @@ export default {
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
-    '@miden-sdk/miden-sdk': '<rootDir>/__mocks__/wasmMock.js'
+    '@miden-sdk/miden-sdk': '<rootDir>/__mocks__/wasmMock.js',
+    '@miden-sdk/react': '<rootDir>/__mocks__/@miden-sdk/react.ts'
   },
   testEnvironment: 'jsdom',
   transform: {

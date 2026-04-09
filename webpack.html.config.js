@@ -29,7 +29,8 @@ module.exports = publicPath => {
     getTemplateEntry(publicPath, 'popup'),
     getTemplateEntry(publicPath, 'fullpage'),
     getTemplateEntry(publicPath, 'confirm'),
-    getTemplateEntry(publicPath, 'options')
+    getTemplateEntry(publicPath, 'options'),
+    getTemplateEntry(publicPath, 'sidepanel')
   ];
 
   return htmlTemplates.map(

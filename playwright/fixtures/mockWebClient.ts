@@ -26,7 +26,7 @@ function ensureFileFetchSupport() {
 
 type Fixtures = {
   sdk: Awaited<typeof import('@miden-sdk/miden-sdk')>;
-  mockWebClient: any;
+  mockClient: any;
 };
 
 export const test = base.extend<Fixtures>({
@@ -35,18 +35,10 @@ export const test = base.extend<Fixtures>({
     const sdk = await import('@miden-sdk/miden-sdk');
     await use(sdk as any);
   },
-  mockWebClient: async ({ sdk }: any, use: any) => {
-    const client = await sdk.MockWebClient.createClient();
+  mockClient: async ({ sdk }: any, use: any) => {
+    const client = await sdk.MidenClient.createMock();
     await use(client);
-    // 0.13.3 added a Proxy-based method classifier that throws on any
-    // method not listed in SYNC / WRITE / READ sets — including the
-    // wasm-bindgen destructor `free`. Reach for the underlying
-    // wasmWebClient directly to bypass the classifier. Safe to no-op
-    // if the field isn't there (non-Proxy builds or future SDKs).
-    const inner = (client as any).wasmWebClient;
-    if (inner && typeof inner.free === 'function') {
-      inner.free();
-    }
+    client.terminate();
   }
 });
 
