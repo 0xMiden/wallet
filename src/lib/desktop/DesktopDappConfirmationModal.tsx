@@ -9,7 +9,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
-import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -25,14 +24,6 @@ import {
   onDappConfirmationResponse,
   showDappConfirmationOverlay
 } from './dapp-browser';
-
-// Log to Rust stdout for debugging (kept for future use)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function jsLog(message: string): void {
-  if (isDesktop()) {
-    invoke('js_log', { message }).catch(() => {});
-  }
-}
 
 /**
  * Desktop confirmation handler component

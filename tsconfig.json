@@ -17,6 +17,8 @@
     "jsx": "react",
     "noImplicitReturns": true,
     "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true,
     "downlevelIteration": true,
     "typeRoots": ["./node_modules/@types"]
   },
