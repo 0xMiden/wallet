@@ -1,7 +1,5 @@
 package ee.forgr.capacitor_inappbrowser.navbar;
 
-import android.animation.ArgbEvaluator;
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Build;
@@ -18,7 +16,6 @@ import androidx.annotation.NonNull;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.dynamicanimation.animation.DynamicAnimation;
-import androidx.dynamicanimation.animation.FloatPropertyCompat;
 import androidx.dynamicanimation.animation.SpringAnimation;
 import androidx.dynamicanimation.animation.SpringForce;
 import ee.forgr.capacitor_inappbrowser.R;
@@ -97,13 +94,16 @@ public final class NavbarView extends FrameLayout {
     /** Whether we're currently in the morphed-out state. */
     private boolean morphedOut;
 
-    // ─── Shared sliding indicator (active state pill) ──────────────────
+    // ─── Shared active-state indicator ─────────────────────────────────
     //
     // Mirrors iOS MidenNavbarOverlayWindow.sharedIndicator — a single
-    // view whose frame animates to whichever button is currently
-    // active, including cross-row transitions (HOME main → SEND
-    // secondary). Replaces the per-button background drawables we
-    // used to set on NavbarButton / NavbarSecondaryButton.
+    // view whose frame tracks whichever button is currently active,
+    // including cross-row transitions (HOME main → SEND secondary).
+    // Replaces the per-button background drawables we used to set on
+    // NavbarButton / NavbarSecondaryButton.
+    //
+    // On iOS this slides between positions with a spring. Android
+    // intentionally snaps — see the comment in refreshIndicator().
 
     /** The floating pill view itself. Child of blurContainer so it can
      *  overlay both rows while sitting behind the outerVStack in
@@ -111,25 +111,8 @@ public final class NavbarView extends FrameLayout {
      *  top → icons/labels stay visible over the pill). */
     private final NavbarIndicatorView sharedIndicator;
 
-    /** 4 parallel spring animators — one per dimension — so the
-     *  indicator morphs its frame (x, y, width, height) with a single
-     *  spring curve feel. Using 4 separate springs lets us use
-     *  View.X / View.Y natively for position and custom
-     *  FloatPropertyCompat for width/height. */
-    private SpringAnimation indicatorXAnim;
-    private SpringAnimation indicatorYAnim;
-    private SpringAnimation indicatorWidthAnim;
-    private SpringAnimation indicatorHeightAnim;
-
-    /** Color-crossfade animator. Runs in parallel with the spring
-     *  animators via ValueAnimator.ofArgb, so the pill shifts from
-     *  the main row's orange tint to the secondary row's slate tint
-     *  (or back) on the same 420ms timeline. */
-    private ValueAnimator indicatorColorAnim;
-
     /** Target screen the indicator should land on. `null` means
-     *  the indicator is hidden. Used to detect no-op refreshes and
-     *  cold-start snapping. */
+     *  the indicator is hidden. Used to detect no-op refreshes. */
     private IndicatorTarget indicatorCurrentTarget = null;
 
     /** Coalescing flag. When a state update schedules a refresh, we
@@ -137,8 +120,8 @@ public final class NavbarView extends FrameLayout {
      *  synchronously — multiple updates in the same dispatch (e.g.
      *  {@code setActive(null)} followed by secondary row update with
      *  a new active id on a Home → Send navigation) coalesce into
-     *  ONE refresh that sees the final state and animates correctly
-     *  instead of hiding briefly between them. */
+     *  ONE refresh that sees the final state instead of flashing
+     *  through an intermediate "no active" state. */
     private boolean indicatorRefreshPending = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -149,7 +132,7 @@ public final class NavbarView extends FrameLayout {
     private String lastActiveMainId = null;
     private String lastActiveSecondaryId = null;
 
-    /** Spring target colors — resolved once, reused for each refresh. */
+    /** Target colors — resolved once, reused for each refresh. */
     private int mainActivePillColor;
     private int secondaryActivePillColor;
 
@@ -606,22 +589,21 @@ public final class NavbarView extends FrameLayout {
         indicatorRefreshPending = true;
         mainHandler.post(() -> {
             indicatorRefreshPending = false;
-            refreshIndicator(true);
+            refreshIndicator();
         });
     }
 
     /**
-     * Pick the target button and either snap (cold start) or
-     * animate (warm state) the shared indicator to its frame.
-     * Priority rule: secondary row active wins over main row
-     * active, because the secondary row represents a more
-     * specific in-flow state (e.g. /send clears main active and
-     * sets secondary active=send).
+     * Pick the target button and snap the shared indicator to its
+     * frame. Priority rule: secondary row active wins over main row
+     * active, because the secondary row represents a more specific
+     * in-flow state (e.g. /send clears main active and sets
+     * secondary active=send).
      *
-     * @param animated true on warm refresh (state update after
-     *                 initial layout), false for cold bind.
+     * Android intentionally snaps rather than sliding between
+     * positions — see the comment in the snap block below.
      */
-    private void refreshIndicator(boolean animated) {
+    private void refreshIndicator() {
         View targetButton = null;
         IndicatorTarget nextTarget = null;
         int nextColor = mainActivePillColor;
@@ -645,7 +627,6 @@ public final class NavbarView extends FrameLayout {
 
         // Nothing active → hide the indicator.
         if (targetButton == null) {
-            cancelIndicatorAnims();
             sharedIndicator.setVisibility(INVISIBLE);
             indicatorCurrentTarget = null;
             return;
@@ -670,34 +651,31 @@ public final class NavbarView extends FrameLayout {
         // construction, before the first layout pass), postpone
         // to the next layout pass.
         if (targetRect.width() <= 0 || targetRect.height() <= 0) {
-            sharedIndicator.post(() -> refreshIndicator(animated));
+            sharedIndicator.post(this::refreshIndicator);
             return;
         }
 
-        boolean wasHidden =
-            sharedIndicator.getVisibility() != VISIBLE || indicatorCurrentTarget == null;
         indicatorCurrentTarget = nextTarget;
 
-        if (!animated || wasHidden) {
-            // Cold start — snap to the target rect without
-            // animation so the pill doesn't fly in from (0,0).
-            cancelIndicatorAnims();
-            applyIndicatorFrame(targetRect.left, targetRect.top, targetRect.width(), targetRect.height());
-            sharedIndicator.setBackgroundColor(nextColor);
-            sharedIndicator.setVisibility(VISIBLE);
-            return;
-        }
-
+        // Android: snap the indicator to its new frame instead of
+        // sliding between positions. On Android emulators and mid-
+        // tier devices the spring-driven slide reads as choppy
+        // (capture framerate shows the pill jumping through a couple
+        // of intermediate positions rather than arcing smoothly),
+        // while on iOS the symmetric code produces a fluid motion.
+        // Rather than fight that asymmetry we pick the end state
+        // directly — same final appearance, no half-animation
+        // perception.
+        applyIndicatorFrame(targetRect.left, targetRect.top, targetRect.width(), targetRect.height());
+        sharedIndicator.setBackgroundColor(nextColor);
         sharedIndicator.setVisibility(VISIBLE);
-        animateIndicatorTo(targetRect, nextColor);
     }
 
     /**
-     * Directly set the indicator's frame (x, y, width, height)
-     * without animation. Used for cold-start snapping and as the
-     * ground truth underneath the spring animators — the
-     * FloatPropertyCompat setters below update the same
-     * LayoutParams fields.
+     * Directly set the indicator's frame (x, y, width, height).
+     * This is the only code path that moves the indicator on
+     * Android — animation is intentionally disabled (see
+     * {@link #refreshIndicator()}).
      */
     private void applyIndicatorFrame(int x, int y, int width, int height) {
         sharedIndicator.setX((float) x);
@@ -711,12 +689,11 @@ public final class NavbarView extends FrameLayout {
     }
 
     /**
-     * Recompute the current target button's frame and either snap
-     * (if no animation is running) or redirect the running spring
-     * animation to the new frame (without canceling it). Called
-     * whenever a row's layout bounds change so the indicator
-     * tracks buttons that are being pushed around by a sibling
-     * row's height animation.
+     * Recompute the current target button's frame and snap the
+     * indicator to it. Called whenever a row's layout bounds change
+     * so the indicator tracks buttons that are being pushed around
+     * by a sibling row's height animation (e.g. secondary row
+     * grow/collapse).
      */
     private void retargetIndicatorIfNeeded() {
         if (indicatorCurrentTarget == null) return;
@@ -728,146 +705,8 @@ public final class NavbarView extends FrameLayout {
 
         Rect r = new Rect(0, 0, targetButton.getWidth(), targetButton.getHeight());
         blurContainer.offsetDescendantRectToMyCoords(targetButton, r);
-
-        boolean anyRunning =
-            (indicatorXAnim != null && indicatorXAnim.isRunning()) ||
-            (indicatorYAnim != null && indicatorYAnim.isRunning()) ||
-            (indicatorWidthAnim != null && indicatorWidthAnim.isRunning()) ||
-            (indicatorHeightAnim != null && indicatorHeightAnim.isRunning());
-
-        if (!anyRunning) {
-            // No in-flight slide — snap to the new button position
-            // immediately so the indicator tracks the button as it
-            // moves (e.g. during a secondary row grow).
-            applyIndicatorFrame(r.left, r.top, r.width(), r.height());
-            return;
-        }
-
-        // In-flight slide — redirect each spring's final position
-        // without canceling, so the in-flight animation continues
-        // toward the new target. This handles the case where the
-        // user taps a button while another layout change is
-        // happening mid-animation (rare but possible).
-        if (indicatorXAnim != null && indicatorXAnim.isRunning()) {
-            indicatorXAnim.animateToFinalPosition((float) r.left);
-        }
-        if (indicatorYAnim != null && indicatorYAnim.isRunning()) {
-            indicatorYAnim.animateToFinalPosition((float) r.top);
-        }
-        if (indicatorWidthAnim != null && indicatorWidthAnim.isRunning()) {
-            indicatorWidthAnim.animateToFinalPosition((float) r.width());
-        }
-        if (indicatorHeightAnim != null && indicatorHeightAnim.isRunning()) {
-            indicatorHeightAnim.animateToFinalPosition((float) r.height());
-        }
+        applyIndicatorFrame(r.left, r.top, r.width(), r.height());
     }
-
-    /** Cancel any in-flight indicator animators so two refreshes
-     *  in quick succession don't fight over the same properties. */
-    private void cancelIndicatorAnims() {
-        if (indicatorXAnim != null && indicatorXAnim.isRunning()) indicatorXAnim.cancel();
-        if (indicatorYAnim != null && indicatorYAnim.isRunning()) indicatorYAnim.cancel();
-        if (indicatorWidthAnim != null && indicatorWidthAnim.isRunning()) indicatorWidthAnim.cancel();
-        if (indicatorHeightAnim != null && indicatorHeightAnim.isRunning()) indicatorHeightAnim.cancel();
-        if (indicatorColorAnim != null && indicatorColorAnim.isRunning()) indicatorColorAnim.cancel();
-    }
-
-    /**
-     * Kick off 4 parallel SpringAnimations (x, y, width, height)
-     * and a ValueAnimator.ofArgb for the background color, all
-     * targeting the same rect + color. Uses a medium stiffness +
-     * low bouncy damping to match the iOS spring feel and the
-     * Chrome extension's framer-motion default for layoutId pills.
-     */
-    private void animateIndicatorTo(Rect rect, int color) {
-        cancelIndicatorAnims();
-
-        indicatorXAnim = newPositionSpring(
-            sharedIndicator,
-            DynamicAnimation.X,
-            rect.left
-        );
-        indicatorYAnim = newPositionSpring(
-            sharedIndicator,
-            DynamicAnimation.Y,
-            rect.top
-        );
-        indicatorWidthAnim = newLayoutSpring(sharedIndicator, WIDTH_PROP, rect.width());
-        indicatorHeightAnim = newLayoutSpring(sharedIndicator, HEIGHT_PROP, rect.height());
-
-        int startColor = sharedIndicator.getBackground() != null
-            ? ((android.graphics.drawable.ColorDrawable) sharedIndicator.getBackground()).getColor()
-            : color;
-        indicatorColorAnim = ValueAnimator.ofObject(new ArgbEvaluator(), startColor, color);
-        indicatorColorAnim.setDuration(420);
-        indicatorColorAnim.addUpdateListener(anim ->
-            sharedIndicator.setBackgroundColor((int) anim.getAnimatedValue())
-        );
-
-        indicatorXAnim.start();
-        indicatorYAnim.start();
-        indicatorWidthAnim.start();
-        indicatorHeightAnim.start();
-        indicatorColorAnim.start();
-    }
-
-    private SpringAnimation newPositionSpring(
-        View target,
-        DynamicAnimation.ViewProperty prop,
-        int finalValue
-    ) {
-        SpringAnimation anim = new SpringAnimation(target, prop, finalValue);
-        anim.getSpring()
-            .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY)
-            .setStiffness(SpringForce.STIFFNESS_MEDIUM);
-        return anim;
-    }
-
-    private SpringAnimation newLayoutSpring(
-        View target,
-        FloatPropertyCompat<View> prop,
-        int finalValue
-    ) {
-        SpringAnimation anim = new SpringAnimation(target, prop, finalValue);
-        anim.getSpring()
-            .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY)
-            .setStiffness(SpringForce.STIFFNESS_MEDIUM);
-        return anim;
-    }
-
-    /** FloatPropertyCompat for LayoutParams.width. */
-    private static final FloatPropertyCompat<View> WIDTH_PROP = new FloatPropertyCompat<View>(
-        "indicatorWidth"
-    ) {
-        @Override
-        public float getValue(View object) {
-            return object.getLayoutParams().width;
-        }
-
-        @Override
-        public void setValue(View object, float value) {
-            ViewGroup.LayoutParams lp = object.getLayoutParams();
-            lp.width = (int) value;
-            object.setLayoutParams(lp);
-        }
-    };
-
-    /** FloatPropertyCompat for LayoutParams.height. */
-    private static final FloatPropertyCompat<View> HEIGHT_PROP = new FloatPropertyCompat<View>(
-        "indicatorHeight"
-    ) {
-        @Override
-        public float getValue(View object) {
-            return object.getLayoutParams().height;
-        }
-
-        @Override
-        public void setValue(View object, float value) {
-            ViewGroup.LayoutParams lp = object.getLayoutParams();
-            lp.height = (int) value;
-            object.setLayoutParams(lp);
-        }
-    };
 
     /**
      * Animate the pill off-screen (morph out) or back into view
