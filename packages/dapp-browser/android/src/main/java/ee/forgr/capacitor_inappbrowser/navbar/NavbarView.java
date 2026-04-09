@@ -62,6 +62,7 @@ public final class NavbarView extends FrameLayout {
 
     private final LinearLayout secondaryRow;
     private final LinearLayout navStack;
+    private final NavbarActionButton actionButton;
     private final LinearLayout contentStack;
     private final LinearLayout outerVStack;
     private final FrameLayout blurContainer;
@@ -78,6 +79,9 @@ public final class NavbarView extends FrameLayout {
 
     /** Last signature of the secondary items list — used to avoid unnecessary rebuilds. */
     private String lastSecondarySignature = "";
+
+    /** Whether we're currently rendering the compact mode layout (action button visible). */
+    private boolean compactMode;
 
     // ─── State wiring ─────────────────────────────────────────────────
 
@@ -162,7 +166,8 @@ public final class NavbarView extends FrameLayout {
 
         // Nav stack — holds the main-row buttons (Home/Activity/
         // Browser). Weight=1 so it expands to fill contentStack in
-        // default mode.
+        // default mode; compact mode flips this to 0.5 so the
+        // action button gets the other half.
         navStack = new LinearLayout(context);
         navStack.setOrientation(LinearLayout.HORIZONTAL);
         navStack.setWeightSum(3);
@@ -172,6 +177,23 @@ public final class NavbarView extends FrameLayout {
             1f
         );
         contentStack.addView(navStack, navLp);
+
+        // Action button — 0-width in default mode (hidden via weight
+        // sum), grows to 50% of the content stack in compact mode
+        // when the JS side calls setNavbarAction.
+        actionButton = new NavbarActionButton(context);
+        actionButton.setVisibility(GONE);
+        LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            0f
+        );
+        contentStack.addView(actionButton, actionLp);
+        actionButton.setOnClickListener(v -> {
+            if (manager != null && actionButton.isActionEnabled()) {
+                manager.dispatchActionTap();
+            }
+        });
 
         // ─── Subscribe to state ──────────────────────────────────
 
@@ -245,13 +267,78 @@ public final class NavbarView extends FrameLayout {
     private void onStateChanged(NavbarState state) {
         rebuildMainRow(state.items, state.activeId);
         rebuildSecondaryRow(state.secondaryItems, state.secondaryActiveId);
+        applyActionState(state.action);
         Log.d(
             TAG,
             "onStateChanged: visible=" + state.visible +
             " items=" + state.items.size() +
             " secondary=" + state.secondaryItems.size() +
+            " action=" + (state.action != null) +
             " active=" + state.activeId
         );
+    }
+
+    /**
+     * Apply the {@link NavbarState.Action} to the action button and
+     * flip the compact-mode layout accordingly. When action is null
+     * we revert to default (full-width nav stack, no action button);
+     * when non-null we bind the action button and split the content
+     * stack 50/50 between navStack and action.
+     */
+    private void applyActionState(NavbarState.Action action) {
+        if (action == null) {
+            if (!compactMode) return; // already default
+            compactMode = false;
+            setCompactLayout(false);
+            return;
+        }
+
+        // Bind content before animating so the morph reveals the
+        // final content (Continue label, enabled state) rather than
+        // an empty pill.
+        actionButton.bind(action);
+
+        if (compactMode) {
+            // Already in compact mode — just re-bind the action
+            // content without re-running the layout flip.
+            return;
+        }
+        compactMode = true;
+        setCompactLayout(true);
+    }
+
+    /**
+     * Switch the contentStack's weight distribution between default
+     * mode (navStack 100%, action 0%) and compact mode (navStack
+     * 50%, action 50%). Also flips each NavbarButton's internal
+     * layout to icon-only compact mode.
+     *
+     * Phase 4 applies the flip without animation so we can first
+     * verify the layout numerics are correct; Phase 5 will wrap this
+     * in a SpringAnimation so the morph is smooth.
+     */
+    private void setCompactLayout(boolean compact) {
+        // Flip each main-row button to compact (icon-only) or back
+        // to default (icon + label).
+        for (NavbarButton button : mainButtons.values()) {
+            button.setCompact(compact);
+        }
+
+        // Flip weight distribution on navStack vs actionButton.
+        LinearLayout.LayoutParams navLp = (LinearLayout.LayoutParams) navStack.getLayoutParams();
+        LinearLayout.LayoutParams actionLp = (LinearLayout.LayoutParams) actionButton.getLayoutParams();
+        if (compact) {
+            navLp.weight = 1f;
+            actionLp.weight = 1f;
+            actionButton.setVisibility(VISIBLE);
+        } else {
+            navLp.weight = 1f;
+            actionLp.weight = 0f;
+            actionButton.setVisibility(GONE);
+        }
+        navStack.setLayoutParams(navLp);
+        actionButton.setLayoutParams(actionLp);
+        requestLayout();
     }
 
     private void rebuildMainRow(List<NavbarState.Item> items, String activeId) {
@@ -262,6 +349,13 @@ public final class NavbarView extends FrameLayout {
             NavbarButton button = new NavbarButton(getContext());
             boolean isActive = item.id.equals(activeId);
             button.bind(item, isActive);
+            // Carry over the current compact mode to the fresh
+            // button. Without this, any state update while in
+            // compact mode (e.g. setNavbarAction({enabled:false})
+            // while action is already showing) would silently
+            // revert the main row to default mode because the
+            // freshly-built buttons default to compact=false.
+            if (compactMode) button.setCompact(true);
             button.setOnClickListener(v -> {
                 if (manager != null) manager.dispatchItemTap(item.id);
             });
