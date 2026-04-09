@@ -73,7 +73,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   addressError,
   recallDate,
   recallTime,
-  note,
   onAction,
   onGoBack,
   onAmountChange,
@@ -81,8 +80,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   onScannedAddress,
   onYourAccounts,
   onRecallDateChange,
-  onRecallTimeChange,
-  onNoteChange
+  onRecallTimeChange
 }) => {
   const { t } = useTranslation();
   const [syncHeight, setSyncHeight] = useState(0);
@@ -172,7 +170,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               className="self-stretch text-black"
               value={amount}
               label={token.name}
-              onValueChange={(value, name, values) => onAmountChange(values?.formatted || value || '')}
+              onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
             />
             <div className="flex items-center justify-center">
               {amountError ? (

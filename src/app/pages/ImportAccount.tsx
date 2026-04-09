@@ -226,7 +226,7 @@ const WatchOnlyForm: FC = () => {
         control={control}
         rules={{
           required: true,
-          validate: (value: any) => true
+          validate: () => true
         }}
         render={({ field }) => (
           <NoSpaceField

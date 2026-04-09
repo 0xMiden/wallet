@@ -22,7 +22,6 @@ export interface ExportFilePasswordProps {
 }
 
 const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
-  onGoBack,
   onGoNext,
   handlePasswordChange,
   passwordValue,

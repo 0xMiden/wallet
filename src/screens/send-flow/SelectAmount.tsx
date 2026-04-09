@@ -46,7 +46,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const onAmountChangeHandler = useCallback(
     (
       value: string | undefined,
-      name?: string,
+      _name?: string,
       values?: {
         float: number | null;
         formatted: string;

@@ -178,7 +178,7 @@ describe('native-notifications', () => {
       jest.useFakeTimers();
 
       let capturedCallback: ((action: any) => Promise<void>) | null = null;
-      (LocalNotifications.addListener as jest.Mock).mockImplementation((event, callback) => {
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
         capturedCallback = callback;
         return Promise.resolve();
       });
@@ -207,7 +207,7 @@ describe('native-notifications', () => {
       (useWalletStore.getState as jest.Mock).mockReturnValue({ isDappBrowserOpen: true });
 
       let capturedCallback: ((action: any) => Promise<void>) | null = null;
-      (LocalNotifications.addListener as jest.Mock).mockImplementation((event, callback) => {
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
         capturedCallback = callback;
         return Promise.resolve();
       });

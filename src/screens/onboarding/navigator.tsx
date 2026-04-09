@@ -38,7 +38,7 @@ const Header: React.FC<{
   onBack: () => void;
   step: OnboardingStep;
   onboardingType?: 'import' | 'create' | null;
-}> = ({ step, onBack }) => {
+}> = ({ step }) => {
   let currentStep: number | null = step === OnboardingStep.Welcome ? null : 3;
 
   if (step === OnboardingStep.BackupSeedPhrase) {
@@ -69,7 +69,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   seedPhrase,
   onboardingType,
   step,
-  password,
   isLoading,
   useBiometric = true,
   isHardwareSecurityAvailable = false,

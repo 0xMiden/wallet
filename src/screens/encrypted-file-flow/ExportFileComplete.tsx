@@ -24,13 +24,7 @@ export interface ExportFileCompleteProps {
 
 const EXTENSION = '.json';
 
-const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
-  filePassword,
-  fileName,
-  walletPassword,
-  onDone,
-  onGoBack
-}) => {
+const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
   const { t } = useTranslation();
   const { revealMnemonic } = useMidenContext();
 

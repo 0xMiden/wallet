@@ -151,19 +151,22 @@ export function createHDAccount(walletType: WalletType, name?: string) {
   });
 }
 
-export function decryptCiphertexts(accPublicKey: string, cipherTexts: string[]) {}
+// Stub implementations kept in the exported shape so the frontend's
+// action map stays stable. Parameters are `_`-prefixed to satisfy
+// noUnusedParameters without stripping the public signature.
+export function decryptCiphertexts(_accPublicKey: string, _cipherTexts: string[]) {}
 
-export function revealViewKey(accPublicKey: string, password: string) {}
+export function revealViewKey(_accPublicKey: string, _password: string) {}
 
 export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
-export function revealPrivateKey(accPublicKey: string, password: string) {}
+export function revealPrivateKey(_accPublicKey: string, _password: string) {}
 
-export function revealPublicKey(accPublicKey: string) {}
+export function revealPublicKey(_accPublicKey: string) {}
 
-export function removeAccount(accPublicKey: string, password: string) {}
+export function removeAccount(_accPublicKey: string, _password: string) {}
 
 export function editAccount(accPublicKey: string, name: string) {
   console.log({ accPublicKey, name });
@@ -179,13 +182,13 @@ export function editAccount(accPublicKey: string, name: string) {
   });
 }
 
-export function importAccount(privateKey: string, encPassword?: string) {}
+export function importAccount(_privateKey: string, _encPassword?: string) {}
 
-export function importMnemonicAccount(mnemonic: string, password?: string, derivationPath?: string) {}
+export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}
 
-export function importFundraiserAccount(email: string, password: string, mnemonic: string) {}
+export function importFundraiserAccount(_email: string, _password: string, _mnemonic: string) {}
 
-export function importWatchOnlyAccount(viewKey: string) {}
+export function importWatchOnlyAccount(_viewKey: string) {}
 
 export function updateSettings(settings: Partial<WalletSettings>) {
   return withUnlocked(async ({ vault }) => {
@@ -212,7 +215,7 @@ export function getAllDAppSessions() {
 }
 
 export function removeDAppSession(origin: string) {
-  return withUnlocked(async ({ vault }) => {
+  return withUnlocked(async () => {
     const currentAccountPublicKey = await Vault.getCurrentAccountPublicKey();
     return removeDApp(origin, currentAccountPublicKey!);
   });

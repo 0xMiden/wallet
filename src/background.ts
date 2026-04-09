@@ -25,7 +25,7 @@ if (process.env.TARGET_BROWSER === 'chrome') {
   });
 }
 
-runtime.onUpdateAvailable.addListener(details => {
+runtime.onUpdateAvailable.addListener(() => {
   // Swaps in the new version immediately
   runtime.reload();
 });

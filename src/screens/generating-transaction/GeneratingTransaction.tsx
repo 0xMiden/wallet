@@ -178,7 +178,6 @@ export interface GeneratingTransactionProps {
 }
 
 export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
-  onDoneClick,
   transactionComplete,
   hasErrors = false,
   failedCount = 0,

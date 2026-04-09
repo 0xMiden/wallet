@@ -40,7 +40,7 @@ interface BannerLayoutProps extends PropsWithChildren {
   name: ReactNode;
 }
 
-const BannerLayout: FC<BannerLayoutProps> = ({ name, children }) => (
+const BannerLayout: FC<BannerLayoutProps> = ({ children }) => (
   <div className={classNames('flex flex-col justify-start max-w-sm')}>
     <div className={classNames('flex')}>{children}</div>
   </div>

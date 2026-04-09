@@ -36,7 +36,7 @@ const autoFetchMetadataFails = new Set<string>();
  *
  * Uses Zustand store for state while maintaining storage persistence.
  */
-export function useAssetMetadata(slug: string, assetId: string) {
+export function useAssetMetadata(_slug: string, assetId: string) {
   const { metadata } = useGasToken();
   const midenFaucetId = useMidenFaucetId();
 

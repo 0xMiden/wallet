@@ -9,13 +9,7 @@ type ColorIdenticonProps = HTMLAttributes<HTMLDivElement> & {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
 };
 
-const ColorIdenticon: FC<ColorIdenticonProps> = ({
-  publicKey,
-  size = 'md',
-  className = 'm-auto',
-  style = {},
-  ...rest
-}) => {
+const ColorIdenticon: FC<ColorIdenticonProps> = ({ publicKey, size = 'md', className = 'm-auto' }) => {
   const color = randomColor({ seed: publicKey });
 
   return (

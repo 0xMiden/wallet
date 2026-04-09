@@ -11,7 +11,7 @@ interface AssetIconPlaceholderProps {
   size?: number;
 }
 
-const AssetIconPlaceholder: FC<AssetIconPlaceholderProps> = ({ metadata, size }) => {
+const AssetIconPlaceholder: FC<AssetIconPlaceholderProps> = () => {
   return <Icon name={IconName.MidenLogo} size="lg" />;
 };
 

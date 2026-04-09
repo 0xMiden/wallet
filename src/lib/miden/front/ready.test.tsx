@@ -24,7 +24,7 @@ import {
 const mockSetStoredValue = jest.fn();
 let mockStoredValue = '';
 jest.mock('lib/miden/front/storage', () => ({
-  usePassiveStorage: jest.fn((key: string, defaultValue: string) => {
+  usePassiveStorage: jest.fn((_key: string, defaultValue: string) => {
     return [mockStoredValue || defaultValue, mockSetStoredValue];
   })
 }));

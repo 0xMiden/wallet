@@ -17,7 +17,7 @@ type ImportTypeOption = {
   isLast?: boolean;
 };
 
-export const SelectImportTypeScreen = ({ onSubmit, ...props }: SelectImportTypeScreenProps) => {
+export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps) => {
   const { t } = useTranslation();
 
   const ImportTypeOptions: ImportTypeOption[] = useMemo(

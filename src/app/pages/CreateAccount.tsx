@@ -82,7 +82,7 @@ const CreateAccount: FC = () => {
   };
 
   const onSubmit = useCallback<SubmitHandler<FormData>>(
-    async ({ name, walletType }) => {
+    async ({ name }) => {
       if (isSubmitting) return;
 
       clearErrors('name');
@@ -132,7 +132,7 @@ const CreateAccount: FC = () => {
           {/* Wallet Type Selection */}
           <div className="pb-8 pt-6">
             <div className="font-semibold text-xl mb-4">{t('chooseYourAccountType')}</div>
-            {WalletTypeOptions.map((option, idx) => (
+            {WalletTypeOptions.map(option => (
               <div
                 key={option.id}
                 className={classNames('flex flex-col p-4 rounded-lg cursor-pointer', 'w-full', 'mb-4', {

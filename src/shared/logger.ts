@@ -54,7 +54,7 @@ class ServerLogger {
     await this.sendLogToServer(log);
   }
 
-  private async sendLogToServer(log: ILog) {}
+  private async sendLogToServer(_log: ILog) {}
 }
 
 const envLogger = new ServerLogger();

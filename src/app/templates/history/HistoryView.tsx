@@ -40,7 +40,7 @@ function groupEntriesByDate(entries: IHistoryEntry[]): Map<string, IHistoryEntry
 }
 
 // Date separator component - dashed line with date in center
-const DateSeparator: React.FC<{ date: string; isFirst?: boolean }> = ({ date, isFirst }) => {
+const DateSeparator: React.FC<{ date: string; isFirst?: boolean }> = ({ date }) => {
   return (
     <div className="flex justify-start pt-4">
       <span className="px-4 py-2 text-xs text-black rounded-5 bg-white">{date}</span>
