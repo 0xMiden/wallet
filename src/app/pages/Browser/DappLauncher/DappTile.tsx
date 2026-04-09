@@ -97,7 +97,16 @@ export const DappTile: FC<DappTileProps> = ({
         delay: entryBaseDelay + animationIndex * 0.06
       }}
       onClick={handleClick}
-      className="flex flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
+      // `w-full` ensures the button fills its container in both
+      // layouts: the grid cells in RecentsRow stretch grid items by
+      // default, but the fixed-width wrapper div in MyDappsGrid is a
+      // plain block and would otherwise leave the content-sized
+      // button narrower than its slot. Without w-full, MyDapps tiles
+      // rendered ~72pt wide while Recents tiles rendered ~93pt wide,
+      // so the favicons ended up at different horizontal positions
+      // within each section's cell and the tiles looked different
+      // sizes.
+      className="flex w-full flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
       aria-label={accessibleLabel}
     >
       <motion.div
