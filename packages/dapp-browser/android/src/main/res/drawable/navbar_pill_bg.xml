@@ -1,0 +1,12 @@
+<!--
+  Miden patch — navbar outer pill background.
+  26dp corner radius matches iOS blurContainer.layer.cornerRadius = 26.
+  Translucent white fill — Phase 5 will replace this with a
+  RenderEffect blur on API 31+, but the color shows through the blur
+  tint so we keep this as the base.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="26dp" />
+    <solid android:color="#E6FFFFFF" />
+</shape>

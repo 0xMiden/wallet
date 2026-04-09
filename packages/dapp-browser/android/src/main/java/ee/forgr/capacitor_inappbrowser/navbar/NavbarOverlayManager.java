@@ -91,6 +91,7 @@ public final class NavbarOverlayManager {
         if (activityView != null) return;
         ViewGroup decor = (ViewGroup) activity.getWindow().getDecorView();
         activityView = new NavbarView(activity, stateHolder);
+        activityView.attachManager(this);
         decor.addView(activityView, NavbarView.floatingBottomLayoutParams());
         Log.d(TAG, "activity view created and attached");
         refreshVisibility();
@@ -126,6 +127,7 @@ public final class NavbarOverlayManager {
         }
         ViewGroup decor = (ViewGroup) dialog.getWindow().getDecorView();
         NavbarView dialogView = new NavbarView(activity, stateHolder);
+        dialogView.attachManager(this);
         decor.addView(dialogView, NavbarView.floatingBottomLayoutParams());
         dialogStack.add(new DialogEntry(dialog, dialogView));
         Log.d(TAG, "dialog view attached (stack size=" + dialogStack.size() + ")");

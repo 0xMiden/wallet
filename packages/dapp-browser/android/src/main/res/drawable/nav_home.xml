@@ -1,0 +1,17 @@
+<!--
+  Miden patch — Android navbar Home icon.
+  Material Icons "home_filled" (filled variant, 24dp). Matches the iOS
+  `house.fill` SF Symbol used by the main nav row.
+  fillColor is white so the ImageView's imageTintList can recolor it
+  at runtime without a second drawable per state.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10,20v-6h4v6h5v-8h3L12,3 2,12h3v8z"/>
+</vector>

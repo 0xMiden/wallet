@@ -2,4 +2,12 @@
 <resources>
     <color name="disable">#36262626</color>
     <color name="enable">#262626</color>
+
+    <!-- Miden navbar tokens — match iOS MidenNavbarOverlayWindow. -->
+    <!-- Main-row active color: pill-active orange #FF6B00 -->
+    <color name="navbar_active">#FFFF6B00</color>
+    <!-- Main-row inactive color: heading gray (#4C4C56 matches iOS) -->
+    <color name="navbar_inactive">#FF4C4C56</color>
+    <!-- Secondary-row active background: slate @ 8% -->
+    <color name="navbar_secondary_active_bg">#140F172A</color>
 </resources>
