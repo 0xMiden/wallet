@@ -179,7 +179,7 @@ describe('ready hooks', () => {
       renderHook(() => useAccount());
 
       expect(dispatchEventSpy).toHaveBeenCalledWith(expect.any(CustomEvent));
-      const event = dispatchEventSpy.mock.calls[0][0] as CustomEvent;
+      const event = dispatchEventSpy.mock.calls[0]![0] as CustomEvent;
       expect(event.type).toBe('reseterrorboundary');
 
       dispatchEventSpy.mockRestore();

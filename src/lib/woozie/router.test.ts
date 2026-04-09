@@ -21,7 +21,7 @@ describe('woozie router', () => {
       expect(map[0]).toHaveProperty('resolveResult');
       expect(map[0]).toHaveProperty('pattern');
       expect(map[0]).toHaveProperty('keys');
-      expect(map[0].pattern).toBeInstanceOf(RegExp);
+      expect(map[0]!.pattern).toBeInstanceOf(RegExp);
     });
 
     it('creates map with multiple routes', () => {
@@ -41,7 +41,7 @@ describe('woozie router', () => {
 
       const map = createMap(routes);
 
-      expect(map[0].keys).toContain('id');
+      expect(map[0]!.keys).toContain('id');
     });
 
     it('handles multiple parameters', () => {
@@ -49,8 +49,8 @@ describe('woozie router', () => {
 
       const map = createMap(routes);
 
-      expect(map[0].keys).toContain('userId');
-      expect(map[0].keys).toContain('postId');
+      expect(map[0]!.keys).toContain('userId');
+      expect(map[0]!.keys).toContain('postId');
     });
   });
 

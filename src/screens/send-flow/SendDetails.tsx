@@ -117,7 +117,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
     (date: Date, time: string) => {
       const [hours, minutes] = time.split(':').map(Number);
       const dateWithTime = new Date(date);
-      dateWithTime.setHours(hours, minutes, 0, 0);
+      dateWithTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
       onRecallDateChange(date);
       onRecallTimeChange(time);
       computeAndSetRecallBlocks(dateWithTime);

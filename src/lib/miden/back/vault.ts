@@ -340,7 +340,7 @@ export class Vault {
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, newAccounts[0].publicKey);
+      await savePlain(currentAccPubKeyStrgKey, newAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       // Return the vault instance so caller doesn't need to call unlock() separately
@@ -543,7 +543,7 @@ export class Vault {
     }
     let currentAccount = allAccounts.find(acc => acc.publicKey === currAccountPubkey);
     if (!currentAccount) {
-      currentAccount = await this.setCurrentAccount(allAccounts[0].publicKey);
+      currentAccount = await this.setCurrentAccount(allAccounts[0]!.publicKey);
     }
     return currentAccount;
   }

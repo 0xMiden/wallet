@@ -68,7 +68,7 @@ export function useNetwork(): MidenNetwork {
   }, [networks, selectedNetworkId, storedNetworkId, setSelectedNetworkId, setStoredNetworkId, defaultNetId]);
 
   const effectiveNetworkId = selectedNetworkId || storedNetworkId;
-  const defaultNet = networks.find(n => n.id === DEFAULT_NETWORK) ?? networks[0];
+  const defaultNet = networks.find(n => n.id === DEFAULT_NETWORK) ?? networks[0]!;
   return useMemo(
     () => networks.find(n => n.id === effectiveNetworkId) ?? defaultNet,
     [networks, effectiveNetworkId, defaultNet]

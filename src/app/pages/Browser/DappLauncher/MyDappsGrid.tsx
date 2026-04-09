@@ -112,7 +112,7 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
   return (
     <section>
       <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-grey-500">
-        {category ? t(`category${category[0].toUpperCase()}${category.slice(1)}`) : t('myDapps')}
+        {category ? t(`category${category[0]!.toUpperCase()}${category.slice(1)}`) : t('myDapps')}
       </h2>
       <div className="relative">
         <div

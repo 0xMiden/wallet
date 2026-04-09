@@ -41,7 +41,7 @@ export function DesktopDappConfirmationModal(): null {
 
   const accountId = useMemo(() => {
     if (currentAccount?.publicKey) return currentAccount.publicKey;
-    if (accounts && accounts.length > 0) return accounts[0].publicKey;
+    if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
 

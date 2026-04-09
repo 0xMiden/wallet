@@ -20,7 +20,7 @@ const BalanceBanner: FC<{ balance: BigNumber }> = ({ balance }) => {
   const { selectedFiatCurrency } = useFiatCurrency();
   return (
     <div className="mt-1 text-heading-gray flex text-[64px] leading-none font-bold">
-      <span>{selectedFiatCurrency.symbol}</span>
+      <span>{selectedFiatCurrency?.symbol}</span>
       <Money fiat>{balance}</Money>
     </div>
   );

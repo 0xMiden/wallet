@@ -44,7 +44,7 @@ const getFirstFallback = (
       return strategyItem;
     }
   }
-  return strategy[0];
+  return strategy[0]!;
 };
 
 export const AssetIcon: FC<AssetIconProps> = ({ assetSlug, assetId, className, size }) => {

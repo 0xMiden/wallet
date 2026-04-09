@@ -278,8 +278,8 @@ describe('setDApp / removeDApp / cleanDApps', () => {
 
   it('setDApp updates an existing session for the same accountId', async () => {
     await dapp.setDApp('https://miden.xyz', { ...SESSION, network: 'devnet' } as never);
-    const stored = (storageState[STORAGE_KEY] as Record<string, { network: string }[]>)['https://miden.xyz'];
-    expect(stored[0].network).toBe('devnet');
+    const stored = (storageState[STORAGE_KEY] as Record<string, { network: string }[]>)['https://miden.xyz']!;
+    expect(stored[0]!.network).toBe('devnet');
   });
 
   it('removeDApp removes a specific accountId from an origin', async () => {

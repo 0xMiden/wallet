@@ -32,7 +32,7 @@ export const joinBigIntsToString = (bigInts: bigint[]) => {
   let result = '';
 
   for (let i = 0; i < bigInts.length; i++) {
-    const chunkString = bigIntToString(bigInts[i]);
+    const chunkString = bigIntToString(bigInts[i]!);
     result += chunkString;
   }
 

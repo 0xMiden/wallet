@@ -103,7 +103,7 @@ test.describe('Fullpage UI', () => {
       ' '
     );
     for (let i = 0; i < words.length; i++) {
-      await page.locator(`#seed-phrase-input-${i}`).fill(words[i]);
+      await page.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
     }
     await page.getByRole('button', { name: /continue/i }).click();
 
@@ -150,7 +150,7 @@ test.describe('Fullpage UI', () => {
       ' '
     );
     for (let i = 0; i < words.length; i++) {
-      await seedForm.locator(`#seed-phrase-input-${i}`).fill(words[i]);
+      await seedForm.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
     }
 
     await expect(continueButton).toBeEnabled();

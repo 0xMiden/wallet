@@ -114,7 +114,7 @@ describe('savePersistedSessions', () => {
       key: STORAGE_KEY,
       value: expect.any(String)
     });
-    const stored = JSON.parse(store[STORAGE_KEY]);
+    const stored = JSON.parse(store[STORAGE_KEY]!);
     expect(stored.map((s: PersistedSession) => s.id)).toEqual(['a', 'b']);
   });
 });
@@ -124,7 +124,7 @@ describe('upsertPersistedSession', () => {
     await upsertPersistedSession(makePersisted('a', 100));
     const loaded = await loadPersistedSessions();
     expect(loaded).toHaveLength(1);
-    expect(loaded[0].id).toBe('a');
+    expect(loaded[0]!.id).toBe('a');
   });
 
   it('replaces an entry with the same id', async () => {
@@ -132,8 +132,8 @@ describe('upsertPersistedSession', () => {
     await upsertPersistedSession({ ...makePersisted('a', 200), title: 'updated' });
     const loaded = await loadPersistedSessions();
     expect(loaded).toHaveLength(1);
-    expect(loaded[0].title).toBe('updated');
-    expect(loaded[0].parkedAt).toBe(200);
+    expect(loaded[0]!.title).toBe('updated');
+    expect(loaded[0]!.parkedAt).toBe(200);
   });
 
   it('preserves other entries when upserting', async () => {

@@ -83,7 +83,7 @@ describe('useWalletStore', () => {
 
       // Check optimistic update happened immediately
       const stateAfterOptimistic = useWalletStore.getState();
-      expect(stateAfterOptimistic.accounts[0].name).toBe('New Name');
+      expect(stateAfterOptimistic.accounts[0]!.name).toBe('New Name');
 
       await promise;
 
@@ -102,7 +102,7 @@ describe('useWalletStore', () => {
       await editAccountName('pk1', '  Trimmed Name  ');
 
       const state = useWalletStore.getState();
-      expect(state.accounts[0].name).toBe('Trimmed Name');
+      expect(state.accounts[0]!.name).toBe('Trimmed Name');
     });
 
     it('rolls back on error', async () => {
@@ -114,7 +114,7 @@ describe('useWalletStore', () => {
 
       // Verify rollback happened
       const state = useWalletStore.getState();
-      expect(state.accounts[0].name).toBe('Account 1');
+      expect(state.accounts[0]!.name).toBe('Account 1');
     });
 
     it('rolls back on invalid response', async () => {
@@ -126,7 +126,7 @@ describe('useWalletStore', () => {
 
       // Verify rollback happened
       const state = useWalletStore.getState();
-      expect(state.accounts[0].name).toBe('Account 1');
+      expect(state.accounts[0]!.name).toBe('Account 1');
     });
   });
 

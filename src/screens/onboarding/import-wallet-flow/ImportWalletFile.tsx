@@ -111,8 +111,8 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
   };
 
   const processFiles = (files: FileList | null) => {
-    if (files && files.length) {
-      const file = files[0];
+    const file = files?.[0];
+    if (file) {
       const parts = file.name.split('.');
       const fileType = parts[parts.length - 1];
       const reader = new FileReader();

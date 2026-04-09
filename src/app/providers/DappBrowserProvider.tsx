@@ -257,8 +257,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     setSessionStates(prev => {
       const idx = prev.findIndex(s => s.session.id === id);
       if (idx === -1) return prev;
+      const current = prev[idx];
+      if (!current) return prev;
       const next = [...prev];
-      next[idx] = updater(next[idx]);
+      next[idx] = updater(current);
       return next;
     });
   }, []);
@@ -1197,7 +1199,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const accounts = useWalletStore(s => s.accounts);
   const accountId = useMemo(() => {
     if (currentAccount?.publicKey) return currentAccount.publicKey;
-    if (accounts && accounts.length > 0) return accounts[0].publicKey;
+    if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
   const shortAccountId = useMemo(() => {

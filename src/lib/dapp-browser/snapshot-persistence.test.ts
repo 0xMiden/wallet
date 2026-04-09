@@ -99,7 +99,7 @@ describe('writeSnapshotToDisk', () => {
       // the argument as a filename within that directory, a literal
       // `..` segment (with no unescaped `/` beside it) can't traverse.
       await writeSnapshotToDisk('../etc/passwd', DATA_URL);
-      const callArgs = mockWriteFile.mock.calls[0][0];
+      const callArgs = mockWriteFile.mock.calls[0]![0];
       expect(callArgs.path).toBe(`${DIR}/.._etc_passwd.txt`);
       // There must be exactly one `/` in the path — the one separating
       // the snapshot directory from the filename. No additional
@@ -110,13 +110,13 @@ describe('writeSnapshotToDisk', () => {
 
     it('keeps alphanumerics, dashes, underscores, and dots', async () => {
       await writeSnapshotToDisk('dapp-abc_123.v2', DATA_URL);
-      const callArgs = mockWriteFile.mock.calls[0][0];
+      const callArgs = mockWriteFile.mock.calls[0]![0];
       expect(callArgs.path).toBe(`${DIR}/dapp-abc_123.v2.txt`);
     });
 
     it('replaces slashes even in the middle of an id', async () => {
       await writeSnapshotToDisk('foo/bar', DATA_URL);
-      const callArgs = mockWriteFile.mock.calls[0][0];
+      const callArgs = mockWriteFile.mock.calls[0]![0];
       expect(callArgs.path).toBe(`${DIR}/foo_bar.txt`);
     });
   });

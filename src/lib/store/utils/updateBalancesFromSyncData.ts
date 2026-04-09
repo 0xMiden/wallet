@@ -37,10 +37,11 @@ export async function updateBalancesFromSyncData(
     if (isMiden) hasMiden = true;
 
     let tokenMetadata: AssetMetadata;
+    const localMeta = localMetadatas[asset.faucetId];
     if (isMiden) {
       tokenMetadata = MIDEN_METADATA;
-    } else if (localMetadatas[asset.faucetId]) {
-      tokenMetadata = localMetadatas[asset.faucetId];
+    } else if (localMeta) {
+      tokenMetadata = localMeta;
     } else if (asset.metadata) {
       // Use metadata from sync data (pre-fetched by SW)
       tokenMetadata = {

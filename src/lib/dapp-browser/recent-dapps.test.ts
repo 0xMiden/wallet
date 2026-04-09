@@ -70,8 +70,8 @@ describe('recordRecentDapp', () => {
     await recordRecentDapp({ url: 'https://miden.xyz', name: 'miden.xyz', origin: 'https://miden.xyz' });
     const recents = await getRecentDapps();
     expect(recents).toHaveLength(1);
-    expect(recents[0].url).toBe('https://miden.xyz');
-    expect(recents[0].lastOpenedAt).toBeGreaterThan(0);
+    expect(recents[0]!.url).toBe('https://miden.xyz');
+    expect(recents[0]!.lastOpenedAt).toBeGreaterThan(0);
   });
 
   it('refreshes an existing entry instead of duplicating it', async () => {
@@ -81,7 +81,7 @@ describe('recordRecentDapp', () => {
     await recordRecentDapp({ url: 'https://miden.xyz', name: 'Miden (updated)', origin: 'https://miden.xyz' });
     const recents = await getRecentDapps();
     expect(recents).toHaveLength(1);
-    expect(recents[0].name).toBe('Miden (updated)');
+    expect(recents[0]!.name).toBe('Miden (updated)');
   });
 
   it('caps the list at MAX_RECENTS = 12 entries, dropping the oldest', async () => {
@@ -92,7 +92,7 @@ describe('recordRecentDapp', () => {
     const recents = await getRecentDapps();
     expect(recents).toHaveLength(12);
     // Newest first: dapp14 is most recent; dapp0..dapp2 should have been evicted.
-    expect(recents[0].url).toBe('https://dapp14.test');
+    expect(recents[0]!.url).toBe('https://dapp14.test');
     expect(recents.find(r => r.url === 'https://dapp0.test')).toBeUndefined();
     expect(recents.find(r => r.url === 'https://dapp2.test')).toBeUndefined();
     expect(recents.find(r => r.url === 'https://dapp3.test')).toBeDefined();
@@ -102,10 +102,10 @@ describe('recordRecentDapp', () => {
     const { recordRecentDapp } = await import('./recent-dapps');
     await recordRecentDapp({ url: 'https://miden.xyz', name: 'miden', origin: 'https://miden.xyz' });
     expect(mockSet).toHaveBeenCalled();
-    expect(store[STORAGE_KEY]).toBeDefined();
-    const stored = JSON.parse(store[STORAGE_KEY]);
+    expect(store[STORAGE_KEY]!).toBeDefined();
+    const stored = JSON.parse(store[STORAGE_KEY]!);
     expect(stored).toHaveLength(1);
-    expect(stored[0].url).toBe('https://miden.xyz');
+    expect(stored[0]!.url).toBe('https://miden.xyz');
   });
 });
 
@@ -149,7 +149,7 @@ describe('migration', () => {
     ]);
     const { getRecentDapps } = await import('./recent-dapps');
     const recents = await getRecentDapps();
-    expect(recents[0].name).toBe('miden.xyz');
+    expect(recents[0]!.name).toBe('miden.xyz');
   });
 
   it('migration is idempotent: persisted list is clean on next read', async () => {
@@ -161,7 +161,7 @@ describe('migration', () => {
     // Allow the fire-and-forget write to settle.
     await Promise.resolve();
     await Promise.resolve();
-    const stored = JSON.parse(store[STORAGE_KEY]);
+    const stored = JSON.parse(store[STORAGE_KEY]!);
     expect(stored).toEqual([]);
   });
 });

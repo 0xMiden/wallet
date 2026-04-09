@@ -60,7 +60,7 @@ export function getFallbackColor(origin: string): string {
     hash = (hash << 5) - hash + origin.charCodeAt(i);
     hash |= 0;
   }
-  return FALLBACK_PALETTE[Math.abs(hash) % FALLBACK_PALETTE.length];
+  return FALLBACK_PALETTE[Math.abs(hash) % FALLBACK_PALETTE.length]!;
 }
 
 /**

@@ -173,6 +173,7 @@ const Toolbar: FC<ToolbarProps> = ({
     if ('IntersectionObserver' in window && toolbarEl) {
       const observer = new IntersectionObserver(
         ([entry]) => {
+          if (!entry) return;
           setSticked(entry.boundingClientRect.y < entry.rootBounds!.y);
         },
         { threshold: [1] }

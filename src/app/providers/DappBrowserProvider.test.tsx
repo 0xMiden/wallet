@@ -254,8 +254,8 @@ describe('open', () => {
     });
 
     expect(result.current.sessionStates).toHaveLength(1);
-    expect(result.current.sessionStates[0].session.id).toBe('dapp-a');
-    expect(result.current.sessionStates[0].isLoading).toBe(true);
+    expect(result.current.sessionStates[0]!.session.id).toBe('dapp-a');
+    expect(result.current.sessionStates[0]!.isLoading).toBe(true);
     expect(result.current.session?.id).toBe('dapp-a');
   });
 
@@ -276,7 +276,7 @@ describe('open', () => {
     act(() => result.current.open(makeSession('dapp-b', 'https://miden.xyz/')));
 
     expect(result.current.sessionStates).toHaveLength(1);
-    expect(result.current.sessionStates[0].session.id).toBe('dapp-a');
+    expect(result.current.sessionStates[0]!.session.id).toBe('dapp-a');
   });
 });
 

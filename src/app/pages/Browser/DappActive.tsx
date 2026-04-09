@@ -151,7 +151,7 @@ export const DappActive: FC = () => {
           // `matrix3d(...)`. We only care about the translation
           // component; a 1pt threshold absorbs float noise.
           const m = t.match(/matrix(?:3d)?\(([^)]+)\)/);
-          if (m) {
+          if (m?.[1]) {
             const parts = m[1].split(',').map(s => parseFloat(s.trim()));
             // matrix(a,b,c,d,tx,ty) → tx=idx4, ty=idx5
             // matrix3d(...) → tx=idx12, ty=idx13

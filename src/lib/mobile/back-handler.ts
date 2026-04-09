@@ -30,7 +30,9 @@ export async function initMobileBackHandler(): Promise<void> {
   await App.addListener('backButton', () => {
     // Call handlers in reverse order (most recently registered first)
     for (let i = handlers.length - 1; i >= 0; i--) {
-      const result = handlers[i]();
+      const handler = handlers[i];
+      if (!handler) continue;
+      const result = handler();
       if (result === true) {
         // Handler consumed the event
         return;

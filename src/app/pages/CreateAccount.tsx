@@ -53,9 +53,12 @@ const CreateAccount: FC = () => {
     async function updateAccount() {
       const accLength = allAccounts.length;
       if (prevAccLengthRef.current < accLength) {
-        await updateCurrentAccount(allAccounts[accLength - 1].publicKey);
-        // Navigate with query param to show AccountCreatedSuccess banner
-        navigate('/select-account?fromCreateAccount=true');
+        const lastAccount = allAccounts[accLength - 1];
+        if (lastAccount) {
+          await updateCurrentAccount(lastAccount.publicKey);
+          // Navigate with query param to show AccountCreatedSuccess banner
+          navigate('/select-account?fromCreateAccount=true');
+        }
       }
       prevAccLengthRef.current = accLength;
     }

@@ -43,12 +43,12 @@ describe('updateBalancesFromSyncData', () => {
     await updateBalancesFromSyncData('account-1', vaultAssets);
 
     const state = useWalletStore.getState();
-    const balances = state.balances['account-1'];
+    const balances = state.balances['account-1']!;
     expect(balances).toBeDefined();
     expect(balances.length).toBe(1);
-    expect(balances[0].tokenId).toBe(MOCK_MIDEN_FAUCET_ID);
-    expect(balances[0].tokenSlug).toBe('MIDEN');
-    expect(balances[0].balance).toBe(5000); // 5000000000 / 10^6
+    expect(balances[0]!.tokenId).toBe(MOCK_MIDEN_FAUCET_ID);
+    expect(balances[0]!.tokenSlug).toBe('MIDEN');
+    expect(balances[0]!.balance).toBe(5000); // 5000000000 / 10^6
     expect(state.balancesLoading['account-1']).toBe(false);
     expect(state.balancesLastFetched['account-1']).toBeGreaterThan(0);
   });
@@ -56,10 +56,10 @@ describe('updateBalancesFromSyncData', () => {
   it('always includes MIDEN token even when vault is empty', async () => {
     await updateBalancesFromSyncData('account-1', []);
 
-    const balances = useWalletStore.getState().balances['account-1'];
+    const balances = useWalletStore.getState().balances['account-1']!;
     expect(balances.length).toBe(1);
-    expect(balances[0].tokenId).toBe(MOCK_MIDEN_FAUCET_ID);
-    expect(balances[0].balance).toBe(0);
+    expect(balances[0]!.tokenId).toBe(MOCK_MIDEN_FAUCET_ID);
+    expect(balances[0]!.balance).toBe(0);
   });
 
   it('uses pre-fetched metadata from sync data for unknown tokens', async () => {
@@ -78,7 +78,7 @@ describe('updateBalancesFromSyncData', () => {
     // Should NOT fetch via RPC — metadata comes from sync data
     expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
 
-    const balances = useWalletStore.getState().balances['account-1'];
+    const balances = useWalletStore.getState().balances['account-1']!;
     // Custom token + default MIDEN (0 balance)
     expect(balances.length).toBe(2);
     const customBalance = balances.find(b => b.tokenId === customFaucetId);
@@ -102,7 +102,7 @@ describe('updateBalancesFromSyncData', () => {
     // Should not fetch — metadata was already in the store
     expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
 
-    const balances = useWalletStore.getState().balances['account-1'];
+    const balances = useWalletStore.getState().balances['account-1']!;
     const cachedBalance = balances.find(b => b.tokenId === customFaucetId);
     expect(cachedBalance!.balance).toBe(1); // 100000000 / 10^8
   });
@@ -115,7 +115,7 @@ describe('updateBalancesFromSyncData', () => {
 
     await updateBalancesFromSyncData('account-1', vaultAssets);
 
-    const balances = useWalletStore.getState().balances['account-1'];
+    const balances = useWalletStore.getState().balances['account-1']!;
     // Should still have the token (with default metadata) + MIDEN
     expect(balances.length).toBe(2);
     const unknownBalance = balances.find(b => b.tokenId === unknownFaucetId);

@@ -6,8 +6,8 @@ import colors from './tailwind-colors';
 const _colors = colors as Colors;
 
 export const getColorHex = (colorCode: ColorCode): string => {
-  /* 
-    Receives: A color string like 'primary-500'. 
+  /*
+    Receives: A color string like 'primary-500'.
     Returns: The hex value for the colorCode if it exists.
   */
 
@@ -15,35 +15,41 @@ export const getColorHex = (colorCode: ColorCode): string => {
     throw new Error(`Color ${colorCode} does not exist`);
   }
 
-  const name = colorCode.split('-')[0];
-  const shade = colorCode.split('-')[1];
+  const parts = colorCode.split('-');
+  const name = parts[0];
+  const shade = parts[1];
+  if (!name || !shade) {
+    throw new Error(`Color ${colorCode} does not exist`);
+  }
 
-  if (!_colors[name]) {
+  const nameColors = _colors[name];
+  if (!nameColors) {
     throw new Error(`Color ${name} does not exist`);
   }
-  if (!_colors[name][shade]) {
+  const hex = nameColors[shade];
+  if (!hex) {
     throw new Error(`Shade ${shade} does not exist for color ${name}`);
   }
 
-  return _colors[name][shade];
+  return hex;
 };
 
 export const getRandomColor = (): ColorCode => {
-  /* 
+  /*
     Returns: A random vibrant color with shade 500 (gray colors are excluded).
   */
 
   delete _colors.gray;
   const colorNames = Object.keys(_colors);
-  const randomColorName = colorNames[Math.floor(Math.random() * colorNames.length)];
+  const randomColorName = colorNames[Math.floor(Math.random() * colorNames.length)] ?? 'primary';
   const colorShade = '500';
 
   return `${randomColorName}-${colorShade}`;
 };
 
 export const isColorCode = (colorCode: string): boolean => {
-  /* 
-    Receives: A color string like 'primary-500'. 
+  /*
+    Receives: A color string like 'primary-500'.
     Returns: True if the colorCode exists.
   */
 
@@ -51,13 +57,16 @@ export const isColorCode = (colorCode: string): boolean => {
     return false;
   }
 
-  const name = colorCode.split('-')[0];
-  const shade = colorCode.split('-')[1];
+  const parts = colorCode.split('-');
+  const name = parts[0];
+  const shade = parts[1];
+  if (!name || !shade) return false;
 
-  if (!_colors[name]) {
+  const nameColors = _colors[name];
+  if (!nameColors) {
     return false;
   }
-  if (!_colors[name][shade]) {
+  if (!nameColors[shade]) {
     return false;
   }
 

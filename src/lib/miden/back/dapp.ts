@@ -126,7 +126,7 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
   if (publicKeyCommitments.length === 0) {
     throw new Error('Account has no public key commitments');
   }
-  return u8ToB64(publicKeyCommitments[0].serialize());
+  return u8ToB64(publicKeyCommitments[0]!.serialize());
 }
 
 // Lazy-loaded browser polyfill (only in extension context)
@@ -1358,7 +1358,7 @@ export async function setDApp(origin: string, permissions: MidenDAppSession) {
 
 export async function removeDApp(origin: string, accountId: string) {
   const { [origin]: permissionsToRemove, ...restDApps } = await getAllDApps();
-  const newPermissions = permissionsToRemove.filter(session => session.accountId !== accountId);
+  const newPermissions = permissionsToRemove?.filter(session => session.accountId !== accountId) ?? [];
   await setDApps({ ...restDApps, [origin]: newPermissions });
   return restDApps;
 }

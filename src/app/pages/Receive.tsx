@@ -518,17 +518,17 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
   const claimingCount = notes.filter(n => n.isBeingClaimed || claimingNoteIds.has(n.id)).length;
 
   // Single note - render inline without collapsible
-  if (notes.length === 1) {
-    const note = notes[0];
+  const soloNote = notes.length === 1 ? notes[0] : null;
+  if (soloNote) {
     return (
       <SingleNoteRow
-        note={note}
+        note={soloNote}
         account={account}
         mutateClaimableNotes={mutateClaimableNotes}
         isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-        isClaimingFromParent={claimingNoteIds.has(note.id)}
-        hasFailedFromParent={failedNoteIds.has(note.id)}
-        isCheckingFromParent={checkingNoteIds.has(note.id)}
+        isClaimingFromParent={claimingNoteIds.has(soloNote.id)}
+        hasFailedFromParent={failedNoteIds.has(soloNote.id)}
+        isCheckingFromParent={checkingNoteIds.has(soloNote.id)}
         onClaimingStateChange={onClaimingStateChange}
       />
     );

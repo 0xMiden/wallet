@@ -23,7 +23,7 @@ const DAppConnectionModal: FC<DAppConnectionModalProps> = ({ request, onResult }
   // Note: account objects use 'publicKey' not 'accountId'
   const accountId = useMemo(() => {
     if (currentAccount?.publicKey) return currentAccount.publicKey;
-    if (accounts && accounts.length > 0) return accounts[0].publicKey;
+    if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
 

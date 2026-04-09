@@ -17,7 +17,7 @@ import { navigate } from 'lib/woozie';
 import { clearClipboard } from '../../lib/ui/util';
 
 type ImportAccountProps = {
-  tabSlug: string | null;
+  tabSlug: string | null | undefined;
 };
 
 interface ImportTabDescriptor {
@@ -35,8 +35,11 @@ const ImportAccount: FC<ImportAccountProps> = ({ tabSlug }) => {
   useEffect(() => {
     const accLength = allAccounts.length;
     if (prevAccLengthRef.current < accLength) {
-      updateCurrentAccount(allAccounts[accLength - 1].publicKey);
-      navigate('/');
+      const lastAccount = allAccounts[accLength - 1];
+      if (lastAccount) {
+        updateCurrentAccount(lastAccount.publicKey);
+        navigate('/');
+      }
     }
     prevAccLengthRef.current = accLength;
   }, [allAccounts, updateCurrentAccount]);
@@ -59,7 +62,7 @@ const ImportAccount: FC<ImportAccountProps> = ({ tabSlug }) => {
   );
   const { slug, Form } = useMemo(() => {
     const tab = tabSlug ? allTabs.find(currentTab => currentTab.slug === tabSlug) : null;
-    return tab ?? allTabs[0];
+    return tab ?? allTabs[0]!;
   }, [allTabs, tabSlug]);
 
   return (

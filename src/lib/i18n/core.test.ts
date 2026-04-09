@@ -179,7 +179,7 @@ describe('i18n/core', () => {
 
       const result = await fetchLocaleMessages('en');
 
-      expect(result?.greeting.placeholderList).toEqual(['name']);
+      expect(result?.greeting?.placeholderList).toEqual(['name']);
     });
   });
 });
