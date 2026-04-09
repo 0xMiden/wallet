@@ -1080,6 +1080,38 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // request from the extension/desktop flow when those code paths run.
   const { request, resolve } = useDappConfirmation(foregroundId ?? undefined);
 
+  // CRITICAL: when a confirmation is pending, hide the foreground dApp's
+  // native UIWindow. The confirmation modal is rendered inside the
+  // Capacitor host WebView (a UIWindow at .normal level), but every
+  // active dApp WKWebView lives in its OWN UIWindow (also at .normal,
+  // but inserted ABOVE the host window so the slot rect reads taps).
+  // When a dApp is foregrounded, its window covers the host window —
+  // including the modal. The modal therefore becomes invisible AND
+  // untappable: the user taps "Approve", the tap goes into the dApp's
+  // web content (not the React button), and the confirmation sits
+  // stuck forever.
+  //
+  // Fix: toggle the dApp's visibility in lockstep with the request
+  // state. Hiding the dApp UIWindow exposes the host window (where
+  // the modal renders). Showing it again after resolve restores the
+  // dApp at its last-known slot rect — the native plugin remembers
+  // the rect per instance, so no resize is needed here.
+  //
+  // This matches the existing switcher-open effect's pattern, just
+  // scoped to the single foreground session instead of every active
+  // instance.
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (!foregroundId) return;
+    const state = sessionStatesRef.current.find(s => s.session.id === foregroundId);
+    if (!state?.instance) return;
+    if (request) {
+      void state.instance.setVisible(false).catch(() => {});
+    } else {
+      void state.instance.setVisible(true).catch(() => {});
+    }
+  }, [request, foregroundId]);
+
   // Read account info for the modal — kept here to avoid prop-drilling
   const currentAccount = useWalletStore(s => s.currentAccount);
   const accounts = useWalletStore(s => s.accounts);
