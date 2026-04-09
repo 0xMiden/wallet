@@ -8,7 +8,13 @@ const test = base.extend({
   mockWebClient: async ({ sdk }: any, use: any) => {
     const client = await sdk.MockWebClient.createClient(undefined, undefined, TEST_SEED);
     await use(client);
-    client.free();
+    // See fixtures/mockWebClient.ts — 0.13.3's Proxy classifier throws
+    // on `client.free()` so we reach the wasm-bindgen destructor via
+    // the underlying wasmWebClient field directly.
+    const inner = (client as any).wasmWebClient;
+    if (inner && typeof inner.free === 'function') {
+      inner.free();
+    }
   }
 });
 

@@ -38,7 +38,15 @@ export const test = base.extend<Fixtures>({
   mockWebClient: async ({ sdk }: any, use: any) => {
     const client = await sdk.MockWebClient.createClient();
     await use(client);
-    client.free();
+    // 0.13.3 added a Proxy-based method classifier that throws on any
+    // method not listed in SYNC / WRITE / READ sets — including the
+    // wasm-bindgen destructor `free`. Reach for the underlying
+    // wasmWebClient directly to bypass the classifier. Safe to no-op
+    // if the field isn't there (non-Proxy builds or future SDKs).
+    const inner = (client as any).wasmWebClient;
+    if (inner && typeof inner.free === 'function') {
+      inner.free();
+    }
   }
 });
 
