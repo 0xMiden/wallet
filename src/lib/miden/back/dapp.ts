@@ -71,13 +71,40 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 
-/** Starts background transaction processing using the unified SW transaction processor. */
+/**
+ * Starts background transaction processing using the unified SW
+ * transaction processor. Defensive: any synchronous throw from the
+ * lazy-import chain is swallowed here so the caller can safely run
+ * `resolve(...)` afterwards. A thrown startup error would otherwise
+ * cause the tx preview to succeed, the tx to actually sign, and then
+ * the dApp promise to reject with "InvalidParams" — the dApp would
+ * believe its request failed even though it broadcast on-chain.
+ */
 function startDappBackgroundProcessing() {
-  startTransactionProcessing().catch(err => console.error('[DApp] Transaction processing error:', err));
+  try {
+    startTransactionProcessing().catch(err => console.error('[DApp] Transaction processing error:', err));
+  } catch (err) {
+    console.error('[DApp] startTransactionProcessing sync throw:', err);
+  }
 }
 
-// Log to Rust stdout for desktop debugging
+// Debug logger — gated so production builds don't dump wallet request
+// payloads (addresses, amounts, allowedPrivateData) into platform logs.
+// Enable via `DEBUG_DAPP_BRIDGE=1` env at build time. Exported so
+// `actions.ts` can use the same gate for its top-level dispatcher log.
+const DEBUG_DAPP_BRIDGE = typeof process !== 'undefined' && process.env?.DEBUG_DAPP_BRIDGE === '1';
+export const dappDebug = (...args: unknown[]) => {
+  if (DEBUG_DAPP_BRIDGE) console.log(...args);
+};
+
+// Log to Rust stdout for desktop debugging. Gated behind the same
+// DEBUG_DAPP_BRIDGE flag as `dappDebug` — several call sites in this
+// file pass the origin / sessionId / appMeta.name and these breadcrumbs
+// would otherwise land unredacted in the Tauri process's stdout on
+// every dApp connection in production desktop builds. Desktop devs can
+// flip the env flag at build time to see the stream again.
 async function dappLog(message: string): Promise<void> {
+  if (!DEBUG_DAPP_BRIDGE) return;
   if (isDesktop()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
@@ -87,14 +114,6 @@ async function dappLog(message: string): Promise<void> {
     }
   }
 }
-
-// Debug logger — gated so production builds don't dump wallet request
-// payloads (addresses, amounts, allowedPrivateData) into platform logs.
-// Enable via `DEBUG_DAPP_BRIDGE=1` env at build time.
-const DEBUG_DAPP_BRIDGE = typeof process !== 'undefined' && process.env?.DEBUG_DAPP_BRIDGE === '1';
-const dappDebug = (...args: unknown[]) => {
-  if (DEBUG_DAPP_BRIDGE) console.log(...args);
-};
 
 async function getAccountPublicKeyB64(accountId: string): Promise<string> {
   const midenClient = await getMidenClient();
@@ -241,7 +260,7 @@ export async function generatePromisifyRequestPermission(
   // PR-4 chunk 8: optional multi-instance session id.
   sessionId?: string
 ): Promise<MidenDAppPermissionResponse> {
-  console.log('[generatePromisifyRequestPermission] Called, isExtension:', isExtension());
+  dappDebug('[generatePromisifyRequestPermission] Called, isExtension:', isExtension());
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     const id = nanoid();
@@ -293,7 +312,7 @@ export async function generatePromisifyRequestPermission(
       });
     }
 
-    console.log('[DApp] Non-extension approved connection for:', origin);
+    dappDebug('[DApp] Non-extension approved connection for:', origin);
     return {
       type: MidenDAppMessageType.PermissionResponse,
       accountId: accountPublicKey,
@@ -913,7 +932,7 @@ const generatePromisifyTransaction = async (
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    console.log('[DApp] Non-extension requesting transaction confirmation');
+    dappDebug('[DApp] Non-extension requesting transaction confirmation');
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
@@ -1058,7 +1077,7 @@ const generatePromisifySendTransaction = async (
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    console.log('[DApp] Non-extension requesting send transaction confirmation');
+    dappDebug('[DApp] Non-extension requesting send transaction confirmation');
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
@@ -1201,7 +1220,7 @@ const generatePromisifyConsumeTransaction = async (
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    console.log('[DApp] Non-extension requesting consume transaction confirmation');
+    dappDebug('[DApp] Non-extension requesting consume transaction confirmation');
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,

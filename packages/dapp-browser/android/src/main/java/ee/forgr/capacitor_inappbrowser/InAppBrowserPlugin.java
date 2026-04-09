@@ -450,6 +450,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
         if (url == null || TextUtils.isEmpty(url)) {
             call.reject("Invalid URL");
+            return;
         }
         currentUrl = url;
         CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder(getCustomTabsSession());

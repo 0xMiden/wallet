@@ -84,6 +84,7 @@ jest.mock('./store', () => ({
 }));
 
 jest.mock('./dapp', () => ({
+  dappDebug: jest.fn(),
   getAllDApps: jest.fn(),
   removeDApp: jest.fn(),
   getCurrentPermission: jest.fn(),

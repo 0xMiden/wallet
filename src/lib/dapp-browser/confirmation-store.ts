@@ -79,10 +79,6 @@ class DAppConfirmationStore {
   private listeners: Set<() => void> = new Set();
   private instanceId = Math.random().toString(36).substring(7);
 
-  constructor() {
-    console.log('[DAppConfirmationStore] Created instance:', this.instanceId);
-  }
-
   getInstanceId(): string {
     return this.instanceId;
   }

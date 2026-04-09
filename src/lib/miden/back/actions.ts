@@ -20,6 +20,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
 import {
+  dappDebug,
   getAllDApps,
   getCurrentPermission,
   removeDApp,
@@ -232,8 +233,11 @@ export async function processDApp(
   req: MidenDAppRequest,
   sessionId?: string
 ): Promise<MidenDAppResponse | void> {
-  console.log('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
-  console.log('[processDApp] Full request:', JSON.stringify(req));
+  dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
+  // This dumps the full request payload (addresses, amounts, note ids,
+  // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
+  // builds don't leak transaction data to os_log / logcat.
+  dappDebug('[processDApp] Full request:', JSON.stringify(req));
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));

@@ -2,6 +2,18 @@ import Foundation
 import Capacitor
 import WebKit
 
+/// Debug-only print shim. Mirrors the one in WKWebViewController.swift
+/// so both files can gate their diagnostic logs behind `#if DEBUG` and
+/// release builds don't leak navigation / share-subject / resource-path
+/// breadcrumbs to `os_log`.
+@inline(__always)
+private func iabDebug(_ items: Any...) {
+    #if DEBUG
+    let joined = items.map { "\($0)" }.joined(separator: " ")
+    Swift.print(joined)
+    #endif
+}
+
 extension UIColor {
 
     convenience init(hexString: String) {
@@ -225,11 +237,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
 
             if iconType == "sf-symbol" {
                 buttonNearDoneIcon = UIImage(systemName: icon)?.withRenderingMode(.alwaysTemplate)
-                print("[DEBUG] Set buttonNearDone SF Symbol icon: \(icon)")
+                iabDebug("[DEBUG] Set buttonNearDone SF Symbol icon: \(icon)")
             } else {
                 // Look in app's web assets/public directory
                 guard let webDir = Bundle.main.resourceURL?.appendingPathComponent("public") else {
-                    print("[DEBUG] Failed to locate web assets directory")
+                    iabDebug("[DEBUG] Failed to locate web assets directory")
                     return
                 }
 
@@ -247,13 +259,13 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                     let assetPath = path.replacingOccurrences(of: "public/", with: "")
                     let fileURL = webDir.appendingPathComponent(assetPath)
 
-                    print("[DEBUG] Trying to load from: \(fileURL.path)")
+                    iabDebug("[DEBUG] Trying to load from: \(fileURL.path)")
 
                     if FileManager.default.fileExists(atPath: fileURL.path),
                        let data = try? Data(contentsOf: fileURL),
                        let img = UIImage(data: data) {
                         buttonNearDoneIcon = img.withRenderingMode(.alwaysTemplate)
-                        print("[DEBUG] Successfully loaded buttonNearDone from web assets: \(fileURL.path)")
+                        iabDebug("[DEBUG] Successfully loaded buttonNearDone from web assets: \(fileURL.path)")
                         foundImage = true
                         break
                     }
@@ -262,13 +274,13 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                     if let wwwDir = Bundle.main.resourceURL?.appendingPathComponent("www") {
                         let wwwFileURL = wwwDir.appendingPathComponent(assetPath)
 
-                        print("[DEBUG] Trying to load from www dir: \(wwwFileURL.path)")
+                        iabDebug("[DEBUG] Trying to load from www dir: \(wwwFileURL.path)")
 
                         if FileManager.default.fileExists(atPath: wwwFileURL.path),
                            let data = try? Data(contentsOf: wwwFileURL),
                            let img = UIImage(data: data) {
                             buttonNearDoneIcon = img.withRenderingMode(.alwaysTemplate)
-                            print("[DEBUG] Successfully loaded buttonNearDone from www dir: \(wwwFileURL.path)")
+                            iabDebug("[DEBUG] Successfully loaded buttonNearDone from www dir: \(wwwFileURL.path)")
                             foundImage = true
                             break
                         }
@@ -277,38 +289,38 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                     // Try looking in app bundle assets
                     if let iconImage = UIImage(named: path) {
                         buttonNearDoneIcon = iconImage.withRenderingMode(.alwaysTemplate)
-                        print("[DEBUG] Successfully loaded buttonNearDone from app bundle: \(path)")
+                        iabDebug("[DEBUG] Successfully loaded buttonNearDone from app bundle: \(path)")
                         foundImage = true
                         break
                     }
                 }
 
                 if !foundImage {
-                    print("[DEBUG] Failed to load buttonNearDone icon: \(icon)")
+                    iabDebug("[DEBUG] Failed to load buttonNearDone icon: \(icon)")
 
                     // Debug info
                     if let resourceURL = Bundle.main.resourceURL {
-                        print("[DEBUG] Resource URL: \(resourceURL.path)")
+                        iabDebug("[DEBUG] Resource URL: \(resourceURL.path)")
 
                         // List directories to help debugging
                         do {
                             let contents = try FileManager.default.contentsOfDirectory(atPath: resourceURL.path)
-                            print("[DEBUG] Root bundle contents: \(contents)")
+                            iabDebug("[DEBUG] Root bundle contents: \(contents)")
 
                             // Check if public or www directories exist
                             if contents.contains("public") {
                                 let publicContents = try FileManager.default.contentsOfDirectory(
                                     atPath: resourceURL.appendingPathComponent("public").path)
-                                print("[DEBUG] Public dir contents: \(publicContents)")
+                                iabDebug("[DEBUG] Public dir contents: \(publicContents)")
                             }
 
                             if contents.contains("www") {
                                 let wwwContents = try FileManager.default.contentsOfDirectory(
                                     atPath: resourceURL.appendingPathComponent("www").path)
-                                print("[DEBUG] WWW dir contents: \(wwwContents)")
+                                iabDebug("[DEBUG] WWW dir contents: \(wwwContents)")
                             }
                         } catch {
-                            print("[DEBUG] Error listing directories: \(error)")
+                            iabDebug("[DEBUG] Error listing directories: \(error)")
                         }
                     }
                 }
@@ -517,12 +529,12 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 if call.getString("shareSubject") != nil {
                     // Add share button to right bar
                     webViewController.rightNavigaionBarItemTypes.append(.activity)
-                    print("[DEBUG] Activity mode: Added share button, shareSubject: \(call.getString("shareSubject") ?? "nil")")
+                    iabDebug("[DEBUG] Activity mode: Added share button, shareSubject: \(call.getString("shareSubject") ?? "nil")")
                 } else {
                     // In activity mode, always make the share button visible by setting a default shareSubject
                     webViewController.shareSubject = "Share"
                     webViewController.rightNavigaionBarItemTypes.append(.activity)
-                    print("[DEBUG] Activity mode: Setting default shareSubject")
+                    iabDebug("[DEBUG] Activity mode: Setting default shareSubject")
                 }
 
                 // Set done button position based on showArrow
@@ -560,7 +572,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // Set buttonNearDoneIcon if provided
             if let buttonNearDoneIcon = buttonNearDoneIcon {
                 webViewController.buttonNearDoneIcon = buttonNearDoneIcon
-                print("[DEBUG] Button near done icon set: \(buttonNearDoneIcon)")
+                iabDebug("[DEBUG] Button near done icon set: \(buttonNearDoneIcon)")
             }
 
             webViewController.capBrowserPlugin = self
@@ -573,9 +585,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
 
             // Debug shareDisclaimer
             if let disclaimer = disclaimerContent {
-                print("[DEBUG] Share disclaimer set: \(disclaimer)")
+                iabDebug("[DEBUG] Share disclaimer set: \(disclaimer)")
             } else {
-                print("[DEBUG] No share disclaimer set")
+                iabDebug("[DEBUG] No share disclaimer set")
             }
 
             webViewController.preShowScript = call.getString("preShowScript")
@@ -909,7 +921,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Event data must not be empty")
             return
         }
-        print("Event data: \(eventData)")
+        iabDebug("Event data: \(eventData)")
 
         // Miden patch (PR-4 chunk 7): route to a specific instance by id.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
@@ -933,7 +945,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return true
             }
         } catch {
-            print("Error creating regular expression: \(error)")
+            iabDebug("Error creating regular expression: \(error)")
         }
 
         return false
@@ -1050,8 +1062,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // because windows aren't presented modally.
             if let instance = WebViewRegistry.shared.get(id: instanceId),
                let window = instance.containerWindow {
-                window.isHidden = true
-                window.rootViewController = nil
+                Self.releaseContainerWindow(window)
                 instance.containerWindow = nil
                 self.webViewController = nil
                 self.navigationWebViewController = nil
@@ -1269,22 +1280,35 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     /// individually — callers know they're tearing everything down.
     @objc func closeAll(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            // Snapshot instances under the registry lock, then release
+            // the lock BEFORE doing any heavyweight teardown. The
+            // registry's own docstring (WebViewRegistry.swift:70-71)
+            // warns callers to keep the forEach closure short; holding
+            // the non-recursive NSLock across releaseContainerWindow +
+            // cleanupWebView would deadlock if any KVO / delegate
+            // callback fired during teardown and re-entered the
+            // registry. Not exercised today, but the refactor
+            // lengthened the locked region enough to make this a real
+            // concern if the WebKit teardown path ever changes.
+            var snapshot: [WKWebViewInstance] = []
             WebViewRegistry.shared.forEach { _, instance in
+                snapshot.append(instance)
+            }
+            WebViewRegistry.shared.removeAll()
+            for instance in snapshot {
                 if let window = instance.containerWindow {
-                    window.isHidden = true
-                    window.rootViewController = nil
+                    Self.releaseContainerWindow(window)
                 }
                 instance.controller.cleanupWebView()
                 instance.containerWindow = nil
             }
-            WebViewRegistry.shared.removeAll()
             // Also clear the legacy single-instance fields if they were set.
             self.webViewController = nil
             self.navigationWebViewController = nil
             // Tear down the navbar overlay too — it's pointless without
-            // any dApps to overlay.
-            Self.navbarOverlay?.isHidden = true
-            Self.navbarOverlay = nil
+            // any dApps to overlay. Route through the shared helper so
+            // the windowScene detach runs (otherwise S7 re-leaks here).
+            Self.releaseNavbarOverlay()
             call.resolve()
         }
     }
@@ -1392,6 +1416,23 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             overlay.windowScene = nil
         }
         navbarOverlay = nil
+    }
+
+    /// Shared teardown for Architecture A dApp container windows.
+    /// Same pathology as the navbar overlay: on iOS 15-17 a UIWindow
+    /// is kept alive by the scene's internal window list if you only
+    /// set `isHidden = true` + `rootViewController = nil`. Every dApp
+    /// close would leak a full UIWindow + UINavigationController +
+    /// WKWebView (tens of MB per close). This helper is called from
+    /// `close(_:)`, `closeAll(_:)`, and `WKWebViewController.closeView`
+    /// so the fix lands on every teardown path.
+    static func releaseContainerWindow(_ window: UIWindow) {
+        window.isHidden = true
+        window.resignKey()
+        if #available(iOS 13.0, *) {
+            window.windowScene = nil
+        }
+        window.rootViewController = nil
     }
 
     @objc func hideNativeNavbar(_ call: CAPPluginCall) {

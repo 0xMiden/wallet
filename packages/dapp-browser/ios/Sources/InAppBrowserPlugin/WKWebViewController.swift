@@ -1621,13 +1621,13 @@ fileprivate extension WKWebViewController {
             // dedicated UIWindow at windowLevel > .normal, NOT in a
             // modal presentation. For those, `dismiss(animated:)` is
             // a no-op and the window + webView are leaked. Tear the
-            // window down explicitly and evict from the registry,
-            // mirroring what InAppBrowserPlugin.close(_:) does on the
-            // plugin-level close path.
+            // window down via the shared InAppBrowserPlugin helper so
+            // the scene detach + resignKey happen — without those iOS
+            // 15-17 keeps the window alive through the scene's window
+            // list and leaks the full WKWebView.
             let ownWindow = self.view.window
             if let window = ownWindow, window.windowLevel > .normal {
-                window.isHidden = true
-                window.rootViewController = nil
+                InAppBrowserPlugin.releaseContainerWindow(window)
                 if let instance = WebViewRegistry.shared.get(id: self.instanceId) {
                     instance.containerWindow = nil
                 }
