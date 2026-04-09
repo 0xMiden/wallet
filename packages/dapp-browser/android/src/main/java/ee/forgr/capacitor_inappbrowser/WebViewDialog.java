@@ -3133,18 +3133,13 @@ public class WebViewDialog extends Dialog {
         // {@code NavbarOverlayManager} for why), so we instead
         // stretch the Dialog frame itself down to the screen edge.
         //
-        // The inner WebView (content_browser_layout) is still
-        // constrained to the slot.height so the dApp's CSS viewport
-        // matches the slot rect — identical to iOS's dApp UIWindow
-        // frame. Without this constraint, the WebView would fill
-        // the taller Dialog and any dApp with a {@code position:
-        // fixed; bottom: 0} element (e.g. a sticky "Connect Wallet"
-        // CTA) would render that element below the navbar pill in
-        // the gesture bar area, producing an orange sliver across
-        // the bottom of the screen. iOS doesn't suffer this because
-        // its WKWebView frame = slot rect, so bottom-fixed dApp
-        // content lands at slot_bottom (hidden behind the pill).
-        // See {@code applyInnerWebViewSlotHeight()} below.
+        // The inner WebView fills the taller Dialog via MATCH_PARENT,
+        // so dApp content scrolls continuously behind the translucent
+        // navbar pill all the way to the gesture bar — no visible
+        // gap between the dApp viewport and the screen bottom. This
+        // matches iOS visual behavior where the navbar's passthrough
+        // region keeps the pill tappable but lets the dApp layer
+        // paint underneath. See {@code ensureContentFillsDialog()}.
         boolean extendToScreenBottom =
             android.text.TextUtils.equals(_options.getToolbarType(), "blank") &&
             y != null &&
@@ -3193,40 +3188,37 @@ public class WebViewDialog extends Dialog {
 
         getWindow().setAttributes(params);
 
-        // Miden patch: pin the inner WebView's layout height to the
-        // requested slot.height so the dApp's CSS viewport matches
-        // iOS exactly, even though the Dialog window frame was
-        // extended to the screen bottom (see comment above).
-        applyInnerWebViewSlotHeight(extendToScreenBottom, height);
+        // Miden patch: ensure the inner content_browser_layout
+        // fills the full Dialog frame (i.e. extends down to the
+        // screen bottom when in blank-toolbar mode). The WebView
+        // inside it inherits the size via MATCH_PARENT, so dApp
+        // content can scroll behind the translucent navbar pill
+        // all the way to the gesture bar — matching iOS, where
+        // the WKWebView is stacked beneath the translucent navbar
+        // UIWindow with no visible gap.
+        ensureContentFillsDialog();
     }
 
     /**
-     * Miden patch — when the Dialog frame has been stretched down
-     * to the screen bottom (see {@code applyDimensions}), pin the
-     * inner {@code content_browser_layout} to the original slot
-     * height so the dApp viewport still matches iOS. The extra
-     * vertical space below the WebView remains transparent (the
-     * blank-toolbar branch sets the Dialog window background to
-     * transparent) so the Activity behind shows through — which
-     * happens to be the React CapsuleBar's host (beige body
-     * padding-bottom area) — and the floating navbar pill sits
-     * on top of all of it.
-     *
-     * This method is idempotent — safe to call on every dimension
-     * update. It has no effect unless the toolbar is "blank" AND
-     * a valid height was provided.
+     * Miden patch — guarantee the {@code content_browser_layout}
+     * (which hosts the WebView) uses MATCH_PARENT height so it
+     * fills the full Dialog frame. The layout XML defaults to
+     * match_parent, but historically we experimented with pinning
+     * the height to the slot rect — that left visible gaps at the
+     * pill's rounded corners and below the pill where the Activity
+     * background showed through. Always resetting the height here
+     * makes the operation idempotent and immune to any previous
+     * override that's still held by a cached LayoutParams.
      */
-    private void applyInnerWebViewSlotHeight(boolean extendToScreenBottom, Integer heightDp) {
-        if (!extendToScreenBottom || heightDp == null) return;
+    private void ensureContentFillsDialog() {
         View contentBrowserLayout = findViewById(R.id.content_browser_layout);
         if (contentBrowserLayout == null) return;
         ViewGroup.LayoutParams lp = contentBrowserLayout.getLayoutParams();
         if (lp == null) return;
-        int slotHeightPx = (int) getPixels(heightDp);
-        if (lp.height == slotHeightPx) return;
-        lp.height = slotHeightPx;
-        contentBrowserLayout.setLayoutParams(lp);
-        Log.d("InAppBrowser", "pinned content_browser_layout height to slot=" + slotHeightPx + "px");
+        if (lp.height != ViewGroup.LayoutParams.MATCH_PARENT) {
+            lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            contentBrowserLayout.setLayoutParams(lp);
+        }
     }
 
     /**
