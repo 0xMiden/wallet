@@ -905,11 +905,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     // history — so it highlights the activity pill, not home.
     let activeId: string | null = null;
     if (path === '/') activeId = 'home';
-    else if (
-      path.startsWith('/history') ||
-      path.startsWith('/history-details') ||
-      path.startsWith('/token-detail')
-    )
+    else if (path.startsWith('/history') || path.startsWith('/history-details') || path.startsWith('/token-detail'))
       activeId = 'activity';
     else if (path === '/browser' || path.startsWith('/select-account') || path.startsWith('/manage-assets'))
       activeId = 'browser';
