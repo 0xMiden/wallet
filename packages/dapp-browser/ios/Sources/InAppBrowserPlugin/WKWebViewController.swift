@@ -2832,11 +2832,15 @@ private class NavbarSecondaryButton: UIControl {
     // Layout — no priority fights, no manual midpoint math.
     private let contentStack = UIStackView()
 
-    // Same color tokens as NavbarButton so the two rows share a
-    // visual language.
-    private static let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
+    // Secondary row uses a subtler active state than the main row:
+    // the icon + label stay heading-gray in both states, and only a
+    // pale slate-blue pill background appears to indicate "this is
+    // the active flow". Matches the original React HomeActionPills
+    // styling (`rgba(15, 23, 42, 0.08)` = slate-900 @ 8%) which read
+    // better next to the orange main-row active pill than a second
+    // orange fill would.
     private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
-    private static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
+    private static let activePillBg = UIColor(red: 15.0 / 255.0, green: 23.0 / 255.0, blue: 42.0 / 255.0, alpha: 0.08)
 
     init(item: MidenNavbarOverlayWindow.Item) {
         super.init(frame: .zero)
@@ -2922,10 +2926,10 @@ private class NavbarSecondaryButton: UIControl {
     }
 
     func setActive(_ active: Bool) {
+        // Icon + label color stays heading-gray in both states — only
+        // the pale slate pill background fades in to indicate which
+        // pill is currently active.
         pillBackground.isHidden = !active
-        let color = active ? NavbarSecondaryButton.activeColor : NavbarSecondaryButton.inactiveColor
-        iconView.tintColor = color
-        label.textColor = color
         accessibilityTraits = active ? [.button, .selected] : .button
     }
 }
@@ -2956,7 +2960,9 @@ private class NavbarActionButton: UIControl {
         addSubview(pillBackground)
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 15, weight: .semibold)
+        // Smaller font than before (was 15pt) so it fits comfortably
+        // inside the 32pt pill background without cramping.
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
         label.textColor = NavbarActionButton.labelColor
         label.textAlignment = .center
         label.lineBreakMode = .byTruncatingTail
@@ -2964,13 +2970,19 @@ private class NavbarActionButton: UIControl {
         label.minimumScaleFactor = 0.85
         addSubview(label)
 
-        // Inset the pill 4pt from the button's outer frame so when
-        // the action lives next to the nav buttons there's a small
-        // breathing gap, matching how the React active pill insets
-        // inside its FooterNavButton container.
+        // The parent NavbarButton in compact mode renders its 32pt SF
+        // Symbol centered inside the ~88pt-tall stack cell (88 =
+        // icon 32 + stacked label 14 + gap 8 + py-2 16 + ~ safe-area
+        // measurements). Without matching inset, the action pill's
+        // visible fill stretches to the full cell height and reads
+        // like a giant orange blob next to three tiny icons. Inset
+        // top/bottom by (cellHeight - iconHeight) / 2 ≈ 27pt so its
+        // visible height matches the ~34pt visible icon next to it.
+        // The outer button frame stays the full cell height so the
+        // hit target stays large and tappable.
         NSLayoutConstraint.activate([
-            pillBackground.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            pillBackground.topAnchor.constraint(equalTo: topAnchor, constant: 27),
+            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -27),
             pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             label.leadingAnchor.constraint(equalTo: pillBackground.leadingAnchor, constant: 12),
