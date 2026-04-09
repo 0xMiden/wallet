@@ -66,13 +66,14 @@ export const INJECTION_SCRIPT = `
 
     // Use Capacitor InAppBrowser's mobileApp interface
     if (window.mobileApp && window.mobileApp.postMessage) {
-      console.log('[MidenWallet] Sending message via mobileApp:', type, reqId);
+      // Intentionally NOT logging payload — this runs inside the dApp
+      // page and would leave wallet request breadcrumbs visible via
+      // Safari Web Inspector on any device that ever attaches to it.
       window.mobileApp.postMessage(message);
       return;
     }
 
     // Fallback for testing in regular browser
-    console.warn('[MidenWallet] mobileApp not available, using window.postMessage fallback');
     window.postMessage({ __midenNative: true, ...message }, '*');
   }
 
@@ -97,7 +98,9 @@ export const INJECTION_SCRIPT = `
   window.__midenWalletResponse = function(responseStr) {
     try {
       const response = typeof responseStr === 'string' ? JSON.parse(responseStr) : responseStr;
+      if (!response || typeof response !== 'object') return;
       const { type, payload, reqId, error } = response;
+      if (typeof reqId !== 'string') return;
 
       const pending = pendingRequests.get(reqId);
       if (!pending) return;
@@ -166,6 +169,17 @@ export const INJECTION_SCRIPT = `
         allowedPrivateData
       });
 
+      // Decode publicKey BEFORE touching other wallet state so a
+      // malformed publicKey response (e.g. wallet bug, corrupt
+      // base64) throws a clean error instead of leaving the dApp
+      // with a half-populated permission object.
+      let decodedPublicKey;
+      try {
+        decodedPublicKey = b64ToU8(res.publicKey);
+      } catch (e) {
+        throw new Error('Invalid publicKey in wallet response');
+      }
+
       this.permission = {
         rpc: res.network,
         address: res.accountId,
@@ -174,7 +188,7 @@ export const INJECTION_SCRIPT = `
       };
       this.address = res.accountId;
       this.network = network;
-      this.publicKey = b64ToU8(res.publicKey);
+      this.publicKey = decodedPublicKey;
 
       // Emit connect event for wallet adapters that listen to events
       this.emit('connect', this.publicKey);
@@ -291,7 +305,5 @@ export const INJECTION_SCRIPT = `
   } catch (e) {
     window.midenWallet = midenWallet;
   }
-
-  console.log('[MidenWallet] Wallet adapter injected');
 })();
 `;

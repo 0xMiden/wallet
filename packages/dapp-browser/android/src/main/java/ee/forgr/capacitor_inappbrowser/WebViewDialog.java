@@ -1997,23 +1997,32 @@ public class WebViewDialog extends Dialog {
 
     public void handleProxyResultError(String result, String id) {
         Log.i("InAppBrowserProxy", String.format("handleProxyResultError: %s, ok: %s id: %s", result, false, id));
-        ProxiedRequest proxiedRequest = proxiedRequestsHashmap.get(id);
+        // Must match the synchronization discipline used by addProxiedRequest /
+        // getProxiedRequest / clear below — plain get+remove on the UI thread
+        // while the network thread holds the monitor on this same map is a
+        // data race that ConcurrentModificationException's or drops entries
+        // and hangs the semaphore forever.
+        ProxiedRequest proxiedRequest;
+        synchronized (proxiedRequestsHashmap) {
+            proxiedRequest = proxiedRequestsHashmap.remove(id);
+        }
         if (proxiedRequest == null) {
             Log.e("InAppBrowserProxy", "proxiedRequest is null");
             return;
         }
-        proxiedRequestsHashmap.remove(id);
         proxiedRequest.semaphore.release();
     }
 
     public void handleProxyResultOk(JSONObject result, String id) {
         Log.i("InAppBrowserProxy", String.format("handleProxyResultOk: %s, ok: %s, id: %s", result, true, id));
-        ProxiedRequest proxiedRequest = proxiedRequestsHashmap.get(id);
+        ProxiedRequest proxiedRequest;
+        synchronized (proxiedRequestsHashmap) {
+            proxiedRequest = proxiedRequestsHashmap.remove(id);
+        }
         if (proxiedRequest == null) {
             Log.e("InAppBrowserProxy", "proxiedRequest is null");
             return;
         }
-        proxiedRequestsHashmap.remove(id);
 
         if (result == null) {
             proxiedRequest.semaphore.release();

@@ -88,6 +88,14 @@ async function dappLog(message: string): Promise<void> {
   }
 }
 
+// Debug logger — gated so production builds don't dump wallet request
+// payloads (addresses, amounts, allowedPrivateData) into platform logs.
+// Enable via `DEBUG_DAPP_BRIDGE=1` env at build time.
+const DEBUG_DAPP_BRIDGE = typeof process !== 'undefined' && process.env?.DEBUG_DAPP_BRIDGE === '1';
+const dappDebug = (...args: unknown[]) => {
+  if (DEBUG_DAPP_BRIDGE) console.log(...args);
+};
+
 async function getAccountPublicKeyB64(accountId: string): Promise<string> {
   const midenClient = await getMidenClient();
   const account = await midenClient.getAccount(accountId);
@@ -162,9 +170,9 @@ export async function requestPermission(
   // matching foreground session.
   sessionId?: string
 ): Promise<MidenDAppPermissionResponse> {
-  console.log('[requestPermission] Called with origin:', origin);
-  console.log('[requestPermission] Request:', JSON.stringify(req));
-  console.log('[requestPermission] isExtension():', isExtension());
+  dappDebug('[requestPermission] Called with origin:', origin);
+  dappDebug('[requestPermission] Request:', JSON.stringify(req));
+  dappDebug('[requestPermission] isExtension():', isExtension());
   let network = req?.network?.toString();
   const reqChainId = network;
 
@@ -859,7 +867,7 @@ export async function requestTransaction(
   // PR-4 chunk 8: optional multi-instance session id.
   sessionId?: string
 ): Promise<MidenDAppTransactionResponse> {
-  console.log(req, 'requestTransaction, dapp.ts');
+  dappDebug('requestTransaction, dapp.ts', req);
   if (!req?.sourcePublicKey || !req?.transaction) {
     throw new Error(MidenDAppErrorType.InvalidParams);
   }
@@ -893,13 +901,14 @@ const generatePromisifyTransaction = async (
       const { payload } = req.transaction;
       const customTransaction = payload as MidenCustomTransaction;
       if (!customTransaction.address || !customTransaction.transactionRequest) {
-        reject(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
+        throw new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`);
       }
 
       return formatCustomTransactionPreview(customTransaction);
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    return;
   }
 
   // On mobile/desktop, use confirmation store to request user approval
@@ -1044,6 +1053,7 @@ const generatePromisifySendTransaction = async (
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    return;
   }
 
   // On mobile/desktop, use confirmation store to request user approval
@@ -1186,6 +1196,7 @@ const generatePromisifyConsumeTransaction = async (
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    return;
   }
 
   // On mobile/desktop, use confirmation store to request user approval

@@ -243,7 +243,7 @@ export const DappActive: FC = () => {
           <div
             className="pointer-events-none absolute inset-0"
             style={{
-              backgroundImage: `url(${cachedSnapshot})`,
+              backgroundImage: `url("${cachedSnapshot}")`,
               backgroundSize: 'cover',
               backgroundPosition: 'top center',
               opacity: isLoading ? 1 : 0,

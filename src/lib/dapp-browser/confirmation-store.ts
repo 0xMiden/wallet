@@ -92,21 +92,17 @@ class DAppConfirmationStore {
    * when the user approves or denies the request via the React modal.
    *
    * If a confirmation is already pending for the same session id, the
-   * existing pending request is replaced (the previous resolver is
-   * orphaned — caller is responsible for not stacking requests on the
-   * same session). In practice the dappQueue serializes requests per
-   * dApp so this shouldn't happen.
+   * existing pending request is implicit-rejected (treated as canceled)
+   * before being replaced, so the old promise never leaks. In practice
+   * dappQueue serializes requests per dApp so this edge case is rare —
+   * the guard is defensive.
    */
   requestConfirmation(request: DAppConfirmationRequest): Promise<DAppConfirmationResult> {
     const key = keyFor(request.sessionId);
-    console.log(
-      '[DAppConfirmationStore]',
-      this.instanceId,
-      'requestConfirmation called for sessionKey:',
-      key,
-      'type:',
-      request.type
-    );
+    const previous = this.pending.get(key);
+    if (previous) {
+      previous.resolver({ confirmed: false });
+    }
     return new Promise(resolve => {
       this.pending.set(key, { request, resolver: resolve });
       this.notifyListeners();
@@ -148,7 +144,7 @@ class DAppConfirmationStore {
    * argument, returns true if ANY session has a pending request.
    */
   hasPendingRequest(sessionId?: string): boolean {
-    if (sessionId === undefined && arguments.length === 0) {
+    if (sessionId === undefined) {
       return this.pending.size > 0;
     }
     return this.pending.has(keyFor(sessionId));

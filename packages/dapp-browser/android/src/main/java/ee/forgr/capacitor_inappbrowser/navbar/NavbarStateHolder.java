@@ -1,8 +1,8 @@
 package ee.forgr.capacitor_inappbrowser.navbar;
 
 import android.util.Log;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Miden patch — Android port of iOS MidenNavbarOverlayWindow.
@@ -35,11 +35,17 @@ public final class NavbarStateHolder {
         void onStateChanged(NavbarState state);
     }
 
-    private NavbarState state = NavbarState.empty();
-    private final List<Observer> observers = new ArrayList<>();
+    private volatile NavbarState state = NavbarState.empty();
+    // CopyOnWriteArrayList so add/remove/iterate can interleave
+    // safely. Most mutations run on the UI thread, but
+    // onDetachedFromWindow can fire from non-main paths under
+    // framework-level Activity destruction (low-memory kill, monkey
+    // runs) — the previous plain ArrayList + "UI thread only" comment
+    // was a latent ConcurrentModificationException.
+    private final List<Observer> observers = new CopyOnWriteArrayList<>();
 
     /** Returns the current immutable state snapshot. */
-    public synchronized NavbarState getState() {
+    public NavbarState getState() {
         return state;
     }
 
@@ -66,11 +72,9 @@ public final class NavbarStateHolder {
      */
     public void setState(NavbarState newState) {
         this.state = newState;
-        // Copy the observer list before iterating so observers that
-        // unsubscribe during their own callback (e.g. a view that
-        // detaches mid-update) don't mutate the list we're iterating.
-        List<Observer> snapshot = new ArrayList<>(observers);
-        for (Observer o : snapshot) {
+        // CopyOnWriteArrayList provides a consistent iterator across
+        // concurrent add/remove, so we can iterate directly.
+        for (Observer o : observers) {
             try {
                 o.onStateChanged(newState);
             } catch (Exception e) {

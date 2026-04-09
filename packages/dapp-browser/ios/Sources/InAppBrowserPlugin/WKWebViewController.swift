@@ -13,6 +13,17 @@ private let estimatedProgressKeyPath = "estimatedProgress"
 private let titleKeyPath = "title"
 private let cookieKey = "Cookie"
 
+/// Debug-only print shim. All diagnostic prints in this file route
+/// through this helper so release builds don't leak WebView lifecycle
+/// / navigation / message body breadcrumbs to the device log.
+@inline(__always)
+private func iabDebug(_ items: Any...) {
+    #if DEBUG
+    let joined = items.map { "\($0)" }.joined(separator: " ")
+    Swift.print(joined)
+    #endif
+}
+
 private struct UrlsHandledByApp {
     static var hosts = ["itunes.apple.com"]
     static var schemes = ["tel", "mailto", "sms"]
@@ -125,7 +136,13 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     open var bypassedSSLHosts: [String]?
     open var cookies: [HTTPCookie]?
     open var headers: [String: String]?
-    open var capBrowserPlugin: InAppBrowserPlugin?
+    // Weak to break the retain cycle: the plugin owns the controller
+    // via self.webViewController, and the controller used to own the
+    // plugin via a strong capBrowserPlugin — meaning the whole graph
+    // only broke when close() or cleanupWebView() nil'd both sides.
+    // In Architecture A the window owns the controller and the plugin
+    // only holds it transiently, so the cycle was real.
+    open weak var capBrowserPlugin: InAppBrowserPlugin?
     /// Miden patch (PR-4 chunk 7): the multi-instance id for this controller.
     /// Defaults to the legacy "default" id and is overwritten by the plugin
     /// to the call's `id` parameter when the controller is created. Every
@@ -133,6 +150,12 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     /// so JS-side multi-instance routing can dispatch the event to the
     /// matching session.
     open var instanceId: String = "default"
+    /// Tracks whether the three KVO observers (estimatedProgress, title,
+    /// URL) are currently registered on `webView`. `cleanupWebView` and
+    /// `deinit` both need to remove them, and calling `removeObserver`
+    /// for an unregistered key path raises — the flag makes both paths
+    /// idempotent.
+    private var observersRegistered = false
     var shareDisclaimer: [String: Any]?
     var shareSubject: String?
     var didpageInit = false
@@ -357,7 +380,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                 button.tintColor = tintColor
             }
 
-            print("[DEBUG] Created activity button with custom image")
+            iabDebug("[DEBUG] Created activity button with custom image")
             return button
         } else {
             // Use system share icon
@@ -370,7 +393,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                 button.tintColor = tintColor
             }
 
-            print("[DEBUG] Created activity button with system action icon")
+            iabDebug("[DEBUG] Created activity button with system action icon")
             return button
         }
     }()
@@ -408,11 +431,17 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     }
 
     deinit {
-        webView?.removeObserver(self, forKeyPath: estimatedProgressKeyPath)
-        if websiteTitleInNavigationBar {
-            webView?.removeObserver(self, forKeyPath: titleKeyPath)
+        // Only remove observers if they were actually registered AND
+        // cleanupWebView hasn't already removed them. Calling
+        // removeObserver for an unregistered key path raises.
+        if observersRegistered, let webView = webView {
+            webView.removeObserver(self, forKeyPath: estimatedProgressKeyPath)
+            if websiteTitleInNavigationBar {
+                webView.removeObserver(self, forKeyPath: titleKeyPath)
+            }
+            webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.url))
+            observersRegistered = false
         }
-        webView?.removeObserver(self, forKeyPath: #keyPath(WKWebView.url))
     }
 
     override open func viewDidDisappear(_ animated: Bool) {
@@ -523,7 +552,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     open func postMessageToJS(message: [String: Any]) {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: message, options: []),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
-            print("[InAppBrowser] Failed to serialize message to JSON")
+            iabDebug("[InAppBrowser] Failed to serialize message to JSON")
             return
         }
 
@@ -533,7 +562,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         DispatchQueue.main.async {
             self.webView?.evaluateJavaScript(script) { _, error in
                 if let error = error {
-                    print("[InAppBrowser] JavaScript evaluation error in postMessageToJS: \(error)")
+                    iabDebug("[InAppBrowser] JavaScript evaluation error in postMessageToJS: \(error)")
                 }
             }
         }
@@ -543,7 +572,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "messageHandler" {
             if let messageBody = message.body as? [String: Any] {
-                print("Received message from JavaScript:", messageBody)
+                iabDebug("Received message from JavaScript:", messageBody)
                 // Miden patch (PR-4 chunk 7): include the instance id so the
                 // JS-side multi-instance handler can dispatch the message to
                 // the matching session.
@@ -551,22 +580,22 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                 withId["id"] = self.instanceId
                 self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: withId)
             } else {
-                print("Received non-dictionary message from JavaScript:", message.body)
+                iabDebug("Received non-dictionary message from JavaScript:", message.body)
                 self.capBrowserPlugin?.notifyListeners("messageFromWebview", data: ["id": self.instanceId, "rawMessage": String(describing: message.body)])
             }
         } else if message.name == "preShowScriptSuccess" {
             guard let semaphore = preShowSemaphore else {
-                print("[InAppBrowser - preShowScriptSuccess]: Semaphore not found")
+                iabDebug("[InAppBrowser - preShowScriptSuccess]: Semaphore not found")
                 return
             }
 
             semaphore.signal()
         } else if message.name == "preShowScriptError" {
             guard let semaphore = preShowSemaphore else {
-                print("[InAppBrowser - preShowScriptError]: Semaphore not found")
+                iabDebug("[InAppBrowser - preShowScriptError]: Semaphore not found")
                 return
             }
-            print("[InAppBrowser - preShowScriptError]: Error!!!!")
+            iabDebug("[InAppBrowser - preShowScriptError]: Error!!!!")
             semaphore.signal()
         } else if message.name == "close" {
             closeView()
@@ -604,17 +633,17 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         DispatchQueue.main.async {
             self.webView?.evaluateJavaScript(script) { result, error in
                 if let error = error {
-                    print("JavaScript evaluation error: \(error)")
+                    iabDebug("JavaScript evaluation error: \(error)")
                 } else if let result = result {
-                    print("JavaScript result: \(result)")
+                    iabDebug("JavaScript result: \(result)")
                 } else {
-                    print("JavaScript executed with no result")
+                    iabDebug("JavaScript executed with no result")
                 }
             }
         }
     }
 
-    open func initWebview(isInspectable: Bool = true) {
+    open func initWebview(isInspectable: Bool = false) {
         if self.isWebViewInitialized {
             return
         }
@@ -673,7 +702,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
         // Enhanced configuration for Google Pay support (only when enabled)
         if enableGooglePaySupport {
-            print("[InAppBrowser] Enabling Google Pay support features for iOS")
+            iabDebug("[InAppBrowser] Enabling Google Pay support features for iOS")
 
             // Allow arbitrary loads in web views for Payment Request API
             webConfiguration.setValue(true, forKey: "allowsArbitraryLoads")
@@ -720,15 +749,18 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
         let webView = WKWebView(frame: .zero, configuration: webConfiguration)
 
-        //        if webView.responds(to: Selector(("setInspectable:"))) {
-        //            // Fix: https://stackoverflow.com/questions/76216183/how-to-debug-wkwebview-in-ios-16-4-1-using-xcode-14-2/76603043#76603043
-        //            webView.perform(Selector(("setInspectable:")), with: isInspectable)
-        //        }
-
+        // Honor the isInspectable flag threaded from JS. In release builds
+        // the wallet passes `false` so production dApp WebViews cannot be
+        // attached to by Safari's Develop menu, which would otherwise
+        // leak injected bridge messages, addresses, and publicKeys to any
+        // Mac the device is docked to. Debug builds override to true so
+        // inspect-cli / chrome-devtools-mcp / Safari inspector all work.
         if #available(iOS 16.4, *) {
+            #if DEBUG
             webView.isInspectable = true
-        } else {
-            // Fallback on earlier versions
+            #else
+            webView.isInspectable = isInspectable
+            #endif
         }
 
         // First add the webView to view hierarchy
@@ -792,6 +824,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
             webView.addObserver(self, forKeyPath: titleKeyPath, options: .new, context: nil)
         }
         webView.addObserver(self, forKeyPath: #keyPath(WKWebView.url), options: .new, context: nil)
+        self.observersRegistered = true
 
         if !self.blankNavigationTab {
             self.view.addSubview(webView)
@@ -812,7 +845,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         if let sourceValue = self.source {
             self.load(source: sourceValue)
         } else {
-            print("[\(type(of: self))][Error] Invalid url")
+            iabDebug("[\(type(of: self))][Error] Invalid url")
         }
     }
 
@@ -948,7 +981,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                     navigationItem.rightBarButtonItems = items
                 }
 
-                print("[DEBUG] Force added buttonNearDone in viewDidAppear")
+                iabDebug("[DEBUG] Force added buttonNearDone in viewDidAppear")
             }
         }
     }
@@ -1057,7 +1090,7 @@ public extension WKWebViewController {
             forMainFrameOnly: false
         )
         webView.configuration.userContentController.addUserScript(userScript)
-        print("[InAppBrowser] Injected preShowScript at document start")
+        iabDebug("[InAppBrowser] Injected preShowScript at document start")
 
         // Reload the webview so the script executes at document start
         if let currentURL = webView.url {
@@ -1079,11 +1112,14 @@ public extension WKWebViewController {
         webView.uiDelegate = nil
         webView.loadHTMLString("", baseURL: nil)
 
-        webView.removeObserver(self, forKeyPath: estimatedProgressKeyPath)
-        if websiteTitleInNavigationBar {
-            webView.removeObserver(self, forKeyPath: titleKeyPath)
+        if observersRegistered {
+            webView.removeObserver(self, forKeyPath: estimatedProgressKeyPath)
+            if websiteTitleInNavigationBar {
+                webView.removeObserver(self, forKeyPath: titleKeyPath)
+            }
+            webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.url))
+            observersRegistered = false
         }
-        webView.removeObserver(self, forKeyPath: #keyPath(WKWebView.url))
 
         webView.configuration.userContentController.removeAllUserScripts()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "messageHandler")
@@ -1255,9 +1291,9 @@ fileprivate extension WKWebViewController {
                 // Add the button
                 rightBarButtons.append(buttonItem)
 
-                print("[DEBUG] Added buttonNearDone to right bar buttons, icon: \(String(describing: buttonNearDoneIcon))")
+                iabDebug("[DEBUG] Added buttonNearDone to right bar buttons, icon: \(String(describing: buttonNearDoneIcon))")
             } else {
-                print("[DEBUG] buttonNearDone already exists in right bar buttons")
+                iabDebug("[DEBUG] buttonNearDone already exists in right bar buttons")
             }
         }
 
@@ -1404,7 +1440,7 @@ fileprivate extension WKWebViewController {
 
         // If preventDeeplink is true, don't try to open URLs in external apps
         if preventDeeplink {
-            print("[InAppBrowser] preventDeeplink is true, won't try to open URLs in external apps")
+            iabDebug("[InAppBrowser] preventDeeplink is true, won't try to open URLs in external apps")
             completion(false)
             return
         }
@@ -1412,19 +1448,19 @@ fileprivate extension WKWebViewController {
         let scheme = url.scheme?.lowercased() ?? ""
         let host = url.host?.lowercased() ?? ""
 
-        print("[InAppBrowser] scheme \(scheme), host \(host)")
+        iabDebug("[InAppBrowser] scheme \(scheme), host \(host)")
 
         // Don't try to open internal WebKit URLs externally (about:, data:, blob:, etc.)
         let internalSchemes = ["about", "data", "blob", "javascript"]
         if internalSchemes.contains(scheme) {
-            print("[InAppBrowser] internal WebKit scheme detected, allowing navigation")
+            iabDebug("[InAppBrowser] internal WebKit scheme detected, allowing navigation")
             completion(false)
             return
         }
 
         // Handle all non-http(s) schemes by default
         if scheme != "http" && scheme != "https" && scheme != "file" {
-            print("[InAppBrowser] not http(s) scheme, try to open URLs in external apps")
+            iabDebug("[InAppBrowser] not http(s) scheme, try to open URLs in external apps")
             completion(tryOpenCustomScheme(url))
             return
         }
@@ -1435,34 +1471,34 @@ fileprivate extension WKWebViewController {
         let blank = UrlsHandledByApp.blank
 
         if hosts.contains(host) {
-            print("[InAppBrowser] host \(host) matches one in UrlsHandledByApp, try to open URLs in external apps")
+            iabDebug("[InAppBrowser] host \(host) matches one in UrlsHandledByApp, try to open URLs in external apps")
             completion(tryOpenCustomScheme(url))
             return
         }
         if schemes.contains(scheme) {
-            print("[InAppBrowser] scheme \(scheme) matches one in UrlsHandledByApp, try to open URLs in external apps")
+            iabDebug("[InAppBrowser] scheme \(scheme) matches one in UrlsHandledByApp, try to open URLs in external apps")
             completion(tryOpenCustomScheme(url))
             return
         }
         if blank && targetFrame == nil {
-            print("[InAppBrowser] is blank and targetFrame is nil, try to open URLs in external apps")
+            iabDebug("[InAppBrowser] is blank and targetFrame is nil, try to open URLs in external apps")
             completion(tryOpenCustomScheme(url))
             return
         }
 
         // Authorized Universal Link hosts: prefer app via universalLinksOnly
-        print("[InAppBrowser] Authorized App Links: \(self.authorizedAppLinks)")
+        iabDebug("[InAppBrowser] Authorized App Links: \(self.authorizedAppLinks)")
         if isUrlAuthorized(url, authorizedLinks: self.authorizedAppLinks) {
-            print("[InAppBrowser] Authorized Universal Link detected \(scheme + host), try to open URLs in external apps")
+            iabDebug("[InAppBrowser] Authorized Universal Link detected \(scheme + host), try to open URLs in external apps")
             tryOpenUniversalLink(url) { opened in
-                print("[InAppBrowser] Handle as Universal Link: \(opened)")
+                iabDebug("[InAppBrowser] Handle as Universal Link: \(opened)")
                 completion(opened) // opened => cancel navigation; not opened => allow WebView
             }
             return
         }
 
         // Default: let WebView load
-        print("[InAppBrowser] default completion handler: false")
+        iabDebug("[InAppBrowser] default completion handler: false")
         completion(false)
     }
 
@@ -1504,10 +1540,10 @@ fileprivate extension WKWebViewController {
     }
 
     @objc func activityDidClick(sender: AnyObject) {
-        print("[DEBUG] Activity button clicked, shareSubject: \(self.shareSubject ?? "nil")")
+        iabDebug("[DEBUG] Activity button clicked, shareSubject: \(self.shareSubject ?? "nil")")
 
         guard let sourceValue = self.source else {
-            print("[DEBUG] Activity button: No source available")
+            iabDebug("[DEBUG] Activity button: No source available")
             return
         }
 
@@ -1580,6 +1616,25 @@ fileprivate extension WKWebViewController {
             let currentUrl = webView?.url?.absoluteString ?? ""
             cleanupWebView()
             self.capBrowserPlugin?.notifyListeners("closeEvent", data: ["id": self.instanceId, "url": currentUrl])
+
+            // Miden patch: Architecture A instances live in their own
+            // dedicated UIWindow at windowLevel > .normal, NOT in a
+            // modal presentation. For those, `dismiss(animated:)` is
+            // a no-op and the window + webView are leaked. Tear the
+            // window down explicitly and evict from the registry,
+            // mirroring what InAppBrowserPlugin.close(_:) does on the
+            // plugin-level close path.
+            let ownWindow = self.view.window
+            if let window = ownWindow, window.windowLevel > .normal {
+                window.isHidden = true
+                window.rootViewController = nil
+                if let instance = WebViewRegistry.shared.get(id: self.instanceId) {
+                    instance.containerWindow = nil
+                }
+                WebViewRegistry.shared.remove(id: self.instanceId)
+                return
+            }
+
             dismiss(animated: true, completion: nil)
         }
     }
@@ -1662,7 +1717,7 @@ extension WKWebViewController: WKUIDelegate {
 
             // Check if view is available and ready for presentation
             guard self.view.window != nil, !self.isBeingDismissed, !self.isMovingFromParent else {
-                print("[InAppBrowser] Cannot present alert - view not in window hierarchy or being dismissed")
+                iabDebug("[InAppBrowser] Cannot present alert - view not in window hierarchy or being dismissed")
                 strongCompletionHandler()
                 return
             }
@@ -1678,7 +1733,7 @@ extension WKWebViewController: WKUIDelegate {
             } catch {
                 // This won't typically be triggered as present doesn't throw,
                 // but adding as a safeguard
-                print("[InAppBrowser] Error presenting alert: \(error)")
+                iabDebug("[InAppBrowser] Error presenting alert: \(error)")
                 strongCompletionHandler()
             }
         }
@@ -1688,11 +1743,11 @@ extension WKWebViewController: WKUIDelegate {
         // Handle target="_blank" links and popup windows
         // When preventDeeplink is true, we should load these in the same webview instead of opening externally
         if let url = navigationAction.request.url {
-            print("[InAppBrowser] Handling popup/new window request for URL: \(url.absoluteString)")
+            iabDebug("[InAppBrowser] Handling popup/new window request for URL: \(url.absoluteString)")
 
             // If preventDeeplink is true, load the URL in the current webview
             if preventDeeplink {
-                print("[InAppBrowser] preventDeeplink is true, loading popup URL in current webview")
+                iabDebug("[InAppBrowser] preventDeeplink is true, loading popup URL in current webview")
                 DispatchQueue.main.async { [weak self] in
                     self?.load(remote: url)
                 }
@@ -1709,7 +1764,7 @@ extension WKWebViewController: WKUIDelegate {
 
     @available(iOS 15.0, *)
     public func webView(_ webView: WKWebView, requestGeolocationPermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        print("[InAppBrowser] Geolocation permission requested for origin: \(origin.host)")
+        iabDebug("[InAppBrowser] Geolocation permission requested for origin: \(origin.host)")
 
         // Grant geolocation permission automatically for openWebView
         // This allows websites to access location when opened with openWebView
@@ -1791,7 +1846,7 @@ extension WKWebViewController {
             let range = NSRange(location: 0, length: host.utf16.count)
             return regex.firstMatch(in: host, options: [], range: range) != nil
         } catch {
-            print("[InAppBrowser] Invalid regex pattern '\(regexPattern)': \(error)")
+            iabDebug("[InAppBrowser] Invalid regex pattern '\(regexPattern)': \(error)")
             return false
         }
     }
@@ -1823,7 +1878,7 @@ extension WKWebViewController: WKNavigationDelegate {
         ]
 
         let script = scriptTemplate.joined(separator: "\n")
-        print("[InAppBrowser - InjectPreShowScript] PreShowScript script: \(script)")
+        iabDebug("[InAppBrowser - InjectPreShowScript] PreShowScript script: \(script)")
 
         self.preShowSemaphore = DispatchSemaphore(value: 0)
         self.executeScript(script: script) // this will run on the main thread
@@ -1834,7 +1889,7 @@ extension WKWebViewController: WKNavigationDelegate {
         }
 
         if self.preShowSemaphore?.wait(timeout: .now() + 10) == .timedOut {
-            print("[InAppBrowser - InjectPreShowScript] PreShowScript running for over 10 seconds. The plugin will not wait any longer!")
+            iabDebug("[InAppBrowser - InjectPreShowScript] PreShowScript running for over 10 seconds. The plugin will not wait any longer!")
             return
         }
 
@@ -1969,7 +2024,7 @@ extension WKWebViewController: WKNavigationDelegate {
         var actionPolicy: WKNavigationActionPolicy = self.preventDeeplink ? .preventDeeplinkActionPolicy : .allow
 
         guard let url = navigationAction.request.url else {
-            print("[InAppBrowser] Cannot determine URL from navigationAction")
+            iabDebug("[InAppBrowser] Cannot determine URL from navigationAction")
             decisionHandler(actionPolicy)
             return
         }
@@ -1981,7 +2036,7 @@ extension WKWebViewController: WKNavigationDelegate {
         }
 
         if !self.allowsFileURL, url.isFileURL {
-            print("[InAppBrowser] Cannot handle file URLs")
+            iabDebug("[InAppBrowser] Cannot handle file URLs")
             decisionHandler(.cancel)
             return
         }
@@ -2009,7 +2064,7 @@ extension WKWebViewController: WKNavigationDelegate {
             }
 
             if self.shouldBlockHost(host) {
-                print("[InAppBrowser] Blocked host detected: \(host)")
+                iabDebug("[InAppBrowser] Blocked host detected: \(host)")
                 self.capBrowserPlugin?.notifyListeners("urlChangeEvent", data: ["id": self.instanceId, "url": url.absoluteString])
                 decisionHandler(.cancel)
                 return
@@ -3326,7 +3381,15 @@ class PassThroughView: UIView {
 }
 
 extension WKNavigationActionPolicy {
-    static let preventDeeplinkActionPolicy = WKNavigationActionPolicy(rawValue: WKNavigationActionPolicy.allow.rawValue + 2)!
+    // Private/undocumented `.allow + 2` policy used to suppress
+    // iOS deep-link handoff on navigations we handle ourselves.
+    // Never force-unwrap: on a future iOS that reorders or removes
+    // this raw value the initializer would crash at class-load time
+    // (file-level static is eagerly evaluated), taking the whole app
+    // down before any user code runs. Fall back to `.allow` so we
+    // degrade to the safe default instead of crashing.
+    static let preventDeeplinkActionPolicy: WKNavigationActionPolicy =
+        WKNavigationActionPolicy(rawValue: WKNavigationActionPolicy.allow.rawValue + 2) ?? .allow
 }
 
 class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {

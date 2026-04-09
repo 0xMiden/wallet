@@ -25,8 +25,19 @@
 import { Preferences } from '@capacitor/preferences';
 
 import { type DappSession } from './dapp-session';
+import { removeSnapshotFromDisk } from './snapshot-persistence';
 
 const STORAGE_KEY = 'miden.dapp.persistedSessions.v1';
+
+/**
+ * Upper bound on how many parked sessions we keep on disk. Each entry
+ * is a few hundred bytes so this keeps the Preferences record well
+ * under the ~1 MB UserDefaults / SharedPreferences soft limit even in
+ * pathological cases. When the list grows past this, the oldest-parked
+ * entries are evicted first (their on-disk snapshots are removed too
+ * in `upsertPersistedSession` — callers don't have to clean up).
+ */
+export const MAX_PERSISTED_SESSIONS = 8;
 
 /**
  * What we store per session. Intentionally a subset of `DappSession` —
@@ -102,12 +113,32 @@ export async function savePersistedSessions(sessions: PersistedSession[]): Promi
   }
 }
 
-/** Upsert a single session. Replaces any existing entry with the same id. */
+/**
+ * Upsert a single session. Replaces any existing entry with the same
+ * id. If the resulting list would exceed `MAX_PERSISTED_SESSIONS`,
+ * the oldest-parked entries are evicted (LRU) and their snapshot
+ * files are removed from disk so the two stores stay in sync.
+ */
 export async function upsertPersistedSession(session: PersistedSession): Promise<void> {
   const existing = await loadPersistedSessions();
-  const next = existing.filter(s => s.id !== session.id);
-  next.push(session);
-  await savePersistedSessions(next);
+  const deduped = existing.filter(s => s.id !== session.id);
+  deduped.push(session);
+
+  if (deduped.length <= MAX_PERSISTED_SESSIONS) {
+    await savePersistedSessions(deduped);
+    return;
+  }
+
+  // Newest-first so the oldest fall off the tail for eviction.
+  deduped.sort((a, b) => b.parkedAt - a.parkedAt);
+  const kept = deduped.slice(0, MAX_PERSISTED_SESSIONS);
+  const evicted = deduped.slice(MAX_PERSISTED_SESSIONS);
+  await savePersistedSessions(kept);
+  // Best effort — snapshot cleanup is fire-and-forget, the user
+  // never blocks on it.
+  for (const e of evicted) {
+    void removeSnapshotFromDisk(e.id);
+  }
 }
 
 /** Remove a single session from persistence. */

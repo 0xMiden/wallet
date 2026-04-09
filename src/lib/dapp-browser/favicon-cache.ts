@@ -37,16 +37,6 @@ export function getFaviconUrl(origin: string): string {
 }
 
 /**
- * Override a cached favicon with a known-good value. Used when we
- * successfully scrape a `<link rel="icon">` tag or take a snapshot.
- * No-op for now (favicon scraping ships in PR-2 alongside the launcher
- * redesign).
- */
-export function setFavicon(origin: string, url: string): void {
-  cache.set(origin, url);
-}
-
-/**
  * Generate a stable color for an origin, used as the fallback tile
  * background when no favicon is available. Hash the origin into a
  * 10-color palette.

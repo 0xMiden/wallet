@@ -290,7 +290,38 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         if (!state?.instance) return;
         try {
           const eventData = (event as { detail?: unknown })?.detail ?? event;
-          const parsed = typeof eventData === 'string' ? JSON.parse(eventData) : (eventData as WebViewMessage);
+          const parsed: unknown = typeof eventData === 'string' ? JSON.parse(eventData) : eventData;
+
+          // Internal wallet-authored messages (title fetch, etc.) ride
+          // on the same postMessage channel as dApp wallet requests.
+          // Short-circuit them here — without this filter they flow
+          // through handleWebViewMessage → processDApp, hit the default
+          // switch arm, and generate junk __midenWalletResponse traffic
+          // back into the dApp on every page load.
+          if (parsed && typeof parsed === 'object' && '__midenInternal' in parsed) {
+            const internal = parsed as { __midenInternal?: string; title?: unknown };
+            if (internal.__midenInternal === 'title') {
+              const title = typeof internal.title === 'string' ? internal.title.trim() : '';
+              if (title) {
+                updateSession(id, s => ({ ...s, session: { ...s.session, title } }));
+              }
+            }
+            return;
+          }
+
+          // Shape-check before casting. handleWebViewMessage / processDApp
+          // dispatch on the string payload, but we refuse to forward
+          // anything that isn't the expected { type, payload, reqId }
+          // envelope so malformed dApp data can't poison the queue.
+          if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            typeof (parsed as { type?: unknown }).type !== 'string' ||
+            typeof (parsed as { reqId?: unknown }).reqId !== 'string'
+          ) {
+            console.warn('[DappBrowserProvider] Ignoring malformed WebView message');
+            return;
+          }
           const walletMessage = parsed as WebViewMessage;
           // PR-4 chunk 8: pass the session id through to the backend so any
           // confirmation prompt this request triggers is keyed by it and
@@ -316,12 +347,17 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           console.error('[DappBrowserProvider] Error injecting bridge:', e);
         }
         try {
+          // JSON.stringify the id so a non-alphanumeric session id
+          // (future-proofing; today it's dapp-<ts>-<rand>) cannot
+          // escape the string literal and inject arbitrary JS into
+          // the dApp WebView.
+          const idLiteral = JSON.stringify(id);
           await state.instance.executeScript(`
             (function() {
               try {
                 var t = document.title || '';
                 if (window.mobileApp && window.mobileApp.postMessage) {
-                  window.mobileApp.postMessage({ __midenInternal: 'title', title: t, __midenInstanceId: '${id}' });
+                  window.mobileApp.postMessage({ __midenInternal: 'title', title: t, __midenInstanceId: ${idLiteral} });
                 }
               } catch (e) { /* ignore */ }
             })();
@@ -583,6 +619,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (!id) return;
       const state = getSessionStateById(id);
       if (!state) return;
+      // Resolve any pending confirmation for this session BEFORE tearing
+      // down state. Without this the dapp.ts promise chain is leaked,
+      // the confirmationStore Map entry lives forever, and the
+      // auto-restore effect below re-fires on every store notification
+      // trying to restore a session that no longer exists. Treated as
+      // implicit rejection — the user closed the dApp so they clearly
+      // aren't confirming.
+      dappConfirmationStore.resolveConfirmation(id, { confirmed: false });
       updateSession(id, s => ({ ...s, status: 'closing' }));
       try {
         await state.instance?.close();
@@ -759,9 +803,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (!isMobile()) return;
     const tryAutoRestore = () => {
       const pending = dappConfirmationStore.getAllPendingRequests();
+      // Guard: if the CURRENT foreground session already has its own
+      // pending confirmation, do NOT let another session's pending
+      // request yank foreground away. Otherwise a previously-authorized
+      // parked dApp could interrupt an active confirmation the user is
+      // about to act on — at best a UX hijack, at worst an opportunity
+      // for a malicious second dApp to bury a victim's approval dialog.
+      // The user can still manually restore the parked dApp from its
+      // bubble badge (rendered by <DappPeekTray>) once they've cleared
+      // the current prompt.
+      const currentForeground = foregroundIdRef.current;
+      if (currentForeground) {
+        const foregroundHasPending = pending.some(r => r.sessionId === currentForeground);
+        if (foregroundHasPending) return;
+      }
       for (const req of pending) {
         if (!req.sessionId) continue; // legacy default slot — not ours
-        if (req.sessionId === foregroundIdRef.current) continue;
+        if (req.sessionId === currentForeground) continue;
         const state = sessionStatesRef.current.find(s => s.session.id === req.sessionId);
         if (state && state.status !== 'closing') {
           void restore(req.sessionId);

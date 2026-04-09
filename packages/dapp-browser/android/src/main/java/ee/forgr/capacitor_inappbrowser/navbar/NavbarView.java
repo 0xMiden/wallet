@@ -1006,6 +1006,10 @@ public final class NavbarView extends FrameLayout {
                 .setStiffness(SpringForce.STIFFNESS_MEDIUM)
         );
         secondaryHeightAnim.addEndListener((animation, canceled, value, velocity) -> {
+            // If this animation was cancelled (typically by the next
+            // call restarting with a new target), don't clobber the
+            // margin — the replacement animation will manage it.
+            if (canceled) return;
             if (targetHeight == 0) {
                 // Fully collapsed — clear the bottom margin so the
                 // row doesn't leave a reserved gap.

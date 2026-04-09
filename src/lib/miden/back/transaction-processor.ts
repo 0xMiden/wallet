@@ -50,10 +50,25 @@ export async function startTransactionProcessing(): Promise<void> {
   // Keep SW alive while processing. The polyfill is only needed
   // here — load it lazily so mobile / desktop bundles don't blow
   // up at module-evaluation time (see getBrowser comment above).
-  const browser = await getBrowser();
-  browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
-
+  //
+  // The getBrowser() call lives INSIDE the try block. If it ever
+  // rejects (e.g. the polyfill fails in a non-extension context the
+  // lazy-load didn't catch), the catch + finally still run and
+  // isProcessing is reset — otherwise the wedge would block every
+  // subsequent call for the rest of the app lifetime.
+  let browser: BrowserPolyfill | null = null;
   try {
+    try {
+      browser = await getBrowser();
+      browser.alarms.create(ALARM_NAME, { periodInMinutes: 0.4 }); // ~25s
+    } catch {
+      // Non-extension context (mobile / desktop) — no alarms API.
+      // The processing loop below still runs, it just won't have an
+      // SW-keepalive alarm, which is fine because mobile / desktop
+      // aren't service workers.
+      browser = null;
+    }
+
     let attempts = 0;
     const maxAttempts = 60; // Max 5 minutes (60 * 5 seconds)
 
@@ -80,10 +95,9 @@ export async function startTransactionProcessing(): Promise<void> {
   } finally {
     isProcessing = false;
     try {
-      const browser = await getBrowser();
-      browser.alarms.clear(ALARM_NAME);
+      browser?.alarms.clear(ALARM_NAME);
     } catch {
-      // Non-extension context — no alarms to clear.
+      // Best effort.
     }
   }
 }

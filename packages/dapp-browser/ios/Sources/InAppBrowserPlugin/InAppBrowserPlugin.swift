@@ -1360,12 +1360,12 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         DispatchQueue.main.async {
-            // If there's already an overlay, reuse it (replace items
-            // and update active state). Otherwise, create one.
-            if Self.navbarOverlay != nil {
-                Self.navbarOverlay?.isHidden = true
-                Self.navbarOverlay = nil
-            }
+            // If there's already an overlay, tear it down before
+            // creating a new one. UIWindow retains itself via the
+            // scene's internal window list on iOS 15-17 if you only
+            // set isHidden; resignKey + detaching windowScene is the
+            // documented way to actually release it.
+            Self.releaseNavbarOverlay()
             guard let scene = self.bridge?.viewController?.view?.window?.windowScene else {
                 call.reject("no window scene")
                 return
@@ -1379,10 +1379,24 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// Explicitly release the navbar overlay window. Hiding + niling
+    /// the static ref is not enough on iOS 15-17 — the scene keeps
+    /// the window alive through its internal window list. Resigning
+    /// key, detaching the scene, and then niling ensures the
+    /// containing `UIWindow` is actually deallocated.
+    private static func releaseNavbarOverlay() {
+        guard let overlay = navbarOverlay else { return }
+        overlay.isHidden = true
+        overlay.resignKey()
+        if #available(iOS 13.0, *) {
+            overlay.windowScene = nil
+        }
+        navbarOverlay = nil
+    }
+
     @objc func hideNativeNavbar(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            Self.navbarOverlay?.isHidden = true
-            Self.navbarOverlay = nil
+            Self.releaseNavbarOverlay()
             call.resolve()
         }
     }
