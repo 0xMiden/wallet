@@ -236,6 +236,43 @@ When **removing** Capacitor plugins:
 2. Sync: `yarn mobile:sync` (updates iOS and Android native projects)
 3. **Remove ProGuard rules** from `android/app/proguard-rules.pro` for the removed plugin
 
+### Native Navbar Overlay (iOS + Android)
+
+The mobile wallet hides the React footer and renders its bottom nav as a native floating pill on both iOS and Android. The pill has a main row (Home / Activity / Browser), an optional secondary row (Send / Receive / Settings), and a compact mode with a primary action button (e.g. Continue in the Send flow).
+
+**iOS**: `MidenNavbarOverlayWindow` in `packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift` — a dedicated `UIWindow` at `.normal + 200` that sits above the Capacitor host window AND every dApp WKWebView window. UIWindow z-order is automatic.
+
+**Android**: `packages/dapp-browser/android/src/main/java/ee/forgr/capacitor_inappbrowser/navbar/` — a two-instance architecture:
+- `NavbarState` + `NavbarStateHolder` — immutable state + observer pattern
+- `NavbarOverlayManager` — coordinator that lazily creates the Activity-scoped `NavbarView`, spawns a fresh Dialog-scoped `NavbarView` when a `WebViewDialog` shows (via `OnShowListener`), and detaches it on dismiss. Arbitrates which instance is visible via a simple stack-top rule.
+- `NavbarView` — the actual FrameLayout hierarchy: shadowWrap → blurContainer → outerVStack → [secondaryRow, contentStack[navStack, actionButton]]
+- `NavbarButton`, `NavbarSecondaryButton`, `NavbarActionButton` — individual button views with platform-matched styling
+
+**Why two instances on Android**: Android sub-windows (`TYPE_APPLICATION_PANEL`) stack with their parent window's token, so a view attached to the Activity would be covered by a Dialog. Instead of fighting z-order, we give the Activity one navbar view and each WebViewDialog its own, both observing the same state holder. Exactly one instance is visible at any time, picked by which window is frontmost.
+
+**Plugin methods** (iOS + Android, same signatures):
+- `showNativeNavbar({items, activeId})` — show pill with 3 main-row items
+- `hideNativeNavbar()` — hide pill entirely
+- `setNativeNavbarActive({id})` — update active main-row pill without rebuild
+- `setNavbarSecondaryRow({items, activeId})` — populate or clear secondary row; empty items collapses the row via spring animation
+- `setNavbarAction({label, enabled})` — enter compact mode with a primary action pill
+- `clearNavbarAction()` — exit compact mode, restore default nav row layout
+- `morphNavbarOut()` / `morphNavbarIn()` — slide pill off-screen for drawer presentations
+
+**Events** (JS listens via `InAppBrowser.addListener`):
+- `nativeNavbarTap` → `{id}` when a main-row button is tapped
+- `nativeNavbarSecondaryTap` → `{id}` when a secondary-row button is tapped
+- `nativeNavbarActionTap` → `{}` when the compact-mode action button is tapped
+
+**Wallet JS wiring** lives in `src/app/providers/DappBrowserProvider.tsx` — two effects watching `location.pathname` drive the main and secondary rows; a third watches the confirmation store for drawer morph-out.
+
+**Gotchas**:
+- `MATCH_PARENT` children in `WRAP_CONTENT` FrameLayouts inflate the parent to ancestor AT_MOST. Use background drawables instead of child views for active-state pills (learned the hard way — `NavbarButton` used to do this and produced 1878px-tall buttons). See commit `64145d74` in the navbar checkin.
+- `NavbarButton` is pinned to 60dp via `setMinimumHeight` so compact mode can't grow the toolbar. Also mirrored on iOS as `NavbarButton.buttonHeight = 60`.
+- On Android, `Dialog.getWindow().setLayout(MATCH_PARENT, MATCH_PARENT)` must be called AFTER `setContentView()`. Otherwise the default `wrap_content` wins and the Dialog is a tiny centered blob.
+- Android's `setRenderEffect(createBlurEffect(...))` blurs the view's own content, NOT what's behind it. There's no clean backdrop blur primitive for a decor-view child. We use a solid translucent pill and accept the platform difference.
+- Shadow elevation must be on the view with the background drawable (blurContainer), not a wrapper without an outline — or the shadow just doesn't render.
+
 ### Debugging iOS Issues
 
 **Debug UI components:** When adding debug panels to the UI, ensure all text is **selectable** (use `select-text` or `user-select: text`) so the user can copy/paste error messages instead of retyping them.
