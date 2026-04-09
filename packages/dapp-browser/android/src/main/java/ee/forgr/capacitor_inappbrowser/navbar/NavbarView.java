@@ -253,17 +253,66 @@ public final class NavbarView extends FrameLayout {
         subscribed = true;
 
         // ─── Window insets for safe-area-aware bottom gap ────────
-
-        ViewCompat.setOnApplyWindowInsetsListener(this, (v, insets) -> {
-            int bottomInset = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
-            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+        //
+        // Historical bug: `ViewCompat.setOnApplyWindowInsetsListener`
+        // alone is unreliable here. The Activity's Capacitor WebView
+        // sits as a sibling of the NavbarView under the decor view
+        // and consumes the system-bar insets before they reach us —
+        // the listener fires with bottom=0, giving the pill only
+        // {@code BOTTOM_GAP_DP} (12dp) of bottom margin, so it sits
+        // flush against the gesture bar on Activity-scoped use.
+        //
+        // The Dialog-scoped instance doesn't hit this because we
+        // call {@code setDecorFitsSystemWindows(false)} on the
+        // Dialog's window, which bypasses the decor's default inset
+        // consumption — the listener gets the full 24dp gesture
+        // inset there.
+        //
+        // Fix: always compute bottomMargin from the ROOT window
+        // insets via {@code ViewCompat.getRootWindowInsets(view)},
+        // which returns the unconsumed platform insets regardless
+        // of what sibling views have consumed. We still register
+        // the listener so the pill re-lays-out on system UI
+        // visibility changes (e.g. keyboard), but the listener's
+        // value is ignored in favor of the root query.
+        Runnable applyRootInsets = () -> {
+            WindowInsetsCompat rootInsets = ViewCompat.getRootWindowInsets(this);
+            int bottomInset = 0;
+            if (rootInsets != null) {
+                bottomInset = rootInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
+            }
+            // Fallback for pre-listener phase or if the root insets
+            // haven't been attached yet — query the Android
+            // navigation_bar_height resource directly. Matches the
+            // status_bar_height trick used in WebViewDialog.
+            if (bottomInset == 0) {
+                int resId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+                if (resId > 0) {
+                    bottomInset = getResources().getDimensionPixelSize(resId);
+                }
+            }
+            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) getLayoutParams();
             if (lp != null) {
                 lp.bottomMargin = dp(BOTTOM_GAP_DP) + bottomInset;
                 lp.leftMargin = dp(SIDE_MARGIN_DP);
                 lp.rightMargin = dp(SIDE_MARGIN_DP);
-                v.setLayoutParams(lp);
+                setLayoutParams(lp);
             }
+        };
+        ViewCompat.setOnApplyWindowInsetsListener(this, (v, insets) -> {
+            applyRootInsets.run();
             return insets;
+        });
+        // Run once at attach time so the listener doesn't have to
+        // fire before the first layout pass.
+        addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(@NonNull View v) {
+                applyRootInsets.run();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(@NonNull View v) {}
         });
 
         // Hidden by default — manager calls setFloatingVisible() to
