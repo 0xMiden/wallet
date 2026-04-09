@@ -53,6 +53,7 @@ import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } fr
 import { AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { HomeActionPills } from 'app/layouts/HomeActionPills';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
@@ -1038,6 +1039,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           The user shouldn't see persistent dApp chrome until they've
           actually unlocked the wallet and are inside the main shell. */}
       {isMobile() && walletShellActive && <DappPeekTray />}
+
+      {/* Send / Receive secondary pills above the native toolbar.
+          Same visibility gate as the peek tray — only visible inside
+          the unlocked wallet shell — and the component itself
+          further gates on route (`/`, `/send`, `/receive`). */}
+      {isMobile() && walletShellActive && <HomeActionPills />}
 
       {/* PR-5: card switcher portal — fullscreen modal for managing
           every open dApp. Mounted here so it survives tab navigation. */}
