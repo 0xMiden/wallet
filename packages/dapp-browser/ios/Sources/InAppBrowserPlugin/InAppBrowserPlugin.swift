@@ -55,6 +55,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "showNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hideNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setNativeNavbarActive", returnType: CAPPluginReturnPromise),
+        // setNavbarSecondaryRow grows / shrinks the navbar pill to add
+        // a second row of quick-action buttons above the main nav row
+        // (e.g. Send / Receive on the Home tab). Pass an empty items
+        // array to collapse the row back into a single-row pill.
+        CAPPluginMethod(name: "setNavbarSecondaryRow", returnType: CAPPluginReturnPromise),
         // Miden patch: navbar compact mode with primary action button.
         // setNavbarAction switches the navbar to compact mode where
         // the 3 nav buttons take 50% of the pill width and the action
@@ -1386,6 +1391,40 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let activeId = call.getString("id")
         DispatchQueue.main.async {
             Self.navbarOverlay?.setActive(activeId)
+            call.resolve()
+        }
+    }
+
+    /// Add or update a secondary row of quick-action buttons above the
+    /// main nav row. Pass an empty items array to collapse the row back
+    /// to a single-row pill. The navbar overlay animates the growth /
+    /// collapse on a spring curve so the user sees the pill morph into
+    /// a two-row container, not two separate pills.
+    ///
+    /// Payload:
+    ///   items: [{ id, title, sfSymbol }]
+    ///   activeId: optional id of the currently-active secondary item
+    @objc func setNavbarSecondaryRow(_ call: CAPPluginCall) {
+        let itemsRaw = call.getArray("items") ?? []
+        let activeId = call.getString("activeId")
+        var items: [MidenNavbarOverlayWindow.Item] = []
+        for raw in itemsRaw {
+            guard let dict = raw as? [String: Any],
+                  let id = dict["id"] as? String,
+                  let title = dict["title"] as? String,
+                  let symbol = dict["sfSymbol"] as? String else {
+                continue
+            }
+            items.append(MidenNavbarOverlayWindow.Item(id: id, title: title, sfSymbol: symbol))
+        }
+        DispatchQueue.main.async {
+            // Wire the secondary-tap handler so the overlay can fire
+            // `nativeNavbarSecondaryTap` back to JS. Re-set on every
+            // call to be safe (cheap to assign).
+            Self.navbarOverlay?.onSecondaryTap = { [weak self] itemId in
+                self?.notifyListeners("nativeNavbarSecondaryTap", data: ["id": itemId])
+            }
+            Self.navbarOverlay?.setSecondaryItems(items, activeId: activeId)
             call.resolve()
         }
     }

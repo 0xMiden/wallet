@@ -2153,11 +2153,23 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// action at a time.
     var onActionTap: (() -> Void)?
 
+    /// Tap handler for secondary-row buttons (the Send/Receive style
+    /// row that sits above the main nav row when the current route
+    /// has associated quick actions). Fires `nativeNavbarSecondaryTap`
+    /// back to JS with the tapped item id.
+    var onSecondaryTap: ((String) -> Void)?
+
     /// The buttons, indexed by item id. Used to update active state.
     private var buttons: [String: NavbarButton] = [:]
 
+    /// Secondary-row buttons, indexed by item id.
+    private var secondaryButtons: [String: NavbarSecondaryButton] = [:]
+
     /// The id of the currently-active item, if any.
     private var activeItemId: String?
+
+    /// The id of the currently-active secondary item, if any.
+    private var activeSecondaryId: String?
 
     /// The primary action button shown in compact mode. Initially
     /// hidden via the navStackFullWidth constraint being active and
@@ -2174,6 +2186,19 @@ class MidenNavbarOverlayWindow: UIWindow {
     /// happens by toggling navStack / actionButton width multipliers
     /// inside an animation block.
     private let contentStack = UIStackView()
+
+    /// Vertical stack containing [secondaryRow, contentStack]. The
+    /// secondary row is normally hidden (collapses via isHidden on
+    /// a UIStackView arranged subview) and expands when a route
+    /// calls `setSecondaryItems`. This is how the pill grows a second
+    /// row above the main nav row without a separate pill shape —
+    /// one continuous container, two rows inside.
+    private let outerVStack = UIStackView()
+
+    /// Horizontal stack holding the secondary-row buttons (e.g. Send
+    /// / Receive when on Home). Hidden by default; unhidden by
+    /// `setSecondaryItems` which also populates it with buttons.
+    private let secondaryRow = UIStackView()
 
     /// Width constraints for the nav stack. Exactly one of these is
     /// active at a time:
@@ -2294,6 +2319,79 @@ class MidenNavbarOverlayWindow: UIWindow {
         }
     }
 
+    /// Show or update the secondary-row buttons. Pass an empty array
+    /// to hide the row. This grows / shrinks the pill vertically on
+    /// a spring animation — the whole navbar morphs to add a second
+    /// row above the main nav row, looking like one unified pill.
+    func setSecondaryItems(_ items: [Item], activeId: String?) {
+        // Clear existing buttons from the row and our index. We always
+        // rebuild from scratch because the caller-supplied items list
+        // is the authoritative state.
+        for button in secondaryButtons.values {
+            button.removeFromSuperview()
+        }
+        secondaryButtons.removeAll()
+
+        if items.isEmpty {
+            // Hide path — collapse the arranged subview and animate.
+            activeSecondaryId = nil
+            UIView.animate(
+                withDuration: 0.42,
+                delay: 0,
+                usingSpringWithDamping: 0.88,
+                initialSpringVelocity: 0.4,
+                options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.secondaryRow.alpha = 0
+                self.secondaryRow.isHidden = true
+                self.rootViewController?.view.layoutIfNeeded()
+            }
+            return
+        }
+
+        // Show path — populate the row with buttons, then expand.
+        let wasHidden = secondaryRow.isHidden
+        activeSecondaryId = activeId
+        for item in items {
+            let button = NavbarSecondaryButton(item: item)
+            button.setActive(item.id == activeId)
+            button.addAction(UIAction { [weak self] _ in
+                self?.onSecondaryTap?(item.id)
+            }, for: .touchUpInside)
+            secondaryRow.addArrangedSubview(button)
+            secondaryButtons[item.id] = button
+        }
+
+        // If already visible, don't re-animate height — just update
+        // the content. Prevents jitter when only the active state
+        // changed (e.g. user navigated between Send and Receive).
+        if !wasHidden {
+            return
+        }
+
+        UIView.animate(
+            withDuration: 0.42,
+            delay: 0,
+            usingSpringWithDamping: 0.85,
+            initialSpringVelocity: 0.55,
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.secondaryRow.isHidden = false
+            self.secondaryRow.alpha = 1
+            self.rootViewController?.view.layoutIfNeeded()
+        }
+    }
+
+    /// Update the highlighted state of the secondary row without
+    /// rebuilding it. Cheaper than setSecondaryItems when the caller
+    /// just wants to flip which pill is active.
+    func setSecondaryActive(_ itemId: String?) {
+        activeSecondaryId = itemId
+        for (id, button) in secondaryButtons {
+            button.setActive(id == itemId)
+        }
+    }
+
     private func installBlurContainer() {
         guard let view = rootViewController?.view else { return }
         blurContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -2318,13 +2416,19 @@ class MidenNavbarOverlayWindow: UIWindow {
         // the pill. The pill itself is <div className="px-2 py-2 ...">
         // — px-2 + py-2 = 8pt of inner gutter on every side. Each button
         // is then ~60pt tall (py-2 + icon 22 + gap-2 + label ~14 + py-2),
-        // so the outer pill height = 8 + 60 + 8 = 76pt. That's the value
-        // we use here so the visual height matches the React side.
+        // so the outer pill in default (1-row) mode ends up 8 + 60 + 8 =
+        // 76pt. When a secondary row is shown (e.g. Home + Send/Receive
+        // quick actions), the stack grows to 8 + secondaryRow + spacing
+        // + contentStack + 8 ≈ 124pt. We DO NOT pin a fixed height on
+        // the wrap — it sizes to contents via the auto-layout chain
+        // (wrap → blurContainer → contentContainer → outerVStack → its
+        // arranged subviews' intrinsic sizes). `setSecondaryItems`
+        // triggers a layoutIfNeeded inside a UIView spring animation to
+        // smoothly animate the height change.
         NSLayoutConstraint.activate([
             wrap.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             wrap.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             wrap.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            wrap.heightAnchor.constraint(equalToConstant: 76),
             blurContainer.topAnchor.constraint(equalTo: wrap.topAnchor),
             blurContainer.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
             blurContainer.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
@@ -2360,16 +2464,40 @@ class MidenNavbarOverlayWindow: UIWindow {
             self.onActionTap?()
         }, for: .touchUpInside)
 
-        contentContainer.addSubview(contentStack)
         contentStack.addArrangedSubview(navStack)
         contentStack.addArrangedSubview(actionButton)
 
+        // Outer vertical stack holds [secondaryRow, contentStack]. The
+        // secondary row is hidden by default and only unhides when a
+        // route explicitly calls `setSecondaryItems` with buttons.
+        // When hidden, UIStackView collapses the arranged subview so
+        // the pill only reserves space for the main nav row.
+        outerVStack.axis = .vertical
+        outerVStack.distribution = .fill
+        outerVStack.alignment = .fill
+        outerVStack.spacing = 6
+        outerVStack.translatesAutoresizingMaskIntoConstraints = false
+
+        secondaryRow.axis = .horizontal
+        secondaryRow.distribution = .fillEqually
+        secondaryRow.alignment = .fill
+        secondaryRow.spacing = 4
+        secondaryRow.translatesAutoresizingMaskIntoConstraints = false
+        // Start hidden — the stack view collapses this item until
+        // a route populates it.
+        secondaryRow.isHidden = true
+        secondaryRow.alpha = 0
+
+        contentContainer.addSubview(outerVStack)
+        outerVStack.addArrangedSubview(secondaryRow)
+        outerVStack.addArrangedSubview(contentStack)
+
         // React outer pill: px-2 py-2 = 8pt gutter on every side
         NSLayoutConstraint.activate([
-            contentStack.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
-            contentStack.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -8),
-            contentStack.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 8),
-            contentStack.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
+            outerVStack.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
+            outerVStack.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -8),
+            outerVStack.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 8),
+            outerVStack.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8)
         ])
 
         // Default mode: navStack fills the entire content stack
@@ -2683,6 +2811,122 @@ private class NavbarButton: UIControl {
     /// the same spring.
     func applyCompactAlpha(_ compact: Bool) {
         label.alpha = compact ? 0 : 1
+    }
+}
+
+/// A secondary-row button — shorter than NavbarButton, with an inline
+/// icon + label (not stacked). Used for quick actions like Send and
+/// Receive that sit above the main nav row on routes where they
+/// apply. Mirrors the visual style of the main nav buttons:
+///   - Active state: `rounded-full bg-pill-active/18` fill
+///   - Icon + label in pill-active orange when active, heading gray
+///     when inactive
+///   - Height ~36pt (about half of NavbarButton)
+private class NavbarSecondaryButton: UIControl {
+    private let iconView = UIImageView()
+    private let label = UILabel()
+    private let pillBackground = UIView()
+    // Inner horizontal stack holding [iconView, label]. Wrapping the
+    // pair in a UIStackView and center-anchoring the stack itself is
+    // the cleanest way to center a multi-subview group in Auto
+    // Layout — no priority fights, no manual midpoint math.
+    private let contentStack = UIStackView()
+
+    // Same color tokens as NavbarButton so the two rows share a
+    // visual language.
+    private static let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
+    private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
+    private static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
+
+    init(item: MidenNavbarOverlayWindow.Item) {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        // Active-state pill background fills the entire button —
+        // same structure as NavbarButton's pillBackground but
+        // attached to a shorter button.
+        pillBackground.translatesAutoresizingMaskIntoConstraints = false
+        pillBackground.backgroundColor = NavbarSecondaryButton.activePillBg
+        pillBackground.isHidden = true
+        pillBackground.isUserInteractionEnabled = false
+        addSubview(pillBackground)
+
+        // Inline icon + label — smaller symbol size (13pt) than the
+        // main nav row (17pt) so the secondary row reads as the
+        // compact ancillary row the video reference shows.
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.contentMode = .scaleAspectFit
+        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        iconView.image = UIImage(systemName: item.sfSymbol)
+        iconView.tintColor = NavbarSecondaryButton.inactiveColor
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = item.title
+        // Smaller font than the main row's uppercase 10pt — the
+        // secondary row gets a 12pt mixed-case label, closer to the
+        // size users expect on a quick-action chip.
+        label.font = .systemFont(ofSize: 12, weight: .semibold)
+        label.textColor = NavbarSecondaryButton.inactiveColor
+
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.distribution = .fill
+        contentStack.spacing = 6
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.isUserInteractionEnabled = false
+        contentStack.addArrangedSubview(iconView)
+        contentStack.addArrangedSubview(label)
+        addSubview(contentStack)
+
+        NSLayoutConstraint.activate([
+            // Button intrinsic height — fixed so the secondary row
+            // has a predictable size regardless of dynamic type.
+            heightAnchor.constraint(equalToConstant: 32),
+
+            // Pill background fills the button.
+            pillBackground.topAnchor.constraint(equalTo: topAnchor),
+            pillBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
+            pillBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pillBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            // Icon has a fixed square size — the stack view handles
+            // its horizontal position via the center anchor below.
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+
+            // Center the icon+label pair horizontally as a single
+            // unit. The greaterThan/lessThan horizontal insets keep
+            // the pair from colliding with the button's edges on a
+            // particularly long label (the button is fillEqually in
+            // its parent stack, so width is ~half of the available
+            // row width).
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
+            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8)
+        ])
+
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = item.title
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Rounded-full pill background — half the button height.
+        pillBackground.layer.cornerRadius = bounds.height / 2.0
+    }
+
+    func setActive(_ active: Bool) {
+        pillBackground.isHidden = !active
+        let color = active ? NavbarSecondaryButton.activeColor : NavbarSecondaryButton.inactiveColor
+        iconView.tintColor = color
+        label.textColor = color
+        accessibilityTraits = active ? [.button, .selected] : .button
     }
 }
 

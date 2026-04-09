@@ -53,7 +53,6 @@ import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } fr
 import { AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { HomeActionPills } from 'app/layouts/HomeActionPills';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
@@ -932,6 +931,47 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     navbarShownRef.current = true;
   }, [location.pathname, walletShellActive, t]);
 
+  // Drive the native navbar's secondary row (Send / Receive quick
+  // actions). Visible on Home / Send / Receive routes only. When
+  // visible on /send or /receive, the matching pill gets highlighted
+  // (mirrors the main nav row's active state). On other routes we
+  // clear the row by passing an empty items array, which animates
+  // the pill back to its single-row height on a spring curve.
+  //
+  // Gated on `navbarShownRef` so we don't try to populate a secondary
+  // row on a navbar that hasn't been created yet — the main navbar
+  // effect above is authoritative for navbar lifecycle.
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (!navbarShownRef.current) return;
+    const path = location.pathname;
+
+    const isSecondaryVisible = path === '/' || path === '/send' || path.startsWith('/send/') || path === '/receive';
+
+    if (!isSecondaryVisible) {
+      InAppBrowser.setNavbarSecondaryRow({ items: [] }).catch(() => {});
+      return;
+    }
+
+    // Highlight the pill matching the current route. On `/` nothing is
+    // active (both pills are inert taps that launch their flow).
+    let secondaryActiveId: string | null = null;
+    if (path === '/send' || path.startsWith('/send/')) secondaryActiveId = 'send';
+    else if (path === '/receive') secondaryActiveId = 'receive';
+
+    // SF Symbols chosen to mirror the React `ArrowRightUp` /
+    // `ArrowRightDown` icons used by the previous React-based pills:
+    // - arrow.up.right is the filled-diagonal "send" arrow
+    // - arrow.down.left is its mirror for "receive"
+    InAppBrowser.setNavbarSecondaryRow({
+      items: [
+        { id: 'send', title: t('send'), sfSymbol: 'arrow.up.right' },
+        { id: 'receive', title: t('receive'), sfSymbol: 'arrow.down.left' }
+      ],
+      activeId: secondaryActiveId
+    }).catch(() => {});
+  }, [location.pathname, walletShellActive, t]);
+
   // Mark the body when a dApp is foregrounded so the main.css rule
   // that adds 88pt of bottom padding to reserve the navbar gutter
   // can be opted out — dApp content is supposed to extend BEHIND
@@ -970,6 +1010,31 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       handle?.remove();
       // Best-effort cleanup if the provider unmounts mid-active-state.
       void InAppBrowser.hideNativeNavbar().catch(() => {});
+    };
+  }, []);
+
+  // Forward secondary-row (Send / Receive) taps from the native navbar
+  // to the woozie router. Tapping the pill for a route you're already
+  // on is a no-op — mirrors the main nav row behavior where tapping
+  // HOME while on Home doesn't stack a duplicate history entry.
+  useEffect(() => {
+    if (!isMobile()) return;
+    let handle: { remove: () => void } | undefined;
+    (async () => {
+      const sub = await InAppBrowser.addListener('nativeNavbarSecondaryTap', (event: { id: string }) => {
+        const path = window.location.hash.replace(/^#/, '') || '/';
+        if (event?.id === 'send') {
+          if (path === '/send' || path.startsWith('/send/')) return;
+          navigate('/send');
+        } else if (event?.id === 'receive') {
+          if (path === '/receive') return;
+          navigate('/receive');
+        }
+      });
+      handle = sub;
+    })();
+    return () => {
+      handle?.remove();
     };
   }, []);
 
@@ -1039,12 +1104,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           The user shouldn't see persistent dApp chrome until they've
           actually unlocked the wallet and are inside the main shell. */}
       {isMobile() && walletShellActive && <DappPeekTray />}
-
-      {/* Send / Receive secondary pills above the native toolbar.
-          Same visibility gate as the peek tray — only visible inside
-          the unlocked wallet shell — and the component itself
-          further gates on route (`/`, `/send`, `/receive`). */}
-      {isMobile() && walletShellActive && <HomeActionPills />}
 
       {/* PR-5: card switcher portal — fullscreen modal for managing
           every open dApp. Mounted here so it survives tab navigation. */}

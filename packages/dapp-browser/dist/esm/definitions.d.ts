@@ -758,6 +758,28 @@ export interface InAppBrowserPlugin {
      * navbar pill back into view on a spring animation.
      */
     morphNavbarIn(): Promise<void>;
+    /**
+     * Miden patch: grow / shrink the native navbar pill to add (or
+     * remove) a secondary row of quick-action buttons above the main
+     * nav row. Pass an empty items array to collapse the row back to
+     * a single-row pill. Each item renders as a small orange/gray pill
+     * button inside the same native container as the main nav row —
+     * the pill morphs into a two-row container on a spring animation
+     * so it looks like one unified pill growing, not two separate
+     * pills snapping together.
+     *
+     * Used by the wallet's Home tab to show Send / Receive quick
+     * actions that mirror the active-state styling of the main nav
+     * row pills.
+     */
+    setNavbarSecondaryRow(options: {
+        items: Array<{
+            id: string;
+            title: string;
+            sfSymbol: string;
+        }>;
+        activeId?: string | null;
+    }): Promise<void>;
 }
 /**
  * JavaScript APIs available in the InAppBrowser WebView.
