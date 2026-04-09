@@ -2253,6 +2253,165 @@
     "message": "Favoriler",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "DApp'lerde arama yapın veya URL'yi yapıştırın",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Öne Çıkanlar",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "DApp'lerim",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Son Kullanılanlar",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Sola kaydır",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Sağa kaydır",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Hızlı eylemler",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Göz at",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Aletler",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Sosyal",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "Bu kategoride henüz dApp yok",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Miden ekosistemini keşfedin",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Küçült",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "DApp'leri değiştirin",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Yeniden yükle",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Daha fazla seçenek",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "dApp eylemleri",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Bağlantıyı kopyala",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Dapps'lerime ekle",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Dapps'imden kaldır",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Yeniden aç",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Eski haline getirmek $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Kapalı $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ daha fazla park edilmiş dApp",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Bağlantı kopyalandı",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Dapps'lerime eklendi",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Bu dApp yüklenemiyor",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dApp tarayıcı başlığı",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Küçültmek için aşağı sürükleyin",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp değiştirici",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "DApp değiştiriciyi kapat",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 açık dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} açık dApp'ler",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Onaylamak",
     "englishSource": "Approve"

@@ -2251,6 +2251,165 @@
     "message": "Favoritos",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Pesquise dApps ou cole o URL",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Apresentou",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Meus dApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Recentes",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Role para a esquerda",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Role para a direita",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Ações rápidas",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Navegar",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Ferramentas",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Social",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "Nenhum dApps nesta categoria ainda",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Explore o ecossistema Miden",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Minimizar",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Trocar dApps",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Recarregar",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Mais opções",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Ações de dApp",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Copiar link",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Adicionar aos meus Dapps",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Remover de Meus Dapps",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Reabrir",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Restaurar $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Fechar $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ mais dApps estacionados",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Link copiado",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Adicionado aos Meus Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Não é possível carregar este dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Verifique sua conexão e tente novamente.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "Cabeçalho do navegador dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Arraste para baixo para minimizar",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "alternador de dApp",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Fechar o alternador de dApp",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 dApp aberto",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} dApps abertos",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Aprovar",
     "englishSource": "Approve"

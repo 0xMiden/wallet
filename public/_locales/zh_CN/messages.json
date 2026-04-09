@@ -2265,6 +2265,165 @@
     "message": "收藏夹",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "搜索 dApp 或粘贴 URL",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "精选",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "我的 dApp",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "最近的内容",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "向左滚动",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "向右滚动",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "快速行动",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "浏览",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "去中心化金融",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "工具",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "社会的",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "此类别中还没有 dApp",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "探索Miden生态系统",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "最小化",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "切换 dApp",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "重新加载",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "更多选择",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "dApp 操作",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "复制链接",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "添加到我的 Dapp",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "从我的 Dapp 中删除",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "重新开放",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "恢复 $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "关闭 $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ 更多停放的 dApp",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "链接已复制",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "添加到我的 Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "无法加载此 dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "检查您的连接并重试。",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dApp 浏览器标头",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "向下拖动以最小化",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp 切换器",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "关闭 dApp 切换器",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1个开放的dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} 个打开的 dApp",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "批准",
     "englishSource": "Approve"

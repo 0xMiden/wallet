@@ -2265,6 +2265,165 @@
     "message": "즐겨찾기",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "dApp 검색 또는 URL 붙여넣기",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "추천",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "내 dApp",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "최근",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "왼쪽으로 스크롤",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "오른쪽으로 스크롤",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "빠른 작업",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "먹다",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "디파이",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "도구",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "사회의",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "이 카테고리에는 아직 dApp이 없습니다.",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Miden 생태계 살펴보기",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "최소화",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "dApp 전환",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "새로고침",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "추가 옵션",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "디앱 작업",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "링크 복사",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "내 Dapp에 추가",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "내 Dapp에서 제거",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "다시 열다",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "복원하다 $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "닫다 $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ 더 많은 주차된 dApp",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "링크가 복사되었습니다",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "내 Dapp에 추가됨",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "이 dApp을 로드할 수 없습니다",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "연결을 확인하고 다시 시도하세요.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dApp 브라우저 헤더",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "최소화하려면 아래로 드래그하세요.",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp 전환기",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "dApp 전환기 닫기",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1개의 오픈 dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count}개 오픈 dApp",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "승인하다",
     "englishSource": "Approve"
