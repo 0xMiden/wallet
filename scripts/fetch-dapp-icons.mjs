@@ -20,6 +20,7 @@ import { mkdirSync, mkdtempSync, writeFileSync, copyFileSync, statSync, readFile
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseHtml } from 'node-html-parser';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..');
@@ -45,23 +46,24 @@ const DAPPS = [
 const GOOGLE_S2 = (host) => `https://www.google.com/s2/favicons?domain=${host}&sz=256`;
 
 function pickBestIcon(html, baseUrl) {
-  const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
-  const linkRe = /<link\s+[^>]*?>/gi;
+  // Parse via node-html-parser so we traverse a real DOM instead of
+  // applying regexes to raw HTML. Regex-based tag filtering is a
+  // CodeQL `js/bad-tag-filter` anti-pattern — it can't handle nested
+  // tags, CDATA, comments, attribute-embedded angle brackets, etc.
+  const root = parseHtml(html);
   const candidates = [];
-  let m;
-  while ((m = linkRe.exec(cleaned)) !== null) {
-    const tag = m[0];
-    const rel = (tag.match(/\brel=["']([^"']+)["']/i) || [])[1] || '';
-    if (!/(^|\s)(apple-touch-icon|icon|shortcut icon)(\s|$)/i.test(rel)) continue;
-    const href = (tag.match(/\bhref=["']([^"']+)["']/i) || [])[1];
+  for (const link of root.querySelectorAll('link')) {
+    const rel = (link.getAttribute('rel') || '').toLowerCase();
+    if (!/(^|\s)(apple-touch-icon|icon|shortcut icon)(\s|$)/.test(rel)) continue;
+    const href = link.getAttribute('href');
     if (!href) continue;
-    const sizes = (tag.match(/\bsizes=["']([^"']+)["']/i) || [])[1] || '';
-    const type = (tag.match(/\btype=["']([^"']+)["']/i) || [])[1] || '';
+    const sizes = link.getAttribute('sizes') || '';
+    const type = (link.getAttribute('type') || '').toLowerCase();
     let score = 0;
-    if (/apple-touch-icon/i.test(rel)) score += 1000;
+    if (rel.includes('apple-touch-icon')) score += 1000;
     const sizeMatch = sizes.match(/(\d+)x\d+/);
     if (sizeMatch) score += parseInt(sizeMatch[1], 10);
-    if (/png/i.test(type) || /\.png(\?|$)/i.test(href)) score += 50;
+    if (type.includes('png') || /\.png(\?|$)/i.test(href)) score += 50;
     candidates.push({ score, href });
   }
   candidates.sort((a, b) => b.score - a.score);
