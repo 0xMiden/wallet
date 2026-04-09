@@ -61,7 +61,7 @@ export const BrowserScreen: FC = () => {
         url,
         name: displayName,
         origin: session.origin,
-        favicon: session.favicon
+        favicon: session.favicon ?? undefined
       }).catch(() => {});
     },
     [open]

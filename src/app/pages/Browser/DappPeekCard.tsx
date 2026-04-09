@@ -259,7 +259,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           opacity: 0,
           y: 180,
           scale: scale * 0.85,
-          transition: { duration: 0.32, ease: [0.4, 0, 1, 1] }
+          transition: { duration: 0.32, ease: [0.4, 0, 1, 1] as [number, number, number, number] }
         }
       : { opacity: 0, y: 40, scale: scale * 0.9 };
 

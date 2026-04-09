@@ -16,10 +16,13 @@ import { withUnlocked } from './store';
 // that actually need it. Those functions are service-worker-only
 // code paths that never run on mobile / desktop, so the await
 // never happens outside the extension build.
-type BrowserPolyfill = typeof import('webextension-polyfill').default;
+type BrowserPolyfill = typeof import('webextension-polyfill');
 async function getBrowser(): Promise<BrowserPolyfill> {
   const mod = await import('webextension-polyfill');
-  return mod.default;
+  // The polyfill ships as a CJS module with a namespace-default
+  // export; at runtime both `mod.default` (when bundled as ESM) and
+  // `mod` itself (direct import) are the same browser-API object.
+  return (mod as { default?: BrowserPolyfill }).default ?? mod;
 }
 
 const ALARM_NAME = 'miden-tx-processor';
@@ -94,7 +97,7 @@ export function setupTransactionProcessor(): void {
   void (async () => {
     try {
       const browser = await getBrowser();
-      browser.alarms.onAlarm.addListener(alarm => {
+      browser.alarms.onAlarm.addListener((alarm: { name: string }) => {
         if (alarm.name === ALARM_NAME) {
           // Alarm fires to keep SW alive — no action needed, processing loop is running
         }
