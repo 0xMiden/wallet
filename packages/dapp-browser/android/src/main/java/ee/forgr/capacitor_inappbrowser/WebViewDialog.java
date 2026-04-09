@@ -1693,6 +1693,73 @@ public class WebViewDialog extends Dialog {
         } else if (TextUtils.equals(_options.getToolbarType(), "blank")) {
             _toolbar.setVisibility(View.GONE);
 
+            // Miden patch: also hide the AppBarLayout parent. Without
+            // this, the AppBarLayout still reserves vertical space
+            // above the content_browser layout (driven by the
+            // `appbar_scrolling_view_behavior` layout behavior) even
+            // though its only child Toolbar is GONE. That leaves a
+            // visible empty band between the top of the Dialog and
+            // the WebView content — the dApp page ends up positioned
+            // below where its slot rect says it should be, creating
+            // a jump when the wallet's expand animation lands.
+            View appBar = findViewById(R.id.app_bar_layout);
+            if (appBar != null) {
+                appBar.setVisibility(View.GONE);
+                // Also clamp layout params height to 0 — some
+                // Android versions (API 31+) don't collapse
+                // AppBarLayout to 0 on setVisibility(GONE) due to
+                // internal elevation padding, so we pin the height.
+                ViewGroup.LayoutParams abLp = appBar.getLayoutParams();
+                if (abLp != null) {
+                    abLp.height = 0;
+                    appBar.setLayoutParams(abLp);
+                }
+                Log.d("InAppBrowser", "blank toolbar: AppBarLayout hidden + height=0");
+            }
+
+            // Strip the CoordinatorLayout scroll behavior on the
+            // content_browser_layout. content_browser.xml declares
+            // `app:layout_behavior="appbar_scrolling_view_behavior"`
+            // which offsets the content by the AppBarLayout's total
+            // scroll range. Even with AppBarLayout set to
+            // visibility=GONE and height=0, CoordinatorLayout still
+            // evaluates the behavior and adds a ~60dp offset (the
+            // Toolbar's intrinsic minHeight). We null the behavior
+            // so the content layout takes its parent's full bounds
+            // starting from y=0 inside the Dialog.
+            View contentBrowserLayout = findViewById(R.id.content_browser_layout);
+            if (contentBrowserLayout != null) {
+                ViewGroup.LayoutParams lp = contentBrowserLayout.getLayoutParams();
+                if (lp instanceof androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams) {
+                    androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams clp =
+                        (androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams) lp;
+                    clp.setBehavior(null);
+                    clp.topMargin = 0;
+                    contentBrowserLayout.setLayoutParams(clp);
+                    Log.d("InAppBrowser", "blank toolbar: content behavior nulled");
+                } else if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                    mlp.topMargin = 0;
+                    contentBrowserLayout.setLayoutParams(mlp);
+                }
+            }
+
+            // Critical: also tell the Dialog Window not to inset its
+            // content for the system decoration. Without this, the
+            // Window's decor view subtracts the status bar inset
+            // from its layout area — which ADDS a ~24dp gap at the
+            // top of our Dialog content (even though we positioned
+            // the Dialog Window below the status bar via y=83dp).
+            // The result was a visible empty band between the React
+            // CapsuleBar above the Dialog and the dApp WebView
+            // content inside the Dialog.
+            //
+            // setDecorFitsSystemWindows(false) is API 30+ (Android
+            // 11+), which matches our minSdk constraints.
+            if (Build.VERSION.SDK_INT >= 30 && getWindow() != null) {
+                getWindow().setDecorFitsSystemWindows(false);
+            }
+
             // Also set window background color to match status bar for blank toolbar
             View statusBarColorView = findViewById(R.id.status_bar_color_view);
             if (_options.getToolbarColor() != null && !_options.getToolbarColor().isEmpty()) {
@@ -3002,6 +3069,24 @@ public class WebViewDialog extends Dialog {
         Integer y = _options.getY();
 
         WindowManager.LayoutParams params = getWindow().getAttributes();
+
+        // Miden patch: pin gravity to TOP|START when dimensions are
+        // explicit. The default Dialog gravity is CENTER, which
+        // interprets (x, y) as an offset FROM the center — so a
+        // requested y=83dp with a 1546px-tall window on a 1920px
+        // screen ends up centered + 217px offset, leaving 157 extra
+        // pixels of empty space above the WebView content. The
+        // wallet expects (x, y) to be an absolute screen position
+        // (same as iOS's setRect), so we force TOP|START gravity to
+        // make Android honor that.
+        //
+        // We ONLY override gravity when the caller supplied explicit
+        // dimensions, so the default centered-Dialog case (opening
+        // without an x/y/w/h) still uses Android's default layout.
+        boolean hasExplicitDims = (width != null && height != null) || (height != null && x != null && y != null);
+        if (hasExplicitDims) {
+            params.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+        }
 
         // If both width and height are specified, use custom dimensions
         if (width != null && height != null) {
