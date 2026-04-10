@@ -1,6 +1,14 @@
 import * as Actions from 'lib/miden/back/actions';
+import {
+  disableAutoBackup,
+  enableAutoBackup,
+  getStatus as getAutoBackupStatus
+} from 'lib/miden/back/auto-backup-manager';
 import { store, toFront } from 'lib/miden/back/store';
+import { GoogleDriveProvider } from 'lib/miden/backup/google-drive-provider';
+import { probeCloudBackup, restoreCloudBackup, RestoreEncryptionArgs } from 'lib/miden/backup/restore-service';
 import { MidenMessageType } from 'lib/miden/types';
+import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 type SubscriptionCallback = (data: any) => void;
@@ -172,6 +180,44 @@ export class MobileIntercomAdapter {
           };
         }
         break;
+
+      case WalletMessageType.CloudBackupRestoreRequest: {
+        const restoreProvider = new GoogleDriveProvider(req.accessToken);
+        const restoreArgs: RestoreEncryptionArgs =
+          req.encryption.method === 'password'
+            ? { type: 'password', backupPassword: req.encryption.backupPassword }
+            : { type: 'passkey', keyMaterial: b64ToU8(req.encryption.keyMaterial) };
+        const content = await restoreCloudBackup(restoreArgs, restoreProvider);
+        return {
+          type: WalletMessageType.CloudBackupRestoreResponse,
+          walletAccounts: content.walletAccounts,
+          walletSettings: content.walletSettings
+        };
+      }
+
+      case WalletMessageType.CloudBackupProbeRequest: {
+        const probeProvider = new GoogleDriveProvider(req.accessToken);
+        const probe = await probeCloudBackup(probeProvider);
+        return { type: WalletMessageType.CloudBackupProbeResponse, ...probe };
+      }
+
+      case WalletMessageType.CloudBackupRegisterRequest: {
+        await Actions.registerFromCloudBackup(req.password ?? '', req.mnemonic, req.walletAccounts, req.walletSettings);
+        return { type: WalletMessageType.CloudBackupRegisterResponse };
+      }
+
+      case WalletMessageType.AutoBackupSetEnabledRequest: {
+        if (req.enabled && req.encryption && req.accessToken && req.expiresAt) {
+          await enableAutoBackup(req.encryption, req.accessToken, req.expiresAt);
+        } else {
+          await disableAutoBackup();
+        }
+        return { type: WalletMessageType.AutoBackupSetEnabledResponse };
+      }
+
+      case WalletMessageType.AutoBackupStatusRequest: {
+        return { type: WalletMessageType.AutoBackupStatusResponse, ...getAutoBackupStatus() };
+      }
 
       default:
         console.warn('MobileIntercomAdapter: Unknown request type', req?.type);

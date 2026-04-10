@@ -6,5 +6,9 @@
 	<array>
 		<string>$(AppIdentifierPrefix)com.miden.wallet</string>
 	</array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:api.midenbrowserwallet.com</string>
+	</array>
 </dict>
 </plist>
