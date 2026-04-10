@@ -34,7 +34,7 @@ describe('back/store', () => {
         inited: true,
         vault: {} as any,
         status: WalletStatus.Ready,
-        accounts: [{ publicKey: 'pk', name: 'A', isPublic: true, type: 0, hdIndex: 0 }],
+        accounts: [{ publicKey: 'pk', name: 'A', isPublic: true, type: 'on-chain' as any, hdIndex: 0 }],
         networks: [],
         settings: null,
         currentAccount: null,
@@ -67,7 +67,7 @@ describe('back/store', () => {
   describe('accountsUpdated event', () => {
     it('keeps current account when currentAccount is not provided', () => {
       const mockVault = {} as any;
-      const currentAcc = { publicKey: 'pk1', name: 'Acc1', isPublic: true, type: 0, hdIndex: 0 };
+      const currentAcc = { publicKey: 'pk1', name: 'Acc1', isPublic: true, type: 'on-chain' as any, hdIndex: 0 };
       unlocked({
         vault: mockVault,
         accounts: [currentAcc],
@@ -76,7 +76,7 @@ describe('back/store', () => {
         ownMnemonic: true
       });
       // Fire accountsUpdated without providing currentAccount
-      accountsUpdated({
+      (accountsUpdated as any)({
         accounts: [currentAcc, { publicKey: 'pk2', name: 'Acc2', isPublic: false, type: 0, hdIndex: 1 }]
       });
       const state = store.getState();

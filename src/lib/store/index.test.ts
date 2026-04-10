@@ -780,7 +780,7 @@ describe('useWalletStore', () => {
 
     it('confirmDAppPermission sends with confirmed=true and account', async () => {
       mockRequest.mockResolvedValueOnce({ type: MidenMessageType.DAppPermConfirmationResponse });
-      await useWalletStore.getState().confirmDAppPermission('id-1', true, 'acc-1', 'AUTO', 1);
+      await useWalletStore.getState().confirmDAppPermission('id-1', true, 'acc-1', 'AUTO' as any, 1);
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({
           type: MidenMessageType.DAppPermConfirmationRequest,
@@ -792,7 +792,7 @@ describe('useWalletStore', () => {
 
     it('confirmDAppPermission with confirmed=false sends empty accountPublicKey', async () => {
       mockRequest.mockResolvedValueOnce({ type: MidenMessageType.DAppPermConfirmationResponse });
-      await useWalletStore.getState().confirmDAppPermission('id-1', false, 'acc-1', 'AUTO', 1);
+      await useWalletStore.getState().confirmDAppPermission('id-1', false, 'acc-1', 'AUTO' as any, 1);
       expect(mockRequest).toHaveBeenCalledWith(expect.objectContaining({ accountPublicKey: '' }));
     });
 
@@ -856,7 +856,7 @@ describe('useWalletStore', () => {
     it('setSelectedNetworkId / setConfirmation / resetConfirmation', () => {
       useWalletStore.getState().setSelectedNetworkId('n1');
       expect(useWalletStore.getState().selectedNetworkId).toBe('n1');
-      useWalletStore.getState().setConfirmation({ id: 'c1', payload: {} as any });
+      useWalletStore.getState().setConfirmation({ id: 'c1' } as any);
       expect(useWalletStore.getState().confirmation?.id).toBe('c1');
       useWalletStore.getState().resetConfirmation();
       expect(useWalletStore.getState().confirmation).toBeNull();
@@ -893,7 +893,7 @@ describe('useWalletStore', () => {
 
   describe('fiat currency actions', () => {
     it('setSelectedFiatCurrency / setFiatRates / setTokenPrices', () => {
-      useWalletStore.getState().setSelectedFiatCurrency('USD');
+      useWalletStore.getState().setSelectedFiatCurrency('USD' as any);
       expect(useWalletStore.getState().selectedFiatCurrency).toBe('USD');
       useWalletStore.getState().setFiatRates({ usd: 1 });
       expect(useWalletStore.getState().fiatRates).toEqual({ usd: 1 });

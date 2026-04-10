@@ -130,8 +130,8 @@ describe('binance', () => {
       mockedAxios.get.mockResolvedValueOnce({ data: [] } as any);
       await fetchKlineData('BTC', 'YTD');
       const call = mockedAxios.get.mock.calls[0];
-      expect(call[0]).toContain('/api/v3/uiKlines');
-      const params = (call[1] as any).params;
+      expect(call![0]).toContain('/api/v3/uiKlines');
+      const params = (call![1] as any).params;
       expect(params.symbol).toBe('BTCUSD');
       expect(params.interval).toMatch(/^(6h|12h|1d)$/);
       expect(typeof params.startTime).toBe('number');

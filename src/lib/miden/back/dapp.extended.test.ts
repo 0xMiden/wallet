@@ -113,8 +113,6 @@ const _g = globalThis as any;
 _g.__dappTestMockGetAccount = jest.fn();
 _g.__dappTestMockGetOutputNotes = jest.fn();
 const mockGetAccount = _g.__dappTestMockGetAccount;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const mockGetOutputNotes = _g.__dappTestMockGetOutputNotes;
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappTestMockGetAccount(id),
