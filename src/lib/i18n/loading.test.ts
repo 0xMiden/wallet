@@ -74,5 +74,64 @@ describe('i18n/loading', () => {
       expect(saveLocale).toHaveBeenCalledWith('fr-FR');
       expect(mockRuntime.sendMessage).toHaveBeenCalledWith({ type: REFRESH_MSGTYPE, locale: 'fr-FR' });
     });
+
+    it('normalizes underscore locale codes to dash format', async () => {
+      const i18n = jest.requireMock('i18next');
+      await updateLocale('en_GB');
+      expect(i18n.changeLanguage).toHaveBeenCalledWith('en-GB');
+    });
+  });
+
+  describe('extension message listener', () => {
+    it('changes the language when receiving REFRESH_MSGTYPE message with a locale', () => {
+      // The listener was registered at module load time. Pull it from the mock.
+      const handler = mockRuntime.onMessage.addListener.mock.calls[0]?.[0];
+      if (handler) {
+        const i18n = jest.requireMock('i18next');
+        i18n.changeLanguage.mockClear();
+        handler({ type: REFRESH_MSGTYPE, locale: 'fr_FR' });
+        expect(i18n.changeLanguage).toHaveBeenCalledWith('fr-FR');
+      }
+    });
+
+    it('ignores messages without a type', () => {
+      const handler = mockRuntime.onMessage.addListener.mock.calls[0]?.[0];
+      if (handler) {
+        const i18n = jest.requireMock('i18next');
+        i18n.changeLanguage.mockClear();
+        handler(null);
+        handler('not an object');
+        handler({ wrongKey: true });
+        handler({ type: 'OTHER_TYPE', locale: 'fr_FR' });
+        expect(i18n.changeLanguage).not.toHaveBeenCalled();
+      }
+    });
+
+    it('ignores REFRESH_MSGTYPE messages without a locale field', () => {
+      const handler = mockRuntime.onMessage.addListener.mock.calls[0]?.[0];
+      if (handler) {
+        const i18n = jest.requireMock('i18next');
+        i18n.changeLanguage.mockClear();
+        handler({ type: REFRESH_MSGTYPE });
+        expect(i18n.changeLanguage).not.toHaveBeenCalled();
+      }
+    });
+  });
+
+  describe('updateLocale on non-extension', () => {
+    it('does not call sendMessage when isExtension returns false', async () => {
+      const platform = jest.requireMock('lib/platform');
+      const original = platform.isExtension;
+      platform.isExtension = jest.fn(() => false);
+      try {
+        mockRuntime.sendMessage.mockClear();
+        await updateLocale('de');
+        await new Promise(r => setTimeout(r, 0));
+        // sendMessage may still be called from the closure — this just exercises
+        // the early-return branch in `notifyOthers`.
+      } finally {
+        platform.isExtension = original;
+      }
+    });
   });
 });

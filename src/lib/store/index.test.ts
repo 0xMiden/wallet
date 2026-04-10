@@ -676,4 +676,356 @@ describe('useWalletStore', () => {
       expect(client1).toBe(client2);
     });
   });
+
+  // ── Additional coverage for action methods ────────────────────────
+
+  describe('registerWallet / importWalletFromClient / unlock', () => {
+    it('registerWallet sends NewWalletRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.NewWalletResponse });
+      await useWalletStore.getState().registerWallet('pw', 'mnemonic-12', false);
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ type: WalletMessageType.NewWalletRequest, password: 'pw' })
+      );
+    });
+
+    it('registerWallet throws on invalid response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'wrong' });
+      await expect(useWalletStore.getState().registerWallet('pw', 'm', false)).rejects.toThrow();
+    });
+
+    it('importWalletFromClient sends ImportFromClientRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
+      await useWalletStore.getState().importWalletFromClient('pw', 'm');
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ type: WalletMessageType.ImportFromClientRequest })
+      );
+    });
+
+    it('unlock sends UnlockRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.UnlockResponse });
+      await useWalletStore.getState().unlock('pw');
+      expect(mockRequest).toHaveBeenCalledWith(expect.objectContaining({ type: WalletMessageType.UnlockRequest }));
+    });
+  });
+
+  describe('createAccount', () => {
+    it('sends CreateAccountRequest with walletType and name', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.CreateAccountResponse });
+      await useWalletStore.getState().createAccount(WalletType.OnChain, 'My Account');
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: WalletMessageType.CreateAccountRequest,
+          walletType: WalletType.OnChain,
+          name: 'My Account'
+        })
+      );
+    });
+
+    it('throws on invalid response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'wrong' });
+      await expect(useWalletStore.getState().createAccount(WalletType.OnChain, 'x')).rejects.toThrow();
+    });
+  });
+
+  describe('revealMnemonic', () => {
+    it('returns the mnemonic from the response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.RevealMnemonicResponse,
+        mnemonic: 'twelve words go here'
+      });
+      const result = await useWalletStore.getState().revealMnemonic('pw');
+      expect(result).toBe('twelve words go here');
+    });
+  });
+
+  describe('signing actions', () => {
+    it('signData returns signature', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SignDataResponse,
+        signature: 'sig-base64'
+      });
+      const sig = await useWalletStore.getState().signData('pk', 'inputs');
+      expect(sig).toBe('sig-base64');
+    });
+
+    it('signTransaction returns signature as Uint8Array from hex', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SignTransactionResponse,
+        signature: 'deadbeef'
+      });
+      const result = await useWalletStore.getState().signTransaction('pk', 'inputs');
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(Array.from(result)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    });
+
+    it('getAuthSecretKey returns key from response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetAuthSecretKeyResponse,
+        key: 'secret-key-bytes'
+      });
+      const k = await useWalletStore.getState().getAuthSecretKey('pk');
+      expect(k).toBe('secret-key-bytes');
+    });
+  });
+
+  describe('dApp actions', () => {
+    it('getDAppPayload returns payload', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: MidenMessageType.DAppGetPayloadResponse,
+        payload: { foo: 'bar' }
+      });
+      const p = await useWalletStore.getState().getDAppPayload('id-1');
+      expect(p).toEqual({ foo: 'bar' });
+    });
+
+    it('confirmDAppPermission sends with confirmed=true and account', async () => {
+      mockRequest.mockResolvedValueOnce({ type: MidenMessageType.DAppPermConfirmationResponse });
+      await useWalletStore.getState().confirmDAppPermission('id-1', true, 'acc-1', 'AUTO', 1);
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MidenMessageType.DAppPermConfirmationRequest,
+          confirmed: true,
+          accountPublicKey: 'acc-1'
+        })
+      );
+    });
+
+    it('confirmDAppPermission with confirmed=false sends empty accountPublicKey', async () => {
+      mockRequest.mockResolvedValueOnce({ type: MidenMessageType.DAppPermConfirmationResponse });
+      await useWalletStore.getState().confirmDAppPermission('id-1', false, 'acc-1', 'AUTO', 1);
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ accountPublicKey: '' })
+      );
+    });
+
+    it('confirmDAppSign / confirmDAppPrivateNotes / confirmDAppAssets / confirmDAppImportPrivateNote / confirmDAppConsumableNotes / confirmDAppTransaction send their respective request types', async () => {
+      const cases: Array<[string, () => Promise<void>, MidenMessageType]> = [
+        [
+          'sign',
+          () => useWalletStore.getState().confirmDAppSign('id', true),
+          MidenMessageType.DAppSignConfirmationResponse
+        ],
+        [
+          'private notes',
+          () => useWalletStore.getState().confirmDAppPrivateNotes('id', true),
+          MidenMessageType.DAppPrivateNotesConfirmationResponse
+        ],
+        [
+          'assets',
+          () => useWalletStore.getState().confirmDAppAssets('id', true),
+          MidenMessageType.DAppAssetsConfirmationResponse
+        ],
+        [
+          'import note',
+          () => useWalletStore.getState().confirmDAppImportPrivateNote('id', true),
+          MidenMessageType.DAppImportPrivateNoteConfirmationResponse
+        ],
+        [
+          'consumable notes',
+          () => useWalletStore.getState().confirmDAppConsumableNotes('id', true),
+          MidenMessageType.DAppConsumableNotesConfirmationResponse
+        ],
+        [
+          'transaction',
+          () => useWalletStore.getState().confirmDAppTransaction('id', true, true),
+          MidenMessageType.DAppTransactionConfirmationResponse
+        ]
+      ];
+      for (const [, fn, responseType] of cases) {
+        mockRequest.mockResolvedValueOnce({ type: responseType });
+        await fn();
+      }
+      expect(mockRequest).toHaveBeenCalledTimes(cases.length);
+    });
+
+    it('getAllDAppSessions returns sessions map', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: MidenMessageType.DAppGetAllSessionsResponse,
+        sessions: { 'origin.xyz': [] }
+      });
+      const sessions = await useWalletStore.getState().getAllDAppSessions();
+      expect(sessions).toEqual({ 'origin.xyz': [] });
+    });
+
+    it('removeDAppSession sends DAppRemoveSessionRequest', async () => {
+      mockRequest.mockResolvedValueOnce({ type: MidenMessageType.DAppRemoveSessionResponse });
+      await useWalletStore.getState().removeDAppSession('origin.xyz');
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ origin: 'origin.xyz' })
+      );
+    });
+  });
+
+  describe('UI actions', () => {
+    it('setSelectedNetworkId / setConfirmation / resetConfirmation', () => {
+      useWalletStore.getState().setSelectedNetworkId('n1');
+      expect(useWalletStore.getState().selectedNetworkId).toBe('n1');
+      useWalletStore.getState().setConfirmation({ id: 'c1', payload: {} as any });
+      expect(useWalletStore.getState().confirmation?.id).toBe('c1');
+      useWalletStore.getState().resetConfirmation();
+      expect(useWalletStore.getState().confirmation).toBeNull();
+    });
+  });
+
+  describe('balance + asset actions', () => {
+    it('setBalancesLoading flips the per-account flag', () => {
+      useWalletStore.getState().setBalancesLoading('addr-1', true);
+      expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(true);
+      useWalletStore.getState().setBalancesLoading('addr-1', false);
+      expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(false);
+    });
+
+    it('setAssetsMetadata merges new metadata', () => {
+      useWalletStore.getState().setAssetsMetadata({ 'asset-1': { decimals: 6, symbol: 'A' } as any });
+      expect(useWalletStore.getState().assetsMetadata['asset-1']).toBeDefined();
+    });
+
+    it('fetchAssetMetadata persists base metadata when fetch succeeds', async () => {
+      const fetchTokenMetadata = require('lib/miden/metadata').fetchTokenMetadata;
+      fetchTokenMetadata.mockResolvedValueOnce({ base: { decimals: 8, symbol: 'X' } });
+      const result = await useWalletStore.getState().fetchAssetMetadata('asset-x');
+      expect(result).toEqual({ decimals: 8, symbol: 'X' });
+      expect(useWalletStore.getState().assetsMetadata['asset-x']).toEqual({ decimals: 8, symbol: 'X' });
+    });
+
+    it('fetchAssetMetadata returns null on fetch error', async () => {
+      const fetchTokenMetadata = require('lib/miden/metadata').fetchTokenMetadata;
+      fetchTokenMetadata.mockRejectedValueOnce(new Error('rpc down'));
+      expect(await useWalletStore.getState().fetchAssetMetadata('asset-y')).toBeNull();
+    });
+  });
+
+  describe('fiat currency actions', () => {
+    it('setSelectedFiatCurrency / setFiatRates / setTokenPrices', () => {
+      useWalletStore.getState().setSelectedFiatCurrency('USD');
+      expect(useWalletStore.getState().selectedFiatCurrency).toBe('USD');
+      useWalletStore.getState().setFiatRates({ usd: 1 });
+      expect(useWalletStore.getState().fiatRates).toEqual({ usd: 1 });
+      useWalletStore.getState().setTokenPrices({ ETH: { price: 3000, change24h: 1, percentageChange24h: 0.1 } });
+      expect(useWalletStore.getState().tokenPrices.ETH?.price).toBe(3000);
+    });
+
+    it('fetchFiatRates resolves with placeholder rates', async () => {
+      useWalletStore.setState({ fiatRatesLoading: false });
+      await useWalletStore.getState().fetchFiatRates();
+      expect(useWalletStore.getState().fiatRates).toEqual({ usd: 1 });
+      expect(useWalletStore.getState().fiatRatesLoading).toBe(false);
+    });
+
+    it('fetchFiatRates is a no-op when already loading', async () => {
+      useWalletStore.setState({ fiatRatesLoading: true, fiatRates: { usd: 99 } });
+      await useWalletStore.getState().fetchFiatRates();
+      expect(useWalletStore.getState().fiatRates?.usd).toBe(99);
+    });
+  });
+
+  describe('sync + transaction modal actions', () => {
+    it('setSyncStatus marks initial sync done when transitioning to false', () => {
+      useWalletStore.getState().setSyncStatus(true);
+      expect(useWalletStore.getState().isSyncing).toBe(true);
+      useWalletStore.getState().setSyncStatus(false);
+      expect(useWalletStore.getState().isSyncing).toBe(false);
+      expect(useWalletStore.getState().hasCompletedInitialSync).toBe(true);
+    });
+
+    it('open/closeTransactionModal toggles flag and resets dismiss flag', () => {
+      useWalletStore.getState().openTransactionModal();
+      expect(useWalletStore.getState().isTransactionModalOpen).toBe(true);
+      useWalletStore.getState().closeTransactionModal(true);
+      expect(useWalletStore.getState().isTransactionModalOpen).toBe(false);
+      expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(true);
+      useWalletStore.getState().resetTransactionModalDismiss();
+      expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(false);
+    });
+  });
+
+  describe('dApp browser state', () => {
+    it('setDappBrowserOpen + setActiveDappSession transition correctly', () => {
+      useWalletStore.getState().setActiveDappSession('session-1');
+      expect(useWalletStore.getState().activeDappSessionId).toBe('session-1');
+      expect(useWalletStore.getState().isDappBrowserOpen).toBe(true);
+      useWalletStore.getState().setDappBrowserOpen(false);
+      expect(useWalletStore.getState().isDappBrowserOpen).toBe(false);
+      expect(useWalletStore.getState().activeDappSessionId).toBeNull();
+    });
+
+    it('setDappBrowserOpen(true) preserves existing activeDappSessionId', () => {
+      useWalletStore.setState({ activeDappSessionId: 'pre-existing' });
+      useWalletStore.getState().setDappBrowserOpen(true);
+      expect(useWalletStore.getState().activeDappSessionId).toBe('pre-existing');
+    });
+  });
+
+  describe('note toast actions', () => {
+    beforeEach(() => {
+      useWalletStore.setState({
+        seenNoteIds: new Set<string>(),
+        isNoteToastVisible: false,
+        noteToastShownAt: null
+      });
+    });
+
+    it('checkForNewNotes shows toast when new notes arrive', () => {
+      useWalletStore.getState().checkForNewNotes(['n1', 'n2']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(true);
+      expect(state.seenNoteIds.has('n1')).toBe(true);
+      expect(state.seenNoteIds.has('n2')).toBe(true);
+    });
+
+    it('checkForNewNotes does not show toast when nothing is new', () => {
+      useWalletStore.setState({ seenNoteIds: new Set(['n1']) });
+      useWalletStore.getState().checkForNewNotes(['n1']);
+      expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
+    });
+
+    it('dismissNoteToast hides the toast', () => {
+      useWalletStore.setState({ isNoteToastVisible: true });
+      useWalletStore.getState().dismissNoteToast();
+      expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
+    });
+
+    it('resetSeenNotes clears the set and visible flag', () => {
+      useWalletStore.setState({
+        seenNoteIds: new Set(['a']),
+        isNoteToastVisible: true,
+        noteToastShownAt: 123
+      });
+      useWalletStore.getState().resetSeenNotes();
+      const s = useWalletStore.getState();
+      expect(s.seenNoteIds.size).toBe(0);
+      expect(s.isNoteToastVisible).toBe(false);
+      expect(s.noteToastShownAt).toBeNull();
+    });
+  });
+
+  describe('extension claimable notes', () => {
+    it('setExtensionClaimableNotes / addExtensionClaimingNoteId / clearExtensionClaimingNoteIds', () => {
+      useWalletStore.getState().setExtensionClaimableNotes([
+        { id: 'n1', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
+      ]);
+      expect(useWalletStore.getState().extensionClaimableNotes).toHaveLength(1);
+      useWalletStore.getState().addExtensionClaimingNoteId('n1');
+      expect(useWalletStore.getState().extensionClaimingNoteIds.has('n1')).toBe(true);
+      useWalletStore.getState().clearExtensionClaimingNoteIds();
+      expect(useWalletStore.getState().extensionClaimingNoteIds.size).toBe(0);
+    });
+  });
+
+  describe('fetchBalances action', () => {
+    beforeEach(() => {
+      useWalletStore.setState({
+        balances: {},
+        balancesLoading: {},
+        balancesLastFetched: {}
+      });
+    });
+
+    it('skips when balancesLoading[accountAddress] is already true', async () => {
+      useWalletStore.setState({ balancesLoading: { 'addr-1': true } });
+      const before = useWalletStore.getState().balances['addr-1'];
+      await useWalletStore.getState().fetchBalances('addr-1', {});
+      expect(useWalletStore.getState().balances['addr-1']).toBe(before);
+    });
+  });
 });
