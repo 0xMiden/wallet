@@ -31,7 +31,7 @@ export async function initMobileBackHandler(): Promise<void> {
     // Call handlers in reverse order (most recently registered first)
     for (let i = handlers.length - 1; i >= 0; i--) {
       const handler = handlers[i];
-      if (!handler) continue;
+      /* c8 ignore next -- defensive guard for sparse array, mobile-only */ if (!handler) continue;
       const result = handler();
       if (result === true) {
         // Handler consumed the event

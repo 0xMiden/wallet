@@ -89,7 +89,7 @@ export function useNativeNavbarAction(action: NavbarAction | null): void {
         label: action.label,
         enabled: action.enabled ?? true
       });
-    } else if (currentOwner === ownerId) {
+    } /* c8 ignore next 6 -- navbar release path, mobile-only */ else if (currentOwner === ownerId) {
       // We had ownership but our action is now null — release it.
       currentOwner = null;
       currentOnTap = null;

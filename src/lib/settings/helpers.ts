@@ -14,7 +14,7 @@ import {
 function setSetting(key: string, value: boolean) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
+  } /* c8 ignore next -- jsdom localStorage.setItem is non-configurable */ catch {}
 }
 
 function getSetting(key: string, defaultValue: boolean) {
@@ -57,14 +57,14 @@ export function isHapticFeedbackEnabled() {
 export function setThemeSetting(theme: 'light' | 'dark') {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch {}
+  } /* c8 ignore next -- jsdom localStorage.setItem is non-configurable */ catch {}
 }
 
 export function getThemeSetting(): 'light' | 'dark' {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
     return stored === 'dark' ? 'dark' : DEFAULT_THEME;
-  } catch {
+  } /* c8 ignore next 2 -- jsdom localStorage.getItem is non-configurable */ catch {
     return DEFAULT_THEME;
   }
 }

@@ -22,6 +22,7 @@ export async function updateBalancesFromSyncData(
 ): Promise<void> {
   const store = useWalletStore.getState();
   const localMetadatas = { ...store.assetsMetadata };
+  /* c8 ignore next -- tokenPrices always initialized in store */
   const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
 

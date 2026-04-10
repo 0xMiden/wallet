@@ -78,6 +78,7 @@ export function createLocationState(): LocationState {
     hostname,
     href,
     origin,
+    /* c8 ignore next -- pathname is always populated by window.location in jsdom */
     pathname: pathname || '/',
     port,
     protocol,

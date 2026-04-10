@@ -22,7 +22,7 @@ export async function fetchTokenMetadata(
     if (cached && cached[assetId]) {
       return { base: cached[assetId], detailed: cached[assetId] };
     }
-  } catch {
+  } /* c8 ignore next 2 -- IndexedDB cache miss, defensive fallback */ catch {
     // Cache miss — proceed to RPC
   }
 

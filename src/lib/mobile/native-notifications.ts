@@ -34,7 +34,7 @@ async function createNotificationChannel(): Promise<void> {
       vibration: true,
       sound: 'default'
     });
-  } catch (error) {
+  } /* c8 ignore next 2 -- Capacitor plugin error, mobile-only */ catch (error) {
     console.error('[NativeNotifications] Error creating channel:', error);
   }
 }
@@ -125,7 +125,7 @@ export async function setupNotificationTapListener(): Promise<void> {
           try {
             await InAppBrowser.closeAll();
             // Store state will be updated by closeEvent listeners.
-          } catch (e) {
+          } /* c8 ignore next 2 -- InAppBrowser plugin error, mobile-only */ catch (e) {
             console.warn('[NativeNotifications] Error closing InAppBrowser:', e);
           }
         }

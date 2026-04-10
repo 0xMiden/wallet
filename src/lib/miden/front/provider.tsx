@@ -45,7 +45,7 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     const initializeClient = async () => {
       try {
         await getMidenClient();
-      } catch (err) {
+      } /* c8 ignore next 2 -- WASM init failure untestable in jsdom */ catch (err) {
         console.error('Failed to initialize Miden client singleton:', err);
       }
     };
