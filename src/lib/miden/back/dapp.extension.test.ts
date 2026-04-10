@@ -950,4 +950,120 @@ describe('Full confirmation cycles in extension mode', () => {
     );
     expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
   });
+
+  it('requestConsumeTransaction with noteBytes imports and resolves when confirmed', async () => {
+    const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestConsumeTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            accountAddress: 'miden-account-1',
+            noteId: 'note-1',
+            faucetId: 'faucet-1',
+            noteType: 'Private',
+            amount: '50',
+            noteBytes: 'c29tZWJ5dGVz'
+          }
+        } as never),
+      MidenMessageType.DAppTransactionConfirmationRequest,
+      { confirmed: true, delegate: true }
+    );
+    expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
+    expect(queueNoteImport).toHaveBeenCalledWith('c29tZWJ5dGVz');
+  });
+
+  it('requestConsumeTransaction rejects with InvalidParams when consume throws', async () => {
+    const sdk = require('lib/miden/activity/transactions');
+    sdk.initiateConsumeTransactionFromId.mockRejectedValueOnce(new Error('consume failed'));
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestConsumeTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.ConsumeRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              accountAddress: 'miden-account-1',
+              noteId: 'note-1',
+              faucetId: 'faucet-1',
+              noteType: 'Private',
+              amount: '50'
+            }
+          } as never),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: false }
+      )
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  it('requestConsumeTransaction rejects when user declines', async () => {
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestConsumeTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.ConsumeRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              accountAddress: 'miden-account-1',
+              noteId: 'note-1',
+              faucetId: 'faucet-1',
+              noteType: 'Private',
+              amount: '50'
+            }
+          } as never),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: false }
+      )
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+  it('requestPermission handles the extension confirmed path and stores session with publicKey', async () => {
+    delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://fresh-dapp.xyz'];
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([10, 20, 30]) }]
+    });
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestPermission('https://fresh-dapp.xyz', {
+          type: MidenDAppMessageType.PermissionRequest,
+          appMeta: { name: 'Fresh Dapp', url: 'https://fresh-dapp.xyz' },
+          force: false,
+          network: 'testnet',
+          privateDataPermission: 'UPON_REQUEST',
+          allowedPrivateData: 0
+        } as never),
+      MidenMessageType.DAppPermConfirmationRequest,
+      {
+        confirmed: true,
+        accountPublicKey: 'miden-account-1',
+        privateDataPermission: 'UPON_REQUEST'
+      }
+    );
+    expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
+    expect((res as any).publicKey).toBeDefined();
+  });
+
+  it('requestPermission in extension when confirmed but getAccountPublicKeyB64 throws still resolves (publicKey null)', async () => {
+    delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz'];
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestPermission('https://err-dapp.xyz', {
+          type: MidenDAppMessageType.PermissionRequest,
+          appMeta: { name: 'Err Dapp', url: 'https://err-dapp.xyz' },
+          force: false,
+          network: 'testnet',
+          privateDataPermission: 'UPON_REQUEST',
+          allowedPrivateData: 0
+        } as never),
+      MidenMessageType.DAppPermConfirmationRequest,
+      {
+        confirmed: true,
+        accountPublicKey: 'miden-account-1',
+        privateDataPermission: 'UPON_REQUEST'
+      }
+    );
+    expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
+  });
 });

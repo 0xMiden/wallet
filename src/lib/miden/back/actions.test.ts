@@ -20,7 +20,16 @@ import {
   init,
   isDAppEnabled,
   revealMnemonic,
-  removeDAppSession
+  removeDAppSession,
+  decryptCiphertexts,
+  revealViewKey,
+  revealPrivateKey,
+  revealPublicKey,
+  removeAccount,
+  importAccount,
+  importMnemonicAccount,
+  importFundraiserAccount,
+  importWatchOnlyAccount
 } from './actions';
 
 // Create mock vault instance
@@ -525,6 +534,44 @@ describe('actions', () => {
 
       expect(requestConsumableNotes).toHaveBeenCalledWith('https://example.com', req);
       expect(result).toEqual({ notes: [] });
+    });
+  });
+
+  describe('stub action functions', () => {
+    it('decryptCiphertexts is a no-op stub', () => {
+      expect(() => decryptCiphertexts('pk', ['ct1'])).not.toThrow();
+    });
+
+    it('revealViewKey is a no-op stub', () => {
+      expect(() => revealViewKey('pk', 'pw')).not.toThrow();
+    });
+
+    it('revealPrivateKey is a no-op stub', () => {
+      expect(() => revealPrivateKey('pk', 'pw')).not.toThrow();
+    });
+
+    it('revealPublicKey is a no-op stub', () => {
+      expect(() => revealPublicKey('pk')).not.toThrow();
+    });
+
+    it('removeAccount is a no-op stub', () => {
+      expect(() => removeAccount('pk', 'pw')).not.toThrow();
+    });
+
+    it('importAccount is a no-op stub', () => {
+      expect(() => importAccount('pk')).not.toThrow();
+    });
+
+    it('importMnemonicAccount is a no-op stub', () => {
+      expect(() => importMnemonicAccount('mnemonic')).not.toThrow();
+    });
+
+    it('importFundraiserAccount is a no-op stub', () => {
+      expect(() => importFundraiserAccount('e@x', 'pw', 'mnemonic')).not.toThrow();
+    });
+
+    it('importWatchOnlyAccount is a no-op stub', () => {
+      expect(() => importWatchOnlyAccount('vk')).not.toThrow();
     });
   });
 });

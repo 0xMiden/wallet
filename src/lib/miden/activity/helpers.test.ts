@@ -270,5 +270,92 @@ describe('activity/helpers', () => {
 
       expect(updated.amount).toBe(BigInt(1000));
     });
+
+    it('sets amount to undefined when input and output amounts are equal (zero net)', () => {
+      const transaction: Partial<ITransaction> = {
+        type: 'execute',
+        displayMessage: 'Executing',
+        accountId: 'my-account'
+      };
+
+      const inputNote = createMockNote('faucet-1', BigInt(500), 'other-sender');
+      const outputNote = createMockNote('faucet-1', BigInt(500));
+      const result = createMockResult([inputNote], [outputNote]);
+
+      const updated = interpretTransactionResult(transaction as ITransaction, result as any);
+
+      expect(updated.amount).toBeUndefined();
+    });
+  });
+
+  describe('tryParseTokenTransfers edge cases', () => {
+    it('handles FA1.2 with non-string from field', () => {
+      const onTransfer = jest.fn();
+      const parameters = {
+        entrypoint: 'transfer',
+        value: {
+          args: [
+            { notAString: 123 },
+            {
+              args: [{ string: 'recipient' }, { int: '100' }]
+            }
+          ]
+        }
+      };
+      tryParseTokenTransfers(parameters, 'contract', onTransfer);
+      expect(onTransfer).not.toHaveBeenCalled();
+    });
+
+    it('handles FA2 with non-int tokenId', () => {
+      const onTransfer = jest.fn();
+      const parameters = {
+        entrypoint: 'transfer',
+        value: [
+          {
+            args: [
+              { string: 'sender' },
+              [
+                {
+                  args: [
+                    { string: 'recipient' },
+                    {
+                      args: [{ notInt: 'invalid' }, { int: '2000' }]
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      };
+      tryParseTokenTransfers(parameters, 'contract', onTransfer);
+      expect(onTransfer).not.toHaveBeenCalled();
+    });
+
+    it('handles FA2 with non-int amount', () => {
+      const onTransfer = jest.fn();
+      const parameters = {
+        entrypoint: 'transfer',
+        value: [
+          {
+            args: [
+              { string: 'sender' },
+              [
+                {
+                  args: [
+                    { string: 'recipient' },
+                    {
+                      args: [{ int: '5' }, { notInt: 'invalid' }]
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      };
+      tryParseTokenTransfers(parameters, 'contract', onTransfer);
+      expect(onTransfer).not.toHaveBeenCalled();
+    });
   });
 });
