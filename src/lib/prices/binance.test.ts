@@ -153,6 +153,42 @@ describe('binance', () => {
       warn.mockRestore();
     });
 
+    it('uses 6h interval for YTD when less than 90 days have elapsed', async () => {
+      const realDate = global.Date;
+      // January 15 = 15 days elapsed
+      const fakeNow = new realDate(2026, 0, 15).getTime();
+      jest.spyOn(global, 'Date').mockImplementation((...args: any[]) => {
+        if (args.length === 0) return new realDate(fakeNow);
+        return new (realDate as any)(...args);
+      });
+      (global.Date as any).now = () => fakeNow;
+      (global.Date as any).UTC = realDate.UTC;
+
+      mockedAxios.get.mockResolvedValueOnce({ data: [] } as any);
+      await fetchKlineData('BTC', 'YTD');
+      const params = (mockedAxios.get.mock.calls[0]![1] as any).params;
+      expect(params.interval).toBe('6h');
+      jest.restoreAllMocks();
+    });
+
+    it('uses 1d interval for YTD when more than 180 days have elapsed', async () => {
+      const realDate = global.Date;
+      // August 1 = ~213 days elapsed
+      const fakeNow = new realDate(2026, 7, 1).getTime();
+      jest.spyOn(global, 'Date').mockImplementation((...args: any[]) => {
+        if (args.length === 0) return new realDate(fakeNow);
+        return new (realDate as any)(...args);
+      });
+      (global.Date as any).now = () => fakeNow;
+      (global.Date as any).UTC = realDate.UTC;
+
+      mockedAxios.get.mockResolvedValueOnce({ data: [] } as any);
+      await fetchKlineData('BTC', 'YTD');
+      const params = (mockedAxios.get.mock.calls[0]![1] as any).params;
+      expect(params.interval).toBe('1d');
+      jest.restoreAllMocks();
+    });
+
     it('returns [] and logs a generic error on non-axios failure', async () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockedAxios.get.mockRejectedValueOnce(new Error('oops'));

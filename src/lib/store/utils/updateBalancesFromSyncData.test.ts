@@ -107,6 +107,21 @@ describe('updateBalancesFromSyncData', () => {
     expect(cachedBalance!.balance).toBe(1); // 100000000 / 10^8
   });
 
+  it('uses existing tokenPrices from store (non-nullish tokenPrices branch)', async () => {
+    useWalletStore.setState({
+      tokenPrices: { MIDEN: { price: 2.5, change24h: 0.1, percentageChange24h: 5 } }
+    });
+
+    const vaultAssets: SerializedVaultAsset[] = [{ faucetId: MOCK_MIDEN_FAUCET_ID, amountBaseUnits: '1000000' }];
+
+    await updateBalancesFromSyncData('account-1', vaultAssets);
+
+    const balances = useWalletStore.getState().balances['account-1'];
+    expect(balances).toBeDefined();
+    expect(balances!.length).toBe(1);
+    expect(balances![0]!.tokenId).toBe(MOCK_MIDEN_FAUCET_ID);
+  });
+
   it('uses default metadata when sync data has no metadata for a token', async () => {
     const unknownFaucetId = 'unknown-faucet';
 

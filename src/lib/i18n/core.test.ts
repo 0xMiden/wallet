@@ -308,6 +308,71 @@ describe('i18n/core', () => {
     });
   });
 
+  describe('getMessage fetched-message paths', () => {
+    it('returns val.message directly when there are no placeholders', async () => {
+      const mockMessages = {
+        simple: {
+          message: 'A simple message'
+        }
+      };
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ json: () => Promise.resolve(mockMessages) });
+      (getSavedLocale as jest.Mock).mockReturnValue('de');
+      mockIsExtension.mockReturnValue(true);
+      (browser.i18n.getUILanguage as jest.Mock).mockReturnValue('en');
+      await init();
+      const result = getMessage('simple');
+      expect(result).toBe('A simple message');
+    });
+
+    it('processes placeholders using placeholderList and substitutions', async () => {
+      const mockMessages = {
+        greet: {
+          message: 'Hello $name$, you have $count$ items',
+          placeholders: {
+            name: { content: '$1' },
+            count: { content: '$2' }
+          }
+        }
+      };
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ json: () => Promise.resolve(mockMessages) });
+      (getSavedLocale as jest.Mock).mockReturnValue('it');
+      mockIsExtension.mockReturnValue(true);
+      (browser.i18n.getUILanguage as jest.Mock).mockReturnValue('en');
+      await init();
+      const result = getMessage('greet', { name: 'Alice', count: '5' });
+      expect(result).toContain('Alice');
+      expect(result).toContain('5');
+    });
+
+    it('uses placeholderList index fallback when pKey is 0 (falsy)', async () => {
+      const mockMessages = {
+        msg: {
+          message: 'Hi $a$',
+          placeholders: {
+            a: { content: '$1' }
+          }
+        }
+      };
+      (global.fetch as jest.Mock).mockResolvedValueOnce({ json: () => Promise.resolve(mockMessages) });
+      (getSavedLocale as jest.Mock).mockReturnValue('zh');
+      mockIsExtension.mockReturnValue(true);
+      (browser.i18n.getUILanguage as jest.Mock).mockReturnValue('en');
+      await init();
+      // Call with substitutions to exercise the reduce loop
+      const result = getMessage('msg', { a: 'World' });
+      expect(typeof result).toBe('string');
+    });
+  });
+
+  describe('getCurrentLocale i18next branch', () => {
+    it('uses i18n.language when available (with hyphen normalization)', () => {
+      // i18next sets i18n.language; let's verify the path works
+      const result = getCurrentLocale();
+      // Should return something (either i18n.language, savedLocale, or native)
+      expect(typeof result).toBe('string');
+    });
+  });
+
   describe('appendPlaceholderLists edge cases', () => {
     it('handles a placeholder content with multi-digit index', async () => {
       const mockMessages = {

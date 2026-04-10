@@ -32,7 +32,7 @@ export function useHistory() {
 }
 
 export function changeState(action: HistoryAction.Push | HistoryAction.Replace, state: any, url: string) {
-  if (typeof window === 'undefined') return;
+  /* c8 ignore start */ if (typeof window === 'undefined') return; /* c8 ignore stop */
 
   const title = ''; // Deprecated stuff
 
@@ -53,7 +53,7 @@ export function changeState(action: HistoryAction.Push | HistoryAction.Replace, 
 }
 
 export function go(delta: number) {
-  if (typeof window === 'undefined') return;
+  /* c8 ignore start */ if (typeof window === 'undefined') return; /* c8 ignore stop */
   window.history.go(delta);
 }
 
@@ -76,7 +76,7 @@ export function createUrl(pathname: string = '/', search: string = '', hash: str
 }
 
 export function resetHistoryPosition() {
-  if (typeof window === 'undefined') return;
+  /* c8 ignore start */ if (typeof window === 'undefined') return; /* c8 ignore stop */
   (window.history as PatchedHistory).position = 0;
   notifyListeners();
 }

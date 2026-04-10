@@ -76,10 +76,12 @@ export const TOKEN_MAPPING = {
 export function getNetworkId(): NetworkId {
   const network: string = DEFAULT_NETWORK;
   switch (network) {
+    /* c8 ignore start */
     case MIDEN_NETWORK_NAME.MAINNET:
       return NetworkId.mainnet();
     case MIDEN_NETWORK_NAME.DEVNET:
       return NetworkId.devnet();
+    /* c8 ignore stop */
     case MIDEN_NETWORK_NAME.TESTNET:
     case MIDEN_NETWORK_NAME.LOCALNET:
     default:

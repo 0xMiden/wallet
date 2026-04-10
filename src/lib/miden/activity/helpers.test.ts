@@ -332,6 +332,32 @@ describe('activity/helpers', () => {
       expect(onTransfer).not.toHaveBeenCalled();
     });
 
+    it('handles FA2 with non-string from field (checkIfVarString false branch)', () => {
+      const onTransfer = jest.fn();
+      const parameters = {
+        entrypoint: 'transfer',
+        value: [
+          {
+            args: [
+              { notAString: 123 },
+              [
+                {
+                  args: [
+                    { string: 'recipient' },
+                    {
+                      args: [{ int: '5' }, { int: '2000' }]
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      };
+      tryParseTokenTransfers(parameters, 'contract', onTransfer);
+      expect(onTransfer).not.toHaveBeenCalled();
+    });
+
     it('handles FA2 with non-int amount', () => {
       const onTransfer = jest.fn();
       const parameters = {

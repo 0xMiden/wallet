@@ -76,4 +76,10 @@ describe('getFallbackLetter', () => {
   it('returns ? for empty input', () => {
     expect(getFallbackLetter('')).toBe('?');
   });
+
+  it('returns ? for URL with empty hostname', () => {
+    // file: URLs have empty hostname
+    const result = getFallbackLetter('file:///path');
+    expect(result).toBe('?');
+  });
 });

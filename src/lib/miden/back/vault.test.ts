@@ -265,6 +265,14 @@ describe('Vault (static)', () => {
       (isMobile as jest.Mock).mockReturnValue(false);
       expect(await Vault.tryHardwareUnlock()).toBeNull();
     });
+
+    it('returns null on mobile when no hardware key is stored', async () => {
+      (isMobile as jest.Mock).mockReturnValue(true);
+      (isDesktop as jest.Mock).mockReturnValue(false);
+      // No hardware key saved — getHardwareVaultKey will throw "not configured"
+      const vault = await Vault.tryHardwareUnlock();
+      expect(vault).toBeNull();
+    });
   });
 
   describe('getCurrentAccountPublicKey', () => {

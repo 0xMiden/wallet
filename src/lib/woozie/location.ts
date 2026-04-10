@@ -32,7 +32,7 @@ export type ModifyLocation = (location: LocationState) => LocationUpdates;
 export type To = string | LocationUpdates | ModifyLocation;
 
 export function createLocationState(): LocationState {
-  // Guard for service worker context
+  /* c8 ignore start -- SSR/service-worker guard, untestable in jsdom */
   if (typeof window === 'undefined') {
     return {
       trigger: null,
@@ -50,6 +50,7 @@ export function createLocationState(): LocationState {
       search: ''
     };
   }
+  /* c8 ignore stop */
 
   const {
     length: historyLength,

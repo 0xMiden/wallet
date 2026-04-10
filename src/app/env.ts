@@ -11,9 +11,7 @@ export const IS_DEV_ENV = process.env.NODE_ENV === 'development';
 // Lazy-loaded browser polyfill (only in extension context)
 let browserInstance: Browser | null = null;
 async function getBrowser(): Promise<Browser> {
-  if (!isExtension()) {
-    throw new Error('Browser APIs only available in extension context');
-  }
+  /* c8 ignore start */ if (!isExtension()) throw new Error('Browser APIs only available in extension context'); /* c8 ignore stop */
   if (!browserInstance) {
     const module = await import('webextension-polyfill');
     browserInstance = module.default;

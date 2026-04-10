@@ -919,6 +919,15 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('fetchBalances', () => {
+    it('skips if already loading for that address', async () => {
+      useWalletStore.setState({ balancesLoading: { 'addr-1': true } });
+      await useWalletStore.getState().fetchBalances('addr-1', {});
+      // Should not have changed anything (no-op)
+      expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(true);
+    });
+  });
+
   describe('sync + transaction modal actions', () => {
     it('setSyncStatus marks initial sync done when transitioning to false', () => {
       useWalletStore.getState().setSyncStatus(true);

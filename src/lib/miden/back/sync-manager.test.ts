@@ -39,7 +39,7 @@ jest.mock('lib/miden/metadata', () => ({
 }));
 
 jest.mock('lib/i18n', () => ({
-  getMessage: (key: string) => key
+  getMessage: jest.fn((key: string) => key)
 }));
 
 jest.mock('../sdk/helpers', () => ({
@@ -220,6 +220,24 @@ describe('doSync', () => {
     expect(mockClient.syncState).toHaveBeenCalledTimes(2);
   });
 
+  it('concurrent doSync calls skip the second invocation (re-entrancy guard)', async () => {
+    let syncResolve: () => void;
+    const syncPromise = new Promise<void>(resolve => {
+      syncResolve = resolve;
+    });
+    mockClient.syncState.mockImplementationOnce(() => syncPromise);
+
+    const first = doSync();
+    const second = doSync(); // should hit isSyncing guard
+
+    syncResolve!();
+    await first;
+    await second;
+
+    // syncState should only have been called once
+    expect(mockClient.syncState).toHaveBeenCalledTimes(1);
+  });
+
   it('does not throw when broadcast fails in the no-account branch', async () => {
     mockGetCurrentAccountPublicKey.mockResolvedValueOnce(undefined);
     mockBroadcast.mockImplementationOnce(() => { throw new Error('no ports'); });
@@ -285,6 +303,42 @@ describe('setupSyncManager', () => {
       'miden-sync',
       expect.objectContaining({ periodInMinutes: expect.any(Number) })
     );
+  });
+});
+
+describe('doSync — notification getMessage fallback branches', () => {
+  it('uses fallback strings when getMessage returns empty (single note)', async () => {
+    const { getMessage } = jest.requireMock('lib/i18n');
+    getMessage.mockReturnValue('');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n-fb' })]);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['n-fb']);
+    mockHasClients.mockReturnValue(false);
+    const showNotification = jest.fn();
+    (globalThis as any).registration = { showNotification };
+    await doSync();
+    expect(showNotification).toHaveBeenCalledWith('You have received a note', expect.any(Object));
+    delete (globalThis as any).registration;
+    getMessage.mockImplementation((key: string) => key);
+  });
+
+  it('uses fallback strings when getMessage returns empty (multi note)', async () => {
+    const { getMessage } = jest.requireMock('lib/i18n');
+    getMessage.mockReturnValue('');
+    mockClient.getConsumableNotes.mockResolvedValueOnce([
+      fakeNote({ id: 'n-m1' }),
+      fakeNote({ id: 'n-m2' })
+    ]);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['n-m1', 'n-m2']);
+    mockHasClients.mockReturnValue(false);
+    const showNotification = jest.fn();
+    (globalThis as any).registration = { showNotification };
+    await doSync();
+    expect(showNotification).toHaveBeenCalledWith(
+      'You have received a note',
+      expect.objectContaining({ body: 'You have 2 new notes to claim' })
+    );
+    delete (globalThis as any).registration;
+    getMessage.mockImplementation((key: string) => key);
   });
 });
 

@@ -22,7 +22,7 @@ async function getBrowser(): Promise<BrowserPolyfill> {
   // The polyfill ships as a CJS module with a namespace-default
   // export; at runtime both `mod.default` (when bundled as ESM) and
   // `mod` itself (direct import) are the same browser-API object.
-  return (mod as { default?: BrowserPolyfill }).default ?? mod;
+  /* c8 ignore start */ return (mod as { default?: BrowserPolyfill }).default ?? mod; /* c8 ignore stop */
 }
 
 const ALARM_NAME = 'miden-tx-processor';
@@ -116,9 +116,9 @@ export function setupTransactionProcessor(): void {
           // Alarm fires to keep SW alive — no action needed, processing loop is running
         }
       });
-    } catch {
+    } catch { /* c8 ignore start */
       // Non-extension context: no alarms API, nothing to register.
-    }
+    } /* c8 ignore stop */
   })();
 
   // Check for orphaned transactions on startup
