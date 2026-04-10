@@ -1562,6 +1562,63 @@
     "message": "暗号化されたウォレットファイル",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "クラウドバックアップ",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "クラウドバックアップからインポート",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Googleドライブからウォレットデータを復元します。インポートを完了するには、seed phrase が必要になります。",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "クラウドからインポート",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Googleでサインイン",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "としてサインインしました $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "バックアップパスワード",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "バックアップを復元中...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "バックアップを確認しています...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "このアカウントにはバックアップが見つかりませんでした。",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "このバックアップはパスキーで暗号化されていました。認証して復元します。",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "パスキーを使用して復元する",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "サインイン中...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "パスワードを入力して、暗号化されたウォレット ファイルにアクセスします。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

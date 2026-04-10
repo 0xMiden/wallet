@@ -1560,6 +1560,63 @@
     "message": "Arquivo de carteira criptografado",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Backup na nuvem",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Importar do backup na nuvem",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Restaure os dados da sua carteira do Google Drive. Você ainda precisará do seu seed phrase para concluir a importação.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Importar da nuvem",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Faça login com o Google",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Conectado como $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Senha de backup",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Restaurando backup...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Verificando backup...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "Nenhum backup encontrado nesta conta.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "Este backup foi criptografado com uma chave de acesso. Autentique para restaurar.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Restaurar com senha",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Fazendo login...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Digite sua senha para acessar seu arquivo criptografado da carteira.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

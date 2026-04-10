@@ -1504,6 +1504,63 @@
     "message": "Archivo de billetera cifrado",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Copia de seguridad en la nube",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Importar desde copia de seguridad en la nube",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Restaure los datos de su billetera desde Google Drive. Aún necesitarás tu seed phrase para completar la importación.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Importar desde la nube",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Iniciar sesión con Google",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Iniciado sesión como $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Contraseña de respaldo",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Restaurando copia de seguridad...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Comprobando copia de seguridad...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "No se encontró ninguna copia de seguridad en esta cuenta.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "Esta copia de seguridad se cifró con una clave de acceso. Autenticar para restaurar.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Restaurar con clave de acceso",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Iniciando sesión...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Ingrese su contraseña para acceder a su archivo de billetera cifrado.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
