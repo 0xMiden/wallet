@@ -381,4 +381,53 @@ describe('processRequest', () => {
     const res = await dispatch({ type: 'UnknownTypeForCoverage' as any });
     expect(res).toBeUndefined();
   });
+
+  it('PageRequest returns null payload when processDApp returns undefined', async () => {
+    Actions.processDApp.mockResolvedValueOnce(undefined);
+    const res = await dispatch({
+      type: MidenMessageType.PageRequest,
+      origin: 'o',
+      payload: { method: 'bar' }
+    });
+    expect(res.payload).toBeNull();
+  });
+
+  it('PageRequest threads sessionId through to processDApp', async () => {
+    Actions.processDApp.mockResolvedValueOnce({ ok: true });
+    await dispatch({
+      type: MidenMessageType.PageRequest,
+      origin: 'o',
+      payload: { method: 'baz' },
+      sessionId: 'sess-42'
+    });
+    expect(Actions.processDApp).toHaveBeenCalledWith('o', { method: 'baz' }, 'sess-42');
+  });
+
+  it('GetInputNoteDetailsRequest handles null optional chains on record fields', async () => {
+    mockClient.getInputNote.mockResolvedValueOnce({
+      details: () => ({
+        assets: () => ({
+          fungibleAssets: () => [
+            {
+              amount: () => null,
+              faucetId: () => null
+            }
+          ]
+        })
+      }),
+      state: () => null,
+      nullifier: () => null
+    });
+    const res = await dispatch({
+      type: WalletMessageType.GetInputNoteDetailsRequest,
+      noteIds: ['n1']
+    });
+    expect(res.notes).toHaveLength(1);
+    expect(res.notes[0]).toEqual({
+      noteId: 'n1',
+      state: 'Unknown',
+      assets: [{ amount: '0', faucetId: '' }],
+      nullifier: ''
+    });
+  });
 });

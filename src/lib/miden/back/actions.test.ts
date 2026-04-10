@@ -106,7 +106,8 @@ jest.mock('./dapp', () => ({
   requestSign: jest.fn(),
   requestAssets: jest.fn(),
   requestImportPrivateNote: jest.fn(),
-  requestConsumableNotes: jest.fn()
+  requestConsumableNotes: jest.fn(),
+  waitForTransaction: jest.fn()
 }));
 
 jest.mock('webextension-polyfill', () => ({
@@ -184,6 +185,18 @@ describe('actions', () => {
 
       expect(result).toBe(false);
     });
+
+    it('defaults to true when DAppEnabled key is not in storage', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.isExist.mockResolvedValueOnce(true);
+
+      // Mock storage to return empty object (key not present)
+      const browser = jest.requireMock('webextension-polyfill');
+      browser.storage.local.get.mockResolvedValueOnce({});
+
+      const result = await isDAppEnabled();
+      expect(result).toBe(true);
+    });
   });
 
   describe('getFrontState', () => {
@@ -193,6 +206,19 @@ describe('actions', () => {
 
       const result = await getFrontState();
 
+      expect(result.status).toBe(WalletStatus.Ready);
+    });
+
+    it('retries when inited is false and then resolves', async () => {
+      // Start with inited=false, then switch to true after a delay
+      mockStoreState.inited = false;
+      const promise = getFrontState();
+      // After a tick, set inited to true
+      await new Promise(r => setTimeout(r, 5));
+      mockStoreState.inited = true;
+      mockStoreState.status = WalletStatus.Ready;
+
+      const result = await promise;
       expect(result.status).toBe(WalletStatus.Ready);
     });
   });
@@ -244,6 +270,23 @@ describe('actions', () => {
     });
   });
 
+  describe('registerNewWallet with undefined password', () => {
+    it('passes empty string when password is undefined', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const mockVaultInstance = {
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(false)
+      };
+      Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
+
+      await registerNewWallet(undefined, 'mnemonic words', true);
+
+      expect(Vault.spawn).toHaveBeenCalledWith('', 'mnemonic words', true);
+    });
+  });
+
   describe('registerImportedWallet', () => {
     it('imports wallet from miden client and unlocks', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
@@ -260,6 +303,23 @@ describe('actions', () => {
       expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words');
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
+    });
+  });
+
+  describe('registerImportedWallet with undefined params', () => {
+    it('passes empty strings when password and mnemonic are undefined', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const mockVaultInstance = {
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+      };
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
+
+      await registerImportedWallet(undefined, undefined);
+
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '');
     });
   });
 
@@ -534,6 +594,17 @@ describe('actions', () => {
 
       expect(requestConsumableNotes).toHaveBeenCalledWith('https://example.com', req);
       expect(result).toEqual({ notes: [] });
+    });
+
+    it('handles WaitForTransactionRequest', async () => {
+      const { waitForTransaction } = jest.requireMock('./dapp');
+      waitForTransaction.mockResolvedValueOnce({ status: 'completed' });
+
+      const req = { type: MidenDAppMessageType.WaitForTransactionRequest, txId: 'tx-123' };
+      const result = await processDApp('https://example.com', req as any);
+
+      expect(waitForTransaction).toHaveBeenCalledWith(req);
+      expect(result).toEqual({ status: 'completed' });
     });
   });
 

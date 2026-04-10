@@ -219,6 +219,62 @@ describe('doSync', () => {
     await doSync();
     expect(mockClient.syncState).toHaveBeenCalledTimes(2);
   });
+
+  it('does not throw when broadcast fails in the no-account branch', async () => {
+    mockGetCurrentAccountPublicKey.mockResolvedValueOnce(undefined);
+    mockBroadcast.mockImplementationOnce(() => { throw new Error('no ports'); });
+    await expect(doSync()).resolves.toBeUndefined();
+  });
+
+  it('does not throw when broadcast fails in the main happy-path branch', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([]);
+    mockClient.getAccount.mockResolvedValueOnce(null);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce([]);
+    mockBroadcast.mockImplementationOnce(() => { throw new Error('no ports'); });
+    await expect(doSync()).resolves.toBeUndefined();
+  });
+
+  it('does not throw when broadcast fails in the error handler', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockRejectedValueOnce(new Error('wasm crash'));
+    mockBroadcast.mockImplementation(() => { throw new Error('no ports'); });
+    await expect(doSync()).resolves.toBeUndefined();
+    warnSpy.mockRestore();
+    mockBroadcast.mockReset();
+  });
+
+  it('handles a note whose firstAsset is null (no fungible assets)', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([
+      {
+        id: () => ({ toString: () => 'n-null-asset' }),
+        metadata: () => ({ sender: () => 's', noteType: () => 0 }),
+        details: () => ({
+          assets: () => ({
+            fungibleAssets: () => [] // empty array means no firstAsset
+          })
+        })
+      }
+    ]);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce([]);
+    await doSync();
+    // Note should be filtered out
+    expect(mockStorageSet).toHaveBeenCalled();
+  });
+
+  it('shows single-note notification message', async () => {
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'solo-note' })]);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['solo-note']);
+    mockHasClients.mockReturnValue(false);
+    const showNotification = jest.fn();
+    (globalThis as any).registration = { showNotification };
+    await doSync();
+    // Should use the single-note message
+    expect(showNotification).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ body: expect.any(String) })
+    );
+    delete (globalThis as any).registration;
+  });
 });
 
 describe('setupSyncManager', () => {

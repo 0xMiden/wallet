@@ -424,6 +424,206 @@ describe('startDappBackgroundProcessing error handling', () => {
   });
 });
 
+// ── requestDisconnect edge cases ──────────────────────────────────
+
+describe('requestDisconnect — edge cases', () => {
+  it('throws NotFound when current account has no permission for the origin', async () => {
+    // No session stored for the test origin
+    delete (storageState[STORAGE_KEY] as any)['https://unknown-dapp.xyz'];
+    await expect(
+      dapp.requestDisconnect('https://unknown-dapp.xyz', {
+        type: MidenDAppMessageType.DisconnectRequest
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotFound);
+  });
+
+  it('throws NotFound when currentAccountPubKey is null', async () => {
+    mockGetCurrentAccountPublicKey.mockResolvedValueOnce(null);
+    await expect(
+      dapp.requestDisconnect('https://miden.xyz', {
+        type: MidenDAppMessageType.DisconnectRequest
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotFound);
+  });
+});
+
+// ── getCurrentPermission edge cases ──────────────────────────────
+
+describe('getCurrentPermission — edge cases', () => {
+  it('returns null permission when no current account', async () => {
+    mockGetCurrentAccountPublicKey.mockResolvedValueOnce(null);
+    const res = await dapp.getCurrentPermission('https://miden.xyz');
+    expect(res.permission).toBeNull();
+  });
+
+  it('returns null permission when no session for origin', async () => {
+    const res = await dapp.getCurrentPermission('https://unknown-dapp.xyz');
+    expect(res.permission).toBeNull();
+  });
+});
+
+// ── waitForTransaction edge cases ──────────────────────────────
+
+describe('waitForTransaction', () => {
+  it('returns a response when given a valid txId', async () => {
+    mockWaitForTransactionCompletion.mockResolvedValueOnce({ status: 'completed' });
+    const res = await dapp.waitForTransaction({
+      type: MidenDAppMessageType.WaitForTransactionRequest,
+      txId: 'tx-abc'
+    } as never);
+    expect(res.type).toBe(MidenDAppMessageType.WaitForTransactionResponse);
+    expect(res.transactionOutput).toEqual({ status: 'completed' });
+  });
+
+  it('throws InvalidParams when txId is empty', async () => {
+    await expect(
+      dapp.waitForTransaction({
+        type: MidenDAppMessageType.WaitForTransactionRequest,
+        txId: ''
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+});
+
+// ── requestPermission — existing session returns immediately ────
+
+describe('requestPermission — returns immediately for existing session', () => {
+  it('returns existing permission without going through confirmation when not force', async () => {
+    // Session already exists for this origin with same appMeta.name
+    const res = await dapp.requestPermission(
+      'https://miden.xyz',
+      {
+        type: MidenDAppMessageType.PermissionRequest,
+        appMeta: { name: 'Miden Test', url: 'https://miden.xyz' },
+        force: false,
+        network: 'testnet',
+        privateDataPermission: 'UPON_REQUEST',
+        allowedPrivateData: 0
+      } as never,
+      'session-1'
+    );
+    expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
+    // Should NOT have called the confirmation store since session already exists
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+// ── cleanDApps ─────────────────────────────────────────────────
+
+describe('cleanDApps', () => {
+  it('clears all dapp sessions', async () => {
+    await dapp.cleanDApps();
+    const sessions = await dapp.getAllDApps();
+    expect(Object.keys(sessions).length).toBe(0);
+  });
+});
+
+// ── removeDApp ─────────────────────────────────────────────────
+
+describe('removeDApp', () => {
+  it('removes a session for the given origin and accountId', async () => {
+    const result = await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+    // The session should be removed
+    const sessions = await dapp.getAllDApps();
+    const originSessions = sessions['https://miden.xyz'] || [];
+    expect(originSessions.find((s: any) => s.accountId === 'miden-account-1')).toBeUndefined();
+  });
+
+  it('handles removing from non-existent origin gracefully', async () => {
+    const result = await dapp.removeDApp('https://nonexistent.xyz', 'miden-account-1');
+    expect(result).toBeDefined();
+  });
+});
+
+// ── requestSign — input validation branches ─────────────────────
+
+describe('requestSign — input validation', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: '',
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind: 'word'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestSign('https://unknown-dapp.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'miden-account-1',
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind: 'word'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+  it('throws NotGranted when sourceAccountId does not match any session', async () => {
+    await expect(
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'miden-account-1',
+        sourceAccountId: 'wrong-account',
+        payload: 'aGVsbG8=',
+        kind: 'word'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestPrivateNotes — input validation branches ──────────────
+
+describe('requestPrivateNotes — input validation', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(
+      dapp.requestPrivateNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: '',
+        noteIds: ['n1']
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestPrivateNotes('https://unknown-dapp.xyz', {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: 'miden-account-1',
+        noteIds: ['n1']
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+  it('throws NotGranted when sourcePublicKey does not match any session', async () => {
+    await expect(
+      dapp.requestPrivateNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: 'wrong-account',
+        noteIds: ['n1']
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+});
+
+// ── requestAssets — mobile branches ──────────────────────────────
+
+describe('requestAssets — mobile branches', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(
+      dapp.requestAssets('https://miden.xyz', {
+        type: MidenDAppMessageType.AssetsRequest,
+        sourcePublicKey: ''
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+});
+
 // ── formatConsumeTransactionPreview edge cases ──────────────────
 
 describe('formatConsumeTransactionPreview', () => {

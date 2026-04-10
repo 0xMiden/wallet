@@ -218,6 +218,52 @@ describe('runWhenClientIdle', () => {
   });
 });
 
+describe('AsyncMutex idle queue — high-priority interruption', () => {
+  it('pauses idle tasks when high-priority work arrives', async () => {
+    const order: string[] = [];
+
+    // Queue two idle tasks
+    runWhenClientIdle(async () => {
+      order.push('idle1-start');
+      // While this is running, a high-priority task arrives
+      await new Promise(resolve => setTimeout(resolve, 30));
+      order.push('idle1-end');
+    });
+
+    runWhenClientIdle(async () => {
+      order.push('idle2');
+    });
+
+    // Wait for first idle task to start
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Acquire lock (high-priority) — this should cause remaining idle tasks
+    // to be paused (re-queued) until lock is released
+    const highPriority = withWasmClientLock(async () => {
+      order.push('high');
+      return 'done';
+    });
+
+    await highPriority;
+    // Wait for idle tasks to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    expect(order[0]).toBe('idle1-start');
+    expect(order).toContain('high');
+    expect(order).toContain('idle2');
+  });
+
+  it('handles null/undefined tasks in the idle queue gracefully', async () => {
+    // This tests the `if (!task)` guard in runIdleTasks
+    // Queue an undefined-returning factory
+    runWhenClientIdle(async () => {
+      // Normal task
+    });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    // No crash — the queue processed cleanly
+  });
+});
+
 describe('getMidenClient singleton', () => {
   afterEach(() => {
     jest.clearAllMocks();

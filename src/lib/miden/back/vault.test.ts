@@ -849,10 +849,13 @@ describe('Vault hardware branches', () => {
     await expect(Vault.spawn(undefined as any)).rejects.toThrow(PublicError);
   });
 
-  it('setupHardwareProtector on mobile is tested via the separate "Vault.spawn hardware-only mode" describe', () => {
-    // Mobile hardware tests are in the earlier describe block that uses doMock('lib/biometric').
-    // The branch coverage for mobile paths is exercised there.
-    expect(true).toBe(true);
+  it('getMainDerivationPath throws for invalid wallet type', async () => {
+    // This triggers the 'Invalid wallet type' else branch
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    // Trying to create an HD account with an invalid wallet type
+    const vlt = await Vault.spawn('pw-test');
+    await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
   it('getHardwareVaultKey on desktop decrypts via desktop secure-storage', async () => {

@@ -1028,4 +1028,18 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().balances['addr-1']).toBe(before);
     });
   });
+
+  describe('updateSettings with null initial settings', () => {
+    it('uses newSettings directly when current settings is null', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.UpdateSettingsResponse });
+      useWalletStore.setState({ settings: null });
+
+      const { updateSettings } = useWalletStore.getState();
+      await updateSettings({ contacts: [{ name: 'Alice', address: 'addr1' }] });
+
+      // When settings was null, the new settings should be applied directly
+      const state = useWalletStore.getState();
+      expect(state.settings?.contacts).toEqual([{ name: 'Alice', address: 'addr1' }]);
+    });
+  });
 });

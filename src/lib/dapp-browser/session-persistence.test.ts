@@ -212,6 +212,24 @@ describe('clearAllPersistedSessions', () => {
     await clearAllPersistedSessions();
     expect(mockRemove).toHaveBeenCalledWith({ key: STORAGE_KEY });
   });
+
+  it('logs warning but does not throw when Preferences.remove rejects', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockRemove.mockRejectedValueOnce(new Error('storage error'));
+    await expect(clearAllPersistedSessions()).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
+describe('savePersistedSessions error handling', () => {
+  it('logs warning but does not throw when Preferences.set rejects', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSet.mockRejectedValueOnce(new Error('write error'));
+    await expect(savePersistedSessions([makePersisted('a')])).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });
 
 describe('toPersisted / fromPersisted round-trip', () => {
