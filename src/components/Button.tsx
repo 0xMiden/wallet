@@ -29,7 +29,7 @@ const propsPerButtonVariant = {
     disabledColor: 'text-pure-white',
     backgroundColor: 'bg-primary-500 focus:bg-primary-500',
     hoverBackgroundColor: 'hover:bg-primary-600',
-    disabledBackgroundColor: 'bg-[#FF550099]',
+    disabledBackgroundColor: 'bg-primary-500/60',
     iconColor: 'white',
     border: 'border-[0.5px] border-transparent'
   },

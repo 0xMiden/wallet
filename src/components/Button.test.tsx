@@ -111,7 +111,7 @@ describe('Button', () => {
       render(<Button disabled />);
 
       expect(screen.getByRole('button')).toBeDisabled();
-      expect(screen.getByRole('button')).toHaveClass('bg-[#FF550099]');
+      expect(screen.getByRole('button')).toHaveClass('bg-primary-500/60');
     });
 
     it('does not call onClick when disabled', () => {

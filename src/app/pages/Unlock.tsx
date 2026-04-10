@@ -8,13 +8,17 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { openInFullPage, useAppEnv } from 'app/env';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
+import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg';
 import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg';
 import { Button, ButtonVariant } from 'components/Button';
 import { useFormAnalytics } from 'lib/analytics';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
+
+const WalletLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? LogoVerticalTitleDevnet : LogoVerticalTitle;
 
 type FormData = {
   password: string;
@@ -224,7 +228,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       <SimplePageLayout
         icon={
           <>
-            <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+            <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
           </>
         }
       >
@@ -239,7 +243,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       <SimplePageLayout
         icon={
           <>
-            <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+            <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
           </>
         }
       >
@@ -274,7 +278,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     <SimplePageLayout
       icon={
         <>
-          <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+          <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
         </>
       }
     >

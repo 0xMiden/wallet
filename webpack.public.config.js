@@ -30,6 +30,12 @@ module.exports = (publicPath, outputPath, manifestFile, targetBrowser) => {
         toType: 'file',
         transform: content => {
           const manifest = transformManifestKeys(JSON.parse(content), targetBrowser);
+          // Devnet branding: append "(Devnet)" to extension name
+          if (process.env.MIDEN_NETWORK === 'devnet') {
+            if (manifest.name && !manifest.name.includes('Devnet')) {
+              manifest.name += ' (Devnet)';
+            }
+          }
           return JSON.stringify(manifest, null, 2);
         }
       }

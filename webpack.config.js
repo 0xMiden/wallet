@@ -96,7 +96,8 @@ const appConfig = {
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
       TARGET_BROWSER: TARGET_BROWSER,
-      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
+      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false',
+      MIDEN_NETWORK: process.env.MIDEN_NETWORK || 'testnet'
     }),
 
     new webpack.ProvidePlugin({
@@ -291,7 +292,8 @@ const backgroundConfig = {
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
       TARGET_BROWSER: TARGET_BROWSER,
-      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
+      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false',
+      MIDEN_NETWORK: process.env.MIDEN_NETWORK || 'testnet'
     }),
 
     new webpack.ProvidePlugin({
@@ -470,7 +472,8 @@ const workerConfig = {
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
       TARGET_BROWSER: TARGET_BROWSER,
-      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
+      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false',
+      MIDEN_NETWORK: process.env.MIDEN_NETWORK || 'testnet'
     }),
 
     new webpack.ProvidePlugin({

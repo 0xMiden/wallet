@@ -3,9 +3,13 @@ import React from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as OnboardingLogo } from 'app/icons/v2/onboarding-logo.svg';
+import { ReactComponent as OnboardingLogoDevnet } from 'app/icons/v2/onboarding-logo-devnet.svg';
+import { ReactComponent as OnboardingLogoTestnet } from 'app/icons/v2/onboarding-logo.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
+
+const OnboardingLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? OnboardingLogoDevnet : OnboardingLogoTestnet;
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
   onSubmit?: (action: Actions) => void;

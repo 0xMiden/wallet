@@ -4,6 +4,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -60,7 +61,7 @@ const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
             <span className={`text-sm ${isSelected ? 'text-primary-500 font-semibold' : 'text-black font-medium'}`}>
               {label}
             </span>
-            {isSelected && <Icon name={IconName.Checkmark} size="xs" fill="#FF5500" />}
+            {isSelected && <Icon name={IconName.Checkmark} size="xs" fill={PRIMARY_HEX} />}
           </button>
         );
       })}
