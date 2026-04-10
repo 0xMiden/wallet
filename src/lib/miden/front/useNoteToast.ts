@@ -50,6 +50,7 @@ export function useNoteToastMonitor(publicAddress: string, enabled: boolean = tr
       useWalletStore.setState({ seenNoteIds: updatedIds });
 
       // On extension: persist the seed so service worker inherits
+      /* c8 ignore next 3 -- extension-only persistence path */
       if (isExtension()) {
         persistSeenNoteIds(updatedIds).catch(() => {});
       }

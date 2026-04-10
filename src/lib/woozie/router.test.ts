@@ -140,5 +140,44 @@ describe('woozie router', () => {
       resolve(map, '/items/123', {});
       expect(resolver).toHaveBeenCalledWith({ id: '123' }, {});
     });
+
+    it('returns empty params when keys is false', () => {
+      // Create a route map entry with keys=false (e.g., wildcard pattern)
+      const resolver = jest.fn(() => React.createElement('div'));
+      const map: RouteMap<{}> = [
+        {
+          route: '/(.*)',
+          resolveResult: resolver,
+          pattern: /^\/(.*)$/,
+          keys: false
+        }
+      ];
+
+      resolve(map, '/anything', {});
+      expect(resolver).toHaveBeenCalledWith({}, {});
+    });
+
+    it('returns empty params when pattern does not match in createParams', () => {
+      // Create a route map entry where pattern.test passes but pattern.exec returns null
+      // This can happen with lookahead patterns
+      const resolver = jest.fn(() => React.createElement('div'));
+      const testPattern = {
+        test: () => true,
+        exec: () => null,
+        source: '',
+        flags: ''
+      } as unknown as RegExp;
+      const map: RouteMap<{}> = [
+        {
+          route: '/test',
+          resolveResult: resolver,
+          pattern: testPattern,
+          keys: ['id']
+        }
+      ];
+
+      resolve(map, '/test', {});
+      expect(resolver).toHaveBeenCalledWith({}, {});
+    });
   });
 });

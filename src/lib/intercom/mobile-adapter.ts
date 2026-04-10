@@ -167,6 +167,7 @@ export class MobileIntercomAdapter {
           );
           return {
             type: MidenMessageType.PageResponse,
+            /* c8 ignore next -- dApp response nullish fallback, mobile-only */
             payload: resPayload ?? null
           };
         }

@@ -41,6 +41,11 @@ jest.mock('lib/miden-chain/constants', () => ({
   getRpcEndpoint: jest.fn(() => 'mock-endpoint')
 }));
 
+const mockFetchFromStorage = jest.fn();
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
+}));
+
 const mockIsMidenAsset = isMidenAsset as unknown as jest.Mock;
 
 describe('metadata/fetch', () => {
@@ -49,6 +54,7 @@ describe('metadata/fetch', () => {
     mockGetAccountDetails.mockReset();
     mockFromBech32.mockReset();
     mockFromAccount.mockReset();
+    mockFetchFromStorage.mockResolvedValue(null);
   });
 
   describe('fetchTokenMetadata', () => {
@@ -62,6 +68,17 @@ describe('metadata/fetch', () => {
         detailed: MIDEN_METADATA
       });
       // Should not call any RPC methods for miden asset
+      expect(mockGetAccountDetails).not.toHaveBeenCalled();
+    });
+
+    it('returns cached metadata when available in storage', async () => {
+      mockIsMidenAsset.mockReturnValue(false);
+      const cachedMeta = { decimals: 6, symbol: 'CACHED', name: 'Cached', thumbnailUri: '' };
+      mockFetchFromStorage.mockResolvedValueOnce({ 'cached-asset': cachedMeta });
+
+      const result = await fetchTokenMetadata('cached-asset');
+
+      expect(result).toEqual({ base: cachedMeta, detailed: cachedMeta });
       expect(mockGetAccountDetails).not.toHaveBeenCalled();
     });
 

@@ -294,6 +294,150 @@ describe('setDApp / removeDApp / cleanDApps', () => {
   });
 });
 
+// ── requestSign ───────────────────────────────────────────────────
+describe('requestSign', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(dapp.requestSign('https://miden.xyz', {} as never)).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestSign('https://unknown.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'unknown',
+        sourceAccountId: 'unknown',
+        payload: 'data',
+        kind: 'word'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestPrivateNotes ──────────────────────────────────────────
+describe('requestPrivateNotes', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(dapp.requestPrivateNotes('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestPrivateNotes('https://unknown.xyz', {
+        sourcePublicKey: 'unknown',
+        notefilterType: 'all',
+        noteIds: []
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestAssets ────────────────────────────────────────────────
+describe('requestAssets', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(dapp.requestAssets('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestAssets('https://unknown.xyz', {
+        sourcePublicKey: 'unknown'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestConsumableNotes ───────────────────────────────────────
+describe('requestConsumableNotes', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(dapp.requestConsumableNotes('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestConsumableNotes('https://unknown.xyz', {
+        sourcePublicKey: 'unknown'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestSendTransaction ──────────────────────────────────────
+describe('requestSendTransaction', () => {
+  it('throws InvalidParams when transaction is missing', async () => {
+    await expect(dapp.requestSendTransaction('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestSendTransaction('https://unknown.xyz', {
+        sourcePublicKey: 'unknown',
+        transaction: 'tx-bytes'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestTransaction ──────────────────────────────────────────
+describe('requestTransaction', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(dapp.requestTransaction('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestTransaction('https://unknown.xyz', {
+        sourcePublicKey: 'unknown',
+        transaction: 'bytes'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestConsumeTransaction ───────────────────────────────────
+describe('requestConsumeTransaction', () => {
+  it('throws InvalidParams when sourcePublicKey is missing', async () => {
+    await expect(dapp.requestConsumeTransaction('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestConsumeTransaction('https://unknown.xyz', {
+        sourcePublicKey: 'unknown',
+        transaction: 'tx-bytes'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── requestImportPrivateNote ────────────────────────────────────
+describe('requestImportPrivateNote', () => {
+  it('throws InvalidParams when note is missing', async () => {
+    await expect(dapp.requestImportPrivateNote('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+  });
+
+  it('throws NotGranted when no dApp session exists', async () => {
+    await expect(
+      dapp.requestImportPrivateNote('https://unknown.xyz', {
+        sourcePublicKey: 'unknown',
+        note: 'note-data'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
 // ── dappDebug export (S12 fix plumbing) ────────────────────────────
 
 describe('dappDebug', () => {

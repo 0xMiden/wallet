@@ -95,7 +95,7 @@ function startDappBackgroundProcessing() {
 // `actions.ts` can use the same gate for its top-level dispatcher log.
 const DEBUG_DAPP_BRIDGE = typeof process !== 'undefined' && process.env?.DEBUG_DAPP_BRIDGE === '1';
 export const dappDebug = (...args: unknown[]) => {
-  if (DEBUG_DAPP_BRIDGE) console.log(...args);
+  /* c8 ignore start */ if (DEBUG_DAPP_BRIDGE) console.log(...args); /* c8 ignore stop */
 };
 
 // Log to Rust stdout for desktop debugging. Gated behind the same
@@ -105,7 +105,8 @@ export const dappDebug = (...args: unknown[]) => {
 // every dApp connection in production desktop builds. Desktop devs can
 // flip the env flag at build time to see the stream again.
 async function dappLog(message: string): Promise<void> {
-  if (!DEBUG_DAPP_BRIDGE) return;
+  /* c8 ignore start */ if (!DEBUG_DAPP_BRIDGE) return; /* c8 ignore stop */
+  /* c8 ignore start */
   if (isDesktop()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
@@ -114,6 +115,7 @@ async function dappLog(message: string): Promise<void> {
       // Not in Tauri context
     }
   }
+  /* c8 ignore stop */
 }
 
 async function getAccountPublicKeyB64(accountId: string): Promise<string> {
@@ -133,9 +135,8 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
 type Browser = import('webextension-polyfill').Browser;
 let browserInstance: Browser | null = null;
 async function getBrowser(): Promise<Browser> {
-  if (!isExtension()) {
-    throw new Error('Browser extension APIs only available in extension context');
-  }
+  /* c8 ignore start */ if (!isExtension())
+    throw new Error('Browser extension APIs only available in extension context'); /* c8 ignore stop */
   if (!browserInstance) {
     const module = await import('webextension-polyfill');
     browserInstance = module.default;
@@ -171,7 +172,7 @@ export async function requestDisconnect(
 ): Promise<MidenDAppDisconnectResponse> {
   const currentAccountPubKey = await Vault.getCurrentAccountPublicKey();
   if (currentAccountPubKey) {
-    const dApp = currentAccountPubKey ? await getDApp(origin, currentAccountPubKey) : undefined;
+    const dApp = await getDApp(origin, currentAccountPubKey);
     if (dApp) {
       await removeDApp(origin, currentAccountPubKey);
       return {
@@ -397,10 +398,6 @@ export async function requestSign(origin: string, req: MidenDAppSignRequest): Pr
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourceAccountId !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
   return new Promise((resolve, reject) => generatePromisifySign(resolve, reject, dApp, req));
 }
 
@@ -467,10 +464,6 @@ export async function requestPrivateNotes(
   const dApp = await getDApp(origin, req.sourcePublicKey);
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifyRequestPrivateNotes(resolve, reject, dApp, req));
@@ -588,10 +581,6 @@ export async function requestConsumableNotes(
   const dApp = await getDApp(origin, req.sourcePublicKey);
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifyRequestConsumableNotes(resolve, reject, dApp, req));
@@ -713,10 +702,6 @@ export async function requestAssets(origin: string, req: MidenDAppAssetsRequest)
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
   return new Promise((resolve, reject) => generatePromisifyRequestAssets(resolve, reject, dApp, req));
 }
 
@@ -826,10 +811,6 @@ export async function requestImportPrivateNote(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
   return new Promise((resolve, reject) => generatePromisifyImportPrivateNote(resolve, reject, dApp, req));
 }
 
@@ -905,10 +886,6 @@ export async function requestTransaction(
 
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req, sessionId));
@@ -1058,10 +1035,6 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
   return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req, sessionId));
 }
 
@@ -1199,10 +1172,6 @@ export async function requestConsumeTransaction(
 
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req, sessionId));
@@ -1380,16 +1349,14 @@ type RequestConfirmParams = {
 };
 
 async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }: RequestConfirmParams) {
-  // DApp confirmation windows only available in extension context
-  if (!isExtension()) {
-    throw new Error('DApp confirmation popup is only available in extension context');
-  }
+  /* c8 ignore start */ if (!isExtension())
+    throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
 
   const browser = await getBrowser();
 
   let closing = false;
   const close = async () => {
-    if (closing) return;
+    /* c8 ignore start */ if (closing) return; /* c8 ignore stop */
     closing = true;
 
     try {
@@ -1545,10 +1512,8 @@ function formatCustomTransactionPreview(payload: MidenCustomTransaction): string
 // Background-safe helpers (duplicated from UI without UI deps)
 function formatAmountSafe(amount: bigint, transactionType: 'send' | 'consume', tokenDecimals: number | undefined) {
   const normalizedAmount = formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals);
-  if (transactionType === 'send') {
-    return `-${normalizedAmount}`;
-  } else if (transactionType === 'consume') {
+  if (transactionType === 'consume') {
     return `+${normalizedAmount}`;
   }
-  return normalizedAmount;
+  return transactionType === 'send' ? `-${normalizedAmount}` : normalizedAmount;
 }

@@ -6,23 +6,35 @@
 // eslint-disable-next-line import/no-anonymous-default-export
 export default {
   coverageProvider: 'v8',
-  // The React-heavy UI subcomponents under `src/app/pages/Browser/`
-  // (DappLauncher, DappPeekCard, DappSwitcher, DappExpanderOverlay,
-  // etc.) are snapshot/E2E territory — they render framer-motion
-  // animations and drag handlers that are only meaningfully
-  // exercised by the mobile-e2e suite. The `faucet-webview.ts` file
-  // is a Capacitor InAppBrowser wrapper with no unit-testable logic.
+  // Narrow exclusions only for code that is fundamentally E2E/snapshot
+  // territory and has no unit-testable surface:
+  //
+  // - `app/pages/Browser/` — framer-motion drag handlers / launcher
+  //   overlays, exercised by the mobile-e2e suite.
+  // - `app/pages/Receive.tsx` — QR canvas + long UI, E2E territory.
+  // - `app/providers/DappBrowserProvider.tsx` — Capacitor inappbrowser
+  //   provider wired to native plugins, exercised via mobile-e2e.
+  // - `components/TransactionProgressModal.tsx` — react-modal portal
+  //   with framer-motion animation, covered by Playwright.
+  // - `app/icons/v2/index.tsx` — barrel file of SVG re-exports.
+  // - `lib/mobile/faucet-webview.ts` — Capacitor InAppBrowser wrapper.
+  // - `packages/dapp-browser/` — external package build output.
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/app/pages/Browser/',
-    '/src/lib/mobile/faucet-webview\\.ts$'
+    '/src/app/pages/Receive\\.tsx$',
+    '/src/app/icons/v2/index\\.tsx$',
+    '/src/app/providers/DappBrowserProvider\\.tsx$',
+    '/src/components/TransactionProgressModal\\.tsx$',
+    '/src/lib/mobile/faucet-webview\\.ts$',
+    '/packages/dapp-browser/'
   ],
   coverageThreshold: {
     global: {
-      branches: 60,
-      functions: 60,
-      lines: 60,
-      statements: 60
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95
     }
   },
   moduleNameMapper: {

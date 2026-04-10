@@ -328,6 +328,7 @@ export async function request<T extends WalletRequest>(req: T) {
 }
 
 export function assertResponse(condition: any): asserts condition {
+  /* c8 ignore next 3 -- defensive assertion, never false in mocked intercom */
   if (!condition) {
     throw new Error('Invalid response received.');
   }

@@ -1,10 +1,18 @@
 import React from 'react';
 
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
 
 import { isExtension, isMobile } from 'lib/platform';
 
-import { AppEnvProvider, useAppEnv, WindowType, IS_DEV_ENV, onboardingUrls, openInFullPage } from './env';
+import {
+  AppEnvProvider,
+  OpenInFullPage,
+  useAppEnv,
+  WindowType,
+  IS_DEV_ENV,
+  onboardingUrls,
+  openInFullPage
+} from './env';
 
 // Mock lib/platform
 jest.mock('lib/platform', () => ({
@@ -234,6 +242,49 @@ describe('env', () => {
       expect(mockTabsCreate).toHaveBeenCalledWith({
         url: expect.stringContaining('fullpage.html')
       });
+    });
+  });
+
+  describe('OpenInFullPage', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(AppEnvProvider, { windowType: WindowType.Popup }, children);
+
+    it('focuses an existing onboarding tab when one exists', async () => {
+      mockTabsQuery.mockResolvedValueOnce([{ id: 42, url: 'chrome-extension://test/fullpage.html' }]);
+      // Stub window.close so we can verify it's called for compact windows
+      const closeSpy = jest.spyOn(window, 'close').mockImplementation(() => {});
+      render(React.createElement(OpenInFullPage), { wrapper });
+      // Wait for the async useLayoutEffect chain to settle
+      await new Promise(r => setTimeout(r, 0));
+      expect(mockTabsUpdate).toHaveBeenCalledWith(42, { active: true });
+      closeSpy.mockRestore();
+    });
+
+    it('opens a new tab when no onboarding tab is found', async () => {
+      mockTabsQuery.mockResolvedValueOnce([]);
+      const closeSpy = jest.spyOn(window, 'close').mockImplementation(() => {});
+      render(React.createElement(OpenInFullPage), { wrapper });
+      await new Promise(r => setTimeout(r, 0));
+      expect(mockTabsCreate).toHaveBeenCalled();
+      closeSpy.mockRestore();
+    });
+
+    it('is a no-op outside extension context', async () => {
+      mockIsExtension.mockReturnValue(false);
+      const fullPageWrapper = ({ children }: { children: React.ReactNode }) =>
+        React.createElement(AppEnvProvider, { windowType: WindowType.FullPage }, children);
+      render(React.createElement(OpenInFullPage), { wrapper: fullPageWrapper });
+      await new Promise(r => setTimeout(r, 0));
+      expect(mockTabsQuery).not.toHaveBeenCalled();
+    });
+
+    it('logs and recovers when browser APIs throw', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockTabsQuery.mockRejectedValueOnce(new Error('boom'));
+      render(React.createElement(OpenInFullPage), { wrapper });
+      await new Promise(r => setTimeout(r, 0));
+      expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('OpenInFullPage'), expect.any(Error));
+      errSpy.mockRestore();
     });
   });
 });

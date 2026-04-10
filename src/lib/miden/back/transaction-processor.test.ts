@@ -176,4 +176,47 @@ describe('setupTransactionProcessor', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalled();
   });
+
+  it('handles hasQueuedTransactions rejection gracefully', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    mockHasQueuedTransactions.mockRejectedValue(new Error('db error'));
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    expect(warnSpy).toHaveBeenCalledWith('[TransactionProcessor] Startup check error:', expect.any(Error));
+    warnSpy.mockRestore();
+  });
+});
+
+describe('startTransactionProcessing — broadcast and retry loop', () => {
+  it('broadcasts SyncCompleted after each loop iteration', async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([]);
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(mockIntercomBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: expect.any(String) }));
+  });
+
+  it('continues loop when broadcast throws (no frontends connected)', async () => {
+    mockIntercomBroadcast.mockImplementationOnce(() => {
+      throw new Error('no ports');
+    });
+    mockGetAllUncompletedTransactions.mockResolvedValue([]);
+    const mod = await import('./transaction-processor');
+    await mod.startTransactionProcessing();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalled();
+  });
+
+  it('retries when uncompleted transactions remain and breaks when they clear', async () => {
+    // First iteration: transactions remain. Second: they clear.
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([{ id: 'tx1' }]).mockResolvedValueOnce([]);
+    // Use fake timers to skip the 5s delay between retries
+    jest.useFakeTimers();
+    const mod = await import('./transaction-processor');
+    const promise = mod.startTransactionProcessing();
+    // Advance past the 5-second sleep between iterations
+    await jest.advanceTimersByTimeAsync(6000);
+    await promise;
+    jest.useRealTimers();
+    expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalledTimes(2);
+  });
 });

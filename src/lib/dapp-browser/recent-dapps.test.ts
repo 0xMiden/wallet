@@ -164,4 +164,29 @@ describe('migration', () => {
     const stored = JSON.parse(store[STORAGE_KEY]!);
     expect(stored).toEqual([]);
   });
+
+  it('handles entries with unparseable URLs gracefully', async () => {
+    store[STORAGE_KEY] = JSON.stringify([
+      { url: ':::not-a-url', name: 'bad', origin: 'bad', lastOpenedAt: 100 },
+      { url: 'https://miden.xyz/', name: 'Miden', origin: 'https://miden.xyz', lastOpenedAt: 200 }
+    ]);
+    const { getRecentDapps } = await import('./recent-dapps');
+    const recents = await getRecentDapps();
+    // The entry with the bad URL should still be kept (just without host-based filtering)
+    expect(recents).toHaveLength(2);
+  });
+});
+
+describe('write error handling', () => {
+  it('does not throw when Preferences.set rejects', async () => {
+    mockSet.mockRejectedValueOnce(new Error('write failure'));
+    const { recordRecentDapp, getRecentDapps } = await import('./recent-dapps');
+    // recordRecentDapp calls write() internally which catches errors
+    await expect(
+      recordRecentDapp({ url: 'https://test.xyz', name: 'test', origin: 'https://test.xyz' })
+    ).resolves.toBeUndefined();
+    // The in-memory cache should still have the entry
+    const recents = await getRecentDapps();
+    expect(recents).toHaveLength(1);
+  });
 });

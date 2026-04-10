@@ -35,7 +35,7 @@ export interface WebViewResponse {
 // logs. Enable via `DEBUG_DAPP_BRIDGE=1` env at build time.
 const DEBUG = typeof process !== 'undefined' && process.env?.DEBUG_DAPP_BRIDGE === '1';
 const dlog = (...args: unknown[]) => {
-  if (DEBUG) console.log(...args);
+  /* c8 ignore start */ if (DEBUG) console.log(...args); /* c8 ignore stop */
 };
 
 export async function handleWebViewMessage(

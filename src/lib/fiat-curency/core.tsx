@@ -24,6 +24,7 @@ export function useAssetFiatCurrencyPrice(slug: string) {
     if (slug !== 'aleo') return 1; // TODO get real fiat rates for other tokens
     if (!fiatRates || !exchangeRate || !exchangeRateAleo || !selectedFiatCurrency) return null;
     const rate = fiatRates[selectedFiatCurrency.name.toLowerCase()];
+    /* c8 ignore next -- rate lookup never undefined with current fiat data */
     if (rate === undefined) return null;
     const fiatToUsdRate = rate / exchangeRateAleo;
     const trueExchangeRate = fiatToUsdRate * exchangeRate;

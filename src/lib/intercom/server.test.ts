@@ -220,4 +220,31 @@ describe('IntercomServer', () => {
 
     expect(mockPostMessage).not.toHaveBeenCalled();
   });
+
+  it('calls onAllClientsDisconnected listeners when the last port disconnects', () => {
+    const disconnectHandler = jest.fn();
+    server.onAllClientsDisconnected(disconnectHandler);
+
+    connectListener(mockPort);
+    // Simulate disconnect — this is the only port, so ports.size becomes 0
+    const disconnectCallback = mockPort.onDisconnect.addListener.mock.calls[0][0];
+    disconnectCallback();
+
+    expect(disconnectHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('catches errors in onAllClientsDisconnected listeners', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    const throwingHandler = () => {
+      throw new Error('listener error');
+    };
+    server.onAllClientsDisconnected(throwingHandler);
+
+    connectListener(mockPort);
+    const disconnectCallback = mockPort.onDisconnect.addListener.mock.calls[0][0];
+    disconnectCallback();
+
+    expect(errorSpy).toHaveBeenCalledWith('[IntercomServer] Disconnect listener error:', expect.any(Error));
+    errorSpy.mockRestore();
+  });
 });
