@@ -2,6 +2,8 @@ import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from '../lib/miden-chain/constant
 
 export const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 
+/* c8 ignore start -- build-time constants; devnet branch only executes in MIDEN_NETWORK=devnet builds */
+
 // Primary palette
 export const PRIMARY_50 = isDevnet ? '#EEF1F4' : '#FFF0E5';
 export const PRIMARY_500 = isDevnet ? '#7286A0' : '#FF5500';
@@ -72,3 +74,5 @@ export const LOGO_ORANGE_PALETTE = isDevnet
       500: '#FF5500',
       700: '#AA3700'
     };
+
+/* c8 ignore stop */
