@@ -57,6 +57,10 @@
     "desktop:dev": "yarn build:desktop:dev && yarn tauri dev",
     "desktop:build": "yarn build:desktop && yarn tauri build",
     "desktop:reset": "rm -rf ~/Library/WebKit/com.miden.wallet ~/Library/Caches/com.miden.wallet ~/Library/Application\\ Support/com.miden.wallet",
+    "build:devnet": "rimraf ./dist && yarn clear:webpack-cache && cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=production MANIFEST_VERSION=3 webpack",
+    "dev:devnet": "cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=development MANIFEST_VERSION=3 webpack --watch --progress",
+    "build:mobile:devnet": "rimraf ./dist/mobile && cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=production webpack --config webpack.mobile.config.js",
+    "build:desktop:devnet": "rimraf ./dist/desktop && cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=production webpack --config webpack.desktop.config.js",
     "tauri": "tauri"
   },
   "dependencies": {

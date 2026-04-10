@@ -13,9 +13,10 @@ export enum MIDEN_NETWORK_NAME {
 
 /**
  * The default network used throughout the app.
- * Change this single value to switch which network the wallet connects to.
+ * Driven by the MIDEN_NETWORK env variable at build time (default: testnet).
+ * Use `yarn build:devnet` to build for devnet.
  */
-export const DEFAULT_NETWORK = MIDEN_NETWORK_NAME.TESTNET;
+export const DEFAULT_NETWORK = (process.env.MIDEN_NETWORK as MIDEN_NETWORK_NAME) || MIDEN_NETWORK_NAME.TESTNET;
 
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',
@@ -43,6 +44,7 @@ export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
 
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://127.0.0.1:57292']
 ]);
 
