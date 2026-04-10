@@ -522,7 +522,7 @@ describe('cleanDApps', () => {
 
 describe('removeDApp', () => {
   it('removes a session for the given origin and accountId', async () => {
-    const result = await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
+    await dapp.removeDApp('https://miden.xyz', 'miden-account-1');
     // The session should be removed
     const sessions = await dapp.getAllDApps();
     const originSessions = sessions['https://miden.xyz'] || [];
@@ -607,7 +607,6 @@ describe('requestPrivateNotes — input validation', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
-
 });
 
 // ── requestAssets — mobile branches ──────────────────────────────
@@ -621,7 +620,6 @@ describe('requestAssets — mobile branches', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
-
 });
 
 // ── formatConsumeTransactionPreview edge cases ──────────────────

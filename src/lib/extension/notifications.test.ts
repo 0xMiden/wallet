@@ -1,10 +1,10 @@
-jest.mock('lib/platform', () => ({
-  isExtension: jest.fn()
-}));
-
 import { isExtension } from 'lib/platform';
 
 import { showExtensionNotification } from './notifications';
+
+jest.mock('lib/platform', () => ({
+  isExtension: jest.fn()
+}));
 
 const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 
@@ -19,7 +19,10 @@ class FakeNotification {
   requireInteraction: boolean | undefined;
   onclick: (() => void) | null = null;
   close = jest.fn();
-  constructor(public title: string, opts?: NotificationOptions) {
+  constructor(
+    public title: string,
+    opts?: NotificationOptions
+  ) {
     this.body = opts?.body;
     this.icon = opts?.icon;
     this.requireInteraction = opts?.requireInteraction;

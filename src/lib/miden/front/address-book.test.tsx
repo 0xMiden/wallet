@@ -1,7 +1,5 @@
 /* eslint-disable import/first */
 
-import React from 'react';
-
 import { act, renderHook } from '@testing-library/react';
 
 const mockUpdateSettings = jest.fn();
@@ -50,9 +48,7 @@ describe('useContacts', () => {
       allContacts: [{ name: 'Alice', address: 'addr-a' }]
     });
     const { result } = renderHook(() => useContacts());
-    await expect(
-      result.current.addContact({ name: 'Alice2', address: 'addr-a' } as any)
-    ).rejects.toThrow();
+    await expect(result.current.addContact({ name: 'Alice2', address: 'addr-a' } as any)).rejects.toThrow();
     expect(mockUpdateSettings).not.toHaveBeenCalled();
   });
 

@@ -244,10 +244,7 @@ describe('IntercomServer', () => {
     const disconnectCallback = mockPort.onDisconnect.addListener.mock.calls[0][0];
     disconnectCallback();
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[IntercomServer] Disconnect listener error:',
-      expect.any(Error)
-    );
+    expect(errorSpy).toHaveBeenCalledWith('[IntercomServer] Disconnect listener error:', expect.any(Error));
     errorSpy.mockRestore();
   });
 });

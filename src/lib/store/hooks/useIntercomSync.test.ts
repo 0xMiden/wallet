@@ -48,12 +48,10 @@ describe('fetchStateFromBackend', () => {
   });
 
   it('retries when configured and eventually succeeds', async () => {
-    intercom.request
-      .mockResolvedValueOnce({ type: 'WrongType' })
-      .mockResolvedValueOnce({
-        type: WalletMessageType.GetStateResponse,
-        state: { status: 'Locked' }
-      });
+    intercom.request.mockResolvedValueOnce({ type: 'WrongType' }).mockResolvedValueOnce({
+      type: WalletMessageType.GetStateResponse,
+      state: { status: 'Locked' }
+    });
     const state = await fetchStateFromBackend(2);
     expect(state).toEqual({ status: 'Locked' });
   });

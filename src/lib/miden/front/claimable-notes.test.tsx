@@ -1,7 +1,5 @@
 /* eslint-disable import/first */
 
-import React from 'react';
-
 import { renderHook, waitFor } from '@testing-library/react';
 
 const _g = globalThis as any;
@@ -50,7 +48,7 @@ jest.mock('lib/swr', () => ({
 const mockGetMidenClient = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async (fn: () => Promise<any>) => fn(),
   runWhenClientIdle: jest.fn()
 }));
 
@@ -107,9 +105,7 @@ describe('useClaimableNotes (extension mode)', () => {
         local: {
           get: jest.fn((_key: string, cb: any) => {
             cb({
-              miden_cached_consumable_notes: (globalThis as any).__cnTest.storage[
-                'miden_cached_consumable_notes'
-              ]
+              miden_cached_consumable_notes: (globalThis as any).__cnTest.storage['miden_cached_consumable_notes']
             });
           })
         }

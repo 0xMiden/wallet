@@ -113,6 +113,7 @@ const _g = globalThis as any;
 _g.__dappTestMockGetAccount = jest.fn();
 _g.__dappTestMockGetOutputNotes = jest.fn();
 const mockGetAccount = _g.__dappTestMockGetAccount;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const mockGetOutputNotes = _g.__dappTestMockGetOutputNotes;
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
@@ -574,9 +575,7 @@ describe('requestConsumableNotes — Auto permission', () => {
       { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
     ];
     // Mock getMidenClient to also expose getConsumableNotes
-    (require('lib/miden/sdk/helpers').getBech32AddressFromAccountId as any) = jest.fn(
-      () => 'bech32-stub'
-    );
+    (require('lib/miden/sdk/helpers').getBech32AddressFromAccountId as any) = jest.fn(() => 'bech32-stub');
     // Override the relative-path mock to add getConsumableNotes
     const sdk = require('../sdk/miden-client');
     const originalGet = sdk.getMidenClient;
@@ -618,23 +617,18 @@ describe('Asset/Notes data fetching error branches', () => {
 describe('requestPermission (mobile)', () => {
   it('stores a new session when user grants permission and wallet returns an account', async () => {
     mockGetAccount.mockResolvedValue({
-      getPublicKeyCommitments: () => [
-        { serialize: () => new Uint8Array([1, 2, 3]) }
-      ]
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }]
     });
     // No existing session for this origin
     delete (storageState[STORAGE_KEY] as any)['https://newdapp.xyz'];
-    const res = await dapp.requestPermission(
-      'https://newdapp.xyz',
-      {
-        type: MidenDAppMessageType.PermissionRequest,
-        appMeta: { name: 'New Dapp', url: 'https://newdapp.xyz' },
-        network: 'testnet',
-        privateDataPermission: 'UponRequest',
-        allowedPrivateData: {},
-        force: false
-      } as never
-    );
+    const res = await dapp.requestPermission('https://newdapp.xyz', {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'New Dapp', url: 'https://newdapp.xyz' },
+      network: 'testnet',
+      privateDataPermission: 'UponRequest',
+      allowedPrivateData: {},
+      force: false
+    } as never);
     expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
     expect((res as any).accountId).toBe('miden-account-1');
   });

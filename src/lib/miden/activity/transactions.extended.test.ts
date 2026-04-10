@@ -14,6 +14,19 @@
  */
 
 import { ITransactionStatus, Transaction } from '../db/types';
+import { NoteTypeEnum } from '../types';
+import {
+  cancelTransaction,
+  completeConsumeTransaction,
+  forceCaneclAllInProgressTransactions,
+  initiateConsumeTransaction,
+  requestCustomTransaction,
+  safeGenerateTransactionsLoop,
+  startBackgroundTransactionProcessing,
+  verifyStuckTransactionsFromNode,
+  waitForConsumeTx,
+  waitForTransactionCompletion
+} from './transactions';
 
 // In-memory db so liveQuery has something to subscribe to.
 const _g = globalThis as any;
@@ -131,20 +144,6 @@ const installNavigatorLocksMock = (lockResult: any = {}) => {
 };
 installNavigatorLocksMock();
 
-import {
-  cancelTransaction,
-  completeConsumeTransaction,
-  forceCaneclAllInProgressTransactions,
-  initiateConsumeTransaction,
-  requestCustomTransaction,
-  safeGenerateTransactionsLoop,
-  startBackgroundTransactionProcessing,
-  verifyStuckTransactionsFromNode,
-  waitForConsumeTx,
-  waitForTransactionCompletion
-} from './transactions';
-import { NoteTypeEnum } from '../types';
-
 beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
@@ -169,7 +168,10 @@ describe('requestCustomTransaction', () => {
 
   it('queues note imports when importNotes is provided', async () => {
     const { queueNoteImport } = jest.requireMock('./notes');
-    await requestCustomTransaction('acc-1', Buffer.from('x').toString('base64'), undefined, ['note-bytes-1', 'note-bytes-2']);
+    await requestCustomTransaction('acc-1', Buffer.from('x').toString('base64'), undefined, [
+      'note-bytes-1',
+      'note-bytes-2'
+    ]);
     expect(queueNoteImport).toHaveBeenCalledTimes(2);
   });
 });
@@ -216,9 +218,7 @@ describe('verifyStuckTransactionsFromNode', () => {
     });
     // Use the wasmMock InputNoteState — ConsumedAuthenticatedLocal is in the array
     const { InputNoteState } = require('@miden-sdk/miden-sdk');
-    mockGetInputNoteDetails.mockResolvedValueOnce([
-      { state: InputNoteState.ConsumedAuthenticatedLocal }
-    ]);
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedAuthenticatedLocal }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
@@ -468,7 +468,7 @@ describe('completeCustomTransaction', () => {
   it('processes private output notes by sending them via the WASM client', async () => {
     const fakeNote = {
       metadata: () => ({ noteType: () => 'private' }),
-      intoFull: () => ({ valid: true } as any)
+      intoFull: () => ({ valid: true }) as any
     };
     const txResult = {
       executedTransaction: () => ({
@@ -487,7 +487,7 @@ describe('completeCustomTransaction', () => {
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down'));
     const fakeNote = {
       metadata: () => ({ noteType: () => 'private' }),
-      intoFull: () => ({} as any)
+      intoFull: () => ({}) as any
     };
     const txResult = {
       executedTransaction: () => ({
@@ -539,7 +539,7 @@ describe('completeCustomTransaction', () => {
     txStore[0]!.secondaryAccountId = undefined;
     const fakeNote = {
       metadata: () => ({ noteType: () => 'private' }),
-      intoFull: () => ({} as any)
+      intoFull: () => ({}) as any
     };
     const txResult = {
       executedTransaction: () => ({
@@ -556,7 +556,7 @@ describe('completeCustomTransaction', () => {
     _gh.__noteTypeForTest = 'public';
     const fakeNote = {
       metadata: () => ({ noteType: () => 'public' }),
-      intoFull: () => ({} as any)
+      intoFull: () => ({}) as any
     };
     const txResult = {
       executedTransaction: () => ({
@@ -578,9 +578,7 @@ describe('initiateConsumeTransactionFromId', () => {
       getInputNote: jest.fn(async () => null)
     });
     const { initiateConsumeTransactionFromId } = require('./transactions');
-    await expect(initiateConsumeTransactionFromId('acc-1', 'note-missing')).rejects.toThrow(
-      /not found/
-    );
+    await expect(initiateConsumeTransactionFromId('acc-1', 'note-missing')).rejects.toThrow(/not found/);
     sdk.getMidenClient = orig;
   });
 

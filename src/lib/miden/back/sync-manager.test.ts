@@ -44,11 +44,7 @@ jest.mock('lib/i18n', () => ({
 
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (input: any) =>
-    typeof input === 'string'
-      ? input
-      : input && typeof input.toString === 'function'
-        ? input.toString()
-        : 'bech32-stub'
+    typeof input === 'string' ? input : input && typeof input.toString === 'function' ? input.toString() : 'bech32-stub'
 }));
 
 const mockClient = {
@@ -92,13 +88,7 @@ const mockStorageSet = jest.fn();
 import { doSync, setupSyncManager } from './sync-manager';
 
 // Helper: build a fake consumable note WASM record
-function fakeNote({
-  id = 'note-1',
-  faucetId = 'faucet-1',
-  amount = '100',
-  senderId = 'sender-1',
-  noteType = 0
-} = {}) {
+function fakeNote({ id = 'note-1', faucetId = 'faucet-1', amount = '100', senderId = 'sender-1', noteType = 0 } = {}) {
   return {
     id: () => ({ toString: () => id }),
     metadata: () => ({
@@ -240,7 +230,9 @@ describe('doSync', () => {
 
   it('does not throw when broadcast fails in the no-account branch', async () => {
     mockGetCurrentAccountPublicKey.mockResolvedValueOnce(undefined);
-    mockBroadcast.mockImplementationOnce(() => { throw new Error('no ports'); });
+    mockBroadcast.mockImplementationOnce(() => {
+      throw new Error('no ports');
+    });
     await expect(doSync()).resolves.toBeUndefined();
   });
 
@@ -248,14 +240,18 @@ describe('doSync', () => {
     mockClient.getConsumableNotes.mockResolvedValueOnce([]);
     mockClient.getAccount.mockResolvedValueOnce(null);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce([]);
-    mockBroadcast.mockImplementationOnce(() => { throw new Error('no ports'); });
+    mockBroadcast.mockImplementationOnce(() => {
+      throw new Error('no ports');
+    });
     await expect(doSync()).resolves.toBeUndefined();
   });
 
   it('does not throw when broadcast fails in the error handler', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
     mockClient.syncState.mockRejectedValueOnce(new Error('wasm crash'));
-    mockBroadcast.mockImplementation(() => { throw new Error('no ports'); });
+    mockBroadcast.mockImplementation(() => {
+      throw new Error('no ports');
+    });
     await expect(doSync()).resolves.toBeUndefined();
     warnSpy.mockRestore();
     mockBroadcast.mockReset();
@@ -324,10 +320,7 @@ describe('doSync — notification getMessage fallback branches', () => {
   it('uses fallback strings when getMessage returns empty (multi note)', async () => {
     const { getMessage } = jest.requireMock('lib/i18n');
     getMessage.mockReturnValue('');
-    mockClient.getConsumableNotes.mockResolvedValueOnce([
-      fakeNote({ id: 'n-m1' }),
-      fakeNote({ id: 'n-m2' })
-    ]);
+    mockClient.getConsumableNotes.mockResolvedValueOnce([fakeNote({ id: 'n-m1' }), fakeNote({ id: 'n-m2' })]);
     mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['n-m1', 'n-m2']);
     mockHasClients.mockReturnValue(false);
     const showNotification = jest.fn();
@@ -401,9 +394,7 @@ describe('doSync — note metadata branches', () => {
         metadata: () => ({ sender: () => 's', noteType: () => 0 }),
         details: () => ({
           assets: () => ({
-            fungibleAssets: () => [
-              { faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }
-            ]
+            fungibleAssets: () => [{ faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }]
           })
         })
       },
@@ -412,9 +403,7 @@ describe('doSync — note metadata branches', () => {
         metadata: () => ({ sender: () => 's', noteType: () => 0 }),
         details: () => ({
           assets: () => ({
-            fungibleAssets: () => [
-              { faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }
-            ]
+            fungibleAssets: () => [{ faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }]
           })
         })
       }
@@ -433,9 +422,7 @@ describe('doSync — note metadata branches', () => {
         metadata: () => ({ sender: () => 's', noteType: () => 0 }),
         details: () => ({
           assets: () => ({
-            fungibleAssets: () => [
-              { faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }
-            ]
+            fungibleAssets: () => [{ faucetId: () => 'f', amount: () => ({ toString: () => '1' }) }]
           })
         })
       }

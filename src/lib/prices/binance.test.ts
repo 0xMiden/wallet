@@ -1,14 +1,8 @@
-jest.mock('axios');
-
 import axios from 'axios';
 
-import {
-  DEFAULT_PRICE,
-  fetchKlineData,
-  fetchTokenPrices,
-  getTokenPrice,
-  Timeframe
-} from './binance';
+import { DEFAULT_PRICE, fetchKlineData, fetchTokenPrices, getTokenPrice, Timeframe } from './binance';
+
+jest.mock('axios');
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -94,9 +88,11 @@ describe('binance', () => {
 
   describe('getTokenPrice', () => {
     it('returns the stored price info for a known symbol', () => {
-      expect(
-        getTokenPrice({ ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } }, 'ETH')
-      ).toEqual({ price: 3000, change24h: 10, percentageChange24h: 0.1 });
+      expect(getTokenPrice({ ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } }, 'ETH')).toEqual({
+        price: 3000,
+        change24h: 10,
+        percentageChange24h: 0.1
+      });
     });
 
     it('returns DEFAULT_PRICE when the symbol is missing', () => {

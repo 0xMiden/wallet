@@ -1,7 +1,5 @@
 /* eslint-disable import/first */
 
-import React from 'react';
-
 import { renderHook, waitFor } from '@testing-library/react';
 
 const _g = globalThis as any;

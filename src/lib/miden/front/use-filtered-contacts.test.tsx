@@ -1,7 +1,5 @@
 /* eslint-disable import/first */
 
-import React from 'react';
-
 import { renderHook } from '@testing-library/react';
 
 const mockUpdateSettings = jest.fn();
@@ -30,9 +28,7 @@ describe('useFilteredContacts', () => {
     mockUseSettings.mockReturnValue({
       contacts: [{ name: 'Alice', address: 'addr-a' }]
     });
-    mockUseAllAccounts.mockReturnValue([
-      { publicKey: 'acc-1', name: 'Account 1', isPublic: true }
-    ]);
+    mockUseAllAccounts.mockReturnValue([{ publicKey: 'acc-1', name: 'Account 1', isPublic: true }]);
     const { result } = renderHook(() => useFilteredContacts());
     expect(result.current.contacts).toEqual([{ name: 'Alice', address: 'addr-a' }]);
     expect(result.current.allContacts.some(c => c.address === 'addr-a')).toBe(true);
@@ -54,9 +50,7 @@ describe('useFilteredContacts', () => {
         { name: 'Self', address: 'acc-1' }
       ]
     });
-    mockUseAllAccounts.mockReturnValue([
-      { publicKey: 'acc-1', name: 'Account 1', isPublic: true }
-    ]);
+    mockUseAllAccounts.mockReturnValue([{ publicKey: 'acc-1', name: 'Account 1', isPublic: true }]);
     const { result } = renderHook(() => useFilteredContacts());
     // Self should be stripped from allContacts because it collides with acc-1
     const selfMatches = result.current.allContacts.filter(c => c.address === 'acc-1');

@@ -135,7 +135,8 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
 type Browser = import('webextension-polyfill').Browser;
 let browserInstance: Browser | null = null;
 async function getBrowser(): Promise<Browser> {
-  /* c8 ignore start */ if (!isExtension()) throw new Error('Browser extension APIs only available in extension context'); /* c8 ignore stop */
+  /* c8 ignore start */ if (!isExtension())
+    throw new Error('Browser extension APIs only available in extension context'); /* c8 ignore stop */
   if (!browserInstance) {
     const module = await import('webextension-polyfill');
     browserInstance = module.default;
@@ -465,7 +466,6 @@ export async function requestPrivateNotes(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-
   return new Promise((resolve, reject) => generatePromisifyRequestPrivateNotes(resolve, reject, dApp, req));
 }
 
@@ -582,7 +582,6 @@ export async function requestConsumableNotes(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
-
 
   return new Promise((resolve, reject) => generatePromisifyRequestConsumableNotes(resolve, reject, dApp, req));
 }
@@ -703,7 +702,6 @@ export async function requestAssets(origin: string, req: MidenDAppAssetsRequest)
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-
   return new Promise((resolve, reject) => generatePromisifyRequestAssets(resolve, reject, dApp, req));
 }
 
@@ -813,7 +811,6 @@ export async function requestImportPrivateNote(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-
   return new Promise((resolve, reject) => generatePromisifyImportPrivateNote(resolve, reject, dApp, req));
 }
 
@@ -890,7 +887,6 @@ export async function requestTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
-
 
   return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req, sessionId));
 }
@@ -1039,7 +1035,6 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-
   return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req, sessionId));
 }
 
@@ -1178,7 +1173,6 @@ export async function requestConsumeTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
-
 
   return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req, sessionId));
 }
@@ -1355,7 +1349,8 @@ type RequestConfirmParams = {
 };
 
 async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }: RequestConfirmParams) {
-  /* c8 ignore start */ if (!isExtension()) throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
+  /* c8 ignore start */ if (!isExtension())
+    throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
 
   const browser = await getBrowser();
 

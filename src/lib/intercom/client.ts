@@ -143,7 +143,8 @@ export class IntercomClient implements IIntercomClient {
       const browser = await getBrowser();
       this.port = this.buildPort(browser);
       console.log('[IntercomClient] Port initialized successfully');
-    } catch (error) { /* c8 ignore start */
+    } catch (error) {
+      /* c8 ignore start */
       console.error('[IntercomClient] Failed to initialize port:', error);
       throw error;
     } /* c8 ignore stop */

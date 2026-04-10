@@ -4,7 +4,15 @@ import { act, render, renderHook } from '@testing-library/react';
 
 import { isExtension, isMobile } from 'lib/platform';
 
-import { AppEnvProvider, OpenInFullPage, useAppEnv, WindowType, IS_DEV_ENV, onboardingUrls, openInFullPage } from './env';
+import {
+  AppEnvProvider,
+  OpenInFullPage,
+  useAppEnv,
+  WindowType,
+  IS_DEV_ENV,
+  onboardingUrls,
+  openInFullPage
+} from './env';
 
 // Mock lib/platform
 jest.mock('lib/platform', () => ({
@@ -242,9 +250,7 @@ describe('env', () => {
       React.createElement(AppEnvProvider, { windowType: WindowType.Popup }, children);
 
     it('focuses an existing onboarding tab when one exists', async () => {
-      mockTabsQuery.mockResolvedValueOnce([
-        { id: 42, url: 'chrome-extension://test/fullpage.html' }
-      ]);
+      mockTabsQuery.mockResolvedValueOnce([{ id: 42, url: 'chrome-extension://test/fullpage.html' }]);
       // Stub window.close so we can verify it's called for compact windows
       const closeSpy = jest.spyOn(window, 'close').mockImplementation(() => {});
       render(React.createElement(OpenInFullPage), { wrapper });

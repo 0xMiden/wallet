@@ -793,9 +793,7 @@ describe('useWalletStore', () => {
     it('confirmDAppPermission with confirmed=false sends empty accountPublicKey', async () => {
       mockRequest.mockResolvedValueOnce({ type: MidenMessageType.DAppPermConfirmationResponse });
       await useWalletStore.getState().confirmDAppPermission('id-1', false, 'acc-1', 'AUTO', 1);
-      expect(mockRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ accountPublicKey: '' })
-      );
+      expect(mockRequest).toHaveBeenCalledWith(expect.objectContaining({ accountPublicKey: '' }));
     });
 
     it('confirmDAppSign / confirmDAppPrivateNotes / confirmDAppAssets / confirmDAppImportPrivateNote / confirmDAppConsumableNotes / confirmDAppTransaction send their respective request types', async () => {
@@ -850,13 +848,11 @@ describe('useWalletStore', () => {
     it('removeDAppSession sends DAppRemoveSessionRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: MidenMessageType.DAppRemoveSessionResponse });
       await useWalletStore.getState().removeDAppSession('origin.xyz');
-      expect(mockRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ origin: 'origin.xyz' })
-      );
+      expect(mockRequest).toHaveBeenCalledWith(expect.objectContaining({ origin: 'origin.xyz' }));
     });
   });
 
-  describe('UI actions', () => {
+  describe('UI actions (network, confirmation)', () => {
     it('setSelectedNetworkId / setConfirmation / resetConfirmation', () => {
       useWalletStore.getState().setSelectedNetworkId('n1');
       expect(useWalletStore.getState().selectedNetworkId).toBe('n1');
@@ -1010,9 +1006,11 @@ describe('useWalletStore', () => {
 
   describe('extension claimable notes', () => {
     it('setExtensionClaimableNotes / addExtensionClaimingNoteId / clearExtensionClaimingNoteIds', () => {
-      useWalletStore.getState().setExtensionClaimableNotes([
-        { id: 'n1', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
-      ]);
+      useWalletStore
+        .getState()
+        .setExtensionClaimableNotes([
+          { id: 'n1', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
+        ]);
       expect(useWalletStore.getState().extensionClaimableNotes).toHaveLength(1);
       useWalletStore.getState().addExtensionClaimingNoteId('n1');
       expect(useWalletStore.getState().extensionClaimingNoteIds.has('n1')).toBe(true);
@@ -1021,7 +1019,7 @@ describe('useWalletStore', () => {
     });
   });
 
-  describe('fetchBalances action', () => {
+  describe('fetchBalances action (skip guard)', () => {
     beforeEach(() => {
       useWalletStore.setState({
         balances: {},

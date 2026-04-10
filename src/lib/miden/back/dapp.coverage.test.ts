@@ -297,9 +297,7 @@ describe('setDApp / removeDApp / cleanDApps', () => {
 // ── requestSign ───────────────────────────────────────────────────
 describe('requestSign', () => {
   it('throws InvalidParams when sourcePublicKey is missing', async () => {
-    await expect(dapp.requestSign('https://miden.xyz', {} as never)).rejects.toThrow(
-      MidenDAppErrorType.InvalidParams
-    );
+    await expect(dapp.requestSign('https://miden.xyz', {} as never)).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
 
   it('throws NotGranted when no dApp session exists', async () => {
@@ -313,7 +311,6 @@ describe('requestSign', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
-
 });
 
 // ── requestPrivateNotes ──────────────────────────────────────────
@@ -333,7 +330,6 @@ describe('requestPrivateNotes', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
-
 });
 
 // ── requestAssets ────────────────────────────────────────────────
@@ -351,7 +347,6 @@ describe('requestAssets', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
-
 });
 
 // ── requestConsumableNotes ───────────────────────────────────────

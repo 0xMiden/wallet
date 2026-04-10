@@ -183,10 +183,7 @@ describe('setupTransactionProcessor', () => {
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     await flushAsync();
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[TransactionProcessor] Startup check error:',
-      expect.any(Error)
-    );
+    expect(warnSpy).toHaveBeenCalledWith('[TransactionProcessor] Startup check error:', expect.any(Error));
     warnSpy.mockRestore();
   });
 });
@@ -196,9 +193,7 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
     mockGetAllUncompletedTransactions.mockResolvedValue([]);
     const mod = await import('./transaction-processor');
     await mod.startTransactionProcessing();
-    expect(mockIntercomBroadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ type: expect.any(String) })
-    );
+    expect(mockIntercomBroadcast).toHaveBeenCalledWith(expect.objectContaining({ type: expect.any(String) }));
   });
 
   it('continues loop when broadcast throws (no frontends connected)', async () => {
@@ -213,9 +208,7 @@ describe('startTransactionProcessing — broadcast and retry loop', () => {
 
   it('retries when uncompleted transactions remain and breaks when they clear', async () => {
     // First iteration: transactions remain. Second: they clear.
-    mockGetAllUncompletedTransactions
-      .mockResolvedValueOnce([{ id: 'tx1' }])
-      .mockResolvedValueOnce([]);
+    mockGetAllUncompletedTransactions.mockResolvedValueOnce([{ id: 'tx1' }]).mockResolvedValueOnce([]);
     // Use fake timers to skip the 5s delay between retries
     jest.useFakeTimers();
     const mod = await import('./transaction-processor');

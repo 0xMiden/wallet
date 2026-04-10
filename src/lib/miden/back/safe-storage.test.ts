@@ -1,5 +1,19 @@
 import * as Passworder from 'lib/miden/passworder';
 
+import {
+  encryptAndSaveMany,
+  encryptAndSaveManyLegacy,
+  fetchAndDecryptOne,
+  fetchAndDecryptOneLegacy,
+  fetchAndDecryptOneWithLegacyFallBack,
+  getPlain,
+  isStored,
+  isStoredLegacy,
+  removeMany,
+  removeManyLegacy,
+  savePlain
+} from './safe-storage';
+
 // We mock the storage adapter so we can run without browser.storage / localStorage.
 // `getStorageProvider` is called lazily inside safe-storage, so the mock just
 // needs to return an in-memory object.
@@ -22,20 +36,6 @@ jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => mockProvider),
   StorageProvider: class {}
 }));
-
-import {
-  encryptAndSaveMany,
-  encryptAndSaveManyLegacy,
-  fetchAndDecryptOne,
-  fetchAndDecryptOneLegacy,
-  fetchAndDecryptOneWithLegacyFallBack,
-  getPlain,
-  isStored,
-  isStoredLegacy,
-  removeMany,
-  removeManyLegacy,
-  savePlain
-} from './safe-storage';
 
 async function makeVaultKey(): Promise<CryptoKey> {
   const raw = Passworder.generateVaultKey();
@@ -148,7 +148,6 @@ describe('safe-storage', () => {
       // fetch path wraps the key before lookup, so we have to stage the data
       // under the wrapped key for the round-trip to work.
       // Use a known raw key and manually wrap it so we can simulate the pipeline.
-      const Buffer = require('buffer').Buffer;
       const rawStorageKey = 'legacy-key';
       // The legacy save path stores under the raw key, but the fetch path
       // always wraps. So we save manually using encryptAndSaveManyLegacy and
@@ -181,13 +180,12 @@ describe('safe-storage', () => {
       const salt = Passworder.generateSalt();
       const derived = await Passworder.deriveKeyLegacy(key, salt);
       const { dt, iv } = await Passworder.encrypt({ msg: 'legacy' }, derived);
-      const Buffer = require('buffer').Buffer;
       const saltHex = Buffer.from(salt).toString('hex');
       const payload = saltHex + iv + dt;
       // Wrap the storage key the same way fetchAndDecryptOneLegacy does
-      const wrapped = Buffer.from(
-        await crypto.subtle.digest('SHA-256', Buffer.from('some-key', 'utf-8'))
-      ).toString('hex');
+      const wrapped = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from('some-key', 'utf-8'))).toString(
+        'hex'
+      );
       memoryStore[wrapped] = payload;
       const decoded = await fetchAndDecryptOneLegacy<{ msg: string }>('some-key', key);
       expect(decoded).toEqual({ msg: 'legacy' });
@@ -208,12 +206,9 @@ describe('safe-storage', () => {
       const salt = Passworder.generateSalt();
       const derived = await Passworder.deriveKeyLegacy(passKey, salt);
       const { dt, iv } = await Passworder.encrypt({ mode: 'legacy' }, derived);
-      const Buffer = require('buffer').Buffer;
       const saltHex = Buffer.from(salt).toString('hex');
       const payload = saltHex + iv + dt;
-      const wrapped = Buffer.from(
-        await crypto.subtle.digest('SHA-256', Buffer.from('fb', 'utf-8'))
-      ).toString('hex');
+      const wrapped = Buffer.from(await crypto.subtle.digest('SHA-256', Buffer.from('fb', 'utf-8'))).toString('hex');
       memoryStore[wrapped] = payload;
       const decoded = await fetchAndDecryptOneWithLegacyFallBack<{ mode: string }>('fb', passKey);
       expect(decoded).toEqual({ mode: 'legacy' });

@@ -116,7 +116,8 @@ export function setupTransactionProcessor(): void {
           // Alarm fires to keep SW alive — no action needed, processing loop is running
         }
       });
-    } catch { /* c8 ignore start */
+    } catch {
+      /* c8 ignore start */
       // Non-extension context: no alarms API, nothing to register.
     } /* c8 ignore stop */
   })();

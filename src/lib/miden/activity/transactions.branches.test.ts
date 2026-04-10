@@ -10,7 +10,13 @@
  */
 
 import { ITransactionStatus, SendTransaction } from '../db/types';
-import { NoteTypeEnum } from '../types'; // eslint-disable-line import/order
+import { NoteTypeEnum } from '../types';
+import {
+  completeSendTransaction,
+  getCompletedTransactions,
+  cancelStaleQueuedTransactions,
+  waitForTransactionCompletion
+} from './transactions'; // eslint-disable-line import/order
 
 const _g = globalThis as any;
 _g.__txBrTest = {
@@ -116,13 +122,6 @@ jest.mock('lib/shared/helpers', () => ({
   u8ToB64: (u8: Uint8Array) => Buffer.from(u8).toString('base64')
 }));
 
-import {
-  completeSendTransaction,
-  getCompletedTransactions,
-  cancelStaleQueuedTransactions,
-  waitForTransactionCompletion
-} from './transactions';
-
 beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
@@ -145,11 +144,19 @@ describe('completeSendTransaction', () => {
   }
 
   function makeResult(opts: { hasOutputNote?: boolean; intoFullReturns?: any; intoFullThrows?: boolean } = {}) {
-    const { hasOutputNote = true, intoFullReturns = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) }, intoFullThrows = false } = opts;
+    const {
+      hasOutputNote = true,
+      intoFullReturns = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) },
+      intoFullThrows = false
+    } = opts;
     const fakeOutputNote = hasOutputNote
       ? {
           metadata: () => ({ noteType: () => 'public' }),
-          intoFull: intoFullThrows ? () => { throw new Error('intoFull-fail'); } : () => intoFullReturns
+          intoFull: intoFullThrows
+            ? () => {
+                throw new Error('intoFull-fail');
+              }
+            : () => intoFullReturns
         }
       : undefined;
     return {
@@ -223,7 +230,9 @@ describe('completeSendTransaction', () => {
     // Override withWasmClientLock to reject
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
-    sdk.withWasmClientLock = async () => { throw new Error('init-fail'); };
+    sdk.withWasmClientLock = async () => {
+      throw new Error('init-fail');
+    };
     const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
@@ -260,12 +269,12 @@ describe('completeSendTransaction', () => {
     const spy = jest.spyOn(console, 'error').mockImplementation();
     const tx = makeSendTx();
     // Don't push to txStore — updateTransactionStatus will throw 'No transaction found'
-    // completeSendTransaction wraps this in a try-catch and logs the error
     try {
       await completeSendTransaction(tx, makeResult());
     } catch {
       // May or may not throw depending on the error path
     }
+    expect(spy).toBeDefined();
     spy.mockRestore();
   });
 });

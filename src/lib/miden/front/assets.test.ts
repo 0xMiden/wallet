@@ -9,9 +9,10 @@ jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
     get: async (keys: string[]) => {
       const out: Record<string, any> = {};
-      for (const k of keys) if (k in (globalThis as any).__assetsTest.storage) {
-        out[k] = (globalThis as any).__assetsTest.storage[k];
-      }
+      for (const k of keys)
+        if (k in (globalThis as any).__assetsTest.storage) {
+          out[k] = (globalThis as any).__assetsTest.storage[k];
+        }
       return out;
     },
     set: async (items: Record<string, any>) => {

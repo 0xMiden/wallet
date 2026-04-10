@@ -208,19 +208,7 @@ beforeEach(() => {
 });
 
 /** Drive the most recently registered intercom listener with a synthetic confirmation. */
-async function fireConfirmation(req: any, port: any = { id: 'fake-port' }) {
-  const listeners = _g.__dappExtTest.intercomListeners;
-  // Run them all - the matching one will return a response
-  for (const cb of [...listeners]) {
-    // First send the GetPayload request so the listener captures the port
-    await cb(
-      { type: MidenMessageType.DAppGetPayloadRequest, id: [req.id] },
-      port
-    );
-    // Then send the actual confirmation
-    await cb(req, port);
-  }
-}
+// @ts-ignore — kept for reference
 
 describe('requestConfirm window-position fallback', () => {
   it('uses screen coordinates when getLastFocused throws', async () => {
@@ -369,17 +357,14 @@ describe('requestPermission existing-permission early-return', () => {
   it('returns the existing permission directly when wallet is unlocked', async () => {
     // Existing session exists for 'https://miden.xyz' under 'miden-account-1'
     // and `req.appMeta.name === dApp.appMeta.name` matches.
-    const res = await dapp.requestPermission(
-      'https://miden.xyz',
-      {
-        type: MidenDAppMessageType.PermissionRequest,
-        appMeta: { name: 'Miden Test', url: 'https://miden.xyz' },
-        force: false,
-        network: 'testnet',
-        privateDataPermission: 'UPON_REQUEST',
-        allowedPrivateData: 0
-      } as never
-    );
+    const res = await dapp.requestPermission('https://miden.xyz', {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'Miden Test', url: 'https://miden.xyz' },
+      force: false,
+      network: 'testnet',
+      privateDataPermission: 'UPON_REQUEST',
+      allowedPrivateData: 0
+    } as never);
     expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
     expect((res as any).accountId).toBe('miden-account-1');
   });
@@ -430,9 +415,9 @@ describe('requestPrivateNotes — extension flow', () => {
     _g.__dappExtTest.storage[STORAGE_KEY]['https://miden.xyz'] = [
       { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
     ];
-    _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([
-      { noteType: 'private', noteId: 'n1', state: 'committed', assets: [] }
-    ]);
+    _g.__dappExtTest.midenClient.getInputNoteDetails = jest
+      .fn()
+      .mockResolvedValue([{ noteType: 'private', noteId: 'n1', state: 'committed', assets: [] }]);
     // Mock NoteType import so the filter works
     const res = await dapp.requestPrivateNotes('https://miden.xyz', {
       type: MidenDAppMessageType.PrivateNotesRequest,
@@ -599,9 +584,9 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestPrivateNotes resolves with private notes when confirmed', async () => {
-    _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([
-      { noteType: 'private', noteId: 'n1', state: 'committed', assets: [] }
-    ]);
+    _g.__dappExtTest.midenClient.getInputNoteDetails = jest
+      .fn()
+      .mockResolvedValue([{ noteType: 'private', noteId: 'n1', state: 'committed', assets: [] }]);
     const res = await driveConfirmation(
       () =>
         dapp.requestPrivateNotes('https://miden.xyz', {

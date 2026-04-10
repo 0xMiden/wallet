@@ -2,10 +2,6 @@
  * Coverage tests for `lib/miden/back/store.ts`.
  * Tests effector store event handlers and helper functions.
  */
-jest.mock('lib/miden/back/vault', () => ({
-  Vault: {}
-}));
-
 import { WalletStatus } from 'lib/shared/types';
 
 import {
@@ -20,6 +16,10 @@ import {
   withUnlocked,
   StoreState
 } from './store';
+
+jest.mock('lib/miden/back/vault', () => ({
+  Vault: {}
+}));
 
 describe('back/store', () => {
   beforeEach(() => {
@@ -76,7 +76,9 @@ describe('back/store', () => {
         ownMnemonic: true
       });
       // Fire accountsUpdated without providing currentAccount
-      accountsUpdated({ accounts: [currentAcc, { publicKey: 'pk2', name: 'Acc2', isPublic: false, type: 0, hdIndex: 1 }] });
+      accountsUpdated({
+        accounts: [currentAcc, { publicKey: 'pk2', name: 'Acc2', isPublic: false, type: 0, hdIndex: 1 }]
+      });
       const state = store.getState();
       // Should keep pk1 since no currentAccount was provided
       expect(state.currentAccount?.publicKey).toBe('pk1');

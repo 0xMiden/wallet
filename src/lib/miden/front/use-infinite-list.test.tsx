@@ -1,5 +1,3 @@
-import React from 'react';
-
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { useInfiniteList } from './use-infinite-list';
