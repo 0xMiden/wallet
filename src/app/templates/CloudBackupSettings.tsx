@@ -1,7 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { getGoogleAuthToken, GoogleAuthResult } from 'lib/miden/backup/google-drive-auth';
+import { getGoogleAuthToken, GoogleAuthResult, trySilentGoogleAuth } from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
 import { generateSalt } from 'lib/miden/passworder';
 import { getPasskeyProvider } from 'lib/passkey';
@@ -20,10 +20,15 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
   const [loading, setLoading] = useState(false);
   const [autoBackupStatus, setAutoBackupStatus] = useState<AutoBackupStatus | null>(null);
 
-  // Fetch auto-backup status on mount
+  // Fetch auto-backup status and try silent Google auth on mount
   useEffect(() => {
     fetchAutoBackupStatus()
       .then(setAutoBackupStatus)
+      .catch(() => {});
+    trySilentGoogleAuth()
+      .then(result => {
+        if (result) setAuth(result);
+      })
       .catch(() => {});
   }, [fetchAutoBackupStatus]);
 
@@ -33,7 +38,7 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
     try {
       const result = await getGoogleAuthToken();
       setAuth(result);
-      setStatus(`Signed in as ${result.email || result.displayName || 'unknown'}`);
+      setStatus('Signed in with Google');
     } catch (err: unknown) {
       setStatus(`Sign-in failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -99,7 +104,7 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
       const result = await getGoogleAuthToken();
       setAuth(result);
       // Re-enable with fresh token (encryption unchanged, just refreshing token)
-      setStatus(`Re-authenticated as ${result.email || 'unknown'}`);
+      setStatus('Re-authenticated with Google');
     } catch (err: unknown) {
       setStatus(`Re-auth failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -139,10 +144,10 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
         <>
           <Button
             className="w-full justify-center"
-            title={auth ? `Signed in: ${auth.email || 'Google'}` : 'Sign in with Google'}
+            title={auth ? 'Signed in with Google' : 'Sign in with Google'}
             variant={ButtonVariant.Secondary}
             onClick={handleSignIn}
-            disabled={loading}
+            disabled={loading || !!auth}
           />
 
           {/* Encryption method selector */}

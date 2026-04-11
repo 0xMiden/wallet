@@ -49,14 +49,11 @@ import {
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
 const REFRESH_TOKEN_KEY = 'google_drive_refresh_token';
 
 export interface GoogleAuthResult {
   accessToken: string;
   expiresAt: number;
-  email?: string;
-  displayName?: string;
 }
 
 // ---- PKCE helpers ----
@@ -175,20 +172,6 @@ export async function clearRefreshToken(): Promise<void> {
   await Preferences.remove({ key: REFRESH_TOKEN_KEY });
 }
 
-// ---- Shared ----
-
-async function fetchUserInfo(accessToken: string): Promise<{ email?: string; name?: string }> {
-  try {
-    const res = await fetch(GOOGLE_USERINFO_URL, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    if (!res.ok) return {};
-    return await res.json();
-  } catch {
-    return {};
-  }
-}
-
 // ---- Extension: service-worker-delegated auth code flow with PKCE ----
 // The OAuth tab + listener runs in the service worker (which persists when the
 // popup closes). The popup sends a message to kick it off and polls
@@ -229,12 +212,9 @@ export async function refreshExtensionAccessToken(): Promise<GoogleAuthResult | 
   if (!refreshToken) return null;
   try {
     const result = await refreshAccessToken(refreshToken, GOOGLE_DRIVE_CLIENT_ID);
-    const userInfo = await fetchUserInfo(result.accessToken);
     return {
       accessToken: result.accessToken,
-      expiresAt: Date.now() + result.expiresIn * 1000,
-      email: userInfo.email,
-      displayName: userInfo.name
+      expiresAt: Date.now() + result.expiresIn * 1000
     };
   } catch {
     return null;
@@ -298,12 +278,9 @@ export async function handleExtensionOAuthInBackground(): Promise<void> {
         } else {
           throw new Error('No refresh token received — required for auto-backup');
         }
-        const userInfo = await fetchUserInfo(tokenResult.accessToken);
         const result: GoogleAuthResult = {
           accessToken: tokenResult.accessToken,
-          expiresAt: Date.now() + tokenResult.expiresIn * 1000,
-          email: userInfo.email,
-          displayName: userInfo.name
+          expiresAt: Date.now() + tokenResult.expiresIn * 1000
         };
         await chrome.storage.session.set({ [OAUTH_RESULT_STORAGE_KEY]: { result } });
         resolve();
@@ -385,12 +362,9 @@ async function mobileAuth(): Promise<GoogleAuthResult> {
   if (savedRefreshToken) {
     try {
       const refreshed = await refreshAccessToken(savedRefreshToken, GOOGLE_DRIVE_IOS_CLIENT_ID);
-      const userInfo = await fetchUserInfo(refreshed.accessToken);
       return {
         accessToken: refreshed.accessToken,
-        expiresAt: Date.now() + refreshed.expiresIn * 1000,
-        email: userInfo.email,
-        displayName: userInfo.name
+        expiresAt: Date.now() + refreshed.expiresIn * 1000
       };
     } catch {
       // Refresh token expired/revoked — fall through to interactive auth
@@ -433,12 +407,9 @@ async function mobileAuth(): Promise<GoogleAuthResult> {
           await saveRefreshToken(tokenResult.refreshToken);
         }
 
-        const userInfo = await fetchUserInfo(tokenResult.accessToken);
         resolve({
           accessToken: tokenResult.accessToken,
-          expiresAt: Date.now() + tokenResult.expiresIn * 1000,
-          email: userInfo.email,
-          displayName: userInfo.name
+          expiresAt: Date.now() + tokenResult.expiresIn * 1000
         });
       } catch (err) {
         reject(err);
@@ -456,6 +427,31 @@ async function mobileAuth(): Promise<GoogleAuthResult> {
 }
 
 // ---- Public API ----
+
+/**
+ * Attempt to silently restore a Google auth session using a stored refresh token.
+ * Returns the auth result if a valid refresh token exists, or null otherwise.
+ * Does NOT open any interactive auth UI.
+ */
+export async function trySilentGoogleAuth(): Promise<GoogleAuthResult | null> {
+  if (isExtension()) {
+    return refreshExtensionAccessToken();
+  }
+  if (isMobile()) {
+    const savedRefreshToken = await loadRefreshToken();
+    if (!savedRefreshToken) return null;
+    try {
+      const refreshed = await refreshAccessToken(savedRefreshToken, GOOGLE_DRIVE_IOS_CLIENT_ID);
+      return {
+        accessToken: refreshed.accessToken,
+        expiresAt: Date.now() + refreshed.expiresIn * 1000
+      };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 export async function getGoogleAuthToken(): Promise<GoogleAuthResult> {
   if (isExtension()) {

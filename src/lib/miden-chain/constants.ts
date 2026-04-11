@@ -17,7 +17,7 @@ export enum MIDEN_NETWORK_NAME {
  * Use `yarn build:devnet` to build for devnet.
  */
 export const DEFAULT_NETWORK = (process.env.MIDEN_NETWORK as MIDEN_NETWORK_NAME) || MIDEN_NETWORK_NAME.TESTNET;
-
+console.log(`Using default network: ${DEFAULT_NETWORK}`);
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',
   LOCALNET = 'localnet'

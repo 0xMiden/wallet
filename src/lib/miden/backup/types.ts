@@ -112,8 +112,6 @@ export function deserializeEncryptedBackup(data: Uint8Array): EncryptedCloudBack
 
 export interface CloudAuthState {
   isAuthenticated: boolean;
-  displayName?: string;
-  email?: string;
   provider: string;
 }
 

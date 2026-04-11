@@ -39,8 +39,6 @@ export class GoogleDriveProvider implements CloudProvider {
     this.auth = await getGoogleAuthToken();
     return {
       isAuthenticated: true,
-      displayName: this.auth.displayName,
-      email: this.auth.email,
       provider: this.providerId
     };
   }
@@ -51,8 +49,6 @@ export class GoogleDriveProvider implements CloudProvider {
     }
     return {
       isAuthenticated: true,
-      displayName: this.auth.displayName,
-      email: this.auth.email,
       provider: this.providerId
     };
   }

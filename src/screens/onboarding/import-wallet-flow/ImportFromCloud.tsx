@@ -143,7 +143,7 @@ export const ImportFromCloudScreen: React.FC<ImportFromCloudScreenProps> = ({ cl
         <p className="text-sm text-red-500">{t('cloudNoBackupFound')}</p>
       ) : isPasskeyBackup ? (
         <div className="flex flex-col gap-3 w-full">
-          <div className="rounded-xl bg-grey-25 px-4 py-3 text-sm">{t('cloudSignedIn', { email: auth.email })}</div>
+          <div className="rounded-xl bg-grey-25 px-4 py-3 text-sm">{t('cloudSignedIn', { email: 'Google' })}</div>
           <p className="text-sm text-center">{t('cloudPasskeyRestoreHint')}</p>
           {restoreError && <p className="text-sm text-red-500 select-text">{restoreError}</p>}
           <div className="mt-auto w-full pt-4">
@@ -158,7 +158,7 @@ export const ImportFromCloudScreen: React.FC<ImportFromCloudScreenProps> = ({ cl
         </div>
       ) : isPasswordBackup ? (
         <form className="flex flex-col gap-3 w-full flex-1" onSubmit={handleSubmit(handlePasswordRestore)}>
-          <div className="rounded-xl bg-grey-25 px-4 py-3 text-sm">{t('cloudSignedIn', { email: auth.email })}</div>
+          <div className="rounded-xl bg-grey-25 px-4 py-3 text-sm">{t('cloudSignedIn', { email: 'Google' })}</div>
           <FormField
             {...register('backupPassword', { required: PASSWORD_ERROR_CAPTION })}
             label={t('backupPassword')}

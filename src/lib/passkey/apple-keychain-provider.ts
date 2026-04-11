@@ -109,8 +109,7 @@ export class AppleKeychainPasskeyProvider implements PasskeyProvider {
   private async webAuthnRegister(appSalt: Uint8Array): Promise<PasskeyDerivedKey> {
     const params = new URLSearchParams({
       action: 'register',
-      salt: u8ToB64(appSalt),
-      origin: window.location.origin
+      salt: u8ToB64(appSalt)
     });
 
     const result = await openPasskeyBridge(params);
@@ -128,8 +127,7 @@ export class AppleKeychainPasskeyProvider implements PasskeyProvider {
     const params = new URLSearchParams({
       action: 'authenticate',
       credentialId: u8ToB64(credentialId),
-      prfSalt: u8ToB64(prfSalt),
-      origin: window.location.origin
+      prfSalt: u8ToB64(prfSalt)
     });
 
     const result = await openPasskeyBridge(params);
@@ -141,47 +139,67 @@ export class AppleKeychainPasskeyProvider implements PasskeyProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Passkey bridge: opens a popup on the RP domain for the WebAuthn ceremony
+// Passkey bridge: opens a tab on the RP domain for the WebAuthn ceremony.
+//
+// Uses chrome.tabs + URL-based result passing instead of window.open + postMessage.
+// This survives the extension popup closing (Chrome auto-closes popups on focus loss).
 // ---------------------------------------------------------------------------
+
+const PASSKEY_RESULT_PATH = '/passkey-result';
 
 interface BridgeResult {
   credentialId: string;
   prfOutput: string;
 }
 
-function openPasskeyBridge(params: URLSearchParams): Promise<BridgeResult> {
-  return new Promise((resolve, reject) => {
-    const url = `${PASSKEY_BRIDGE_URL}?${params.toString()}`;
-    const popup = window.open(url, 'passkey-bridge', 'width=420,height=320,popup=yes');
+async function openPasskeyBridge(params: URLSearchParams): Promise<BridgeResult> {
+  const browser = await import('webextension-polyfill').then(m => m.default);
+  const url = `${PASSKEY_BRIDGE_URL}?${params.toString()}`;
+  const tab = await browser.tabs.create({ url });
+  const tabId = tab.id;
 
-    if (!popup) {
-      reject(new Error('Failed to open passkey window. Please allow popups for this extension.'));
-      return;
-    }
+  if (!tabId) {
+    throw new Error('Failed to open passkey tab');
+  }
 
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== `https://${PASSKEY_RP_ID}`) return;
-      if (event.data?.type !== 'passkey-bridge-result') return;
+  return new Promise<BridgeResult>((resolve, reject) => {
+    const onUpdated = (updatedTabId: number, changeInfo: { url?: string }, updatedTab: { url?: string }) => {
+      if (updatedTabId !== tabId) return;
+      const tabUrl = changeInfo.url || updatedTab.url || '';
+      if (!tabUrl.includes(PASSKEY_RESULT_PATH)) return;
 
-      window.removeEventListener('message', onMessage);
-      clearInterval(closedCheck);
+      // Result arrived via URL hash fragment
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      browser.tabs.onRemoved.removeListener(onRemoved);
 
-      if (event.data.error) {
-        reject(new Error(event.data.error));
+      const hash = tabUrl.split('#')[1] || '';
+      const resultParams = new URLSearchParams(hash);
+
+      // Close the bridge tab
+      browser.tabs.remove(tabId).catch(() => {});
+
+      const error = resultParams.get('error');
+      if (error) {
+        reject(new Error(error));
       } else {
-        resolve({ credentialId: event.data.credentialId, prfOutput: event.data.prfOutput });
+        const credentialId = resultParams.get('credentialId');
+        const prfOutput = resultParams.get('prfOutput');
+        if (!credentialId || !prfOutput) {
+          reject(new Error('Invalid passkey bridge response'));
+        } else {
+          resolve({ credentialId, prfOutput });
+        }
       }
     };
 
-    // Detect if user closes the popup before completing
-    const closedCheck = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(closedCheck);
-        window.removeEventListener('message', onMessage);
-        reject(new Error('Passkey operation was cancelled'));
-      }
-    }, 500);
+    const onRemoved = (removedTabId: number) => {
+      if (removedTabId !== tabId) return;
+      browser.tabs.onUpdated.removeListener(onUpdated);
+      browser.tabs.onRemoved.removeListener(onRemoved);
+      reject(new Error('Passkey operation was cancelled'));
+    };
 
-    window.addEventListener('message', onMessage);
+    browser.tabs.onUpdated.addListener(onUpdated);
+    browser.tabs.onRemoved.addListener(onRemoved);
   });
 }
