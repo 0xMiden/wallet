@@ -19,24 +19,92 @@ export default defineConfig({
         }
       },
     } satisfies Plugin,
-    // Replace Vite's modulepreload polyfill with a no-op for service worker
-    // context (service workers don't have `document`).
+    // Patch the output for service worker compatibility:
+    // 1. Replace document/window refs in Vite's preload helper with SW-safe versions
+    // 2. Inject early intercom handler at the TOP of the file, before any TLA from
+    //    WASM module evaluation blocks execution
     {
-      name: 'sw-no-preload',
+      name: 'sw-patches',
       enforce: 'post',
       generateBundle(_, bundle) {
-        for (const [name, chunk] of Object.entries(bundle)) {
-          if (chunk.type === 'chunk' && chunk.code) {
-            // Replace document.getElementsByTagName and document.querySelector
-            // calls in the preload helper with no-ops
-            chunk.code = chunk.code
-              .replace(/document\.getElementsByTagName\([^)]*\)/g, '[]')
-              .replace(/document\.querySelector\([^)]*\)/g, 'null')
-              .replace(/document\.head\.appendChild\([^)]*\)/g, 'undefined')
-              .replace(/document\.createElement\([^)]*\)/g, '({setAttribute(){},addEventListener(){}})')
-              // Service workers don't have `window` -- replace with `self`
-              .replace(/\bwindow\.dispatchEvent\b/g, 'self.dispatchEvent')
-          }
+        for (const [, chunk] of Object.entries(bundle)) {
+          if (chunk.type !== 'chunk' || !chunk.code) continue;
+
+          // Patch document/window references
+          chunk.code = chunk.code
+            .replace(/document\.getElementsByTagName\([^)]*\)/g, '[]')
+            .replace(/document\.querySelector\([^)]*\)/g, 'null')
+            .replace(/document\.head\.appendChild\([^)]*\)/g, 'undefined')
+            .replace(/document\.createElement\([^)]*\)/g, '({setAttribute(){},addEventListener(){}})')
+            .replace(/\bwindow\.dispatchEvent\b/g, 'self.dispatchEvent');
+
+          // Only patch the entry chunk (background.js)
+          if (!chunk.fileName.includes('background')) continue;
+
+          // Inject early intercom handler at the very top, BEFORE any module code.
+          // This is critical: the WASM SDK's top-level await blocks the entire
+          // module from evaluating. Without this banner, the intercom handler
+          // (registered inside start()) never runs until WASM finishes compiling,
+          // leaving the UI on a blank loading screen.
+          const earlyHandler = `
+// ── Early SW intercom handler (injected by vite.background.config.ts) ──────
+// Responds to GET_STATE_REQUEST and SYNC_REQUEST immediately, before the
+// WASM SDK finishes compiling. The full handler in background.ts takes over
+// once the module evaluation completes.
+(function() {
+  var _earlyActive = true;
+  // Disable early handler once full background loads
+  self.__disableEarlyHandler = function() { _earlyActive = false; };
+
+  chrome.runtime.onInstalled.addListener(function(details) {
+    if (details.reason === 'install') {
+      chrome.storage.local.set({ fresh_install: true });
+      chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') });
+    }
+  });
+
+  chrome.runtime.onConnect.addListener(function(port) {
+    if (port.name === 'Popup Connection') {
+      port.onDisconnect.addListener(function() {
+        chrome.storage.local.set({ 'last-page-closure-timestamp': Date.now().toString() });
+      });
+    }
+    // Handle intercom messages (port name: 'INTERCOM')
+    port.onMessage.addListener(function(msg) {
+      if (!_earlyActive || !msg || msg.type !== 'INTERCOM_REQUEST') return;
+      var reqType = msg.data && msg.data.type;
+      if (reqType === 'GET_STATE_REQUEST') {
+        chrome.storage.local.get('vault_check', function(stored) {
+          var vaultExists = stored && stored['vault_check'] !== undefined;
+          try {
+            port.postMessage({
+              type: 'INTERCOM_RESPONSE', reqId: msg.reqId,
+              data: { type: 'GET_STATE_RESPONSE', state: {
+                status: vaultExists ? 1 : 0,
+                accounts: [], currentAccount: null,
+                networks: [], settings: null, ownMnemonic: null
+              }}
+            });
+          } catch(e) {}
+        });
+      } else if (reqType === 'SYNC_REQUEST') {
+        try {
+          port.postMessage({ type: 'INTERCOM_RESPONSE', reqId: msg.reqId, data: { type: 'SYNC_RESPONSE' } });
+        } catch(e) {}
+      }
+    });
+  });
+
+  chrome.runtime.onMessage.addListener(function() { console.debug('Ping worker'); });
+  self.addEventListener('notificationclick', function(event) {
+    event.notification.close();
+    event.waitUntil(self.clients.openWindow(chrome.runtime.getURL('fullpage.html#/receive')));
+  });
+})();
+// ── End early handler ──────────────────────────────────────────────────────
+
+`;
+          chunk.code = earlyHandler + chunk.code;
         }
       },
     } satisfies Plugin,
