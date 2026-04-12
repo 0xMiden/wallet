@@ -4,10 +4,11 @@ import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
+import { persistGoogleRefreshToken } from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import type { WalletAccount, WalletSettings } from 'lib/shared/types';
+import type { CloudBackupCredentials, WalletAccount } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { ImportType, OnboardingAction, OnboardingStep, OnboardingType } from 'screens/onboarding/types';
@@ -22,11 +23,8 @@ const ForgotPassword: FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
 
-  const { registerWallet, importWalletFromClient, registerFromCloudBackup } = useMidenContext();
-  const [cloudBackupData, setCloudBackupData] = useState<{
-    walletAccounts: WalletAccount[];
-    walletSettings: WalletSettings;
-  } | null>(null);
+  const { registerWallet, importWalletFromClient, registerFromCloudBackup, setAutoBackupEnabled } = useMidenContext();
+  const [cloudBackupData, setCloudBackupData] = useState<CloudBackupCredentials | null>(null);
 
   const register = useCallback(async () => {
     if (password && seedPhrase) {
@@ -40,6 +38,13 @@ const ForgotPassword: FC = () => {
             seedPhraseFormatted,
             cloudBackupData.walletAccounts,
             cloudBackupData.walletSettings
+          );
+          await persistGoogleRefreshToken(cloudBackupData.refreshToken);
+          await setAutoBackupEnabled(
+            true,
+            cloudBackupData.accessToken,
+            cloudBackupData.expiresAt,
+            cloudBackupData.encryption
           );
         } catch (e) {
           console.error(e);
@@ -65,6 +70,7 @@ const ForgotPassword: FC = () => {
     cloudBackupData,
     registerWallet,
     registerFromCloudBackup,
+    setAutoBackupEnabled,
     onboardingType,
     importWalletFromClient,
     importedWalletAccounts

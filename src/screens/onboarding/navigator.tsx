@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
-import type { WalletAccount, WalletSettings } from 'lib/shared/types';
+import type { CloudBackupCredentials, WalletAccount } from 'lib/shared/types';
 
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
@@ -162,7 +162,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       onForwardAction?.({ id: 'import-wallet-file-submit', payload: seedPhrase, walletAccounts });
     };
 
-    const onImportFromCloudSubmit = (payload: { walletAccounts: WalletAccount[]; walletSettings: WalletSettings }) => {
+    const onImportFromCloudSubmit = (payload: CloudBackupCredentials) => {
       onForwardAction?.({ id: 'import-from-cloud-submit', payload });
     };
 

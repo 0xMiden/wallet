@@ -716,6 +716,16 @@ export type AutoBackupEncryption =
   | { method: 'password'; backupPassword: string }
   | { method: 'passkey'; keyMaterial: string; credentialId: string; prfSalt: string };
 
+/** All credentials needed to re-enable auto-backup after a cloud restore. */
+export interface CloudBackupCredentials {
+  walletAccounts: WalletAccount[];
+  walletSettings: WalletSettings;
+  accessToken: string;
+  expiresAt: number;
+  refreshToken: string;
+  encryption: AutoBackupEncryption;
+}
+
 export interface AutoBackupSetEnabledRequest extends WalletMessageBase {
   type: WalletMessageType.AutoBackupSetEnabledRequest;
   enabled: boolean;

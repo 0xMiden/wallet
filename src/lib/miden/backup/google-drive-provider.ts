@@ -18,7 +18,7 @@ export class GoogleDriveProvider implements CloudProvider {
    */
   constructor(accessToken?: string) {
     if (accessToken) {
-      this.auth = { accessToken, expiresAt: Date.now() + 3600 * 1000 };
+      this.auth = { accessToken, expiresAt: Date.now() + 3600 * 1000, refreshToken: '' };
     }
   }
 

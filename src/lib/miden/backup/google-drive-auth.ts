@@ -54,6 +54,7 @@ const REFRESH_TOKEN_KEY = 'google_drive_refresh_token';
 export interface GoogleAuthResult {
   accessToken: string;
   expiresAt: number;
+  refreshToken: string;
 }
 
 // ---- PKCE helpers ----
@@ -172,6 +173,19 @@ export async function clearRefreshToken(): Promise<void> {
   await Preferences.remove({ key: REFRESH_TOKEN_KEY });
 }
 
+/**
+ * Re-persist a Google refresh token after storage has been cleared
+ * (e.g. during cloud backup import which calls clearStorage).
+ * Automatically picks the correct storage backend for the current platform.
+ */
+export async function persistGoogleRefreshToken(token: string): Promise<void> {
+  if (isExtension()) {
+    await saveExtensionRefreshToken(token);
+  } else if (isMobile()) {
+    await saveRefreshToken(token);
+  }
+}
+
 // ---- Extension: service-worker-delegated auth code flow with PKCE ----
 // The OAuth tab + listener runs in the service worker (which persists when the
 // popup closes). The popup sends a message to kick it off and polls
@@ -214,7 +228,8 @@ export async function refreshExtensionAccessToken(): Promise<GoogleAuthResult | 
     const result = await refreshAccessToken(refreshToken, GOOGLE_DRIVE_CLIENT_ID);
     return {
       accessToken: result.accessToken,
-      expiresAt: Date.now() + result.expiresIn * 1000
+      expiresAt: Date.now() + result.expiresIn * 1000,
+      refreshToken
     };
   } catch {
     return null;
@@ -280,7 +295,8 @@ export async function handleExtensionOAuthInBackground(): Promise<void> {
         }
         const result: GoogleAuthResult = {
           accessToken: tokenResult.accessToken,
-          expiresAt: Date.now() + tokenResult.expiresIn * 1000
+          expiresAt: Date.now() + tokenResult.expiresIn * 1000,
+          refreshToken: tokenResult.refreshToken
         };
         await chrome.storage.session.set({ [OAUTH_RESULT_STORAGE_KEY]: { result } });
         resolve();
@@ -364,7 +380,8 @@ async function mobileAuth(): Promise<GoogleAuthResult> {
       const refreshed = await refreshAccessToken(savedRefreshToken, GOOGLE_DRIVE_IOS_CLIENT_ID);
       return {
         accessToken: refreshed.accessToken,
-        expiresAt: Date.now() + refreshed.expiresIn * 1000
+        expiresAt: Date.now() + refreshed.expiresIn * 1000,
+        refreshToken: savedRefreshToken
       };
     } catch {
       // Refresh token expired/revoked — fall through to interactive auth
@@ -403,13 +420,15 @@ async function mobileAuth(): Promise<GoogleAuthResult> {
         );
 
         // Persist refresh token for future silent auth
-        if (tokenResult.refreshToken) {
-          await saveRefreshToken(tokenResult.refreshToken);
+        if (!tokenResult.refreshToken) {
+          throw new Error('No refresh token received — required for auto-backup');
         }
+        await saveRefreshToken(tokenResult.refreshToken);
 
         resolve({
           accessToken: tokenResult.accessToken,
-          expiresAt: Date.now() + tokenResult.expiresIn * 1000
+          expiresAt: Date.now() + tokenResult.expiresIn * 1000,
+          refreshToken: tokenResult.refreshToken
         });
       } catch (err) {
         reject(err);
@@ -444,7 +463,8 @@ export async function trySilentGoogleAuth(): Promise<GoogleAuthResult | null> {
       const refreshed = await refreshAccessToken(savedRefreshToken, GOOGLE_DRIVE_IOS_CLIENT_ID);
       return {
         accessToken: refreshed.accessToken,
-        expiresAt: Date.now() + refreshed.expiresIn * 1000
+        expiresAt: Date.now() + refreshed.expiresIn * 1000,
+        refreshToken: savedRefreshToken
       };
     } catch {
       return null;

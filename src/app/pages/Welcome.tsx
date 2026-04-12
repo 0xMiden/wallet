@@ -5,10 +5,11 @@ import wordslist from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
+import { persistGoogleRefreshToken } from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
-import { WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
+import { CloudBackupCredentials, WalletAccount, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { navigate, useLocation } from 'lib/woozie';
@@ -78,11 +79,8 @@ const Welcome: FC = () => {
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
-  const { registerWallet, importWalletFromClient, registerFromCloudBackup } = useMidenContext();
-  const [cloudBackupData, setCloudBackupData] = useState<{
-    walletAccounts: WalletAccount[];
-    walletSettings: WalletSettings;
-  } | null>(null);
+  const { registerWallet, importWalletFromClient, registerFromCloudBackup, setAutoBackupEnabled } = useMidenContext();
+  const [cloudBackupData, setCloudBackupData] = useState<CloudBackupCredentials | null>(null);
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
@@ -134,6 +132,14 @@ const Welcome: FC = () => {
           cloudBackupData.walletAccounts,
           cloudBackupData.walletSettings
         );
+        // clearStorage wiped the refresh token — re-persist it, then enable auto-backup
+        await persistGoogleRefreshToken(cloudBackupData.refreshToken);
+        await setAutoBackupEnabled(
+          true,
+          cloudBackupData.accessToken,
+          cloudBackupData.expiresAt,
+          cloudBackupData.encryption
+        );
       } else if (!importedWithFile) {
         await registerWallet(actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
       } else {
@@ -154,6 +160,7 @@ const Welcome: FC = () => {
     cloudBackupData,
     registerWallet,
     registerFromCloudBackup,
+    setAutoBackupEnabled,
     onboardingType,
     importWalletFromClient,
     importedWalletAccounts

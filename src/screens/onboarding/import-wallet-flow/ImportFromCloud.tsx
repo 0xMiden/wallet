@@ -9,7 +9,7 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { getGoogleAuthToken, getStoredOAuthResult, GoogleAuthResult } from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
 import { getPasskeyProvider } from 'lib/passkey';
-import { CloudBackupProbeResult, WalletAccount, WalletSettings } from 'lib/shared/types';
+import { CloudBackupCredentials, CloudBackupProbeResult } from 'lib/shared/types';
 
 interface FormData {
   backupPassword: string;
@@ -17,7 +17,7 @@ interface FormData {
 
 export interface ImportFromCloudScreenProps {
   className?: string;
-  onSubmit?: (payload: { walletAccounts: WalletAccount[]; walletSettings: WalletSettings }) => void;
+  onSubmit?: (payload: CloudBackupCredentials) => void;
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -80,7 +80,14 @@ export const ImportFromCloudScreen: React.FC<ImportFromCloudScreenProps> = ({ cl
           method: 'password',
           backupPassword: data.backupPassword
         });
-        onSubmit({ walletAccounts, walletSettings });
+        onSubmit({
+          walletAccounts,
+          walletSettings,
+          accessToken: auth.accessToken,
+          expiresAt: auth.expiresAt,
+          refreshToken: auth.refreshToken,
+          encryption: { method: 'password', backupPassword: data.backupPassword }
+        });
       } catch (err) {
         setRestoreError(err instanceof Error ? err.message : String(err));
       }
@@ -103,7 +110,19 @@ export const ImportFromCloudScreen: React.FC<ImportFromCloudScreenProps> = ({ cl
         method: 'passkey',
         keyMaterial: toBase64(keyMaterial)
       });
-      onSubmit({ walletAccounts, walletSettings });
+      onSubmit({
+        walletAccounts,
+        walletSettings,
+        accessToken: auth.accessToken,
+        expiresAt: auth.expiresAt,
+        refreshToken: auth.refreshToken,
+        encryption: {
+          method: 'passkey',
+          keyMaterial: toBase64(keyMaterial),
+          credentialId: probeResult.credentialId,
+          prfSalt: probeResult.prfSalt
+        }
+      });
     } catch (err) {
       console.log('Passkey restore error:', err);
       setRestoreError(err instanceof Error ? err.message : String(err));

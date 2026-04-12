@@ -1,4 +1,4 @@
-import type { WalletAccount, WalletSettings } from 'lib/shared/types';
+import type { CloudBackupCredentials, WalletAccount } from 'lib/shared/types';
 
 export enum OnboardingType {
   Create = 'create',
@@ -69,7 +69,7 @@ export type ImportFromCloudAction = {
 
 export type ImportFromCloudSubmitAction = {
   id: 'import-from-cloud-submit';
-  payload: { walletAccounts: WalletAccount[]; walletSettings: WalletSettings };
+  payload: CloudBackupCredentials;
 };
 
 export type BackupSeedPhraseAction = {
