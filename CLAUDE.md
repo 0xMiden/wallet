@@ -725,6 +725,225 @@ afterEach(() => {
 });
 ```
 
+## E2E Blockchain Test Harness
+
+End-to-end tests that exercise real wallet operations against a live Miden network (testnet, devnet, or localhost). Uses Playwright to automate two Chrome extension instances and `miden-client` CLI to deploy a faucet and mint tokens.
+
+### Quick Start
+
+```bash
+# First run: install dependencies + build extension + run tests
+E2E_NETWORK=testnet yarn test:e2e:blockchain
+
+# Subsequent runs (skip rebuild if no code changes)
+E2E_NETWORK=testnet yarn test:e2e:blockchain:run
+
+# Build only (no test run)
+yarn test:e2e:blockchain:build
+```
+
+The harness auto-installs `miden-client-cli` from crates.io on first run, version-matched to the wallet's `@miden-sdk/miden-sdk` package. Requires Rust toolchain (`cargo`).
+
+### Directory Layout
+
+```
+playwright/e2e/
+  config/environments.ts       # Network endpoints per E2E_NETWORK
+  harness/                     # Observability layer (types, timeline, capture, reports)
+  helpers/
+    miden-cli.ts               # miden-client CLI wrapper (init, deploy faucet, mint)
+    wallet-page.ts             # Page Object Model for wallet UI automation
+  fixtures/two-wallets.ts      # Playwright fixture: 2 Chrome instances + observability
+  tests/*.spec.ts              # Test specs
+playwright.e2e.config.ts       # Playwright config (5 min timeout, traces always on)
+```
+
+### Environment Selection
+
+Set `E2E_NETWORK` env var. Also set `MIDEN_DEFAULT_NETWORK` to match (controls which network the built extension connects to):
+
+```bash
+# Testnet (default)
+E2E_NETWORK=testnet yarn test:e2e:blockchain:run
+
+# Local node
+E2E_NETWORK=localhost MIDEN_DEFAULT_NETWORK=localnet yarn test:e2e:blockchain
+
+# Devnet
+E2E_NETWORK=devnet MIDEN_DEFAULT_NETWORK=devnet yarn test:e2e:blockchain
+```
+
+### Test Specs
+
+| Spec | What it tests |
+|------|---------------|
+| `wallet-lifecycle.spec.ts` | Create, lock, unlock wallets |
+| `mint-and-balance.spec.ts` | Deploy faucet via CLI, mint tokens, verify balance in UI |
+| `send-public.spec.ts` | Send public note A->B, B syncs and claims |
+| `send-private.spec.ts` | Send private note A->B via transport layer |
+| `multi-claim.spec.ts` | Mint 3 notes, batch claim |
+| `multi-account.spec.ts` | Multiple accounts, switch, send between own accounts |
+
+### Agentic Debug Mode
+
+**For AI agents running this as a verification loop.** On test failure, browsers stay open so the agent can inspect live state and hot-reload fixes.
+
+```bash
+# Run with agentic mode
+E2E_AGENTIC=true E2E_NETWORK=testnet yarn test:e2e:blockchain:run
+
+# Or use the shortcut script
+yarn test:e2e:blockchain:agentic
+```
+
+#### On Failure: What Happens
+
+1. **Browsers stay open** -- Both Chrome instances remain alive with full wallet state (IndexedDB, service worker, vault)
+2. **`test-results/debug-session.json`** is written with connection details:
+   ```json
+   {
+     "wallets": {
+       "A": { "extensionId": "abc...", "fullpageUrl": "chrome-extension://abc.../fullpage.html", "cdpUrl": "ws://...", "userDataDir": "/tmp/..." },
+       "B": { "extensionId": "def...", "fullpageUrl": "chrome-extension://def.../fullpage.html", "cdpUrl": "ws://...", "userDataDir": "/tmp/..." }
+     },
+     "midenCliWorkDir": "/tmp/miden-cli-...",
+     "reportPath": "test-results/run-.../tests/.../report.json"
+   }
+   ```
+3. **`report.json`** contains structured failure diagnosis (see "Reading Failure Reports" below)
+4. **Auto-cleanup** after 10 min (configurable via `E2E_AGENTIC_TIMEOUT`)
+
+#### Agent Investigation Workflow
+
+After a test failure in agentic mode:
+
+1. **Read the failure report:**
+   ```bash
+   cat test-results/run-<latest>/tests/<test-name>/report.json
+   ```
+   Key fields: `failureCategory`, `failedAtStep`, `diagnosticHints`, `stateAtFailure`, `browserErrors`
+
+2. **Take fresh screenshots of live wallets:**
+   Use CDP or Playwright's still-alive connection to screenshot the current state.
+
+3. **Query wallet state via the exposed Zustand store:**
+   ```typescript
+   // In page.evaluate() on an open wallet page:
+   const store = (window as any).__TEST_STORE__;
+   const state = store.getState();
+   // state.status, state.accounts, state.balances, state.currentAccount
+   ```
+
+4. **Trigger a sync manually:**
+   ```typescript
+   // In page.evaluate():
+   const intercom = (window as any).__TEST_INTERCOM__;
+   intercom.request({ type: 'SYNC_REQUEST' });
+   ```
+
+5. **Run miden-client commands against the preserved state:**
+   ```bash
+   cd <midenCliWorkDir>   # from debug-session.json
+   miden-client account --list
+   miden-client sync
+   miden-client notes --list
+   ```
+
+6. **Navigate the wallet UI** to different pages to investigate visually.
+
+#### Hot-Reload: Fix Code and Push to Live Browsers
+
+The agent can modify wallet source code, rebuild, and reload into the still-open browsers **without losing wallet state**:
+
+```bash
+# 1. Fix the bug in source code
+# 2. Rebuild the extension
+yarn test:e2e:blockchain:build
+
+# 3. Reload the extension in each open Chrome instance
+#    (via page.evaluate on the extension's fullpage tab)
+```
+
+```typescript
+// In page.evaluate() on the wallet's fullpage tab:
+chrome.runtime.reload();
+// Extension reloads from updated dist/chrome_unpacked/
+// IndexedDB + vault data PERSIST (tied to extension origin)
+// Service worker restarts, in-memory Zustand state resets
+```
+
+After `chrome.runtime.reload()`, extension pages unload. Re-open the fullpage tab:
+```
+chrome-extension://<extensionId>/fullpage.html
+```
+The wallet initializes from IndexedDB -- same accounts, same keys, same balances. The agent can now test the fix against the exact wallet state that caused the failure.
+
+### Reading Failure Reports
+
+The `report.json` is designed for machine consumption. Key fields for an AI agent:
+
+```typescript
+{
+  failureCategory: string,     // "timeout_waiting_for_sync" | "ui_element_not_found" | etc.
+  diagnosticHints: string[],   // Pre-computed suggestions, e.g., "NETWORK: 3 RPC requests failed"
+  failedAtStep: {
+    index: number,             // Which test step failed (0-based)
+    name: string,              // "sync_wallet_b"
+    lastAction: string         // What was happening when it failed
+  },
+  stateAtFailure: {
+    walletA: { status, balances, claimableNotes, currentUrl },
+    walletB: { status, balances, claimableNotes, currentUrl }
+  },
+  browserErrors: [...],        // JS errors from both extension instances
+  failedNetworkRequests: [...], // Failed RPC calls
+  recentEvents: [...],         // Last 50 timeline events before failure
+  timing: {
+    wasTimeout: boolean,       // Did we hit the test timeout?
+    slowestSteps: [...]        // Which steps were unusually slow?
+  }
+}
+```
+
+**Diagnosis flowchart:**
+- `wasTimeout: true` + `failedAtStep.name` contains "sync" -> Blockchain sync issue, check network
+- `browserErrors` contains "recursive use of an object" -> WASM concurrency bug
+- `failedNetworkRequests` not empty -> Node/RPC connectivity issue
+- `failureCategory === 'ui_element_not_found'` -> UI changed, update selectors in `wallet-page.ts`
+- `failureCategory === 'cli_command_failed'` -> Check `recentCliCommands` for stderr
+
+### Observability Artifacts
+
+Every test run produces structured artifacts in `test-results/run-<timestamp>/tests/<test-name>/`:
+
+| File | Purpose |
+|------|---------|
+| `report.json` | Primary diagnostic document (read this first) |
+| `timeline.ndjson` | Chronological event stream (every action, assertion, CLI call, console log) |
+| `checkpoints.json` | Step-by-step pass/fail with assertion details |
+| `state-snapshots/` | Wallet Zustand state at each checkpoint |
+| `cli/` | miden-client CLI invocations with full stdout/stderr |
+| `browser/wallet-{a,b}-console.ndjson` | Browser console output from both extensions |
+| `screenshots/` | Screenshots at checkpoints + on failure |
+| `traces/wallet-{a,b}.zip` | Playwright traces (open with `npx playwright show-trace`) |
+| `video/` | Video recordings (only on failure) |
+
+### Source Modifications for E2E
+
+The E2E build (`MIDEN_E2E_TEST=true`) exposes test hooks on `window`:
+
+- `window.__TEST_STORE__` -- Zustand store (`useWalletStore`) for reading wallet state via `page.evaluate()`
+- `window.__TEST_INTERCOM__` -- Intercom client instance for sending `SyncRequest` and other messages to the service worker
+
+These are only present when built with `MIDEN_E2E_TEST=true` and have zero impact on production builds.
+
+### Custom Faucet Token Discovery
+
+The E2E harness deploys its own faucet via `miden-client new-account --account-type fungible-faucet`. Tokens from this custom faucet appear in the wallet because:
+- The wallet fetches ALL fungible assets from the account vault (no `TOKEN_MAPPING` whitelist)
+- Token metadata (symbol, decimals) is fetched from the RPC node as long as the faucet is deployed with `--storage-mode public`
+- Custom tokens show with their proper symbol (e.g., "TST") in the UI, are selectable in the send flow, and have correct decimal formatting
+
 ## Internationalization (i18n)
 
 **IMPORTANT:** All user-facing text in React components MUST be internationalized. Never use hardcoded strings for UI text - always use `t('key')` or the `<T id="key" />` component. CI will block PRs with non-i18n'd strings (enforced by `yarn lint:i18n`).

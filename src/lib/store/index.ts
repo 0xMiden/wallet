@@ -571,3 +571,9 @@ export { getIntercom };
 export const selectIsReady = (state: WalletStore) => state.status === WalletStatus.Ready;
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
 export const selectIsIdle = (state: WalletStore) => state.status === WalletStatus.Idle;
+
+// Expose store and intercom for E2E test introspection (only in E2E builds)
+if (process.env.MIDEN_E2E_TEST === 'true') {
+  (window as any).__TEST_STORE__ = useWalletStore;
+  (window as any).__TEST_INTERCOM__ = getIntercom();
+}

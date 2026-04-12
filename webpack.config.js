@@ -11,8 +11,9 @@ const pkg = require('./package.json');
 const htmlTemplatesPlugins = require('./webpack.html.config');
 const publicAssetsPlugin = require('./webpack.public.config');
 
-const { TARGET_BROWSER = 'chrome', DISABLE_TS_CHECKER, MIDEN_USE_MOCK_CLIENT } = process.env;
+const { TARGET_BROWSER = 'chrome', DISABLE_TS_CHECKER, DISABLE_ESLINT, MIDEN_USE_MOCK_CLIENT, MIDEN_DEFAULT_NETWORK, MIDEN_E2E_TEST } = process.env;
 const enableTsChecker = DISABLE_TS_CHECKER !== 'true';
+const enableEslint = DISABLE_ESLINT !== 'true';
 
 const MANIFEST = process.env.MANIFEST_VERSION === '3' ? 'manifest.json' : 'manifest.v2.json';
 
@@ -96,7 +97,9 @@ const appConfig = {
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
       TARGET_BROWSER: TARGET_BROWSER,
-      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
+      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false',
+      MIDEN_DEFAULT_NETWORK: MIDEN_DEFAULT_NETWORK || '',
+      MIDEN_E2E_TEST: MIDEN_E2E_TEST || 'false'
     }),
 
     new webpack.ProvidePlugin({
@@ -117,11 +120,14 @@ const appConfig = {
         : []
     ),
     ...htmlTemplatesPlugins(PUBLIC_PATH),
-    new ESLintPlugin({
-      extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
-      cache: true,
-      resolvePluginsRelativeTo: __dirname
-    }),
+    ...(enableEslint
+      ? [new ESLintPlugin({
+          extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
+          cache: true,
+          resolvePluginsRelativeTo: __dirname
+        })]
+      : []
+    ),
     publicAssetsPlugin(PUBLIC_PATH, OUTPUT_PATH, MANIFEST, TARGET_BROWSER),
 
     new WebpackBar({
@@ -291,7 +297,9 @@ const backgroundConfig = {
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
       TARGET_BROWSER: TARGET_BROWSER,
-      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
+      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false',
+      MIDEN_DEFAULT_NETWORK: MIDEN_DEFAULT_NETWORK || '',
+      MIDEN_E2E_TEST: MIDEN_E2E_TEST || 'false'
     }),
 
     new webpack.ProvidePlugin({
@@ -311,11 +319,14 @@ const backgroundConfig = {
         ? [new ForkTsCheckerWebpackPlugin()]
         : []
     ),
-    new ESLintPlugin({
-      extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
-      cache: true,
-      resolvePluginsRelativeTo: __dirname
-    }),
+    ...(enableEslint
+      ? [new ESLintPlugin({
+          extensions: ['js', 'mjs', 'jsx', 'ts', 'tsx'],
+          cache: true,
+          resolvePluginsRelativeTo: __dirname
+        })]
+      : []
+    ),
 
     new WebpackBar({
       name: 'Miden Wallet Background',
@@ -470,7 +481,9 @@ const workerConfig = {
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
       TARGET_BROWSER: TARGET_BROWSER,
-      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false'
+      MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false',
+      MIDEN_DEFAULT_NETWORK: MIDEN_DEFAULT_NETWORK || '',
+      MIDEN_E2E_TEST: MIDEN_E2E_TEST || 'false'
     }),
 
     new webpack.ProvidePlugin({

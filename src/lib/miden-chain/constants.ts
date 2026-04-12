@@ -15,7 +15,8 @@ export enum MIDEN_NETWORK_NAME {
  * The default network used throughout the app.
  * Change this single value to switch which network the wallet connects to.
  */
-export const DEFAULT_NETWORK = MIDEN_NETWORK_NAME.TESTNET;
+export const DEFAULT_NETWORK =
+  (process.env.MIDEN_DEFAULT_NETWORK as MIDEN_NETWORK_NAME) || MIDEN_NETWORK_NAME.TESTNET;
 
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',
