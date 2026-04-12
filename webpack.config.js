@@ -527,4 +527,5 @@ const workerConfig = {
   }
 };
 
-module.exports = [appConfig, backgroundConfig];
+// backgroundConfig removed — now built by Vite (vite.background.config.ts)
+module.exports = [appConfig];
