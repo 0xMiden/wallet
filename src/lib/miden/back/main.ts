@@ -6,14 +6,13 @@ import {
   enableAutoBackup,
   getStatus as getAutoBackupStatus,
   isInternalSettingsUpdate,
-  markDirty,
   onWalletLocked,
-  onWalletUnlocked
+  onWalletUnlocked,
+  triggerBackup
 } from 'lib/miden/back/auto-backup-manager';
 import { intercom } from 'lib/miden/back/defaults';
 import {
   accountsUpdated,
-  currentAccountUpdated,
   locked,
   settingsUpdated,
   store,
@@ -62,12 +61,9 @@ export async function start() {
   intercom.broadcast({ type: WalletMessageType.StateUpdated });
 
   // Auto-backup hooks
-  accountsUpdated.watch(({ accounts }) => {
-    markDirty();
-  });
-  currentAccountUpdated.watch(() => markDirty());
+  accountsUpdated.watch(() => triggerBackup());
   settingsUpdated.watch(() => {
-    if (!isInternalSettingsUpdate()) markDirty();
+    if (!isInternalSettingsUpdate()) triggerBackup();
   });
   unlocked.watch(() => onWalletUnlocked());
   locked.watch(() => onWalletLocked());
@@ -84,8 +80,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.NoteClaimStartedResponse };
     case WalletMessageType.ProcessTransactionsRequest:
       // Fire-and-forget — start processing asynchronously
+      // triggerBackup is called by transaction-processor when all transactions complete
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
-      markDirty();
       return { type: WalletMessageType.ProcessTransactionsResponse };
     case WalletMessageType.ImportNoteBytesRequest: {
       const noteBytes = new Uint8Array(Buffer.from(req.noteBytes, 'base64'));
@@ -95,7 +91,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         await client.syncState();
         return id.toString();
       });
-      markDirty();
+      triggerBackup();
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
     }
     case WalletMessageType.ExportNoteRequest: {

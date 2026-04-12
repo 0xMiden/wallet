@@ -1,5 +1,6 @@
 /**
- * Auto-backup manager — triggers cloud backup after state changes.
+ * Auto-backup manager — triggers cloud backup after explicit events
+ * (transaction completion, account creation, settings change).
  *
  * Encryption key material is persisted in vault storage (encrypted with the
  * vault key). On each backup the key is read from the vault, used, and
@@ -26,18 +27,10 @@ import { store, withUnlocked } from './store';
 let cachedAccessToken: string | null = null;
 let cachedTokenExpiresAt = 0;
 let needsGoogleReauth = false;
-let isDirty = false;
 let isBackingUp = false;
 let isPaused = false;
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-let periodicTimer: ReturnType<typeof setInterval> | null = null;
 let lastError: string | null = null;
-let retryCount = 0;
 let settingsUpdateInProgress = false;
-
-const DEBOUNCE_MS = 10_000;
-const PERIODIC_MS = 10 * 60_000; // 10 minutes
-const MAX_RETRY_MS = 5 * 60_000;
 
 // ---- Public API ----
 
@@ -77,7 +70,6 @@ export async function enableAutoBackup(
   needsGoogleReauth = false;
   isPaused = false;
   lastError = null;
-  retryCount = 0;
 
   settingsUpdateInProgress = true;
   try {
@@ -86,14 +78,11 @@ export async function enableAutoBackup(
     settingsUpdateInProgress = false;
   }
 
-  isDirty = true;
-  await backupIfDirty();
+  // Run an initial backup immediately
+  await doBackup();
 }
 
 export async function disableAutoBackup(): Promise<void> {
-  clearDebounceTimer();
-  clearPeriodicTimer();
-
   await withUnlocked(async ({ vault }) => {
     await vault.clearAutoBackupKey();
   });
@@ -101,11 +90,9 @@ export async function disableAutoBackup(): Promise<void> {
   cachedAccessToken = null;
   cachedTokenExpiresAt = 0;
   needsGoogleReauth = false;
-  isDirty = false;
   isBackingUp = false;
   isPaused = false;
   lastError = null;
-  retryCount = 0;
 
   settingsUpdateInProgress = true;
   try {
@@ -115,28 +102,25 @@ export async function disableAutoBackup(): Promise<void> {
   }
 }
 
-export function markDirty(): void {
+/**
+ * Trigger a backup. Call this after transaction completion, account creation,
+ * or settings changes. Safe to call frequently — concurrent calls are ignored.
+ */
+export async function triggerBackup(): Promise<void> {
   if (isPaused || isBackingUp) return;
 
   const autoBackup = store.getState().settings?.autoBackup;
   if (!autoBackup?.enabled) return;
 
-  isDirty = true;
-  resetDebounceTimer();
+  await doBackup();
 }
 
 export function onWalletLocked(): void {
   isPaused = true;
-  clearDebounceTimer();
-  clearPeriodicTimer();
 }
 
 export function onWalletUnlocked(): void {
   isPaused = false;
-  startPeriodicTimer();
-  if (isDirty) {
-    resetDebounceTimer();
-  }
 }
 
 export function isInternalSettingsUpdate(): boolean {
@@ -155,35 +139,33 @@ export function getStatus(): AutoBackupStatus {
   };
 }
 
+/**
+ * Returns the access token and encryption key needed for backup restore
+ * during sync canonicalization. Returns null if auto-backup is not enabled
+ * or credentials are unavailable.
+ */
+export async function getBackupCredentials(): Promise<{
+  accessToken: string;
+  encryptionKey: CryptoKey;
+} | null> {
+  const autoBackup = store.getState().settings?.autoBackup;
+  if (!autoBackup?.enabled) return null;
+
+  const tokenOk = await refreshTokenIfNeeded();
+  if (!tokenOk || !cachedAccessToken) return null;
+
+  try {
+    const keyBytes = await withUnlocked(async ({ vault }) => vault.getAutoBackupKey());
+    if (!keyBytes) return null;
+    const encryptionKey = await importVaultKey(keyBytes);
+    keyBytes.fill(0);
+    return { accessToken: cachedAccessToken, encryptionKey };
+  } catch {
+    return null;
+  }
+}
+
 // ---- Internal ----
-
-function startPeriodicTimer(): void {
-  clearPeriodicTimer();
-  periodicTimer = setInterval(() => {
-    markDirty();
-  }, PERIODIC_MS);
-}
-
-function clearPeriodicTimer(): void {
-  if (periodicTimer !== null) {
-    clearInterval(periodicTimer);
-    periodicTimer = null;
-  }
-}
-
-function clearDebounceTimer(): void {
-  if (debounceTimer !== null) {
-    clearTimeout(debounceTimer);
-    debounceTimer = null;
-  }
-}
-
-function resetDebounceTimer(): void {
-  clearDebounceTimer();
-  debounceTimer = setTimeout(() => {
-    backupIfDirty().catch(err => console.warn('[AutoBackup] Backup error:', err));
-  }, DEBOUNCE_MS);
-}
 
 async function refreshTokenIfNeeded(): Promise<boolean> {
   if (cachedAccessToken && Date.now() < cachedTokenExpiresAt) return true;
@@ -213,14 +195,11 @@ async function refreshTokenIfNeeded(): Promise<boolean> {
   return false;
 }
 
-async function backupIfDirty(): Promise<void> {
-  if (!isDirty || isBackingUp || isPaused) return;
+async function doBackup(): Promise<void> {
+  if (isBackingUp || isPaused) return;
 
   const autoBackup = store.getState().settings?.autoBackup;
-  if (!autoBackup?.enabled) {
-    isDirty = false;
-    return;
-  }
+  if (!autoBackup?.enabled) return;
 
   isBackingUp = true;
 
@@ -228,14 +207,12 @@ async function backupIfDirty(): Promise<void> {
     const tokenOk = await refreshTokenIfNeeded();
     if (!tokenOk) {
       lastError = 'Google authentication expired. Please re-authenticate.';
-      scheduleRetry();
       return;
     }
 
     const keyBytes = await withUnlocked(async ({ vault }) => vault.getAutoBackupKey());
     if (!keyBytes) {
       lastError = 'Auto-backup key not found in vault';
-      isDirty = false;
       return;
     }
 
@@ -258,9 +235,7 @@ async function backupIfDirty(): Promise<void> {
       });
     });
 
-    isDirty = false;
     lastError = null;
-    retryCount = 0;
 
     settingsUpdateInProgress = true;
     try {
@@ -273,17 +248,7 @@ async function backupIfDirty(): Promise<void> {
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
     console.warn('[AutoBackup] Backup failed:', lastError);
-    scheduleRetry();
   } finally {
     isBackingUp = false;
   }
-}
-
-function scheduleRetry(): void {
-  retryCount++;
-  const delay = Math.min(DEBOUNCE_MS * Math.pow(2, retryCount - 1), MAX_RETRY_MS);
-  clearDebounceTimer();
-  debounceTimer = setTimeout(() => {
-    backupIfDirty().catch(err => console.warn('[AutoBackup] Retry error:', err));
-  }, delay);
 }
