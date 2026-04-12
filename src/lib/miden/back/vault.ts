@@ -242,7 +242,7 @@ export class Vault {
         insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
       };
       const hdAccIndex = 0;
-      const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
+      const walletSeed = deriveClientSeed(WalletType.OffChain, mnemonic, 0);
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const accPublicKey = await withWasmClientLock(async () => {
@@ -255,22 +255,22 @@ export class Vault {
             return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
           } catch (e) {
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+            return await midenClient.createMidenWallet(WalletType.OffChain, walletSeed);
           }
         } else {
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           console.log('[Vault.spawn] Step 8b: syncing state...');
           await midenClient.syncState();
           console.log('[Vault.spawn] Step 9: creating miden wallet...');
-          return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+          return await midenClient.createMidenWallet(WalletType.OffChain, walletSeed);
         }
       });
 
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
-        isPublic: true,
-        type: WalletType.OnChain,
+        isPublic: false,
+        type: WalletType.OffChain,
         hdIndex: hdAccIndex
       };
       const newAccounts = [initialAccount];
@@ -420,7 +420,7 @@ export class Vault {
               `Account ${account.name} could not be found in the backup miden client dump but was expected to be there.`
             );
           }
-          const key = midenAccount.getPublicKeyCommitments()[0].serialize();
+          const key = midenAccount.getPublicKeyCommitments()[0]!.serialize();
           const sk = AuthSecretKey.rpoFalconWithRNG(walletSeed).serialize();
           await insertKeyCallback(key, sk);
         }
@@ -435,7 +435,7 @@ export class Vault {
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, backedUpAccounts[0].publicKey);
+      await savePlain(currentAccPubKeyStrgKey, backedUpAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       return new Vault(vaultKey);
@@ -534,6 +534,10 @@ export class Vault {
       const currentAccount = await this.getCurrentAccount();
       return { accounts: newAllAccounts, currentAccount };
     });
+  }
+
+  async replaceAccounts(accounts: WalletAccount[]): Promise<void> {
+    await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
   }
 
   async updateSettings(settings: Partial<WalletSettings>) {

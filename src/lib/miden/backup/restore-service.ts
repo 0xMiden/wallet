@@ -98,3 +98,45 @@ export async function restoreCloudBackup(
 
   return content;
 }
+
+/**
+ * Restore from a cloud backup using a pre-derived CryptoKey.
+ * Used by the sync canonicalization flow (auto-backup key is already in vault).
+ *
+ * @throws If no backup exists, the key is wrong, or import fails.
+ */
+export async function restoreCloudBackupWithKey(
+  encryptionKey: CryptoKey,
+  provider: CloudProvider
+): Promise<CloudBackupContent> {
+  const raw = await provider.read();
+  if (!raw) {
+    throw new Error('No backup found');
+  }
+
+  const { passwordCheck, payload } = deserializeEncryptedBackup(raw);
+
+  try {
+    const checkBytes = await decryptBytes(passwordCheck, encryptionKey);
+    const checkPayload = JSON.parse(new TextDecoder().decode(checkBytes));
+    const checkValue = await decrypt(checkPayload, encryptionKey);
+    if (checkValue !== ENCRYPTED_WALLET_FILE_PASSWORD_CHECK) {
+      throw new Error('Wrong key');
+    }
+  } catch {
+    throw new Error('Backup decryption failed — key mismatch or corrupted backup');
+  }
+
+  const contentBytes = await decryptBytes(payload, encryptionKey);
+  const content: CloudBackupContent = JSON.parse(new TextDecoder().decode(contentBytes));
+
+  await withWasmClientLock(async () => {
+    const client = await getMidenClient();
+    const snapshot = JSON.parse(content.sdkStoreSnapshot);
+    await client.importDb(snapshot);
+  });
+
+  await importDb(content.transactionDbDump);
+
+  return content;
+}

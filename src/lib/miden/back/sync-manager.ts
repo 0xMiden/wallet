@@ -1,15 +1,21 @@
+import { AccountId, RpcClient } from '@miden-sdk/miden-sdk';
 import browser from 'webextension-polyfill';
 
 import { getMessage } from 'lib/i18n';
+import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
+import { GoogleDriveProvider } from '../backup/google-drive-provider';
+import { restoreCloudBackupWithKey } from '../backup/restore-service';
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
-import { getIntercom } from './defaults';
-import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
-import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getBackupCredentials, triggerBackup } from './auto-backup-manager';
+import { getIntercom } from './defaults';
+import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
+import { accountsUpdated, store } from './store';
+import { Vault } from './vault';
 
 const ALARM_NAME = 'miden-sync';
 
@@ -21,6 +27,97 @@ const ALARM_NAME = 'miden-sync';
 // well below any UI click budget; if testnet RPC is genuinely slow, the
 // circuit breaker (below) trips and we back off rather than hammering.
 const SYNC_TIMEOUT_MS = 5_000;
+
+let isCanonicalizing = false;
+
+/**
+ * Compares local account commitments against on-chain commitments for all
+ * wallet accounts. If any account has diverged (e.g. another device submitted
+ * a transaction), restores from the cloud backup so the subsequent syncState()
+ * works on correct state.
+ */
+async function checkAndCanonicalize(): Promise<void> {
+  if (isCanonicalizing) return;
+
+  const accounts = store.getState().accounts;
+  if (!accounts || accounts.length === 0) return;
+
+  try {
+    // Collect local commitments for all accounts in a single WASM lock
+    const localCommitments = await withWasmClientLock(async () => {
+      const client = await getMidenClient();
+      if (!client) return [];
+
+      const results: Array<{ publicKey: string; localHex: string; accountId: AccountId }> = [];
+      for (const acc of accounts) {
+        const account = await client.getAccount(acc.publicKey);
+        if (!account || account.isNew()) continue;
+        results.push({
+          publicKey: acc.publicKey,
+          localHex: account.to_commitment().toHex(),
+          accountId: account.id()
+        });
+      }
+      return results;
+    });
+
+    if (localCommitments.length === 0) return;
+
+    // Check each account against its on-chain commitment (RPC, no WASM lock)
+    const rpcClient = new RpcClient(getRpcEndpoint());
+    let hasMismatch = false;
+
+    for (const { publicKey, localHex, accountId } of localCommitments) {
+      try {
+        const fetched = await rpcClient.getAccountDetails(accountId);
+        const onChainHex = fetched.commitment().toHex();
+        if (localHex !== onChainHex) {
+          console.log(
+            '[SyncManager] Commitment mismatch for',
+            publicKey,
+            '— local:',
+            localHex,
+            'on-chain:',
+            onChainHex
+          );
+          hasMismatch = true;
+          break;
+        }
+      } catch (err) {
+        console.warn('[SyncManager] RPC check failed for', publicKey, err);
+      }
+    }
+
+    if (!hasMismatch) return;
+
+    isCanonicalizing = true;
+
+    const credentials = await getBackupCredentials();
+    if (!credentials) {
+      console.warn('[SyncManager] Cannot canonicalize — auto-backup credentials unavailable');
+      return;
+    }
+
+    const provider = new GoogleDriveProvider(credentials.accessToken);
+    const content = await restoreCloudBackupWithKey(credentials.encryptionKey, provider);
+
+    // Update the Vault's encrypted accounts and the Effector store
+    // so the frontend reflects any accounts added on another device.
+    const { vault } = store.getState();
+    console.log('[SyncManager] Restoring from backup due to on-chain mismatch — accounts in backup:', vault);
+    if (vault) {
+      console.log(content.walletAccounts);
+      await vault.replaceAccounts(content.walletAccounts);
+      accountsUpdated({ accounts: content.walletAccounts });
+    }
+
+    console.log('[SyncManager] Canonicalization complete — restored from backup');
+  } catch (err) {
+    console.warn('[SyncManager] Canonicalization check failed:', err);
+  } finally {
+    isCanonicalizing = false;
+  }
+}
 
 // Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
 // a row we skip sync attempts for BACKOFF_MS, then allow one probe. A
@@ -58,6 +155,9 @@ async function runSync(): Promise<void> {
     // Skip if wallet not set up
     const exists = await Vault.isExist();
     if (!exists) return;
+
+    // Check on-chain alignment and restore from backup if any account diverged
+    await checkAndCanonicalize();
 
     // [Lock 1] THE sync for the whole app. Bounded by SYNC_TIMEOUT_MS so it
     // can't stall downstream consumers; a breach bumps the circuit-breaker
@@ -176,6 +276,10 @@ async function runSync(): Promise<void> {
       // Always update seenNoteIds for background dedup consistency
       const noteIds = parsedNotes.map(n => n.id);
       const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+
+      if (newIds.length > 0) {
+        triggerBackup();
+      }
 
       // Write sync data to chrome.storage.local — the reliable data channel.
       // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).
