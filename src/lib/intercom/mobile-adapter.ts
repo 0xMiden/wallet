@@ -5,13 +5,14 @@ import {
   getStatus as getAutoBackupStatus
 } from 'lib/miden/back/auto-backup-manager';
 import { store, toFront } from 'lib/miden/back/store';
+import { doCoreSyncState } from 'lib/miden/back/sync-manager';
 import { GoogleDriveProvider } from 'lib/miden/backup/google-drive-provider';
 import { probeCloudBackup, restoreCloudBackup, RestoreEncryptionArgs } from 'lib/miden/backup/restore-service';
 import { MidenMessageType } from 'lib/miden/types';
 import { b64ToU8 } from 'lib/shared/helpers';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { WalletMessageType, WalletNotification, WalletRequest, WalletResponse } from 'lib/shared/types';
 
-type SubscriptionCallback = (data: any) => void;
+type SubscriptionCallback = (data: WalletNotification) => void;
 
 /**
  * Mobile adapter for intercom that directly calls backend handlers
@@ -75,7 +76,7 @@ export class MobileIntercomAdapter {
         };
 
       case WalletMessageType.NewWalletRequest:
-        await Actions.registerNewWallet((req as any).password, (req as any).mnemonic, (req as any).ownMnemonic);
+        await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
         return { type: WalletMessageType.NewWalletResponse };
 
       case WalletMessageType.ImportFromClientRequest:
@@ -83,7 +84,7 @@ export class MobileIntercomAdapter {
         return { type: WalletMessageType.ImportFromClientResponse };
 
       case WalletMessageType.UnlockRequest:
-        await Actions.unlock((req as any).password);
+        await Actions.unlock(req.password);
         return { type: WalletMessageType.UnlockResponse };
 
       case WalletMessageType.LockRequest:
@@ -91,76 +92,73 @@ export class MobileIntercomAdapter {
         return { type: WalletMessageType.LockResponse };
 
       case WalletMessageType.CreateAccountRequest:
-        await Actions.createHDAccount((req as any).walletType, (req as any).name);
+        await Actions.createHDAccount(req.walletType, req.name);
         return { type: WalletMessageType.CreateAccountResponse };
 
       case WalletMessageType.UpdateCurrentAccountRequest:
-        await Actions.updateCurrentAccount((req as any).accountPublicKey);
+        await Actions.updateCurrentAccount(req.accountPublicKey);
         return { type: WalletMessageType.UpdateCurrentAccountResponse };
 
-      case WalletMessageType.RevealMnemonicRequest:
-        const mnemonic = await Actions.revealMnemonic((req as any).password);
+      case WalletMessageType.RevealMnemonicRequest: {
+        const mnemonic = await Actions.revealMnemonic(req.password);
         return {
           type: WalletMessageType.RevealMnemonicResponse,
           mnemonic
         };
+      }
 
       case WalletMessageType.RemoveAccountRequest:
-        await Actions.removeAccount((req as any).accountPublicKey, (req as any).password);
-        return {
-          type: WalletMessageType.RemoveAccountResponse
-        };
+        Actions.removeAccount(req.accountPublicKey, req.password);
+        return { type: WalletMessageType.RemoveAccountResponse };
 
       case WalletMessageType.EditAccountRequest:
-        await Actions.editAccount((req as any).accountPublicKey, (req as any).name);
-        return {
-          type: WalletMessageType.EditAccountResponse
-        };
+        Actions.editAccount(req.accountPublicKey, req.name);
+        return { type: WalletMessageType.EditAccountResponse };
 
       case WalletMessageType.ImportAccountRequest:
-        await Actions.importAccount((req as any).privateKey, (req as any).encPassword);
-        return {
-          type: WalletMessageType.ImportAccountResponse
-        };
+        Actions.importAccount(req.privateKey, req.encPassword);
+        return { type: WalletMessageType.ImportAccountResponse };
 
       case WalletMessageType.UpdateSettingsRequest:
-        await Actions.updateSettings((req as any).settings);
-        return {
-          type: WalletMessageType.UpdateSettingsResponse
-        };
+        await Actions.updateSettings(req.settings);
+        return { type: WalletMessageType.UpdateSettingsResponse };
 
-      case WalletMessageType.SignTransactionRequest:
-        const signature = await Actions.signTransaction((req as any).publicKey, (req as any).signingInputs);
+      case WalletMessageType.SignTransactionRequest: {
+        const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
         return {
           type: WalletMessageType.SignTransactionResponse,
           signature
         };
+      }
 
-      case WalletMessageType.GetAuthSecretKeyRequest:
-        const key = await Actions.getAuthSecretKey((req as any).key);
+      case WalletMessageType.GetAuthSecretKeyRequest: {
+        const key = await Actions.getAuthSecretKey(req.key);
         return {
           type: WalletMessageType.GetAuthSecretKeyResponse,
           key
         };
+      }
 
-      case MidenMessageType.DAppGetAllSessionsRequest:
+      case MidenMessageType.DAppGetAllSessionsRequest: {
         const allSessions = await Actions.getAllDAppSessions();
         return {
           type: MidenMessageType.DAppGetAllSessionsResponse,
           sessions: allSessions
         };
+      }
 
-      case MidenMessageType.DAppRemoveSessionRequest:
-        const sessions = await Actions.removeDAppSession((req as any).origin);
+      case MidenMessageType.DAppRemoveSessionRequest: {
+        const sessions = await Actions.removeDAppSession(req.origin);
         return {
           type: MidenMessageType.DAppRemoveSessionResponse,
           sessions
         };
+      }
 
-      case MidenMessageType.PageRequest:
+      case MidenMessageType.PageRequest: {
         const dAppEnabled = await Actions.isDAppEnabled();
         if (dAppEnabled) {
-          if ((req as any).payload === 'PING') {
+          if (req.payload === 'PING') {
             return {
               type: MidenMessageType.PageResponse,
               payload: 'PONG'
@@ -168,11 +166,8 @@ export class MobileIntercomAdapter {
           }
           // PR-4 chunk 8: thread the multi-instance session id through if
           // present so confirmation prompts route to the right session.
-          const resPayload = await Actions.processDApp(
-            (req as any).origin,
-            (req as any).payload,
-            (req as any).sessionId
-          );
+          const pageReq = req as typeof req & { sessionId?: string };
+          const resPayload = await Actions.processDApp(req.origin, req.payload, pageReq.sessionId);
           return {
             type: MidenMessageType.PageResponse,
             /* c8 ignore next -- dApp response nullish fallback, mobile-only */
@@ -180,6 +175,7 @@ export class MobileIntercomAdapter {
           };
         }
         break;
+      }
 
       case WalletMessageType.CloudBackupRestoreRequest: {
         const restoreProvider = new GoogleDriveProvider(req.accessToken);
@@ -219,6 +215,12 @@ export class MobileIntercomAdapter {
         return { type: WalletMessageType.AutoBackupStatusResponse, ...getAutoBackupStatus() };
       }
 
+      case WalletMessageType.SyncRequest: {
+        await doCoreSyncState();
+        this.notifySubscribers({ type: WalletMessageType.SyncCompleted });
+        return { type: WalletMessageType.SyncResponse };
+      }
+
       default:
         console.warn('MobileIntercomAdapter: Unknown request type', req?.type);
     }
@@ -227,7 +229,7 @@ export class MobileIntercomAdapter {
   /**
    * Notify all subscribers of a state change
    */
-  private notifySubscribers(data: any): void {
+  private notifySubscribers(data: WalletNotification): void {
     this.subscribers.forEach(callback => {
       try {
         callback(data);
