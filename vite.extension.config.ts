@@ -11,6 +11,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync, cpSync, readdirSync
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 // vite-plugin-svgr doesn't work with Vite 8's Rolldown -- use custom plugin
 import wasm from 'vite-plugin-wasm';
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react-swc';
 import { defineConfig, type Plugin } from 'vite';
 
@@ -161,6 +162,7 @@ const sharedDefine = {
 
 export default defineConfig({
   plugins: [
+    tailwindcss(),
     react(),
     // Custom SVG → React component transform (replaces vite-plugin-svgr for Vite 8)
     // Uses resolveId + load (not transform) to intercept before Rolldown parses the SVG
