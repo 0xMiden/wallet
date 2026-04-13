@@ -146,7 +146,8 @@ async function refreshAccessToken(
     body: new URLSearchParams({
       client_id: clientId,
       refresh_token: refreshToken,
-      grant_type: 'refresh_token'
+      grant_type: 'refresh_token',
+      client_secret: process.env.GOOGLE_CLIENT_SECRET!
     })
   });
 
@@ -222,7 +223,7 @@ async function loadExtensionRefreshToken(): Promise<string | null> {
  */
 export async function refreshExtensionAccessToken(): Promise<GoogleAuthResult | null> {
   const refreshToken = await loadExtensionRefreshToken();
-  console.log('[GoogleAuth] Refreshing access token using refresh token:', !!refreshToken);
+  console.log('[GoogleAuth] Refreshing access token using refresh token:', refreshToken);
   if (!refreshToken) return null;
   try {
     const result = await refreshAccessToken(refreshToken, GOOGLE_DRIVE_CLIENT_ID);
