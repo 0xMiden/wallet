@@ -11,4 +11,6 @@ export const HAPTIC_FEEDBACK_STORAGE_KEY = 'haptic_feedback_setting';
 export const DEFAULT_HAPTIC_FEEDBACK = true;
 
 export const THEME_STORAGE_KEY = 'theme_setting';
-export const DEFAULT_THEME: 'light' | 'dark' = 'light';
+export type ThemeSetting = 'light' | 'dark' | 'system';
+export type ResolvedTheme = 'light' | 'dark';
+export const DEFAULT_THEME: ThemeSetting = 'system';

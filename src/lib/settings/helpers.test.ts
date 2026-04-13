@@ -99,8 +99,8 @@ describe('settings helpers', () => {
   });
 
   describe('theme setting', () => {
-    it('returns default theme when not set', () => {
-      expect(getThemeSetting()).toBe('light');
+    it('returns default theme (system) when not set', () => {
+      expect(getThemeSetting()).toBe('system');
     });
 
     it('sets and gets dark theme', () => {
@@ -113,9 +113,14 @@ describe('settings helpers', () => {
       expect(getThemeSetting()).toBe('light');
     });
 
+    it('sets and gets system theme', () => {
+      setThemeSetting('system');
+      expect(getThemeSetting()).toBe('system');
+    });
+
     it('returns default when stored value is invalid', () => {
       localStorage.setItem('theme_setting', 'invalid');
-      expect(getThemeSetting()).toBe('light');
+      expect(getThemeSetting()).toBe('system');
     });
 
     it('handles localStorage error in getThemeSetting', () => {
@@ -123,7 +128,7 @@ describe('settings helpers', () => {
       localStorage.getItem = () => {
         throw new Error('Storage error');
       };
-      expect(getThemeSetting()).toBe('light');
+      expect(getThemeSetting()).toBe('system');
       localStorage.getItem = originalGetItem;
     });
 
