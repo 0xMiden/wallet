@@ -20,13 +20,7 @@ export default defineConfig({
     {
       name: 'mobile-html-fixes',
       transformIndexHtml(html) {
-        return html
-          .replace(/ crossorigin/g, '')
-          // Inject debug overlay that shows console.log and errors on screen
-          .replace(
-            '<script type="module"',
-            '<script>var _msgs=[];var _ol=console.log;console.log=function(){_ol.apply(console,arguments);_msgs.push(Array.from(arguments).join(" "))};var _oe=console.error;console.error=function(){_oe.apply(console,arguments);_msgs.push("ERR: "+Array.from(arguments).join(" "))};window.onerror=function(m){_msgs.push("ONERR: "+m)};window.addEventListener("unhandledrejection",function(e){_msgs.push("REJ: "+(e.reason&&(e.reason.stack||e.reason.message)||e.reason||""))});document.addEventListener("DOMContentLoaded",function(){var d=document.createElement("pre");d.style="position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;font-size:8px;color:lime;background:rgba(0,0,0,0.85);padding:5px;z-index:99999";document.body.appendChild(d);d.textContent=_msgs.join("\\n");setInterval(function(){d.textContent=_msgs.join("\\n");d.scrollTop=d.scrollHeight},500)});</script>\n    <script type="module"'
-          );
+        return html.replace(/ crossorigin/g, '');
       },
       closeBundle() {
         const { renameSync, existsSync } = require('fs');

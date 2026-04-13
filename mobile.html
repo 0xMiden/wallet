@@ -113,25 +113,6 @@
       <img src="misc/logo-white-bg-16.png" alt="" />
     </div>
     <div id="root"></div>
-    <script>
-      // Debug: catch errors AND log to a visible element
-      var _dbg = function(msg) {
-        var el = document.getElementById('miden-splash');
-        if (el) {
-          if (!el._dbgPre) { el.innerHTML = '<pre id="dbglog" style="font-size:9px;color:blue;padding:10px;word-wrap:break-word;white-space:pre-wrap;text-align:left;"></pre>'; el._dbgPre = true; }
-          document.getElementById('dbglog').textContent += msg + '\n';
-        }
-      };
-      var _origLog = console.log;
-      console.log = function() { _origLog.apply(console, arguments); _dbg(Array.from(arguments).join(' ')); };
-      console.error = function() { _origLog.apply(console, arguments); _dbg('ERROR: ' + Array.from(arguments).join(' ')); };
-      window.onerror = function(msg, url, line, col, err) {
-        _dbg('onerror: ' + msg + ' at ' + (url||'') + ':' + line + '\n' + (err&&err.stack||''));
-      };
-      window.addEventListener('unhandledrejection', function(e) {
-        _dbg('rejection: ' + (e.reason&&e.reason.stack||e.reason||'unknown'));
-      });
-    </script>
     <script type="module" src="/src/mobile-app.tsx"></script>
   </body>
 </html>
