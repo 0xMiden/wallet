@@ -114,14 +114,22 @@
     </div>
     <div id="root"></div>
     <script>
-      // Debug: catch any errors and display them on screen
-      window.onerror = function(msg, url, line, col, err) {
+      // Debug: catch errors AND log to a visible element
+      var _dbg = function(msg) {
         var el = document.getElementById('miden-splash');
-        if (el) el.innerHTML = '<pre style="font-size:10px;color:red;padding:20px;word-wrap:break-word;white-space:pre-wrap;">' + msg + '\n' + (url||'') + ':' + line + '\n' + (err&&err.stack||'') + '</pre>';
+        if (el) {
+          if (!el._dbgPre) { el.innerHTML = '<pre id="dbglog" style="font-size:9px;color:blue;padding:10px;word-wrap:break-word;white-space:pre-wrap;text-align:left;"></pre>'; el._dbgPre = true; }
+          document.getElementById('dbglog').textContent += msg + '\n';
+        }
+      };
+      var _origLog = console.log;
+      console.log = function() { _origLog.apply(console, arguments); _dbg(Array.from(arguments).join(' ')); };
+      console.error = function() { _origLog.apply(console, arguments); _dbg('ERROR: ' + Array.from(arguments).join(' ')); };
+      window.onerror = function(msg, url, line, col, err) {
+        _dbg('onerror: ' + msg + ' at ' + (url||'') + ':' + line + '\n' + (err&&err.stack||''));
       };
       window.addEventListener('unhandledrejection', function(e) {
-        var el = document.getElementById('miden-splash');
-        if (el) el.innerHTML = '<pre style="font-size:10px;color:red;padding:20px;word-wrap:break-word;white-space:pre-wrap;">Unhandled rejection:\n' + (e.reason&&e.reason.stack||e.reason||'unknown') + '</pre>';
+        _dbg('rejection: ' + (e.reason&&e.reason.stack||e.reason||'unknown'));
       });
     </script>
     <script type="module" src="/src/mobile-app.tsx"></script>

@@ -20,7 +20,22 @@ export default defineConfig({
     {
       name: 'mobile-html-fixes',
       transformIndexHtml(html) {
-        return html.replace(/ crossorigin/g, '');
+        return html
+          .replace(/ crossorigin/g, '')
+          // Classic script — the bundle is wrapped in an async IIFE
+          .replace(' type="module"', ' defer')
+          .replace(/<link rel="modulepreload"[^>]*>\n?/g, '');
+      },
+      generateBundle(_, bundle) {
+        for (const [, chunk] of Object.entries(bundle)) {
+          if (chunk.type !== 'chunk' || !chunk.code) continue;
+          // Replace import.meta.url (ESM-only) for classic script compatibility
+          chunk.code = chunk.code.replace(/import\.meta\.url/g, '(document.currentScript&&document.currentScript.src||self.location.href)');
+          // Keep { type: "module" } for workers — they use dynamic import()
+          // to load the WASM glue code, which requires ESM module workers.
+          // Wrap in async IIFE so TLA works, use classic <script defer>
+          chunk.code = '(async function() {\n' + chunk.code + '\n})();';
+        }
       },
       closeBundle() {
         const { renameSync, existsSync } = require('fs');
@@ -60,13 +75,17 @@ export default defineConfig({
     }),
   ],
 
-  publicDir: false, // Our build handles public assets; prevents overwriting processed HTML
+  // publicDir must be enabled for mobile — Capacitor needs misc/ icons, _locales, etc.
+  // Unlike the extension build, the mobile HTML input is mobile.html (not in public/),
+  // so Vite's publicDir copy won't overwrite the processed HTML.
+  publicDir: 'public',
 
   build: {
     outDir: 'dist/mobile',
     emptyOutDir: true,
     sourcemap: process.env.MODE_ENV !== 'production',
     target: 'es2022',
+    minify: false,
     modulePreload: { polyfill: false },
     rollupOptions: {
       input: resolve(__dirname, 'mobile.html'),
@@ -74,8 +93,6 @@ export default defineConfig({
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name].[hash].js',
         assetFileNames: 'static/[name].[hash][extname]',
-        // Single bundle like webpack — Capacitor's local server has issues
-        // with ES module loading (import statements at top level).
         inlineDynamicImports: true,
       },
     },
