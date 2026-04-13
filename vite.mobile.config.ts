@@ -39,10 +39,20 @@ export default defineConfig({
         }
       },
       closeBundle() {
-        const { renameSync, existsSync } = require('fs');
+        const { renameSync, existsSync, copyFileSync, readdirSync } = require('fs');
         const src = resolve(__dirname, 'dist/mobile/mobile.html');
         const dest = resolve(__dirname, 'dist/mobile/index.html');
         if (existsSync(src)) renameSync(src, dest);
+        // Copy WASM to unhashed path for the worker (which uses /assets/miden_client_web.wasm)
+        const assetsDir = resolve(__dirname, 'dist/mobile/assets');
+        if (existsSync(assetsDir)) {
+          for (const f of readdirSync(assetsDir)) {
+            if (f.startsWith('miden_client_web') && f.endsWith('.wasm')) {
+              copyFileSync(resolve(assetsDir, f), resolve(assetsDir, 'miden_client_web.wasm'));
+              break;
+            }
+          }
+        }
       },
     } satisfies Plugin,
     // SVG → React component transform
