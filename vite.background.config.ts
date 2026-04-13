@@ -96,10 +96,9 @@ export default defineConfig({
           });
           const uniqueInits = [...new Set(initCalls)];
           // Exclude init_actions and init_transaction_processor -- they
-          // transitively import frontend modules (React, Zustand store,
-          // framer-motion) that can't initialize in a service worker.
-          // The wallet operation functions are defined via hoisted function
-          // declarations and only need the Effector store (init_store$1).
+          // transitively import frontend modules that hang in SW context.
+          // BUT: init_actions must still run fire-and-forget so its module-scope
+          // variables (unlockQueue, dappQueue, PQueue) get initialized.
           const safeInits = uniqueInits.filter(c =>
             !c.includes('init_actions') && !c.includes('init_transaction_processor')
           );

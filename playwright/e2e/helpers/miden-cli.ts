@@ -111,6 +111,9 @@ export class MidenCli {
     if (result.exitCode !== 0) {
       throw new Error(`miden-client init failed: ${result.stderr}`);
     }
+
+    // Sync to fetch genesis block and chain tip (required before account creation)
+    await this.sync();
   }
 
   /**

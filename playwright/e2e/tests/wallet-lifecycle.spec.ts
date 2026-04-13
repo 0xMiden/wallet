@@ -26,7 +26,7 @@ test.describe('Wallet Lifecycle', () => {
     });
   });
 
-  test.skip('lock and unlock wallet', async ({ walletA, steps }) => {
+  test('lock and unlock wallet', async ({ walletA, steps }) => {
     await steps.step('create_wallet', async () => {
       await walletA.createNewWallet();
     });
