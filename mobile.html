@@ -30,12 +30,17 @@
         text-rendering: optimizeLegibility;
       }
 
-      /* Safe area padding for notched devices */
+      /*
+       * Safe area padding for notched devices.
+       * !important because Tailwind 4 preflight + app CSS (which loads AFTER
+       * this inline <style>) sets body padding via rules that end up winning
+       * the cascade, zeroing out our env() values. We need these to stick.
+       */
       body {
-        padding-top: env(safe-area-inset-top);
-        padding-bottom: max(12px, env(safe-area-inset-bottom));
-        padding-left: env(safe-area-inset-left);
-        padding-right: env(safe-area-inset-right);
+        padding-top: env(safe-area-inset-top) !important;
+        padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+        padding-left: env(safe-area-inset-left) !important;
+        padding-right: env(safe-area-inset-right) !important;
         box-sizing: border-box;
       }
 
