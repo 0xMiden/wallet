@@ -59,11 +59,9 @@ export async function getFrontState(): Promise<WalletState> {
   } catch {
     // store not initialized yet
   }
-  // Not initialized yet -- return Idle state immediately.
-  // The UI will show the onboarding screen. Once init completes,
-  // a StateUpdated broadcast triggers the frontend to re-fetch.
+  // Return Idle immediately so the UI can render while backend inits.
   return {
-    status: 0, // WalletStatus.Idle
+    status: 0,
     accounts: [],
     currentAccount: null,
     networks: [],
@@ -89,10 +87,10 @@ export async function isDAppEnabled() {
 export function registerNewWallet(password?: string, mnemonic?: string, ownMnemonic?: boolean) {
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
-    // Password may be undefined for hardware-only wallets (mobile/desktop with Secure Enclave)
-    // Vault.spawn() will handle this by using hardware protection instead
-    // spawn() returns the vault directly, avoiding a second biometric prompt from unlock()
+    (self as any).__RNW_START = Date.now();
+    try {
     const vault = await Vault.spawn(password ?? '', mnemonic, ownMnemonic);
+    (self as any).__RNW_VAULT_DONE = Date.now();
     console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
     const accounts = await vault.fetchAccounts();
     const settings = await vault.fetchSettings();
@@ -100,6 +98,12 @@ export function registerNewWallet(password?: string, mnemonic?: string, ownMnemo
     const ownMnemonicFlag = await vault.isOwnMnemonic();
     unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
     console.log('[Actions.registerNewWallet] Completed');
+    (self as any).__RNW_DONE = Date.now();
+    } catch (err: any) {
+      (self as any).__RNW_ERR = err.message + ' ' + (err.stack || '').slice(0, 500);
+      console.error('[Actions.registerNewWallet] FAILED:', err);
+      throw err;
+    }
   });
 }
 

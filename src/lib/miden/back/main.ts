@@ -18,23 +18,17 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 
 export async function start() {
   console.log('Miden background script started');
-  // Register intercom FIRST so the IntercomServer starts accepting connections.
   intercom.onRequest(processRequest);
 
-  // NOTE: The Vite sw-patches plugin injects `await init_*()` calls here.
-  // After those complete, we set up the rest:
+  // NOTE: The Vite sw-patches plugin injects await init_*() calls here
+  // (between intercom registration and Actions.init)
 
   await Actions.init();
-
-  // Set up state broadcast AFTER init so wallet operations trigger UI updates.
-  // Without this, NewWalletRequest could complete before the broadcast watcher
-  // is set up, leaving the frontend stuck on the old state.
   frontStore = store.map(toFront);
   frontStore.watch(() => {
     intercom.broadcast({ type: WalletMessageType.StateUpdated });
   });
-
-  // Broadcast current state now that everything is initialized
+  // Force frontend to re-fetch state now that everything is initialized
   intercom.broadcast({ type: WalletMessageType.StateUpdated });
 }
 

@@ -36,56 +36,55 @@ export default defineConfig({
             .replace(/document\.querySelector\([^)]*\)/g, 'null')
             .replace(/document\.head\.appendChild\([^)]*\)/g, 'undefined')
             .replace(/document\.createElement\([^)]*\)/g, '({setAttribute(){},addEventListener(){}})')
-            .replace(/\bwindow\.dispatchEvent\b/g, 'self.dispatchEvent');
+            .replace(/\bwindow\.dispatchEvent\b/g, 'self.dispatchEvent')
+            // Prevent handlePreloadError from throwing -- SW can't handle preload errors
+            .replace(
+              /if \(!e\.defaultPrevented\) throw err;/g,
+              'if (!e.defaultPrevented) { console.warn("[vitePreload] SW error:", err); }'
+            );
 
-          // Strip top-level await statements. Chrome MV3 service workers
-          // won't register ESM modules that contain any TLA. Rolldown wraps
-          // every module in __esmMin() with TLA for lazy init. We convert
-          // these to fire-and-forget so the SW registers instantly.
-          // The module init functions still run -- just not blocking.
+          // Strip TLA for ESM module SW compatibility
           chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
 
-          // Replace __vitePreload calls with direct function calls.
-          // __vitePreload is set inside init_preload_helper() which runs
-          // fire-and-forget after TLA stripping, so it's undefined when
-          // loadWasm() tries to use it.
-          // Replace __vitePreload with a simple passthrough.
-          // __vitePreload(fn, deps) normally calls fn() after preloading deps.
-          // Since the preload helper isn't initialized (TLA stripped), we just
-          // call fn() directly. Define __vitePreload as a passthrough at the
-          // top of the file.
-          // Define __vitePreload passthrough.
-          // Also eagerly run init_preload_helper which sets up __vitePreload
-          // (overriding our passthrough once ready), and the Buffer polyfill shim.
-          chunk.code = [
-            'var __vitePreload = function(fn) { return fn(); };',
-            '// Eagerly init the preload helper and polyfill shims',
-            'setTimeout(function() { try { init_preload_helper(); } catch(e) {} }, 0);',
-            '',
-          ].join('\n') + chunk.code;
+          // Override __vitePreload with a SW-safe passthrough.
+          // The init_preload_helper (run fire-and-forget) would set __vitePreload
+          // to a function that accesses `document` which doesn't exist in SW.
+          // We make __vitePreload non-writable so init_preload_helper can't overwrite it.
+          // Define __vitePreload as a SW-safe passthrough. This MUST persist
+          // even after init_preload_helper runs, because the real preload
+          // function accesses `document` which doesn't exist in SW.
+          // Our sw-no-preload patches above already replace document.* calls
+          // with safe stubs, so even if init_preload_helper overwrites
+          // __vitePreload, the patched version is SW-safe.
+          chunk.code = 'var __vitePreload = function(fn) { return fn(); };\n' + chunk.code;
 
-          // Collect all init_* calls that were stripped and re-inject them
-          // inside start(), AFTER the intercom handler registration.
+          // Re-inject ALL init awaits inside start()
           const initCalls: string[] = [];
           chunk.code.replace(/\/\* tla-stripped \*\/ (init_[\w$]+\(\));?/g, (_m: string, call: string) => {
             initCalls.push(call.replace(/;$/, ''));
             return '';
           });
           const uniqueInits = [...new Set(initCalls)];
-          // Include ALL inits including init_miden_client.
-          // WASM compiles in ~30ms so the total init time is <1s.
           if (uniqueInits.length > 0) {
             const initBlock = uniqueInits.map(c => `  await ${c};`).join('\n');
+            // Create a Promise that resolves when all inits are done.
             chunk.code = chunk.code.replace(
               /intercom\$?\d*\.onRequest\(processRequest\);/,
-              `$&\n  // Re-await critical module inits\n${initBlock}`
+              [
+                '$&',
+                '  // Module init Promise -- processRequest awaits this before handling operations',
+                '  var __initsReady = (async function() {',
+                initBlock,
+                '  })();',
+              ].join('\n')
+            );
+            // processRequest awaits inits for any request except GetStateRequest/SyncRequest
+            // (those are handled early via getFrontState's Idle fallback)
+            chunk.code = chunk.code.replace(
+              /async function processRequest\(req[^)]*\)\s*\{/,
+              '$&\n  if (req?.type !== "GET_STATE_REQUEST" && req?.type !== "SYNC_REQUEST") { await __initsReady; }'
             );
           }
-
-          // No banner needed -- the IntercomServer now handles GetStateRequest
-          // directly when no handler is registered (returns Idle state).
-          // The MV3 listeners (onInstalled, onConnect, etc.) are in
-          // background-entry.ts which Vite inlines into this file.
         }
       },
     } satisfies Plugin,
