@@ -55,7 +55,11 @@ export default defineConfig({
         }
       },
     } satisfies Plugin,
-    // SVG → React component transform
+    // SVG → React component transform.
+    // Mirrors webpack's @svgr/webpack behavior: default export is a URL to the
+    // file (for `<img src={Logo}>` usage) and named export `ReactComponent` is
+    // a JSX component (for `<ReactComponent>` usage). Both patterns are used
+    // throughout the wallet codebase.
     {
       name: 'svg-to-react',
       enforce: 'pre',
@@ -76,7 +80,18 @@ export default defineConfig({
           namedExport: 'ReactComponent',
           jsxRuntime: 'automatic',
         }, { filePath });
-        return { code: jsxCode + '\nexport default "";', moduleType: 'jsx' };
+        // Emit the SVG as a Vite asset so we get a hashed URL for the default
+        // export. `this.emitFile` returns a reference id that Vite rewrites to
+        // the final URL at bundle time.
+        const refId = this.emitFile({
+          type: 'asset',
+          name: filePath.split('/').pop(),
+          source: svgContent,
+        });
+        return {
+          code: `${jsxCode}\nexport default import.meta.ROLLUP_FILE_URL_${refId};`,
+          moduleType: 'jsx',
+        };
       },
     } satisfies Plugin,
     // Hoist React to global for CJS dependencies that expect React.createElement
