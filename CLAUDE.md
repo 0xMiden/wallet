@@ -68,6 +68,18 @@ yarn format           # Prettier
 
 **IMPORTANT:** Always run `yarn lint` and `yarn format` before `yarn build`. The build will fail on lint/prettier errors.
 
+## Version Bumping
+
+**CRITICAL:** The extension manifest version is controlled by `package.json`'s `version` field, NOT by `public/manifest.json`. The webpack build (`webpack.public.config.js:69-70`) overrides the manifest version with `pkg.version` from `package.json` during the copy transform.
+
+When bumping the version:
+1. Update **both** `package.json` (`"version": "X.Y.Z"`) and `public/manifest.json` (`"version": "X.Y.Z"`) to keep them in sync
+2. Clear webpack cache: `rm -rf node_modules/.cache/webpack`
+3. Build: `yarn build:devnet` (or whichever build target)
+4. **Verify** the output manifest has the correct version: `grep '"version"' dist/chrome_unpacked/manifest.json`
+
+If the output still shows the old version, the webpack filesystem cache is stale — delete `node_modules/.cache/webpack` and `dist/` and rebuild.
+
 ## Mobile Development
 
 **IMPORTANT:** Always use these yarn scripts for mobile development. Do not run Capacitor or Xcode commands directly.
