@@ -129,7 +129,7 @@ export function isInternalSettingsUpdate(): boolean {
 
 export function getStatus(): AutoBackupStatus {
   const autoBackup = store.getState().settings?.autoBackup;
-
+  console.log(autoBackup);
   return {
     enabled: autoBackup?.enabled ?? false,
     lastBackupAt: autoBackup?.lastBackupAt ?? null,

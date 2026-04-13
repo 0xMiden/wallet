@@ -11,14 +11,7 @@ import {
   triggerBackup
 } from 'lib/miden/back/auto-backup-manager';
 import { intercom } from 'lib/miden/back/defaults';
-import {
-  accountsUpdated,
-  locked,
-  settingsUpdated,
-  store,
-  toFront,
-  unlocked
-} from 'lib/miden/back/store';
+import { accountsUpdated, locked, settingsUpdated, store, toFront, unlocked } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
