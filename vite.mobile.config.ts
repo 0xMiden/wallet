@@ -22,7 +22,7 @@ export default defineConfig({
       transformIndexHtml(html) {
         return html
           .replace(/ crossorigin/g, '')
-          // Keep type="module" — TLAs are stripped so module evaluates synchronously
+          // Keep type="module" — TLAs are preserved, module evaluates with awaits
           .replace(/<link rel="modulepreload"[^>]*>\n?/g, '');
       },
       generateBundle(_, bundle) {
@@ -33,17 +33,19 @@ export default defineConfig({
           // Strip { type: "module" } from Worker constructors — workers are
           // now built as IIFE (classic scripts) for WKWebView compatibility.
           chunk.code = chunk.code.replace(/,\s*\{\s*type:\s*"module"\s*\}/g, '');
-          // Strip ALL TLAs — convert every `await init_*()` to fire-and-forget.
-          // The __esmMin lazy inits are async but mostly synchronous internally.
-          // With fire-and-forget, they all execute immediately (synchronous code
-          // completes, async WASM code starts in background). The app entry
-          // function at the end of the file runs after all sync inits complete.
-          // Same pattern that works for the extension SW build.
-          chunk.code = chunk.code.replace(/^await /gm, '/* tla */ ');
-          // Also strip awaits INSIDE __esmMin factories (indented)
-          chunk.code = chunk.code.replace(/\tawait (init_\w+\(\))/g, '\t/* tla */ $1');
-          // Error display for debugging
-          chunk.code += '\nwindow.onerror=function(m,u,l){document.getElementById("miden-splash").innerHTML="<pre style=font-size:8px;color:red;padding:10px>"+m+"\\n"+u+":"+l+"</pre>"};';
+          // DON'T strip TLAs — keep them so module evaluation completes correctly.
+          // Skip WASM compilation on main thread entirely — Worker handles it.
+          // Replace __wbg_init await with a no-op. The WASM bindings on the main
+          // thread will be uninitialized (wasm === undefined) but that's fine —
+          // all actual WASM operations go through the Worker's WebClient.
+          chunk.code = chunk.code.replace(
+            /\tawait __wbg_init[^;]+;/g,
+            '\tconsole.log("[mobile] Main-thread WASM init skipped");'
+          );
+
+          // No __initsReady needed — TLAs are preserved so module evaluation
+          // completes correctly. The WASM URL replacement above makes the main
+          // thread WASM init a fast no-op.
         }
       },
       closeBundle() {
