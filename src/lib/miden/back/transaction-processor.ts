@@ -47,15 +47,24 @@ export async function startTransactionProcessing(): Promise<void> {
   if (isProcessing) return;
   isProcessing = true;
 
-  // Keep SW alive while processing. The polyfill is only needed
-  // here — load it lazily so mobile / desktop bundles don't blow
-  // up at module-evaluation time (see getBrowser comment above).
-  //
-  // The getBrowser() call lives INSIDE the try block. If it ever
-  // rejects (e.g. the polyfill fails in a non-extension context the
-  // lazy-load didn't catch), the catch + finally still run and
-  // isProcessing is reset — otherwise the wedge would block every
-  // subsequent call for the rest of the app lifetime.
+  // In the Vite SW build, the activity module's re-export of transactions.ts
+  // doesn't await the async transactions module init (Rolldown treats
+  // `export * from './transactions'` as synchronous). Wait for the function
+  // to become available (max 10s), which happens when the transactions module
+  // finishes its async init.
+  if (typeof safeGenerateTransactionsLoop !== 'function') {
+    console.log('[TransactionProcessor] Waiting for transactions module init...');
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      if (typeof safeGenerateTransactionsLoop === 'function') break;
+    }
+    if (typeof safeGenerateTransactionsLoop !== 'function') {
+      console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 10s');
+      isProcessing = false;
+      return;
+    }
+  }
+
   let browser: BrowserPolyfill | null = null;
   try {
     try {

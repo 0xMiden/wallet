@@ -95,24 +95,42 @@ export default defineConfig({
             return '';
           });
           const uniqueInits = [...new Set(initCalls)];
-          // Exclude init_actions and init_transaction_processor -- they
-          // transitively import frontend modules that hang in SW context.
-          // BUT: init_actions must still run fire-and-forget so its module-scope
-          // variables (unlockQueue, dappQueue, PQueue) get initialized.
-          const safeInits = uniqueInits.filter(c =>
+          // Separate inits into core (must complete) and extended (may hang).
+          // init_actions → init_dapp → init_activity never resolves because
+          // init_activity imports the frontend Zustand store which has a deep
+          // dependency chain that hangs in SW context. Similarly init_transaction_processor
+          // depends on init_activity. We run these fire-and-forget after core inits.
+          const coreInits = uniqueInits.filter(c =>
             !c.includes('init_actions') && !c.includes('init_transaction_processor')
           );
-          if (safeInits.length > 0) {
-            const initBlock = safeInits.map(c => `  await ${c};`).join('\n');
-            // Create a Promise that resolves when all inits are done.
-            // Define __initsReady at MODULE SCOPE so processRequest can access it
+          const extendedInits = uniqueInits.filter(c =>
+            c.includes('init_actions') || c.includes('init_transaction_processor')
+          );
+          if (coreInits.length > 0) {
+            // Create a Promise that resolves when core inits are done.
+            // Define __initsReady at MODULE SCOPE so processRequest can access it.
+            const coreInitBlock = coreInits.map(c => `  await ${c};`).join('\n');
+            const extendedInitBlock = extendedInits.map(c =>
+              `    ${c}.catch(function(e) { console.warn("[SW-init] ${c.replace('()', '')} error:", e?.message || e); })`
+            ).join(',\n');
             chunk.code = chunk.code.replace(
               /async function processRequest/,
               [
-                '// Module init Promise -- resolves when all __esmMin inits complete',
+                '// Phase 1: Core module inits (must complete for wallet operations)',
                 'var __initsReady = (async function() {',
-                initBlock,
+                coreInitBlock,
                 '  await init();',  // Actions.init() - sets state.inited
+                '  // Phase 2: Extended inits (may hang due to frontend module deps)',
+                '  // Run fire-and-forget with a 30s timeout',
+                extendedInitBlock.length > 0 ? [
+                  '  Promise.race([',
+                  '    Promise.all([',
+                  extendedInitBlock,
+                  '    ]),',
+                  '    new Promise(function(r) { setTimeout(r, 30000); })',
+                  '  ]).then(function() { console.log("[SW-init] Extended inits completed"); })',
+                  '   .catch(function() {});',
+                ].join('\n') : '',
                 '})();',
                 '',
                 'async function processRequest',

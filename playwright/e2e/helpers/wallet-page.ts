@@ -418,16 +418,17 @@ export class WalletPage {
     await sendFlow.waitFor({ timeout: 15_000 });
 
     // 2. SelectToken: click first available token
-    // Token rows are clickable CardItem components
-    const tokenItem = sendFlow.locator('article, [role="button"]').first();
+    // CardItem renders as a <div> with cursor-pointer. Match the token row by its
+    // title text structure (token name + balance) inside the send flow container.
+    const tokenItem = sendFlow.locator('div.cursor-pointer').first();
     await tokenItem.click({ timeout: 10_000 });
 
     // 3. SendDetails: fill address, amount, toggle private
     // Wait for SendDetails page to appear
     await this.page.waitForTimeout(500);
 
-    // Fill recipient address (textarea)
-    const addressInput = sendFlow.locator('textarea').first();
+    // Fill recipient address (input or textarea - the component may use either)
+    const addressInput = sendFlow.locator('input[placeholder*="wallet address"], input[placeholder*="address"], textarea').first();
     await addressInput.fill(params.recipientAddress);
 
     // Fill amount
