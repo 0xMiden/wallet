@@ -15,6 +15,20 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     react(),
+    // Capacitor expects index.html. Vite outputs mobile.html (matching the input name).
+    // Also strip crossorigin attrs — WKWebView uses capacitor:// scheme where CORS is N/A.
+    {
+      name: 'mobile-html-fixes',
+      transformIndexHtml(html) {
+        return html.replace(/ crossorigin/g, '');
+      },
+      closeBundle() {
+        const { renameSync, existsSync } = require('fs');
+        const src = resolve(__dirname, 'dist/mobile/mobile.html');
+        const dest = resolve(__dirname, 'dist/mobile/index.html');
+        if (existsSync(src)) renameSync(src, dest);
+      },
+    } satisfies Plugin,
     // SVG → React component transform
     {
       name: 'svg-to-react',
@@ -41,25 +55,32 @@ export default defineConfig({
     } satisfies Plugin,
     wasm(),
     nodePolyfills({
-      include: ['buffer', 'stream', 'assert', 'process'],
+      include: ['buffer', 'stream', 'assert', 'process', 'util'],
       globals: { Buffer: true, process: true },
     }),
   ],
+
+  publicDir: false, // Our build handles public assets; prevents overwriting processed HTML
 
   build: {
     outDir: 'dist/mobile',
     emptyOutDir: true,
     sourcemap: process.env.MODE_ENV !== 'production',
     target: 'es2022',
+    modulePreload: { polyfill: false },
     rollupOptions: {
       input: resolve(__dirname, 'mobile.html'),
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name].[hash].js',
         assetFileNames: 'static/[name].[hash][extname]',
+        // Single bundle like webpack — Capacitor's local server has issues
+        // with ES module loading (import statements at top level).
+        inlineDynamicImports: true,
       },
     },
   },
+
 
   resolve: {
     alias: {
@@ -79,7 +100,7 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('mobile'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
-    'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
+    'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',

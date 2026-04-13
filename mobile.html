@@ -113,6 +113,17 @@
       <img src="misc/logo-white-bg-16.png" alt="" />
     </div>
     <div id="root"></div>
+    <script>
+      // Debug: catch any errors and display them on screen
+      window.onerror = function(msg, url, line, col, err) {
+        var el = document.getElementById('miden-splash');
+        if (el) el.innerHTML = '<pre style="font-size:10px;color:red;padding:20px;word-wrap:break-word;white-space:pre-wrap;">' + msg + '\n' + (url||'') + ':' + line + '\n' + (err&&err.stack||'') + '</pre>';
+      };
+      window.addEventListener('unhandledrejection', function(e) {
+        var el = document.getElementById('miden-splash');
+        if (el) el.innerHTML = '<pre style="font-size:10px;color:red;padding:20px;word-wrap:break-word;white-space:pre-wrap;">Unhandled rejection:\n' + (e.reason&&e.reason.stack||e.reason||'unknown') + '</pre>';
+      });
+    </script>
     <script type="module" src="/src/mobile-app.tsx"></script>
   </body>
 </html>
