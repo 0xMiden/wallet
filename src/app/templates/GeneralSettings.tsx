@@ -70,8 +70,11 @@ const GeneralSettings: FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-y-6">
-      <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
-        <span className="text-sm font-medium">{t('theme')}</span>
+      <div
+        className="flex items-center justify-between gap-x-4"
+        data-testid={GeneralSettingsSelectors.ThemeSelector}
+      >
+        <span className="font-medium text-base leading-[130%] text-black dark:text-white">{t('theme')}</span>
         <TabPicker className="flex-shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />
       </div>
 

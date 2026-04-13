@@ -32,7 +32,14 @@ const TabPickerItem: React.FC<TabPickerItemProps> = ({
   onIconClick,
   ...props
 }) => {
-  const iconColor = useMemo(() => (disabled ? colors.grey[400] : 'black'), [disabled]);
+  // Icon color can't use CSS dark: variants (SVG fill prop takes a literal
+  // color), so resolve it against the current theme at render time.
+  const isDarkMode =
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const iconColor = useMemo(
+    () => (disabled ? colors.grey[400] : isDarkMode ? 'white' : 'black'),
+    [disabled, isDarkMode]
+  );
   return (
     <button
       type="button"
@@ -46,12 +53,16 @@ const TabPickerItem: React.FC<TabPickerItemProps> = ({
       )}
     >
       {active ? (
-        <motion.div key={animationId} className="absolute w-full h-full bg-white rounded-full" layoutId={animationId} />
+        <motion.div
+          key={animationId}
+          className="absolute w-full h-full bg-white dark:bg-white/15 rounded-full"
+          layoutId={animationId}
+        />
       ) : null}
       <p
         className={classNames('text-sm font-medium z-10', {
-          'text-black': !disabled,
-          'text-grey-400': disabled
+          'text-black dark:text-white': !disabled,
+          'text-grey-400 dark:text-grey-500': disabled
         })}
       >
         {title}
@@ -79,7 +90,14 @@ export const TabPicker: React.FC<TabPickerProps> = ({ tabs, className, onTabChan
   const skipAnimations = isExtension();
 
   return (
-    <div className={classNames('flex', 'rounded-full overflow-hidden p-1', 'bg-grey-50', className)} {...props}>
+    <div
+      className={classNames(
+        'flex rounded-full overflow-hidden p-1',
+        'bg-grey-50 dark:bg-surface-secondary',
+        className
+      )}
+      {...props}
+    >
       <MotionConfig transition={skipAnimations ? { duration: 0 } : undefined}>
         {tabs.map((tab, index) => (
           <TabPickerItem key={tab.id} {...tab} onClick={() => handleTabChange(index)} animationId={animationId} />
