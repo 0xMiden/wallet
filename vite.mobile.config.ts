@@ -22,26 +22,37 @@ export default defineConfig({
       transformIndexHtml(html) {
         return html
           .replace(/ crossorigin/g, '')
-          // Use defer instead of type="module" — WKWebView may not load ESM modules
-          .replace(' type="module"', ' defer')
+          // Keep type="module" — module-scope TLAs (now sync calls) still use ESM
           .replace(/<link rel="modulepreload"[^>]*>\n?/g, '');
       },
       generateBundle(_, bundle) {
         for (const [, chunk] of Object.entries(bundle)) {
           if (chunk.type !== 'chunk' || !chunk.code) continue;
-          // ── Mobile-specific patches (same approach as extension SW build) ──
+          // ── Synchronous module init (emulates webpack's async module runtime) ──
+          //
+          // Key insight: __esmMin factories are async but execute synchronously up
+          // to their first real `await`. By calling them WITHOUT `await` at module
+          // scope, all the synchronous variable assignments complete immediately.
+          // The async remainder (WASM compile) runs in background — we skip it.
+          //
+          // This is equivalent to webpack's module runtime: sync execution of
+          // factory bodies, with async deps (WASM) handled separately.
+
           // 1. Replace import.meta.url for classic script
           chunk.code = chunk.code.replace(/import\.meta\.url/g, '(document.currentScript&&document.currentScript.src||self.location.href)');
           // 2. Strip Worker module type
           chunk.code = chunk.code.replace(/,\s*\{\s*type:\s*"module"\s*\}/g, '');
-          // 3. Skip WASM init on main thread (Worker handles it)
+          // 3. Strip `await` from module-scope init_*() calls — make them sync.
+          //    The __esmMin factories stay async internally (legal inside their functions)
+          //    but are CALLED synchronously so their sync code runs immediately.
+          chunk.code = chunk.code.replace(/^await (init_\w+\(\))/gm, '$1');
+          // Also strip indented await init_*() inside factories (chain ordering)
+          chunk.code = chunk.code.replace(/\tawait (init_\w+\(\))/g, '\t$1');
+          // 4. Skip WASM init and finalize (Worker handles WASM)
           chunk.code = chunk.code.replace(/\tawait __wbg_init[^;]+;/g, '\t/* wasm-skipped */');
           chunk.code = chunk.code.replace(/__wbg_finalize_init[^;]+;/g, '/* finalize-skipped */;');
-          // 4. Strip ALL TLAs — convert to fire-and-forget
-          chunk.code = chunk.code.replace(/^await /gm, '/* tla */ ');
-          chunk.code = chunk.code.replace(/\tawait (init_\w+\(\))/g, '\t/* tla */ $1');
-          // 5. Wrap in async IIFE (classic script can't have TLA remnants in inner async fns)
-          chunk.code = '(async function(){' + chunk.code + '})().catch(function(e){console.error("[mobile]",e)});';
+          // 5. No wrapping needed — keep as type="module" ESM for the remaining
+          //    async code (initMobile is async and uses await internally)
         }
       },
       closeBundle() {
