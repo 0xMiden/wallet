@@ -22,8 +22,7 @@ export default defineConfig({
       transformIndexHtml(html) {
         return html
           .replace(/ crossorigin/g, '')
-          // Classic script — the bundle is wrapped in an async IIFE
-          .replace(' type="module"', ' defer')
+          // Keep type="module" — TLAs are stripped so module evaluates synchronously
           .replace(/<link rel="modulepreload"[^>]*>\n?/g, '');
       },
       generateBundle(_, bundle) {
@@ -34,8 +33,17 @@ export default defineConfig({
           // Strip { type: "module" } from Worker constructors — workers are
           // now built as IIFE (classic scripts) for WKWebView compatibility.
           chunk.code = chunk.code.replace(/,\s*\{\s*type:\s*"module"\s*\}/g, '');
-          // Wrap in async IIFE so TLA works, use classic <script defer>
-          chunk.code = '(async function() {\n' + chunk.code + '\n})();';
+          // Strip ALL TLAs — convert every `await init_*()` to fire-and-forget.
+          // The __esmMin lazy inits are async but mostly synchronous internally.
+          // With fire-and-forget, they all execute immediately (synchronous code
+          // completes, async WASM code starts in background). The app entry
+          // function at the end of the file runs after all sync inits complete.
+          // Same pattern that works for the extension SW build.
+          chunk.code = chunk.code.replace(/^await /gm, '/* tla */ ');
+          // Also strip awaits INSIDE __esmMin factories (indented)
+          chunk.code = chunk.code.replace(/\tawait (init_\w+\(\))/g, '\t/* tla */ $1');
+          // Error display for debugging
+          chunk.code += '\nwindow.onerror=function(m,u,l){document.getElementById("miden-splash").innerHTML="<pre style=font-size:8px;color:red;padding:10px>"+m+"\\n"+u+":"+l+"</pre>"};';
         }
       },
       closeBundle() {
