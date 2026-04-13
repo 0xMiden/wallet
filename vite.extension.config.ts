@@ -196,17 +196,36 @@ export default defineConfig({
       },
     } satisfies Plugin,
     wasm(),
-    nodePolyfills({
-      include: ['buffer', 'stream', 'assert', 'process'],
-      globals: { Buffer: true, process: true },
-    }),
-    swPatches(),
-    // Remove crossorigin attribute from script tags -- not needed for same-extension
+    // NOTE: nodePolyfills is NOT included for the UI build -- these pages run in
+    // a real browser with real document/window. The node polyfills plugin provides
+    // fake document/window that break React's CSS animation detection.
+    // Buffer is provided via resolve.alias instead.
+    // Extension HTML fixes
     {
-      name: 'remove-crossorigin',
+      name: 'extension-html-fixes',
       enforce: 'post',
       transformIndexHtml(html) {
-        return html.replace(/ crossorigin/g, '');
+        return html
+          .replace(/ crossorigin/g, '')
+          // Inject process global before any module script
+          .replace(
+            '<script type="module"',
+            '<script>window.process = { env: {}, browser: true };</script>\n    <script type="module"'
+          );
+      },
+      // Inject global React + Buffer for CJS dependencies that expect them.
+      // Rolldown's CJS-to-ESM interop scopes `var React = require_react()` inside
+      // a function, but other code in the same chunk references unscoped `React`.
+      generateBundle(_, bundle) {
+        for (const [, chunk] of Object.entries(bundle)) {
+          if (chunk.type !== 'chunk' || !chunk.code) continue;
+          if (!chunk.code.includes('React.createElement')) continue;
+          // Wrap chunk in an IIFE that provides React globally
+          chunk.code = chunk.code.replace(
+            /var React = (require_react\(\));/,
+            'var React = $1; globalThis.React = globalThis.React || React;'
+          );
+        }
       },
     } satisfies Plugin,
     copyPublicAssets(resolve(__dirname, OUTPUT_DIR)),
@@ -260,10 +279,25 @@ export default defineConfig({
   },
 
   resolve: {
-    alias: sharedAlias,
+    alias: {
+      ...sharedAlias,
+      // Ensure consistent React instance across all imports
+      react: resolve(__dirname, 'node_modules/react'),
+      'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      // Node module polyfills for browser context
+      buffer: 'buffer',
+      stream: 'stream-browserify',
+      assert: 'assert',
+    },
   },
 
-  define: sharedDefine,
+  define: {
+    ...sharedDefine,
+    // Provide process.browser for libraries that check it
+    'process.browser': 'true',
+    // Global process object for compatibility
+    'global': 'globalThis',
+  },
 
   css: {
     modules: {
