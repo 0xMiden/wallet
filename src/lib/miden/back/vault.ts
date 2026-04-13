@@ -25,7 +25,7 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
 const STORAGE_KEY_PREFIX = 'vault';
-const DEFAULT_SETTINGS = {};
+const DEFAULT_SETTINGS: WalletSettings = {};
 
 // Storage keys for vault key protectors
 const VAULT_KEY_PASSWORD_STORAGE_KEY = 'vault_key_password';
@@ -446,8 +446,13 @@ export class Vault {
     return await getPlain<string>(currentAccPubKeyStrgKey);
   }
 
-  async fetchSettings() {
-    return DEFAULT_SETTINGS;
+  async fetchSettings(): Promise<WalletSettings> {
+    try {
+      const settings = await fetchAndDecryptOneWithLegacyFallBack<WalletSettings>(settingsStrgKey, this.vaultKey);
+      return settings ?? DEFAULT_SETTINGS;
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
   }
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
