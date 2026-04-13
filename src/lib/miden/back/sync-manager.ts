@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 
 import { getMessage } from 'lib/i18n';
 import { getRpcEndpoint } from 'lib/miden-chain/constants';
+import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { GoogleDriveProvider } from '../backup/google-drive-provider';
@@ -41,6 +42,12 @@ async function checkAndCanonicalize(): Promise<void> {
 
   const accounts = store.getState().accounts;
   if (!accounts || accounts.length === 0) return;
+
+  // Skip if a local transaction is in flight — the local commitment will
+  // legitimately differ from on-chain until the tx is included, and
+  // canonicalizing now would clobber the pending state with an older backup.
+  const pending = await getAllUncompletedTransactions();
+  if (pending.length > 0) return;
 
   try {
     // Collect local commitments for all accounts in a single WASM lock
@@ -106,8 +113,10 @@ async function checkAndCanonicalize(): Promise<void> {
     const { vault } = store.getState();
     console.log('[SyncManager] Restoring from backup due to on-chain mismatch — accounts in backup:', vault);
     if (vault) {
-      console.log(content.walletAccounts);
       await vault.replaceAccounts(content.walletAccounts);
+      // Re-derive and persist auth secret keys so restored accounts are
+      // signable — replaceAccounts only writes metadata.
+      await vault.restoreAccountKeys(content.walletAccounts);
       accountsUpdated({ accounts: content.walletAccounts });
     }
 

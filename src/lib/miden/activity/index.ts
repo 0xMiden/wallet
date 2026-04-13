@@ -1,4 +1,3 @@
-import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 

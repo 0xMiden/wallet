@@ -1,7 +1,7 @@
-import { BackupEncryptionMethod } from 'lib/passkey/types';
 import { decrypt, decryptBytes, deriveKey, generateKey, importVaultKey } from 'lib/miden/passworder';
 import { importDb } from 'lib/miden/repo';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { disposeMidenClient, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { BackupEncryptionMethod } from 'lib/passkey/types';
 import { CloudBackupProbeResult } from 'lib/shared/types';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK } from 'screens/shared';
 
@@ -91,6 +91,9 @@ export async function restoreCloudBackup(
     const client = await getMidenClient();
     const snapshot = JSON.parse(content.sdkStoreSnapshot);
     await client.importDb(snapshot);
+    // Dispose the in-memory client so the next getMidenClient() call
+    // re-initializes against the freshly imported IDB state.
+    disposeMidenClient();
   });
 
   // 6. Import transaction DB
@@ -134,6 +137,9 @@ export async function restoreCloudBackupWithKey(
     const client = await getMidenClient();
     const snapshot = JSON.parse(content.sdkStoreSnapshot);
     await client.importDb(snapshot);
+    // Dispose the in-memory client so the next getMidenClient() call
+    // re-initializes against the freshly imported IDB state.
+    disposeMidenClient();
   });
 
   await importDb(content.transactionDbDump);

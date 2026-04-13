@@ -545,6 +545,42 @@ export class Vault {
     await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
   }
 
+  /**
+   * Re-derive and persist the auth secret key for each account from the
+   * vault's mnemonic. Used after a cloud-backup restore brings in accounts
+   * we don't have signing material for — without this, signTransaction()
+   * fails on the restored accounts. Idempotent: safe to call for accounts
+   * whose keys are already stored.
+   */
+  async restoreAccountKeys(accounts: WalletAccount[]): Promise<void> {
+    return withError('Failed to restore account keys', async () => {
+      const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey);
+
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        for (const account of accounts) {
+          const midenAccount = await midenClient.getAccount(account.publicKey);
+          if (!midenAccount) {
+            console.warn('[Vault.restoreAccountKeys] Account not in client store:', account.publicKey);
+            continue;
+          }
+          const walletSeed = deriveClientSeed(account.type, mnemonic, account.hdIndex);
+          const key = midenAccount.getPublicKeyCommitments()[0]!.serialize();
+          const sk = AuthSecretKey.rpoFalconWithRNG(walletSeed).serialize();
+          const pubKeyHex = Buffer.from(key).toString('hex');
+          const secretKeyHex = Buffer.from(sk).toString('hex');
+          await encryptAndSaveMany(
+            [
+              [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
+              [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+            ],
+            this.vaultKey
+          );
+        }
+      });
+    });
+  }
+
   async updateSettings(settings: Partial<WalletSettings>) {
     return withError('Failed to update settings', async () => {
       const current = await this.fetchSettings();
