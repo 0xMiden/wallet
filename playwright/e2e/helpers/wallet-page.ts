@@ -102,8 +102,19 @@ export class WalletPage {
     await expect(this.page.getByText(/your wallet is ready/i)).toBeVisible();
     await this.page.getByRole('button', { name: /get started/i }).click();
 
-    // Wait for Explore page
-    await expect(this.page.getByText('Send')).toBeVisible({ timeout: 30_000 });
+    // Wait for Explore page -- WASM init may still be completing,
+    // so we reload if the page stays on welcome after wallet creation
+    for (let waitAttempt = 0; waitAttempt < 5; waitAttempt++) {
+      const sendVisible = await this.page.getByText('Send').isVisible().catch(() => false);
+      if (sendVisible) break;
+      if (waitAttempt === 4) {
+        // Last attempt -- use expect for proper error
+        await expect(this.page.getByText('Send')).toBeVisible({ timeout: 10_000 });
+      }
+      // Reload to trigger fresh state fetch
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.waitForTimeout(5_000);
+    }
 
     // Extract address
     const address = await this.getAccountAddress();

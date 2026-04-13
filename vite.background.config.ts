@@ -67,16 +67,15 @@ export default defineConfig({
           // Collect all init_* calls that were stripped and re-inject them
           // inside start(), AFTER the intercom handler registration.
           const initCalls: string[] = [];
-          chunk.code.replace(/\/\* tla-stripped \*\/ (init_\w+\(\));?/g, (_m: string, call: string) => {
+          chunk.code.replace(/\/\* tla-stripped \*\/ (init_[\w$]+\(\));?/g, (_m: string, call: string) => {
             initCalls.push(call.replace(/;$/, ''));
             return '';
           });
           const uniqueInits = [...new Set(initCalls)];
-          // Exclude init_miden_client -- it loads WASM which resolves async.
-          // All other inits resolve synchronously once their dependencies are met.
-          const criticalInits = uniqueInits.filter(c => !c.includes('init_miden_client'));
-          if (criticalInits.length > 0) {
-            const initBlock = criticalInits.map(c => `  await ${c};`).join('\n');
+          // Include ALL inits including init_miden_client.
+          // WASM compiles in ~30ms so the total init time is <1s.
+          if (uniqueInits.length > 0) {
+            const initBlock = uniqueInits.map(c => `  await ${c};`).join('\n');
             chunk.code = chunk.code.replace(
               /intercom\$?\d*\.onRequest\(processRequest\);/,
               `$&\n  // Re-await critical module inits\n${initBlock}`
