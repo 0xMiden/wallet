@@ -2,6 +2,15 @@ import { Config } from 'tailwindcss';
 
 import customColors from './src/utils/colors';
 
+// Network-conditional branding: driven by MIDEN_NETWORK env variable (default: testnet)
+const isDevnet = process.env.MIDEN_NETWORK === 'devnet';
+
+const primaryPalette = {
+  50: isDevnet ? '#EEF1F4' : '#FFF0E5',
+  500: isDevnet ? '#7286A0' : '#FF5500',
+  600: isDevnet ? '#5A6B80' : '#CC4400'
+};
+
 export default {
   darkMode: 'class',
   content: ['./public/**/*.{html,js,mjs}', './src/**/*.{js,jsx,ts,tsx}'],
@@ -50,50 +59,74 @@ export default {
           100: '#E2E7FD',
           200: '#BFCBFF',
           300: '#ECF5FF',
-          400: '#FF5500',
+          400: primaryPalette[500],
           500: '#4299e1',
           600: '#3182ce',
-          700: '#CC4400',
+          700: primaryPalette[600],
           800: '#2c5282',
           900: '#2a4365'
         },
-        orange: {
-          50: '#FFF0E5',
-          100: '#FFE0CC',
-          200: '#FFCC99',
-          300: '#FFB366',
-          400: '#FF9933',
-          500: '#FF7700',
-          600: '#DD5500',
-          700: '#BB4400',
-          800: '#993300',
-          900: '#882200',
-          950: '#FF5500'
-        },
-        logoOrange: {
-          200: '#FF8844',
-          300: '#FFD4B8',
-          400: '#FF7722',
-          500: '#FF5500',
-          700: '#AA3700'
-        },
+        orange: isDevnet
+          ? {
+              50: '#EEF1F4',
+              100: '#DDE4EB',
+              200: '#C5D0DC',
+              300: '#ADBCCD',
+              400: '#96A8BE',
+              500: '#7F95AD',
+              600: '#6B809A',
+              700: '#576B82',
+              800: '#44566A',
+              900: '#3A4857',
+              950: '#7286A0'
+            }
+          : {
+              50: '#FFF0E5',
+              100: '#FFE0CC',
+              200: '#FFCC99',
+              300: '#FFB366',
+              400: '#FF9933',
+              500: '#FF7700',
+              600: '#DD5500',
+              700: '#BB4400',
+              800: '#993300',
+              900: '#882200',
+              950: '#FF5500'
+            },
+        logoOrange: isDevnet
+          ? {
+              200: '#8A9DB5',
+              300: '#C5D0DC',
+              400: '#7F95AD',
+              500: '#7286A0',
+              700: '#4E5F73'
+            }
+          : {
+              200: '#FF8844',
+              300: '#FFD4B8',
+              400: '#FF7722',
+              500: '#FF5500',
+              700: '#AA3700'
+            },
         // Brand colors
         'primary-white': '#fcfaf7',
-        'primary-orange': '#FF8844',
-        'primary-orange-disabled': '#FF7722',
-        'primary-orange-light': '#FFD4B8',
-        'primary-orange-dark': '#AA3700',
-        'primary-orange-lighter': '#FFF0E5',
-        'primary-orange-darker': '#882200',
+        'primary-orange': isDevnet ? '#8A9DB5' : '#FF8844',
+        'primary-orange-disabled': isDevnet ? '#7F95AD' : '#FF7722',
+        'primary-orange-light': isDevnet ? '#C5D0DC' : '#FFD4B8',
+        'primary-orange-dark': isDevnet ? '#4E5F73' : '#AA3700',
+        'primary-orange-lighter': isDevnet ? '#EEF1F4' : '#FFF0E5',
+        'primary-orange-darker': isDevnet ? '#3A4857' : '#882200',
         'primary-gray': '#656565',
         'border-card': 'var(--color-border)',
         'chip-bg': 'var(--color-chip-bg)',
-        'pill-active': '#E87040',
-        'accent-orange': '#EE622F',
+        'pill-active': isDevnet ? '#6878A0' : '#E87040',
+        'accent-orange': isDevnet ? '#5E7090' : '#EE622F',
         'app-bg': 'var(--color-app-bg)',
         'send-blue': '#2E80C4',
         'receive-green': '#38A169',
-        ...customColors
+        ...customColors,
+        // Override primary from customColors with network-conditional values
+        primary: primaryPalette
       };
       return baseColors;
     })(),
@@ -132,7 +165,7 @@ export default {
       boxShadow: {
         'xs-white': '0 0 0 1px rgba(255, 255, 255, 0.05)',
         'top-light': '0 -1px 2px 0 rgba(0, 0, 0, 0.1)',
-        outline: '0 0 0 3px rgba(237, 137, 54, 0.5)'
+        outline: isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(237, 137, 54, 0.5)'
       },
       // Custom border radius
       borderRadius: {

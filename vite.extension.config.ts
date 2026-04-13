@@ -154,7 +154,7 @@ const sharedDefine = {
   'process.env.VERSION': JSON.stringify(pkg.version),
   'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
   'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
-  'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
+  'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),

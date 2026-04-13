@@ -4,7 +4,7 @@ import classNames from 'clsx';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticSelection } from 'lib/mobile/haptics';
-import colors from 'utils/tailwind-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   icon: IconName;
@@ -13,7 +13,7 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
 }
 
 const Tab: React.FC<TabProps> = ({ className, icon, active, activeIcon, ...props }) => {
-  const iconColor = active ? colors.primary[500] : 'black';
+  const iconColor = active ? PRIMARY_HEX : 'black';
   return (
     <button
       type="button"
