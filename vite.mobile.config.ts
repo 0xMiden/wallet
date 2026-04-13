@@ -31,8 +31,9 @@ export default defineConfig({
           if (chunk.type !== 'chunk' || !chunk.code) continue;
           // Replace import.meta.url (ESM-only) for classic script compatibility
           chunk.code = chunk.code.replace(/import\.meta\.url/g, '(document.currentScript&&document.currentScript.src||self.location.href)');
-          // Keep { type: "module" } for workers — they use dynamic import()
-          // to load the WASM glue code, which requires ESM module workers.
+          // Strip { type: "module" } from Worker constructors — workers are
+          // now built as IIFE (classic scripts) for WKWebView compatibility.
+          chunk.code = chunk.code.replace(/,\s*\{\s*type:\s*"module"\s*\}/g, '');
           // Wrap in async IIFE so TLA works, use classic <script defer>
           chunk.code = '(async function() {\n' + chunk.code + '\n})();';
         }
@@ -125,6 +126,9 @@ export default defineConfig({
   },
 
   worker: {
+    // ESM workers — the SDK's WASM glue has TLA which requires ESM.
+    // WKWebView doesn't support module workers, so mobile WASM loading
+    // hangs on iOS. This needs an SDK fix: wrap TLA in async function.
     format: 'es',
   },
 });
