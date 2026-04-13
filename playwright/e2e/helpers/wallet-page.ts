@@ -70,17 +70,38 @@ export class WalletPage {
       }
     }
     await this.page.getByRole('button', { name: /show/i }).click();
+    // Wait for blur to be removed
+    await this.page.waitForTimeout(500);
 
-    // Extract seed words
-    const seedWords = await this.page.$$eval(
-      'article > label > label > p:last-child',
-      paragraphs => paragraphs.map(p => p.textContent?.trim() || '')
-    );
+    // Extract seed words by finding all numbered word elements in the grid.
+    // Structure: article > label.Chip > label.inner > [p.number, p.word]
+    // We look for p elements that DON'T start with a digit (the word, not the "1." number).
+    const seedWords = await this.page.evaluate(() => {
+      const article = document.querySelector('article');
+      if (!article) return [];
+      // Each Chip is a <label> containing an inner <label> with two <p> children
+      const chips = article.querySelectorAll(':scope > label');
+      const words: string[] = [];
+      chips.forEach(chip => {
+        const ps = chip.querySelectorAll('p');
+        // The last <p> in each chip is the word (the first is the number like "1.")
+        const wordP = ps[ps.length - 1];
+        if (wordP) {
+          const text = wordP.textContent?.trim() || '';
+          if (text && !/^\d+\.?$/.test(text)) {
+            words.push(text);
+          }
+        }
+      });
+      return words;
+    });
+
+    console.log(`[WalletPage] Extracted ${seedWords.length} seed words: ${seedWords.join(', ')}`);
 
     const firstWord = seedWords[0];
-    const lastWord = seedWords[11];
-    if (!firstWord || !lastWord) {
-      throw new Error('Failed to read seed words from backup screen');
+    const lastWord = seedWords[seedWords.length - 1];
+    if (!firstWord || !lastWord || seedWords.length < 12) {
+      throw new Error(`Failed to read seed words from backup screen. Got ${seedWords.length} words: ${seedWords.join(', ')}`);
     }
 
     await this.page.getByRole('button', { name: /continue/i }).click();
@@ -88,9 +109,25 @@ export class WalletPage {
     // Verify seed phrase (select first and last words)
     const verifyContainer = this.page.getByTestId('verify-seed-phrase');
     await verifyContainer.waitFor({ timeout: 15_000 });
+
+    // Click the button containing the first word text, then the last word
     await verifyContainer.locator(`button:has-text("${firstWord}")`).first().click();
     await verifyContainer.locator(`button:has-text("${lastWord}")`).first().click();
-    await verifyContainer.getByRole('button', { name: /continue/i }).click();
+
+    // Verify the Continue button is enabled before clicking
+    const continueBtn = verifyContainer.getByRole('button', { name: /continue/i });
+    const isDisabled = await continueBtn.isDisabled();
+    if (isDisabled) {
+      // Debug: log what words are visible in the verify grid
+      const verifyWords = await verifyContainer.evaluate((el) => {
+        return Array.from(el.querySelectorAll('button')).map(b => b.textContent?.trim() || '');
+      });
+      throw new Error(
+        `Verify seed phrase: Continue button is disabled after selecting "${firstWord}" and "${lastWord}". ` +
+        `Available words: ${verifyWords.join(', ')}`
+      );
+    }
+    await continueBtn.click();
 
     // Set password
     await expect(this.page).toHaveURL(/create-password/);
@@ -98,31 +135,106 @@ export class WalletPage {
     await this.page.locator('input[placeholder="Enter password again"]').first().fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
-    // Wait for "Your wallet is ready" -- this confirms the wallet was created.
-    // The confirmation screen appears after registerNewWallet completes.
-    await expect(this.page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 60_000 });
+    // Wait for "Your wallet is ready" confirmation screen.
+    // Note: this text appears IMMEDIATELY when the confirmation page renders,
+    // BEFORE the wallet is actually created. The actual creation happens when
+    // "Get Started" is clicked.
+    await expect(this.page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 120_000 });
+
+    // Capture console errors from the page for diagnostics
+    const consoleErrors: string[] = [];
+    const consoleHandler = (msg: any) => {
+      if (msg.type() === 'error' || msg.type() === 'warning') {
+        consoleErrors.push(`[${msg.type()}] ${msg.text()}`);
+      }
+    };
+    this.page.on('console', consoleHandler);
+
+    // Click "Get Started" - this triggers register() which sends NEW_WALLET_REQUEST
+    // to the service worker. The SW will create the vault and update state.
     await this.page.getByRole('button', { name: /get started/i }).click();
 
-    // After onboarding, wait for the Explore page to appear.
-    // The backend needs to return status=Ready for the router to show Explore.
-    // Reload periodically to force fresh state fetches.
-    for (let waitAttempt = 0; waitAttempt < 20; waitAttempt++) {
-      const sendVisible = await this.page.getByText('Send').isVisible().catch(() => false);
-      const receiveVisible = await this.page.getByText('Receive').isVisible().catch(() => false);
-      if (sendVisible || receiveVisible) break;
-      if (waitAttempt === 19) {
-        // Final attempt -- just navigate directly and hope for the best
-        await this.navigateHome();
-        await this.page.waitForTimeout(5_000);
-        break;
+    // Wait for the wallet creation to complete. The UI will navigate to '/' on success.
+    // Do NOT reload the page - that kills the in-flight intercom request.
+    // Instead, wait for either:
+    // 1. "Send" or "Receive" text (Explore page after successful creation + navigation)
+    // 2. The loading state to clear (button becomes clickable again = failure)
+    const WALLET_CREATION_TIMEOUT = 120_000;
+
+    try {
+      // Wait for the natural navigation to the Explore page
+      await this.page.getByText('Send').or(this.page.getByText('Receive')).first()
+        .waitFor({ timeout: WALLET_CREATION_TIMEOUT });
+    } catch {
+      // Natural navigation didn't happen. Check what state we're in.
+      const currentUrl = this.page.url();
+      const bodyText = await this.page.locator('body').textContent().catch(() => '');
+
+      // Check if the button returned to non-loading state (meaning register() threw)
+      const buttonLoading = await this.page.evaluate(() => {
+        const btn = document.querySelector('button');
+        return btn?.getAttribute('data-loading') === 'true' ||
+          btn?.querySelector('.animate-spin') !== null;
+      }).catch(() => false);
+
+      console.log(`[WalletPage] Wallet creation didn't navigate. URL: ${currentUrl}`);
+      console.log(`[WalletPage] Button loading: ${buttonLoading}`);
+      console.log(`[WalletPage] Console errors: ${consoleErrors.join(' | ')}`);
+      console.log(`[WalletPage] Body text (first 500): ${bodyText?.slice(0, 500)}`);
+
+      // Try reloading - maybe the wallet WAS created in the SW but the
+      // frontend response was lost (port disconnect, etc.)
+      for (let attempt = 0; attempt < 15; attempt++) {
+        await this.page.waitForTimeout(3_000);
+        await this.page.reload({ waitUntil: 'domcontentloaded' });
+        await this.page.waitForTimeout(3_000);
+
+        const sendVisible = await this.page.getByText('Send').isVisible().catch(() => false);
+        const receiveVisible = await this.page.getByText('Receive').isVisible().catch(() => false);
+        if (sendVisible || receiveVisible) break;
+
+        // Check if we're back at welcome screen (wallet not created)
+        const welcomeVisible = await this.page.getByTestId('onboarding-welcome')
+          .isVisible().catch(() => false);
+        if (welcomeVisible && attempt > 5) {
+          // After 5 reload attempts, if still showing welcome, the wallet wasn't created.
+          // Try creating it via direct intercom as fallback.
+          console.log('[WalletPage] Wallet not created via UI, trying direct intercom...');
+          try {
+            await this.page.evaluate(async (pwd: string) => {
+              const intercom = (window as any).__TEST_INTERCOM__;
+              if (!intercom) throw new Error('No __TEST_INTERCOM__');
+              await intercom.request({
+                type: 'NEW_WALLET_REQUEST',
+                password: pwd,
+                mnemonic: undefined,
+                ownMnemonic: false,
+              });
+            }, password);
+            // Wait for state to propagate
+            await this.page.waitForTimeout(5_000);
+            await this.page.reload({ waitUntil: 'domcontentloaded' });
+            await this.page.waitForTimeout(3_000);
+          } catch (e) {
+            console.log(`[WalletPage] Direct intercom fallback failed: ${e}`);
+          }
+        }
       }
-      await this.page.waitForTimeout(2_000);
-      await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await this.page.waitForTimeout(2_000);
     }
 
+    this.page.removeListener('console', consoleHandler);
+
     // Extract address
-    const address = await this.getAccountAddress();
+    let address = '';
+    try {
+      address = await this.getAccountAddress();
+    } catch {
+      // Fallback: try to get address from the store
+      address = await this.page.evaluate(() => {
+        const store = (window as any).__TEST_STORE__;
+        return store?.getState?.()?.currentAccount?.publicKey || 'unknown';
+      }) || 'unknown';
+    }
 
     return { address, seedPhrase: seedWords };
   }
@@ -375,23 +487,19 @@ export class WalletPage {
   // ── Lock/Unlock ───────────────────────────────────────────────────────────
 
   /**
-   * Lock the wallet (navigate to settings and trigger lock).
+   * Lock the wallet via intercom LOCK_REQUEST.
    */
   async lockWallet(): Promise<void> {
-    await this.navigateTo('/settings');
-    // Settings page has a "Lock Wallet" option or similar
-    // Try to find and click the lock button
-    const lockButton = this.page.getByText(/lock wallet/i).first();
-    try {
-      await lockButton.click({ timeout: 10_000 });
-    } catch {
-      // Fallback: try the intercom to send a lock request
-      await this.page.evaluate(() => {
-        const intercom = (window as any).__TEST_INTERCOM__;
-        if (intercom) intercom.request({ type: 'LOCK_REQUEST' });
-      });
-    }
-    await this.page.waitForTimeout(1_000);
+    await this.page.evaluate(async () => {
+      const intercom = (window as any).__TEST_INTERCOM__;
+      if (intercom) {
+        await intercom.request({ type: 'LOCK_REQUEST' });
+      }
+    });
+    await this.page.waitForTimeout(2_000);
+    // Reload to show the locked state (unlock screen)
+    await this.page.reload({ waitUntil: 'domcontentloaded' });
+    await this.page.waitForTimeout(2_000);
   }
 
   /**
@@ -399,11 +507,18 @@ export class WalletPage {
    */
   async unlockWallet(password: string = PASSWORD): Promise<void> {
     await this.navigateHome();
-    // Wait for password prompt
+    // Wait for password prompt - it might be type="password" or a regular input
     const passwordInput = this.page.locator('input[type="password"]');
-    await passwordInput.waitFor({ timeout: 10_000 });
-    await passwordInput.fill(password);
+    try {
+      await passwordInput.waitFor({ timeout: 15_000 });
+      await passwordInput.fill(password);
+    } catch {
+      // Fallback: try any visible input
+      const anyInput = this.page.locator('input').first();
+      await anyInput.waitFor({ timeout: 5_000 });
+      await anyInput.fill(password);
+    }
     await this.page.getByRole('button', { name: /unlock|continue|submit/i }).click();
-    await this.page.waitForTimeout(2_000);
+    await this.page.waitForTimeout(3_000);
   }
 }

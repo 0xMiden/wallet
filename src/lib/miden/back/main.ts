@@ -33,6 +33,7 @@ export async function start() {
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
+  console.log('[processRequest] type:', req?.type);
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
       doSync().catch(err => console.warn('[SyncManager] Error:', err));
@@ -111,7 +112,14 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         state
       };
     case WalletMessageType.NewWalletRequest:
-      await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
+      console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
+      try {
+        await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
+        console.log('[processRequest] registerNewWallet completed successfully');
+      } catch (err: any) {
+        console.error('[processRequest] registerNewWallet FAILED:', err?.message, err?.stack?.slice(0, 500));
+        throw err;
+      }
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.ImportFromClientRequest:
       await Actions.registerImportedWallet(req.password, req.mnemonic);

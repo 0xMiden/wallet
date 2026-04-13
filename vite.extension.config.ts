@@ -198,10 +198,13 @@ export default defineConfig({
       },
     } satisfies Plugin,
     wasm(),
-    // NOTE: nodePolyfills is NOT included for the UI build -- these pages run in
-    // a real browser with real document/window. The node polyfills plugin provides
-    // fake document/window that break React's CSS animation detection.
-    // Buffer is provided via resolve.alias instead.
+    // Polyfill Node built-ins used by crypto/stream libraries (readable-stream uses util.debuglog)
+    // Only include specific modules -- do NOT set globals.Buffer or globals.process
+    // to avoid injecting fake document/window that break React's CSS animation detection.
+    nodePolyfills({
+      include: ['util', 'stream', 'assert', 'buffer', 'process'],
+      globals: { Buffer: false, process: false },
+    }),
     // Extension HTML fixes
     {
       name: 'extension-html-fixes',
@@ -232,6 +235,11 @@ export default defineConfig({
     } satisfies Plugin,
     copyPublicAssets(resolve(__dirname, OUTPUT_DIR)),
   ],
+
+  // Disable Vite's built-in public dir handling -- our copyPublicAssets plugin
+  // handles it. Without this, Vite copies public/*.html to dist/ and overwrites
+  // the processed HTML that Vite generated from the project-root HTML entry points.
+  publicDir: false,
 
   build: {
     outDir: OUTPUT_DIR,

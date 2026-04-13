@@ -131,7 +131,7 @@ export default defineConfig({
     } satisfies Plugin,
     wasm(),
     nodePolyfills({
-      include: ['buffer', 'stream', 'assert', 'process'],
+      include: ['buffer', 'stream', 'assert', 'process', 'util'],
       globals: { Buffer: true, process: true },
     }),
   ],
