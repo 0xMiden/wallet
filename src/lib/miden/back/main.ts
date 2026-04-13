@@ -12,12 +12,18 @@ import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
-const frontStore = store.map(toFront);
+// frontStore is initialized lazily inside start() because with Vite's TLA stripping,
+// `store` may not be initialized at module scope evaluation time.
+let frontStore: ReturnType<typeof store.map> | null = null;
 
 export async function start() {
   console.log('Miden background script started');
+  // Register intercom FIRST so the IntercomServer starts accepting connections.
+  // The early-response logic in IntercomServer handles GetStateRequest and
+  // SyncRequest even before processRequest is wired up.
   intercom.onRequest(processRequest);
   await Actions.init();
+  frontStore = store.map(toFront);
   frontStore.watch(() => {
     intercom.broadcast({ type: WalletMessageType.StateUpdated });
   });

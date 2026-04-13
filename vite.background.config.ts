@@ -38,73 +38,17 @@ export default defineConfig({
             .replace(/document\.createElement\([^)]*\)/g, '({setAttribute(){},addEventListener(){}})')
             .replace(/\bwindow\.dispatchEvent\b/g, 'self.dispatchEvent');
 
-          // Only patch the entry chunk (background.js)
-          if (!chunk.fileName.includes('background')) continue;
+          // Strip top-level await statements. Chrome MV3 service workers
+          // won't register ESM modules that contain any TLA. Rolldown wraps
+          // every module in __esmMin() with TLA for lazy init. We convert
+          // these to fire-and-forget so the SW registers instantly.
+          // The module init functions still run -- just not blocking.
+          chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
 
-          // Inject early intercom handler at the very top, BEFORE any module code.
-          // This is critical: the WASM SDK's top-level await blocks the entire
-          // module from evaluating. Without this banner, the intercom handler
-          // (registered inside start()) never runs until WASM finishes compiling,
-          // leaving the UI on a blank loading screen.
-          const earlyHandler = `
-// ── Early SW intercom handler (injected by vite.background.config.ts) ──────
-// Responds to GET_STATE_REQUEST and SYNC_REQUEST immediately, before the
-// WASM SDK finishes compiling. The full handler in background.ts takes over
-// once the module evaluation completes.
-(function() {
-  var _earlyActive = true;
-  // Disable early handler once full background loads
-  self.__disableEarlyHandler = function() { _earlyActive = false; };
-
-  chrome.runtime.onInstalled.addListener(function(details) {
-    if (details.reason === 'install') {
-      chrome.storage.local.set({ fresh_install: true });
-      chrome.tabs.create({ url: chrome.runtime.getURL('fullpage.html') });
-    }
-  });
-
-  chrome.runtime.onConnect.addListener(function(port) {
-    if (port.name === 'Popup Connection') {
-      port.onDisconnect.addListener(function() {
-        chrome.storage.local.set({ 'last-page-closure-timestamp': Date.now().toString() });
-      });
-    }
-    // Handle intercom messages (port name: 'INTERCOM')
-    port.onMessage.addListener(function(msg) {
-      if (!_earlyActive || !msg || msg.type !== 'INTERCOM_REQUEST') return;
-      var reqType = msg.data && msg.data.type;
-      if (reqType === 'GET_STATE_REQUEST') {
-        chrome.storage.local.get('vault_check', function(stored) {
-          var vaultExists = stored && stored['vault_check'] !== undefined;
-          try {
-            port.postMessage({
-              type: 'INTERCOM_RESPONSE', reqId: msg.reqId,
-              data: { type: 'GET_STATE_RESPONSE', state: {
-                status: vaultExists ? 1 : 0,
-                accounts: [], currentAccount: null,
-                networks: [], settings: null, ownMnemonic: null
-              }}
-            });
-          } catch(e) {}
-        });
-      } else if (reqType === 'SYNC_REQUEST') {
-        try {
-          port.postMessage({ type: 'INTERCOM_RESPONSE', reqId: msg.reqId, data: { type: 'SYNC_RESPONSE' } });
-        } catch(e) {}
-      }
-    });
-  });
-
-  chrome.runtime.onMessage.addListener(function() { console.debug('Ping worker'); });
-  self.addEventListener('notificationclick', function(event) {
-    event.notification.close();
-    event.waitUntil(self.clients.openWindow(chrome.runtime.getURL('fullpage.html#/receive')));
-  });
-})();
-// ── End early handler ──────────────────────────────────────────────────────
-
-`;
-          chunk.code = earlyHandler + chunk.code;
+          // No banner needed -- the IntercomServer now handles GetStateRequest
+          // directly when no handler is registered (returns Idle state).
+          // The MV3 listeners (onInstalled, onConnect, etc.) are in
+          // background-entry.ts which Vite inlines into this file.
         }
       },
     } satisfies Plugin,

@@ -51,13 +51,25 @@ export async function init() {
 }
 
 export async function getFrontState(): Promise<WalletState> {
-  const state = store.getState();
-  if (state.inited) {
-    return toFront(state);
-  } else {
-    await new Promise(r => setTimeout(r, 10));
-    return getFrontState();
+  try {
+    const state = store.getState();
+    if (state.inited) {
+      return toFront(state);
+    }
+  } catch {
+    // store not initialized yet
   }
+  // Not initialized yet -- return Idle state immediately.
+  // The UI will show the onboarding screen. Once init completes,
+  // a StateUpdated broadcast triggers the frontend to re-fetch.
+  return {
+    status: 0, // WalletStatus.Idle
+    accounts: [],
+    currentAccount: null,
+    networks: [],
+    settings: null,
+    ownMnemonic: null,
+  } as WalletState;
 }
 
 export async function isDAppEnabled() {
