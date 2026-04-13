@@ -32,6 +32,10 @@ test.describe('Private Note Send', () => {
       expect(balance).toBeGreaterThan(0);
     });
 
+    await steps.step('claim_notes_wallet_a', async () => {
+      await walletA.claimAllNotes(120_000);
+    });
+
     await steps.step('send_private_note_a_to_b', async () => {
       await walletA.sendTokens({
         recipientAddress: addressB!,

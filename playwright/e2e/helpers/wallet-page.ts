@@ -414,6 +414,72 @@ export class WalletPage {
     await this.page.waitForTimeout(SYNC_WAIT_MS);
   }
 
+  // ── Claim Notes ───────────────────────────────────────────────────────────
+
+  /**
+   * Claim all consumable notes. The Explore page auto-consumes Miden notes
+   * when it renders (via autoConsumeMidenNotes in Explore.tsx). For non-Miden
+   * tokens, we look for Claim buttons in the UI.
+   *
+   * Waits for vault balance to become positive.
+   */
+  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+    // Navigate home to trigger the Explore page's auto-consume effect
+    await this.navigateHome();
+    await this.page.waitForTimeout(3_000);
+
+    // Try clicking any "Claim" or "Claim All" buttons visible on the page
+    const claimButtons = this.page.getByRole('button', { name: /claim/i });
+    const count = await claimButtons.count();
+    if (count > 0) {
+      console.log(`[WalletPage.claimAllNotes] Clicking ${count} claim button(s)`);
+      for (let i = 0; i < count; i++) {
+        try {
+          await claimButtons.nth(i).click({ timeout: 5_000 });
+          await this.page.waitForTimeout(2_000);
+        } catch { /* button may vanish */ }
+      }
+    }
+
+    // Wait for vault balance to become positive (auto-consume + tx processing)
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+      await this.triggerSync();
+      await this.page.waitForTimeout(5_000);
+
+      const vaultBalance = await this.page.evaluate(async () => {
+        const store = (globalThis as any).__TEST_STORE__;
+        if (!store) return 0;
+        const state = store.getState();
+        try {
+          if (state.currentAccount?.publicKey && state.fetchBalances) {
+            await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
+          }
+        } catch {}
+        const freshState = store.getState();
+        for (const tokenList of Object.values(freshState.balances || {}) as any[]) {
+          if (!Array.isArray(tokenList)) continue;
+          for (const token of tokenList) {
+            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+            if (amount > 0) return amount;
+          }
+        }
+        return 0;
+      });
+
+      if (vaultBalance > 0) {
+        console.log(`[WalletPage.claimAllNotes] Vault balance: ${vaultBalance}`);
+        return;
+      }
+
+      // Reload home to re-trigger auto-consume effect
+      await this.navigateHome();
+      await this.page.waitForTimeout(3_000);
+    }
+
+    console.log('[WalletPage.claimAllNotes] Vault balance still 0 after timeout');
+  }
+
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
   /**

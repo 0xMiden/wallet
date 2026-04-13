@@ -34,6 +34,10 @@ test.describe('Public Note Send', () => {
       captureStateFrom: [{ page: walletA.page, label: 'A', extensionId: walletA.extensionId }],
     });
 
+    await steps.step('claim_notes_wallet_a', async () => {
+      await walletA.claimAllNotes(120_000);
+    });
+
     await steps.step('send_public_note_a_to_b', async () => {
       await walletA.sendTokens({
         recipientAddress: addressB!,
