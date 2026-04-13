@@ -74,7 +74,7 @@ function copyPublicAssets(outDir: string): Plugin {
         const dest = join(outDir, entry);
         if (entry.endsWith('.html')) continue;
         if (entry === 'manifest.v2.json') continue;
-        if (entry === 'sw.js') continue; // Not needed -- background.js is the SW now
+        // sw.js IS needed -- it registers onInstalled before importing background.js
         if (entry === '_locales') {
           // Only copy EN locale
           if (existsSync(enDir)) copyRecursive(enDir, join(outDir, '_locales', 'en'));

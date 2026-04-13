@@ -97,7 +97,32 @@ export default defineConfig({
           // Our sw-no-preload patches above already replace document.* calls
           // with safe stubs, so even if init_preload_helper overwrites
           // __vitePreload, the patched version is SW-safe.
-          chunk.code = 'var __vitePreload = function(fn) { return fn(); };\n' + chunk.code;
+          // Inject synchronous MV3 event listeners at the very top of the file,
+          // BEFORE any module evaluation or async work. Chrome requires these to be
+          // registered in the first turn of the event loop.
+          const swListeners = [
+            '// ── MV3 synchronous event listeners (must be first) ──',
+            'chrome.runtime.onInstalled.addListener(function(details) {',
+            '  if (details.reason === "install") {',
+            '    chrome.storage.local.set({ fresh_install: true });',
+            '    chrome.tabs.create({ url: chrome.runtime.getURL("fullpage.html") });',
+            '  }',
+            '});',
+            'chrome.runtime.onConnect.addListener(function(port) {',
+            '  if (port.name === "Popup Connection") {',
+            '    port.onDisconnect.addListener(async function() {',
+            '      await chrome.storage.local.set({ "last-page-closure-timestamp": Date.now().toString() });',
+            '    });',
+            '  }',
+            '});',
+            'chrome.runtime.onMessage.addListener(function() { console.debug("Ping worker"); });',
+            'self.addEventListener("notificationclick", function(event) {',
+            '  event.notification.close();',
+            '  event.waitUntil(self.clients.openWindow(chrome.runtime.getURL("fullpage.html#/receive")));',
+            '});',
+            '',
+          ].join('\n');
+          chunk.code = swListeners + 'var __vitePreload = function(fn) { return fn(); };\n' + chunk.code;
 
           // Re-inject ALL init awaits inside start()
           const initCalls: string[] = [];
