@@ -86,15 +86,15 @@ source ~/.nvm/nvm.sh && nvm use 22 && yarn mobile:android
 ### iOS
 
 ```bash
-yarn mobile:ios                  # Build, sync, and open in Xcode (testnet)
-yarn mobile:ios:run              # Build and run on iOS Simulator (testnet, default)
-yarn mobile:ios:run:devnet       # Same but targets devnet — use this for E2E + iOS testing
+yarn mobile:ios                  # Build, sync, and open in Xcode
+yarn mobile:ios:run              # Build and run on iOS Simulator (default network)
+yarn mobile:ios:run:devnet       # Same but explicitly targets devnet
 yarn mobile:ios:build            # Build for iOS Simulator only
 yarn mobile:ios:build:devnet     # Same, devnet
 yarn mobile:ios:faceid           # Fix FaceID enrollment on simulator
 ```
 
-**Devnet vs testnet:** The build is network-specific — the `MIDEN_NETWORK` env var gets baked into the bundle at compile time. `testnet`'s RPC currently returns `Content-Type: application/grpc` (not `application/grpc-web+proto`), which breaks `tonic_web_wasm_client` in the WKWebView context. `devnet` works. Until testnet's gRPC-web proxy is fixed, use `:devnet` variants for iOS testing.
+`MIDEN_NETWORK` is baked into the bundle at compile time, so network selection happens at build, not runtime. The `:devnet` variants just set `MIDEN_NETWORK=devnet` for you.
 
 ### Android
 
