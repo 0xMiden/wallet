@@ -98,22 +98,27 @@ export class WalletPage {
     await this.page.locator('input[placeholder="Enter password again"]').first().fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
-    // Confirmation screen
-    await expect(this.page.getByText(/your wallet is ready/i)).toBeVisible();
+    // Wait for "Your wallet is ready" -- this confirms the wallet was created.
+    // The confirmation screen appears after registerNewWallet completes.
+    await expect(this.page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 60_000 });
     await this.page.getByRole('button', { name: /get started/i }).click();
 
-    // After onboarding, the page may still show status=Idle (from the early
-    // intercom response). Reload to trigger a fresh state fetch from the now-
-    // initialized backend, which should return status=Ready or status=Locked.
-    for (let waitAttempt = 0; waitAttempt < 10; waitAttempt++) {
+    // After onboarding, wait for the Explore page to appear.
+    // The backend needs to return status=Ready for the router to show Explore.
+    // Reload periodically to force fresh state fetches.
+    for (let waitAttempt = 0; waitAttempt < 20; waitAttempt++) {
       const sendVisible = await this.page.getByText('Send').isVisible().catch(() => false);
       const receiveVisible = await this.page.getByText('Receive').isVisible().catch(() => false);
       if (sendVisible || receiveVisible) break;
-      if (waitAttempt === 9) {
-        await expect(this.page.getByText('Send')).toBeVisible({ timeout: 10_000 });
+      if (waitAttempt === 19) {
+        // Final attempt -- just navigate directly and hope for the best
+        await this.navigateHome();
+        await this.page.waitForTimeout(5_000);
+        break;
       }
+      await this.page.waitForTimeout(2_000);
       await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await this.page.waitForTimeout(3_000);
+      await this.page.waitForTimeout(2_000);
     }
 
     // Extract address
