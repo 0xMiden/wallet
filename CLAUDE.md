@@ -149,6 +149,30 @@ ios/App/build/
 
 The mobile app shares the same React codebase as the browser extension. Mobile-specific code uses `isMobile()` checks from `lib/platform`.
 
+### Skip Onboarding (Mobile Testing)
+
+To skip the entire onboarding UI (seed phrase, verification, password) and jump directly to the "Your wallet is ready → Get started" screen, use one of these methods:
+
+**Method 1: URL parameter** — After the app launches on the welcome screen, navigate via CDP:
+```bash
+node /tmp/cdp-eval 'window.location.search = "?__test_skip_onboarding=1"'
+```
+
+**Method 2: JS global** — Set the global before the component mounts:
+```bash
+node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.reload()'
+```
+
+Both methods auto-generate a random seed phrase, set password to `password1`, and navigate to the confirmation screen. From there, tapping "Get started" (or triggering it via CDP) runs `registerWallet()` which initializes the WASM Worker and creates the wallet.
+
+To also auto-trigger "Get started" (full end-to-end skip):
+```bash
+# Wait a moment for the confirmation screen to render, then click
+node /tmp/cdp-eval 'document.querySelector("button")?.click(); "clicked"'
+```
+
+The bypass is in `src/app/pages/Welcome.tsx`. It only activates when `__test_skip_onboarding=1` is in the URL or `window.__TEST_SKIP_ONBOARDING` is set — zero impact on production.
+
 ### Platform-Specific Changes
 
 **CRITICAL:** This app builds for three platforms: Chrome extension, iOS, and Android. When fixing bugs or adding features:
@@ -294,6 +318,59 @@ xcrun simctl spawn booted log stream --predicate 'process == "App"' > ios_logs.t
 1. Run the app in simulator: `yarn mobile:ios:run`
 2. Open Safari on Mac → Develop menu → Simulator → select the app
 3. Console tab shows JavaScript logs
+
+### CDP Bridge for iOS WebView Debugging
+
+Use the `inspect` CLI (`@inspectdotdev/cli`) + a persistent-connection daemon to evaluate JavaScript in the Capacitor WKWebView from Claude Code. This gives you access to DOM, computed styles, console output, and error state — much more powerful than screenshots alone.
+
+**Known issue:** The inspect bridge has a single-use bug — after a WebSocket client disconnects, subsequent connections get no responses. The workaround is a persistent-connection daemon that holds ONE WebSocket open and routes all requests through it.
+
+**Bringup recipe (run once per session):**
+
+```bash
+# 1. Kill old bridges and free ports
+pkill -9 -f "inspect" 2>/dev/null
+pkill -9 -f "cdp-daemon" 2>/dev/null
+lsof -ti:9221,9222,9333 | xargs kill -9 2>/dev/null
+
+# 2. Reset webinspectord
+xcrun simctl spawn booted launchctl kill 9 user/501/com.apple.webinspectord
+
+# 3. Relaunch the app (re-registers WebView with fresh webinspectord)
+xcrun simctl terminate booted com.miden.wallet
+xcrun simctl launch booted com.miden.wallet
+sleep 2
+
+# 4. Start inspect bridge (wait ~5s for it to discover devices)
+source ~/.nvm/nvm.sh && nvm use 22
+nohup inspect --no-telemetry > /tmp/inspect.log 2>&1 &
+sleep 5
+
+# 5. Start CDP daemon (holds persistent WS, routes evals through it)
+nohup node /tmp/cdp-daemon.mjs > /tmp/cdp-daemon.log 2>&1 &
+sleep 3
+
+# 6. Smoke test — should print "2"
+node /tmp/cdp-eval '1+1'
+```
+
+**Usage after bringup:**
+```bash
+# Evaluate any JS in the WebView
+node /tmp/cdp-eval 'document.title'
+node /tmp/cdp-eval 'JSON.stringify(window.__cdp_errors)'
+
+# Set up an error trap to catch async failures
+node /tmp/cdp-eval 'window.__cdp_errors = []; window.addEventListener("error", e => window.__cdp_errors.push(e.message)); window.addEventListener("unhandledrejection", e => window.__cdp_errors.push("REJECTION: " + (e.reason?.message || e.reason))); "trap set"'
+```
+
+**Recovery when it stops working:**
+- Smoke test fails → restart from step 2 (webinspectord reset)
+- Bridge sees `[]` on `/json` → restart from step 3 (app crashed)
+- After `yarn mobile:ios:run` rebuild → restart from step 4 (PID changed)
+- Nothing works → quit Simulator.app entirely (`osascript -e 'tell application "Simulator" to quit'`), cold-boot, restart from step 1
+
+**Files:** `/tmp/cdp-daemon.mjs` (persistent WS daemon), `/tmp/cdp-eval` (one-shot client). If missing, recreate from the memory file at `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md`.
 
 ### Verifying Mobile UI Fixes
 

@@ -88,6 +88,35 @@ const Welcome: FC = () => {
     });
   }, []);
 
+  // Test bypass: skip onboarding via URL param or CDP global (mobile testing only)
+  // Usage from CDP: node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.hash = ""'
+  // Or navigate to /?__test_skip_onboarding=1
+  const [testBypassTriggered, setTestBypassTriggered] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const skipViaParam = params.get('__test_skip_onboarding') === '1';
+    const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;
+    if (!skipViaParam && !skipViaGlobal) return;
+
+    console.log('[Welcome] Test bypass: setting up seed + password');
+    const testSeed = generateMnemonic(128).split(' ');
+    const testPassword = params.get('password') || 'password1';
+    setSeedPhrase(testSeed);
+    setPassword(testPassword);
+    setOnboardingType(OnboardingType.Create);
+    setTestBypassTriggered(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Navigate to confirmation AFTER password state is committed
+  useEffect(() => {
+    if (testBypassTriggered && password) {
+      console.log('[Welcome] Test bypass: password set, navigating to confirmation');
+      navigate('/#confirmation');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testBypassTriggered, password]);
+
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));

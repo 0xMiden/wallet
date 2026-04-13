@@ -23,10 +23,30 @@ export default defineConfig({
         return html.replace(/ crossorigin/g, '');
       },
       closeBundle() {
-        const { renameSync, existsSync } = require('fs');
+        const { renameSync, existsSync, copyFileSync, readdirSync, mkdirSync } = require('fs');
         const src = resolve(__dirname, 'dist/mobile/mobile.html');
         const dest = resolve(__dirname, 'dist/mobile/index.html');
         if (existsSync(src)) renameSync(src, dest);
+        // Copy WASM to paths the classic Worker expects.
+        // The Worker is at /assets/worker.js and resolves
+        // "assets/miden_client_web.wasm" relative to self.location.href,
+        // which gives /assets/assets/miden_client_web.wasm.
+        // WASM files live in static/ (per assetFileNames config).
+        const staticDir = resolve(__dirname, 'dist/mobile/static');
+        const assetsDir = resolve(__dirname, 'dist/mobile/assets');
+        if (existsSync(staticDir)) {
+          // Target: /assets/assets/miden_client_web.wasm (Worker relative resolution)
+          const nestedDir = resolve(assetsDir, 'assets');
+          mkdirSync(nestedDir, { recursive: true });
+          for (const f of readdirSync(staticDir)) {
+            if (f.startsWith('miden_client_web') && f.endsWith('.wasm')) {
+              copyFileSync(resolve(staticDir, f), resolve(nestedDir, 'miden_client_web.wasm'));
+              // Also copy unhashed to assets/ root for direct access
+              copyFileSync(resolve(staticDir, f), resolve(assetsDir, 'miden_client_web.wasm'));
+              break;
+            }
+          }
+        }
       },
     } satisfies Plugin,
     // SVG → React component transform
