@@ -48,6 +48,7 @@ export function useSyncTrigger() {
       const mobileTxModalOpen = isMobile() && storeState.isTransactionModalOpen;
 
       if (!onGeneratingTxPage && !mobileTxModalOpen) {
+        useWalletStore.getState().setSyncStatus(true);
         try {
           await withWasmClientLock(async () => {
             const client = await getMidenClient();
@@ -56,6 +57,10 @@ export function useSyncTrigger() {
           });
         } catch (error) {
           console.warn('[useSyncTrigger] sync error:', error);
+        } finally {
+          // Mirrors the old AutoSync: flipping isSyncing false also sets
+          // hasCompletedInitialSync=true, which the header spinner watches.
+          useWalletStore.getState().setSyncStatus(false);
         }
       }
 
