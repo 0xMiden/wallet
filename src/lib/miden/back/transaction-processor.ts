@@ -1,4 +1,9 @@
-import { getAllUncompletedTransactions, hasQueuedTransactions, safeGenerateTransactionsLoop } from 'lib/miden/activity';
+// Import directly from the transactions module, not through activity/index.ts.
+// The activity re-export creates a circular init deadlock in the Vite SW bundle:
+// init_store → init_fetchBalances → init_prices → init_store (via __esmMin async factories).
+// Direct import avoids this because transaction-processor doesn't need the
+// activity module's full init chain.
+import { getAllUncompletedTransactions, hasQueuedTransactions, safeGenerateTransactionsLoop } from 'lib/miden/activity/transactions';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
@@ -49,20 +54,22 @@ export async function startTransactionProcessing(): Promise<void> {
 
   // In the Vite SW build, the activity module's re-export of transactions.ts
   // doesn't await the async transactions module init (Rolldown treats
-  // `export * from './transactions'` as synchronous). Wait for the function
-  // to become available (max 10s), which happens when the transactions module
-  // finishes its async init.
+  // `export * from './transactions'` as synchronous). Wait up to 60s for the
+  // function to become available. The init chain is:
+  // init_transactions → init_store (Zustand) → init_front → various frontend inits
+  // This may take time as module factories resolve asynchronously.
   if (typeof safeGenerateTransactionsLoop !== 'function') {
     console.log('[TransactionProcessor] Waiting for transactions module init...');
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 120; i++) {
       await new Promise(r => setTimeout(r, 500));
       if (typeof safeGenerateTransactionsLoop === 'function') break;
     }
     if (typeof safeGenerateTransactionsLoop !== 'function') {
-      console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 10s');
+      console.error('[TransactionProcessor] safeGenerateTransactionsLoop still not available after 60s');
       isProcessing = false;
       return;
     }
+    console.log('[TransactionProcessor] transactions module ready');
   }
 
   let browser: BrowserPolyfill | null = null;

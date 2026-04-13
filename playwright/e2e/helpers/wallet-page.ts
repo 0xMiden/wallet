@@ -110,9 +110,21 @@ export class WalletPage {
     const verifyContainer = this.page.getByTestId('verify-seed-phrase');
     await verifyContainer.waitFor({ timeout: 15_000 });
 
-    // Click the button containing the first word text, then the last word
-    await verifyContainer.locator(`button:has-text("${firstWord}")`).first().click();
-    await verifyContainer.locator(`button:has-text("${lastWord}")`).first().click();
+    // Click the button containing the first word text, then the last word.
+    // Handle duplicates: if firstWord == lastWord, click the first instance
+    // then the SECOND instance (clicking the same button twice would deselect).
+    const firstButtons = verifyContainer.locator(`button:has-text("${firstWord}")`);
+    await firstButtons.first().click();
+
+    if (firstWord === lastWord) {
+      // Duplicate word: click the second instance
+      const count = await firstButtons.count();
+      if (count > 1) {
+        await firstButtons.nth(1).click();
+      }
+    } else {
+      await verifyContainer.locator(`button:has-text("${lastWord}")`).first().click();
+    }
 
     // Verify the Continue button is enabled before clicking
     const continueBtn = verifyContainer.getByRole('button', { name: /continue/i });

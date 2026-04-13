@@ -76,6 +76,17 @@ export default defineConfig({
           // Strip TLA for ESM module SW compatibility
           chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
 
+          // Break circular init deadlocks in the Zustand store (init_store) chain.
+          // init_store → init_fetchBalances → (init_prices, init_assets, ...) → init_store
+          // Many frontend modules await init_store, creating circular deadlocks when
+          // init_store's own factory awaits init_fetchBalances. Fix: make init_store
+          // NOT await init_fetchBalances. The fetchBalances module only defines runtime
+          // functions; the store doesn't need it at creation time.
+          chunk.code = chunk.code.replace(
+            /(var init_store = __esmMin\(\(async \(\) => \{[\s\S]*?)await (init_fetchBalances\(\))/,
+            '$1$2'
+          );
+
           // Override __vitePreload with a SW-safe passthrough.
           // The init_preload_helper (run fire-and-forget) would set __vitePreload
           // to a function that accesses `document` which doesn't exist in SW.
