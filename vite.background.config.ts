@@ -87,6 +87,28 @@ export default defineConfig({
             '$1$2'
           );
 
+          // Instrument init_transactions with logging to find which await hangs.
+          // This replaces each `await init_*()` inside init_transactions with a
+          // logged version so we can see exactly where it gets stuck.
+          chunk.code = chunk.code.replace(
+            /var init_transactions = __esmMin\(\(async \(\) => \{([\s\S]*?)\}\)\);/,
+            (match, body) => {
+              let counter = 0;
+              const instrumented = body.replace(
+                /(?:await )?(init_\w+\(\))/g,
+                (m, call) => {
+                  counter++;
+                  const hasAwait = m.startsWith('await ');
+                  if (hasAwait) {
+                    return `console.log("[init_transactions] ${counter}: await ${call}..."); await ${call}; console.log("[init_transactions] ${counter}: ${call} done")`;
+                  }
+                  return `console.log("[init_transactions] ${counter}: ${call}"); ${call}`;
+                }
+              );
+              return `var init_transactions = __esmMin((async () => {${instrumented}}));`;
+            }
+          );
+
           // Override __vitePreload with a SW-safe passthrough.
           // The init_preload_helper (run fire-and-forget) would set __vitePreload
           // to a function that accesses `document` which doesn't exist in SW.
