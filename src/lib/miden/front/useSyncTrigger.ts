@@ -1,33 +1,73 @@
 import { useEffect } from 'react';
 
-import { isExtension } from 'lib/platform';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { isExtension, isMobile } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 
 const SYNC_INTERVAL_MS = 3_000;
 
 /**
- * On extension only: sends SyncRequest to the service worker every 3s.
+ * Periodic sync every 3s while the wallet is Ready.
  *
- * The service worker runs syncState() on its warm WASM client and broadcasts
- * SyncCompleted with notes + balances data. The frontend reads from Zustand only.
+ * - Extension: sends SyncRequest to the service worker, which runs syncState()
+ *   on its warm WASM client and broadcasts SyncCompleted with notes + balances.
+ * - Mobile / desktop: calls client.syncState() directly in-process (under the
+ *   wasm client lock), mirroring the old AutoSync behaviour that was removed
+ *   when the zustand balance/sync state was handed off to the React SDK.
+ *   Without this, nothing polls on mobile and the UI never sees new notes.
  */
 export function useSyncTrigger() {
   const status = useWalletStore(s => s.status);
 
   useEffect(() => {
-    if (!isExtension()) return;
     if (status !== WalletStatus.Ready) return;
 
-    const intercom = getIntercom();
+    if (isExtension()) {
+      const intercom = getIntercom();
+      const tick = () => {
+        intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
+      };
+      tick();
+      const timer = setInterval(tick, SYNC_INTERVAL_MS);
+      return () => clearInterval(timer);
+    }
 
-    const timer = setInterval(() => {
-      intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
-    }, SYNC_INTERVAL_MS);
+    // Mobile / desktop: direct in-process sync (restored from old AutoSync).
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    // Fire immediately
-    intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
+    const runAndSchedule = async () => {
+      if (cancelled) return;
 
-    return () => clearInterval(timer);
+      // Same guards the old AutoSync had: skip (don't wait for the lock) when
+      // a tx is being generated, to avoid queuing sync behind a long prove.
+      const storeState = useWalletStore.getState();
+      const onGeneratingTxPage =
+        typeof window !== 'undefined' && window.location.href.includes('generating-transaction');
+      const mobileTxModalOpen = isMobile() && storeState.isTransactionModalOpen;
+
+      if (!onGeneratingTxPage && !mobileTxModalOpen) {
+        try {
+          await withWasmClientLock(async () => {
+            const client = await getMidenClient();
+            if (!client || cancelled) return;
+            await client.syncState();
+          });
+        } catch (error) {
+          console.warn('[useSyncTrigger] sync error:', error);
+        }
+      }
+
+      if (!cancelled) {
+        timer = setTimeout(runAndSchedule, SYNC_INTERVAL_MS);
+      }
+    };
+    runAndSchedule();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [status]);
 }
