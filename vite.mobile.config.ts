@@ -5,6 +5,7 @@
 import { resolve } from 'path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react-swc';
+import { midenVitePlugin } from '@miden-sdk/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { defineConfig, type Plugin } from 'vite';
@@ -13,6 +14,11 @@ const pkg = require('./package.json');
 
 export default defineConfig({
   plugins: [
+    midenVitePlugin({
+      rpcProxyTarget: process.env.MIDEN_NETWORK === 'devnet'
+        ? 'https://rpc.devnet.miden.io'
+        : 'https://rpc.testnet.miden.io',
+    }),
     tailwindcss(),
     react(),
     // Capacitor expects index.html. Rename mobile.html → index.html.
@@ -140,12 +146,5 @@ export default defineConfig({
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',
     'global': 'globalThis',
-  },
-
-  worker: {
-    // ESM workers — the SDK's WASM glue has TLA which requires ESM.
-    // WKWebView doesn't support module workers, so mobile WASM loading
-    // hangs on iOS. This needs an SDK fix: wrap TLA in async function.
-    format: 'es',
   },
 });

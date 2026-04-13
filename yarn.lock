@@ -2160,6 +2160,11 @@
   dependencies:
     zustand "^5.0.0"
 
+"@miden-sdk/vite-plugin@0.13.4":
+  version "0.13.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/vite-plugin/-/vite-plugin-0.13.4.tgz#72370985960b888395e1850d3b1e2ab41bde8b12"
+  integrity sha512-BojOl1hF01wsHAXWDTm9gcMkMDqngE28SDLXZFJT2c6lgUouB7LzMkmKvWz0+qO0clOKY2/4R5LBQeAj5m74ZA==
+
 "@miden/dapp-browser@link:./packages/dapp-browser":
   version "0.0.0"
   uid ""
