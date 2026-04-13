@@ -2,6 +2,10 @@ import './main.css';
 
 import React from 'react';
 
+// Hoist React to global for CJS dependencies that use React.createElement
+// without importing it (e.g. react-day-picker, react-qr-code).
+(globalThis as any).React = (globalThis as any).React || React;
+
 import { Capacitor } from '@capacitor/core';
 import { createRoot } from 'react-dom/client';
 

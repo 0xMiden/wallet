@@ -22,10 +22,10 @@ export default defineConfig({
       transformIndexHtml(html) {
         return html
           .replace(/ crossorigin/g, '')
-          // Inject module error catcher before the main script
+          // Inject debug overlay that shows console.log and errors on screen
           .replace(
             '<script type="module"',
-            '<script type="module">window.addEventListener("error",function(e){document.getElementById("miden-splash").innerHTML="<pre style=font-size:9px;color:red;padding:10px>"+e.message+"\\n"+(e.filename||"")+":"+(e.lineno||"")+"</pre>"});window.addEventListener("unhandledrejection",function(e){document.getElementById("miden-splash").innerHTML="<pre style=font-size:9px;color:red;padding:10px>rejection: "+(e.reason&&e.reason.message||e.reason||"")+"</pre>"});</script>\n    <script type="module"'
+            '<script>var _msgs=[];var _ol=console.log;console.log=function(){_ol.apply(console,arguments);_msgs.push(Array.from(arguments).join(" "))};var _oe=console.error;console.error=function(){_oe.apply(console,arguments);_msgs.push("ERR: "+Array.from(arguments).join(" "))};window.onerror=function(m){_msgs.push("ONERR: "+m)};window.addEventListener("unhandledrejection",function(e){_msgs.push("REJ: "+(e.reason&&(e.reason.stack||e.reason.message)||e.reason||""))});document.addEventListener("DOMContentLoaded",function(){var d=document.createElement("pre");d.style="position:fixed;bottom:0;left:0;right:0;max-height:40vh;overflow:auto;font-size:8px;color:lime;background:rgba(0,0,0,0.85);padding:5px;z-index:99999";document.body.appendChild(d);d.textContent=_msgs.join("\\n");setInterval(function(){d.textContent=_msgs.join("\\n");d.scrollTop=d.scrollHeight},500)});</script>\n    <script type="module"'
           );
       },
       closeBundle() {
@@ -57,6 +57,20 @@ export default defineConfig({
           jsxRuntime: 'automatic',
         }, { filePath });
         return { code: jsxCode + '\nexport default "";', moduleType: 'jsx' };
+      },
+    } satisfies Plugin,
+    // Hoist React to global for CJS dependencies that expect React.createElement
+    {
+      name: 'react-global',
+      generateBundle(_, bundle) {
+        for (const [, chunk] of Object.entries(bundle)) {
+          if (chunk.type !== 'chunk' || !chunk.code) continue;
+          if (!chunk.code.includes('React.createElement')) continue;
+          chunk.code = chunk.code.replace(
+            /var React = (require_react\(\));/,
+            'var React = $1; globalThis.React = globalThis.React || React;'
+          );
+        }
       },
     } satisfies Plugin,
     wasm(),
