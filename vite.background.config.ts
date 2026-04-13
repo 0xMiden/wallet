@@ -8,14 +8,44 @@ const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 
 export default defineConfig({
   plugins: [
-    // Stub SVG imports -- the background SW doesn't render UI, but the
-    // dependency chain pulls in components that import SVGs.
+    // Stub SVG imports and CSS modules -- the background SW doesn't render UI.
     {
-      name: 'svg-stub',
+      name: 'sw-asset-stubs',
       enforce: 'pre',
       load(id) {
         if (id.endsWith('.svg')) {
           return 'export const ReactComponent = () => null; export default "";';
+        }
+        if (id.endsWith('.css') || id.endsWith('.scss')) {
+          return 'export default {};';
+        }
+      },
+    } satisfies Plugin,
+    // Stub React and frontend-only modules to prevent DOM/browser API access
+    // in the service worker. The backend code transitively imports these
+    // through the dapp → activity → store (Zustand) chain.
+    {
+      name: 'sw-frontend-stubs',
+      enforce: 'pre',
+      resolveId(source) {
+        // Stub out modules that can't work in SW
+        const stubModules = [
+          'react-i18next',
+          'i18next',
+          'i18next-browser-languagedetector',
+          'framer-motion',
+          'react-day-picker',
+          'react-qr-code',
+          'qr-scanner',
+          '@nicolo-ribaudo/chokidar-2',
+        ];
+        if (stubModules.some(m => source === m || source.startsWith(m + '/'))) {
+          return '\0stub:' + source;
+        }
+      },
+      load(id) {
+        if (id.startsWith('\0stub:')) {
+          return 'export default {}; export const useTranslation = () => ({ t: (k) => k, i18n: {} });';
         }
       },
     } satisfies Plugin,
@@ -65,17 +95,28 @@ export default defineConfig({
             return '';
           });
           const uniqueInits = [...new Set(initCalls)];
-          if (uniqueInits.length > 0) {
-            const initBlock = uniqueInits.map(c => `  await ${c};`).join('\n');
+          // Exclude init_actions and init_transaction_processor -- they
+          // transitively import frontend modules (React, Zustand store,
+          // framer-motion) that can't initialize in a service worker.
+          // The wallet operation functions are defined via hoisted function
+          // declarations and only need the Effector store (init_store$1).
+          const safeInits = uniqueInits.filter(c =>
+            !c.includes('init_actions') && !c.includes('init_transaction_processor')
+          );
+          if (safeInits.length > 0) {
+            const initBlock = safeInits.map(c => `  await ${c};`).join('\n');
             // Create a Promise that resolves when all inits are done.
+            // Define __initsReady at MODULE SCOPE so processRequest can access it
             chunk.code = chunk.code.replace(
-              /intercom\$?\d*\.onRequest\(processRequest\);/,
+              /async function processRequest/,
               [
-                '$&',
-                '  // Module init Promise -- processRequest awaits this before handling operations',
-                '  var __initsReady = (async function() {',
+                '// Module init Promise -- resolves when all __esmMin inits complete',
+                'var __initsReady = (async function() {',
                 initBlock,
-                '  })();',
+                '  await init();',  // Actions.init() - sets state.inited
+                '})();',
+                '',
+                'async function processRequest',
               ].join('\n')
             );
             // processRequest awaits inits for any request except GetStateRequest/SyncRequest
