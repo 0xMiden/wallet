@@ -318,36 +318,63 @@ export class WalletPage {
     await this.page.waitForTimeout(1_000);
 
     try {
-      // Read balances from the Zustand store via __TEST_STORE__ (requires E2E build).
-      // This is more reliable than scraping the page body.
-      const result = await this.page.evaluate((symbol) => {
+      // Read balances from the Zustand store (consumed assets) AND from
+      // chrome.storage.local sync data (consumable notes not yet consumed).
+      // The transaction processor auto-consumes notes but may not run in SW.
+      const result = await this.page.evaluate(async (symbol) => {
         const store = (window as any).__TEST_STORE__;
-        if (!store) return 0;
+        if (!store) return { balance: 0, debug: 'no store' };
         const state = store.getState();
-        if (!state.balances) return 0;
 
-        // Balances are keyed by account address -> array of token objects
-        for (const tokenList of Object.values(state.balances) as any[]) {
+        // Trigger a fresh balance fetch
+        try {
+          if (state.currentAccount?.publicKey && state.fetchBalances) {
+            await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
+          }
+        } catch {}
+
+        const freshState = store.getState();
+        let totalBalance = 0;
+
+        // 1. Read consumed assets from store
+        for (const tokenList of Object.values(freshState.balances || {}) as any[]) {
           if (!Array.isArray(tokenList)) continue;
           for (const token of tokenList) {
-            const tokenAmount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (symbol) {
-              // Match requested token symbol (case-insensitive)
-              const tokenSym = String(token.symbol ?? '').toUpperCase();
-              if (tokenSym === symbol.toUpperCase() && tokenAmount > 0) {
-                return tokenAmount;
-              }
-            } else {
-              // Return first non-zero balance
-              if (tokenAmount > 0) return tokenAmount;
+            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+            if (amount > 0) {
+              totalBalance += amount;
             }
           }
         }
-        return 0;
+
+        // 2. Also check consumable notes from sync data (pending incoming tokens)
+        // These are notes that have been discovered but not yet consumed.
+        try {
+          const storage = await new Promise<any>((resolve) => {
+            chrome.storage.local.get(['miden_sync_data'], resolve);
+          });
+          const syncData = storage?.miden_sync_data;
+          if (syncData?.notes?.length > 0) {
+            for (const note of syncData.notes) {
+              const baseUnits = parseInt(note.amountBaseUnits || '0', 10);
+              const decimals = note.metadata?.decimals ?? 8;
+              const noteBalance = baseUnits / Math.pow(10, decimals);
+              if (noteBalance > 0) {
+                totalBalance += noteBalance;
+              }
+            }
+          }
+        } catch {}
+
+        return {
+          balance: totalBalance,
+          debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`,
+        };
       }, tokenSymbol);
 
-      return result;
-    } catch {
+      return typeof result === 'object' ? result.balance : result;
+    } catch (e) {
+      console.log(`[WalletPage.getBalance] Error: ${e}`);
       return 0;
     }
   }
@@ -360,10 +387,13 @@ export class WalletPage {
    */
   async triggerSync(): Promise<void> {
     try {
-      await this.page.evaluate(() => {
+      await this.page.evaluate(async () => {
         const intercom = (window as any).__TEST_INTERCOM__;
         if (intercom) {
-          intercom.request({ type: 'SYNC_REQUEST' });
+          // Sync state with the blockchain node
+          await intercom.request({ type: 'SYNC_REQUEST' });
+          // Trigger transaction processing (auto-consume pending notes)
+          await intercom.request({ type: 'PROCESS_TRANSACTIONS_REQUEST' });
         }
       });
     } catch {
