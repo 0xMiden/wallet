@@ -2,7 +2,8 @@ import * as Actions from 'lib/miden/back/actions';
 import {
   disableAutoBackup,
   enableAutoBackup,
-  getStatus as getAutoBackupStatus
+  getStatus as getAutoBackupStatus,
+  registerAutoBackupHooks
 } from 'lib/miden/back/auto-backup-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doCoreSyncState } from 'lib/miden/back/sync-manager';
@@ -36,6 +37,8 @@ export class MobileIntercomAdapter {
     frontStore.watch(() => {
       this.notifySubscribers({ type: WalletMessageType.StateUpdated });
     });
+
+    registerAutoBackupHooks();
 
     this.initialized = true;
     console.log('MobileIntercomAdapter: Backend initialized');
@@ -204,7 +207,7 @@ export class MobileIntercomAdapter {
 
       case WalletMessageType.AutoBackupSetEnabledRequest: {
         if (req.enabled && req.encryption && req.accessToken && req.expiresAt) {
-          await enableAutoBackup(req.encryption, req.accessToken, req.expiresAt);
+          await enableAutoBackup(req.encryption, req.accessToken, req.expiresAt, req.skipInitialBackup);
         } else {
           await disableAutoBackup();
         }

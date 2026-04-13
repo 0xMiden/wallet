@@ -276,13 +276,14 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auto backup actions
-    setAutoBackupEnabled: async (enabled, accessToken, expiresAt, encryption) => {
+    setAutoBackupEnabled: async (enabled, accessToken, expiresAt, encryption, skipInitialBackup) => {
       const res = await request({
         type: WalletMessageType.AutoBackupSetEnabledRequest,
         enabled,
         accessToken,
         expiresAt,
-        encryption
+        encryption,
+        skipInitialBackup
       });
       assertResponse(res.type === WalletMessageType.AutoBackupSetEnabledResponse);
     },

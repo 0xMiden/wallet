@@ -138,7 +138,8 @@ const Welcome: FC = () => {
           true,
           cloudBackupData.accessToken,
           cloudBackupData.expiresAt,
-          cloudBackupData.encryption
+          cloudBackupData.encryption,
+          true
         );
       } else if (!importedWithFile) {
         await registerWallet(actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);

@@ -732,6 +732,9 @@ export interface AutoBackupSetEnabledRequest extends WalletMessageBase {
   accessToken?: string;
   expiresAt?: number;
   encryption?: AutoBackupEncryption;
+  /** Skip the initial backup fired from enableAutoBackup (e.g. after a cloud restore
+   *  where a backup already exists and uploading would clobber it with partial state). */
+  skipInitialBackup?: boolean;
 }
 
 export interface AutoBackupSetEnabledResponse extends WalletMessageBase {

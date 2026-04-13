@@ -184,7 +184,8 @@ export interface WalletActions {
     enabled: boolean,
     accessToken?: string,
     expiresAt?: number,
-    encryption?: AutoBackupEncryption
+    encryption?: AutoBackupEncryption,
+    skipInitialBackup?: boolean
   ) => Promise<void>;
   fetchAutoBackupStatus: () => Promise<AutoBackupStatus>;
 

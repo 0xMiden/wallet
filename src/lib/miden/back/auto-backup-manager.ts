@@ -20,7 +20,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { AutoBackupEncryption, AutoBackupSettings, AutoBackupStatus } from 'lib/shared/types';
 
 import * as Actions from './actions';
-import { store, withUnlocked } from './store';
+import { accountsUpdated, locked, settingsUpdated, store, unlocked, withUnlocked } from './store';
 
 // ---- Module-level transient state (no secrets) ----
 
@@ -31,13 +31,33 @@ let isBackingUp = false;
 let isPaused = false;
 let lastError: string | null = null;
 let settingsUpdateInProgress = false;
+let hooksRegistered = false;
 
 // ---- Public API ----
+
+/**
+ * Wire auto-backup side effects to store events. Must be called once per
+ * backend entry point (extension service worker, mobile adapter, desktop
+ * adapter). Without this, account/settings changes won't trigger uploads.
+ * Idempotent: safe to call multiple times (subsequent calls are no-ops).
+ */
+export function registerAutoBackupHooks(): void {
+  if (hooksRegistered) return;
+  hooksRegistered = true;
+
+  accountsUpdated.watch(() => triggerBackup());
+  settingsUpdated.watch(() => {
+    if (!settingsUpdateInProgress) triggerBackup();
+  });
+  unlocked.watch(() => onWalletUnlocked());
+  locked.watch(() => onWalletLocked());
+}
 
 export async function enableAutoBackup(
   encryption: AutoBackupEncryption,
   accessToken: string,
-  expiresAt: number
+  expiresAt: number,
+  skipInitialBackup: boolean = false
 ): Promise<void> {
   let rawKeyBytes: Uint8Array;
   let settings: AutoBackupSettings;
@@ -78,8 +98,11 @@ export async function enableAutoBackup(
     settingsUpdateInProgress = false;
   }
 
-  // Run an initial backup immediately
-  await doBackup();
+  // Run an initial backup immediately, unless the caller has indicated one
+  // already exists (e.g. right after a cloud restore).
+  if (!skipInitialBackup) {
+    await doBackup();
+  }
 }
 
 export async function disableAutoBackup(): Promise<void> {
@@ -111,7 +134,7 @@ export async function triggerBackup(): Promise<void> {
 
   const autoBackup = store.getState().settings?.autoBackup;
   if (!autoBackup?.enabled) return;
-
+  console.log('[AutoBackup] Triggering backup due to state change');
   await doBackup();
 }
 

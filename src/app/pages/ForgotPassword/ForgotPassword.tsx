@@ -44,7 +44,8 @@ const ForgotPassword: FC = () => {
             true,
             cloudBackupData.accessToken,
             cloudBackupData.expiresAt,
-            cloudBackupData.encryption
+            cloudBackupData.encryption,
+            true
           );
         } catch (e) {
           console.error(e);

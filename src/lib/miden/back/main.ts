@@ -5,13 +5,11 @@ import {
   disableAutoBackup,
   enableAutoBackup,
   getStatus as getAutoBackupStatus,
-  isInternalSettingsUpdate,
-  onWalletLocked,
-  onWalletUnlocked,
+  registerAutoBackupHooks,
   triggerBackup
 } from 'lib/miden/back/auto-backup-manager';
 import { intercom } from 'lib/miden/back/defaults';
-import { accountsUpdated, locked, settingsUpdated, store, toFront, unlocked } from 'lib/miden/back/store';
+import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -53,13 +51,7 @@ export async function start() {
   // Force frontend to re-fetch state now that everything is initialized
   intercom.broadcast({ type: WalletMessageType.StateUpdated });
 
-  // Auto-backup hooks
-  accountsUpdated.watch(() => triggerBackup());
-  settingsUpdated.watch(() => {
-    if (!isInternalSettingsUpdate()) triggerBackup();
-  });
-  unlocked.watch(() => onWalletUnlocked());
-  locked.watch(() => onWalletLocked());
+  registerAutoBackupHooks();
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
@@ -297,7 +289,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
     case WalletMessageType.AutoBackupSetEnabledRequest: {
       if (req.enabled && req.encryption && req.accessToken && req.expiresAt) {
-        await enableAutoBackup(req.encryption, req.accessToken, req.expiresAt);
+        await enableAutoBackup(req.encryption, req.accessToken, req.expiresAt, req.skipInitialBackup);
       } else {
         await disableAutoBackup();
       }

@@ -184,8 +184,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const setAutoBackupEnabled = useCallback(
-    async (enabled: boolean, accessToken?: string, expiresAt?: number, encryption?: AutoBackupEncryption) => {
-      await storeSetAutoBackupEnabled(enabled, accessToken, expiresAt, encryption);
+    async (
+      enabled: boolean,
+      accessToken?: string,
+      expiresAt?: number,
+      encryption?: AutoBackupEncryption,
+      skipInitialBackup?: boolean
+    ) => {
+      await storeSetAutoBackupEnabled(enabled, accessToken, expiresAt, encryption, skipInitialBackup);
     },
     [storeSetAutoBackupEnabled]
   );
