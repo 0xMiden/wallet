@@ -36,8 +36,12 @@ const propsPerButtonVariant = {
   [ButtonVariant.Secondary]: {
     color: 'text-heading-gray',
     disabledColor: 'text-grey-400',
-    backgroundColor: 'bg-[#E9E4E4]',
-    hoverBackgroundColor: 'hover:bg-[#DDD8D8]',
+    // Light-mode literal #E9E4E4 matches the existing design. In dark mode
+    // text-heading-gray flips to white, so the bg has to darken too —
+    // otherwise it's white-on-beige (see screenshot on Reveal Seed Phrase).
+    // bg-gray-50 maps to --color-surface-tertiary → #f3f3f3 / #333333.
+    backgroundColor: 'bg-[#E9E4E4] dark:bg-gray-50',
+    hoverBackgroundColor: 'hover:bg-[#DDD8D8] dark:hover:bg-[#3f3f3f]',
     disabledBackgroundColor: 'bg-grey-200',
     iconColor: 'black',
     border: 'border-[0.5px] border-transparent'

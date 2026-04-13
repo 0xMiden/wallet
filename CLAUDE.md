@@ -407,6 +407,27 @@ sleep 2 && xcrun simctl io booted screenshot /tmp/ios-main.png
 - **Content cut off:** Check if containers have `overflow: hidden` without proper height constraints.
 - **Safe area gaps:** Ensure `public/mobile.html` has `padding: env(safe-area-inset-*)` on body, and body background color matches app background (white).
 
+## Tailwind theme tokens
+
+**CRITICAL:** In `tailwind.config.ts`, many Tailwind color tokens are mapped to CSS custom properties defined in `src/main.css` (`:root` for light, `.dark` for dark). These tokens **already auto-flip** with the active theme — do NOT add `dark:` variants on top, because that overrides the auto-flip with a *worse* value.
+
+Tokens that auto-flip:
+- `text-black` → `var(--color-text-primary)` → `#000` / `#fff`
+- `bg-white` → `var(--color-surface)` → `#fff` / `#3f3f3f99` (translucent)
+- `bg-gray-25` → `var(--color-surface-secondary)` → `#f9f9f9` / `#2a2a2a`
+- `bg-gray-50` → `var(--color-surface-tertiary)` → `#f3f3f3` / `#333333`
+- `bg-gray-100` → `var(--color-hover-bg)` → `#e1dbdb` / `#ffffff0d`
+- `text-heading-gray` → `var(--color-text-secondary)` → `#484848` / `#fff`
+
+**Gotcha:** Writing `text-black dark:text-white` makes `text-white` win in dark — but `white` is mapped to `var(--color-surface)` = `#3f3f3f99` (translucent dark grey). So the explicit `dark:` variant makes the label **less** readable than `text-black` alone.
+
+When to add `dark:` variants:
+- The base class points to a **fixed** palette color — the custom `grey.*` palette in `src/utils/tailwind-colors.js` is NOT theme-aware. Prefer `bg-gray-*` (spelled with `a`) over `bg-grey-*`.
+- You need dark-mode-specific contrast in kind — e.g. `dark:bg-pure-white/15` on a TabPicker active pill, where `bg-white` alone is too subtle in dark. `pure-white` / `pure-black` are literal hex (not remapped).
+- SVG `fill={...}` on `<Icon>` takes a literal JS color — Tailwind `dark:` variants don't reach prop values. Read `document.documentElement.classList.contains('dark')` at render time and pass the resolved color.
+
+Quick check before adding `dark:`: grep `tailwind.config.ts` for the base token name. If it maps to `var(--color-...)`, don't override.
+
 ## Desktop Development (Tauri)
 
 The desktop app uses Tauri to wrap the web app in a native macOS window.
