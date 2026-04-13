@@ -22,30 +22,26 @@ export default defineConfig({
       transformIndexHtml(html) {
         return html
           .replace(/ crossorigin/g, '')
-          // Keep type="module" — TLAs are preserved, module evaluates with awaits
+          // Use defer instead of type="module" — WKWebView may not load ESM modules
+          .replace(' type="module"', ' defer')
           .replace(/<link rel="modulepreload"[^>]*>\n?/g, '');
       },
       generateBundle(_, bundle) {
         for (const [, chunk] of Object.entries(bundle)) {
           if (chunk.type !== 'chunk' || !chunk.code) continue;
-          // Replace import.meta.url (ESM-only) for classic script compatibility
+          // ── Mobile-specific patches (same approach as extension SW build) ──
+          // 1. Replace import.meta.url for classic script
           chunk.code = chunk.code.replace(/import\.meta\.url/g, '(document.currentScript&&document.currentScript.src||self.location.href)');
-          // Strip { type: "module" } from Worker constructors — workers are
-          // now built as IIFE (classic scripts) for WKWebView compatibility.
+          // 2. Strip Worker module type
           chunk.code = chunk.code.replace(/,\s*\{\s*type:\s*"module"\s*\}/g, '');
-          // DON'T strip TLAs — keep them so module evaluation completes correctly.
-          // Skip WASM compilation on main thread entirely — Worker handles it.
-          // Replace __wbg_init await with a no-op. The WASM bindings on the main
-          // thread will be uninitialized (wasm === undefined) but that's fine —
-          // all actual WASM operations go through the Worker's WebClient.
-          chunk.code = chunk.code.replace(
-            /\tawait __wbg_init[^;]+;/g,
-            '\tconsole.log("[mobile] Main-thread WASM init skipped");'
-          );
-
-          // No __initsReady needed — TLAs are preserved so module evaluation
-          // completes correctly. The WASM URL replacement above makes the main
-          // thread WASM init a fast no-op.
+          // 3. Skip WASM init on main thread (Worker handles it)
+          chunk.code = chunk.code.replace(/\tawait __wbg_init[^;]+;/g, '\t/* wasm-skipped */');
+          chunk.code = chunk.code.replace(/__wbg_finalize_init[^;]+;/g, '/* finalize-skipped */;');
+          // 4. Strip ALL TLAs — convert to fire-and-forget
+          chunk.code = chunk.code.replace(/^await /gm, '/* tla */ ');
+          chunk.code = chunk.code.replace(/\tawait (init_\w+\(\))/g, '\t/* tla */ $1');
+          // 5. Wrap in async IIFE (classic script can't have TLA remnants in inner async fns)
+          chunk.code = '(async function(){' + chunk.code + '})().catch(function(e){console.error("[mobile]",e)});';
         }
       },
       closeBundle() {
