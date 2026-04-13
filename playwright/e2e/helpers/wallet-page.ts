@@ -55,10 +55,20 @@ export class WalletPage {
     // The fixture guarantees the welcome screen is visible by the time we get here.
     const welcome = this.page.getByTestId('onboarding-welcome');
     await welcome.waitFor({ timeout: 30_000 });
-    await welcome.getByRole('button', { name: /create a new wallet/i }).click();
 
-    // Backup seed phrase
-    await this.page.getByText(/back up your wallet/i).waitFor({ timeout: 15_000 });
+    // Click "Create a new wallet". The WASM SDK may still be loading (TLA stripped),
+    // so the first click might not navigate. Retry until the seed phrase screen appears.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await welcome.getByRole('button', { name: /create a new wallet/i }).click();
+      try {
+        await this.page.getByText(/back up your wallet/i).waitFor({ timeout: 10_000 });
+        break;
+      } catch {
+        if (attempt === 9) throw new Error('Seed phrase screen did not appear after 10 attempts');
+        // WASM may not be ready yet -- wait and retry
+        await this.page.waitForTimeout(3_000);
+      }
+    }
     await this.page.getByRole('button', { name: /show/i }).click();
 
     // Extract seed words

@@ -172,9 +172,10 @@ async function launchWalletInstance(
     });
 
     try {
-      // Wait for either the onboarding welcome screen OR the main Explore page
-      // (if wallet was previously set up). Both indicate successful init.
-      await page.locator('[data-testid="onboarding-welcome"], [data-testid="receive-page"], text=Send')
+      // Wait for either the onboarding welcome screen OR the main Explore page.
+      await page.locator('[data-testid="onboarding-welcome"]')
+        .or(page.locator('[data-testid="receive-page"]'))
+        .or(page.getByText('Send'))
         .first()
         .waitFor({ timeout: ATTEMPT_TIMEOUT });
 

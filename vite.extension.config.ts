@@ -209,10 +209,10 @@ export default defineConfig({
       transformIndexHtml(html) {
         return html
           .replace(/ crossorigin/g, '')
-          // Inject process global before any module script
+          // Inject process global via external script (inline scripts blocked by CSP)
           .replace(
             '<script type="module"',
-            '<script>window.process = { env: {}, browser: true };</script>\n    <script type="module"'
+            '<script src="/globals.js"></script>\n    <script type="module"'
           );
       },
       // Inject global React + Buffer for CJS dependencies that expect them.
