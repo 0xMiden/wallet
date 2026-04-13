@@ -8,4 +8,8 @@
  * This file just imports background.ts which sets up the full wallet backend.
  * Once start() completes (after WASM init), it disables the early handler.
  */
+// Ensure Buffer is globally available before any module code runs
+import { Buffer } from 'buffer';
+(globalThis as any).Buffer = Buffer;
+
 import './background';

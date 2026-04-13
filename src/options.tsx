@@ -1,3 +1,6 @@
+import { Buffer } from 'buffer';
+(globalThis as any).Buffer = (globalThis as any).Buffer || Buffer;
+
 import './main.css';
 
 import React, { FC, useCallback } from 'react';

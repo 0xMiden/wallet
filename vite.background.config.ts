@@ -45,6 +45,44 @@ export default defineConfig({
           // The module init functions still run -- just not blocking.
           chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
 
+          // Replace __vitePreload calls with direct function calls.
+          // __vitePreload is set inside init_preload_helper() which runs
+          // fire-and-forget after TLA stripping, so it's undefined when
+          // loadWasm() tries to use it.
+          // Replace __vitePreload with a simple passthrough.
+          // __vitePreload(fn, deps) normally calls fn() after preloading deps.
+          // Since the preload helper isn't initialized (TLA stripped), we just
+          // call fn() directly. Define __vitePreload as a passthrough at the
+          // top of the file.
+          // Define __vitePreload passthrough.
+          // Also eagerly run init_preload_helper which sets up __vitePreload
+          // (overriding our passthrough once ready), and the Buffer polyfill shim.
+          chunk.code = [
+            'var __vitePreload = function(fn) { return fn(); };',
+            '// Eagerly init the preload helper and polyfill shims',
+            'setTimeout(function() { try { init_preload_helper(); } catch(e) {} }, 0);',
+            '',
+          ].join('\n') + chunk.code;
+
+          // Collect all init_* calls that were stripped and re-inject them
+          // inside start(), AFTER the intercom handler registration.
+          const initCalls: string[] = [];
+          chunk.code.replace(/\/\* tla-stripped \*\/ (init_\w+\(\));?/g, (_m: string, call: string) => {
+            initCalls.push(call.replace(/;$/, ''));
+            return '';
+          });
+          const uniqueInits = [...new Set(initCalls)];
+          // Exclude init_miden_client -- it loads WASM which resolves async.
+          // All other inits resolve synchronously once their dependencies are met.
+          const criticalInits = uniqueInits.filter(c => !c.includes('init_miden_client'));
+          if (criticalInits.length > 0) {
+            const initBlock = criticalInits.map(c => `  await ${c};`).join('\n');
+            chunk.code = chunk.code.replace(
+              /intercom\$?\d*\.onRequest\(processRequest\);/,
+              `$&\n  // Re-await critical module inits\n${initBlock}`
+            );
+          }
+
           // No banner needed -- the IntercomServer now handles GetStateRequest
           // directly when no handler is registered (returns Idle state).
           // The MV3 listeners (onInstalled, onConnect, etc.) are in
