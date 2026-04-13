@@ -417,31 +417,89 @@ export class WalletPage {
   // ── Claim Notes ───────────────────────────────────────────────────────────
 
   /**
-   * Claim all consumable notes. The Explore page auto-consumes Miden notes
-   * when it renders (via autoConsumeMidenNotes in Explore.tsx). For non-Miden
-   * tokens, we look for Claim buttons in the UI.
+   * Claim all consumable notes. For extension builds, claimable notes are read
+   * from chrome.storage.local (written by doSync). Notes only appear in the
+   * Receive page if they have metadata. Custom faucet notes may lack metadata,
+   * so we inject it into the Zustand store's assetsMetadata before navigating
+   * to the Receive page and clicking Claim All.
    *
    * Waits for vault balance to become positive.
    */
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
-    // Navigate home to trigger the Explore page's auto-consume effect
-    await this.navigateHome();
+    // Reload the page to get a fresh Dexie connection. During wallet creation,
+    // clearStorage() deletes the IndexedDB which closes the frontend's Dexie handle.
+    // Without a reload, transactions.add() throws DatabaseClosedError.
+    await this.page.reload({ waitUntil: 'domcontentloaded' });
+    await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
     await this.page.waitForTimeout(3_000);
 
-    // Try clicking any "Claim" or "Claim All" buttons visible on the page
-    const claimButtons = this.page.getByRole('button', { name: /claim/i });
-    const count = await claimButtons.count();
-    if (count > 0) {
-      console.log(`[WalletPage.claimAllNotes] Clicking ${count} claim button(s)`);
-      for (let i = 0; i < count; i++) {
-        try {
-          await claimButtons.nth(i).click({ timeout: 5_000 });
-          await this.page.waitForTimeout(2_000);
-        } catch { /* button may vanish */ }
+    // Inject metadata for custom faucet tokens so they show up as claimable.
+    // The useExtensionClaimableNotes hook filters: n.metadata || assetsMetadata[n.faucetId]
+    await this.page.evaluate(async () => {
+      const storage = await new Promise<any>((resolve) => {
+        chrome.storage.local.get(['miden_cached_consumable_notes'], resolve);
+      });
+      const notes = storage?.miden_cached_consumable_notes || [];
+      if (notes.length === 0) return;
+
+      const store = (globalThis as any).__TEST_STORE__;
+      if (!store) return;
+
+      // For each note's faucetId, ensure metadata exists in the store
+      const state = store.getState();
+      const metadata = { ...state.assetsMetadata };
+      let updated = false;
+      for (const note of notes) {
+        if (!metadata[note.faucetId] && !note.metadata) {
+          // Inject default metadata for unknown faucets
+          metadata[note.faucetId] = {
+            name: note.metadata?.name || 'Test Token',
+            symbol: note.metadata?.symbol || 'TST',
+            decimals: note.metadata?.decimals ?? 8,
+            thumbnailUri: '',
+          };
+          updated = true;
+        }
       }
+      if (updated) {
+        store.setState({ assetsMetadata: metadata });
+        console.log('[claimAllNotes] Injected metadata for', notes.length, 'notes');
+      }
+    });
+
+    // Navigate to Receive page where Claim buttons appear
+    await this.navigateTo('/receive');
+    await this.page.waitForTimeout(3_000);
+
+    // Click "Claim All" or individual "Claim" buttons
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const claimAllBtn = this.page.getByRole('button', { name: /claim all/i });
+      if (await claimAllBtn.isVisible().catch(() => false)) {
+        console.log('[WalletPage.claimAllNotes] Clicking Claim All');
+        await claimAllBtn.click();
+        break;
+      }
+
+      const claimBtns = this.page.getByRole('button', { name: /^claim$/i });
+      const count = await claimBtns.count();
+      if (count > 0) {
+        console.log(`[WalletPage.claimAllNotes] Clicking ${count} Claim button(s)`);
+        for (let i = 0; i < count; i++) {
+          try {
+            await claimBtns.nth(i).click({ timeout: 5_000 });
+            await this.page.waitForTimeout(1_000);
+          } catch { /* may vanish */ }
+        }
+        break;
+      }
+
+      // No buttons yet — sync and retry
+      console.log(`[WalletPage.claimAllNotes] No claim buttons (attempt ${attempt + 1}), syncing...`);
+      await this.triggerSync();
+      await this.page.waitForTimeout(3_000);
     }
 
-    // Wait for vault balance to become positive (auto-consume + tx processing)
+    // Wait for vault balance to become positive
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutMs) {
       await this.triggerSync();
@@ -469,15 +527,13 @@ export class WalletPage {
 
       if (vaultBalance > 0) {
         console.log(`[WalletPage.claimAllNotes] Vault balance: ${vaultBalance}`);
+        await this.navigateHome();
         return;
       }
-
-      // Reload home to re-trigger auto-consume effect
-      await this.navigateHome();
-      await this.page.waitForTimeout(3_000);
     }
 
     console.log('[WalletPage.claimAllNotes] Vault balance still 0 after timeout');
+    await this.navigateHome();
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
