@@ -1,11 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { BrowserContext } from '@playwright/test';
-
 import { captureAndSaveSnapshot } from './state-snapshot';
 import type { TimelineRecorder } from './timeline-recorder';
-import type { Checkpoint, FailureCategory, StepOptions } from './types';
+import type { Checkpoint, FailureCategory, SnapshotCaps, StepOptions } from './types';
 
 /**
  * Classify an error into a FailureCategory for diagnostic hints.
@@ -41,9 +39,9 @@ function classifyError(error: Error): FailureCategory {
   return 'unknown';
 }
 
-interface WalletContextMap {
-  A?: BrowserContext;
-  B?: BrowserContext;
+interface SnapshotCapsMap {
+  A?: SnapshotCaps;
+  B?: SnapshotCaps;
 }
 
 /**
@@ -52,18 +50,24 @@ interface WalletContextMap {
  */
 export class TestStepRunner {
   private checkpoints: Checkpoint[] = [];
+  /** Public for fixture failure-path reuse (e.g., direct snapshot in teardown). */
+  readonly walletCaps: SnapshotCapsMap;
 
   constructor(
     private timeline: TimelineRecorder,
     private outputDir: string,
-    private walletContexts: WalletContextMap = {}
-  ) {}
+    walletCaps: SnapshotCapsMap = {}
+  ) {
+    this.walletCaps = walletCaps;
+  }
 
   /**
-   * Register a BrowserContext for a wallet so state snapshots can access service workers.
+   * Register snapshot capabilities for a wallet. The fixture pre-binds
+   * platform-specific closures (page.evaluate, context.serviceWorkers, etc.)
+   * before any step runs, so test-step itself stays runtime-agnostic.
    */
-  registerWalletContext(label: 'A' | 'B', context: BrowserContext): void {
-    this.walletContexts[label] = context;
+  registerSnapshotCaps(label: 'A' | 'B', caps: SnapshotCaps): void {
+    this.walletCaps[label] = caps;
   }
 
   /**
@@ -103,17 +107,15 @@ export class TestStepRunner {
 
       // Capture state snapshots
       if (options.captureStateFrom) {
-        for (const { target, label, extensionId } of options.captureStateFrom) {
-          const context = this.walletContexts[label];
-          if (!context) continue;
+        for (const { label } of options.captureStateFrom) {
+          const caps = this.walletCaps[label];
+          if (!caps) continue;
 
           const filename = await captureAndSaveSnapshot(
-            target,
+            caps,
             label,
-            extensionId,
             checkpoint.index,
             name,
-            context,
             this.outputDir,
             this.timeline
           );

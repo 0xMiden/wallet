@@ -1,4 +1,4 @@
-import { chromium, test as base } from '@playwright/test';
+import { chromium, test as base, type BrowserContext, type Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -11,7 +11,12 @@ import { attachNetworkCapture } from '../harness/network-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
-import type { DebugSession, EnvironmentConfig } from '../harness/types';
+import type {
+  DebugSession,
+  EnvironmentConfig,
+  SerializedWalletState,
+  SnapshotCaps,
+} from '../harness/types';
 import { MidenCli, resolveCliPath } from '../helpers/miden-cli';
 import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-page';
 
@@ -48,6 +53,46 @@ function getExtensionPath(): string {
 function getRunOutputDir(testId: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return path.join(ROOT_DIR, 'test-results', `run-${timestamp}`, 'tests', testId);
+}
+
+/**
+ * Build platform-neutral SnapshotCaps for a Chrome extension wallet.
+ * Closes over the Page + BrowserContext + extensionId so test-step.ts can
+ * stay runtime-agnostic.
+ */
+function buildChromeSnapshotCaps(
+  page: Page,
+  context: BrowserContext,
+  extensionId: string
+): SnapshotCaps {
+  return {
+    platform: 'chrome',
+    runtimeVersion: context.browser()?.version() ?? '',
+    extensionId,
+    readStore: () =>
+      page.evaluate((): SerializedWalletState | null => {
+        const store = (window as { __TEST_STORE__?: { getState(): SerializedWalletState } })
+          .__TEST_STORE__;
+        if (!store) return null;
+        const s = store.getState();
+        return {
+          status: s.status,
+          accounts: s.accounts?.map(a => ({ publicKey: a.publicKey, name: a.name })),
+          currentAccount: s.currentAccount
+            ? { publicKey: s.currentAccount.publicKey, name: s.currentAccount.name }
+            : null,
+          balances: s.balances,
+        };
+      }),
+    hasIntercom: () =>
+      page.evaluate(() => Boolean((window as { __TEST_INTERCOM__?: unknown }).__TEST_INTERCOM__)),
+    serviceWorkerStatus: async () => {
+      const workers = context.serviceWorkers();
+      const extensionWorker = workers.find(w => new URL(w.url()).host === extensionId);
+      return extensionWorker ? 'active' : 'inactive';
+    },
+    currentUrl: async () => page.url(),
+  };
 }
 
 async function launchWalletInstance(
@@ -372,7 +417,10 @@ export const test = base.extend<TwoWalletFixtures>({
   walletA: async ({ timeline, steps }, use, testInfo) => {
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('A', extensionPath, timeline);
-    steps.registerWalletContext('A', instance.context);
+    steps.registerSnapshotCaps(
+      'A',
+      buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId)
+    );
 
     await use(instance.walletPage);
 
@@ -392,7 +440,10 @@ export const test = base.extend<TwoWalletFixtures>({
   walletB: async ({ timeline, steps, walletA, midenCli }, use, testInfo) => {
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('B', extensionPath, timeline);
-    steps.registerWalletContext('B', instance.context);
+    steps.registerSnapshotCaps(
+      'B',
+      buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId)
+    );
 
     await use(instance.walletPage);
 
@@ -400,23 +451,20 @@ export const test = base.extend<TwoWalletFixtures>({
     if (testInfo.status !== 'passed' && testInfo.error) {
       try {
         const reportDir = timeline.getOutputDir();
-        const stateA = await captureWalletSnapshot(
-          (walletA as any).page,
-          'A',
-          (walletA as any).extensionId ?? '',
-          timeline.currentStep,
-          'failure',
-          (steps as any).walletContexts?.A
-        ).catch(() => undefined);
+        const capsA = steps.walletCaps.A;
+        const capsB = steps.walletCaps.B;
 
-        const stateB = await captureWalletSnapshot(
-          instance.page,
-          'B',
-          instance.extensionId,
-          timeline.currentStep,
-          'failure',
-          instance.context
-        ).catch(() => undefined);
+        const stateA = capsA
+          ? await captureWalletSnapshot(capsA, 'A', timeline.currentStep, 'failure').catch(
+              () => undefined
+            )
+          : undefined;
+
+        const stateB = capsB
+          ? await captureWalletSnapshot(capsB, 'B', timeline.currentStep, 'failure').catch(
+              () => undefined
+            )
+          : undefined;
 
         const err = new Error(testInfo.error.message ?? 'Unknown error');
         err.stack = testInfo.error.stack ?? '';

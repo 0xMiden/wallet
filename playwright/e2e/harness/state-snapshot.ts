@@ -1,84 +1,69 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { BrowserContext, Page } from '@playwright/test';
-
 import type { TimelineRecorder } from './timeline-recorder';
-import type { WalletSnapshot } from './types';
+import type { SnapshotCaps, WalletSnapshot } from './types';
 
 /**
- * Capture wallet state from the extension page via page.evaluate().
- * Requires the extension to be built with MIDEN_E2E_TEST=true,
- * which exposes window.__TEST_STORE__ (Zustand store).
+ * Capture wallet state via platform-neutral capabilities. The fixture supplies
+ * caps that close over the platform-specific page/context (Chrome
+ * Page+BrowserContext, iOS CdpSession), so this module never imports
+ * Playwright or any other runtime.
  */
 export async function captureWalletSnapshot(
-  page: Page,
+  caps: SnapshotCaps,
   walletLabel: 'A' | 'B',
-  extensionId: string,
   stepIndex: number,
-  stepName: string,
-  context: BrowserContext
+  stepName: string
 ): Promise<WalletSnapshot> {
   let walletState: WalletSnapshot['walletState'];
   let balances: WalletSnapshot['balances'];
 
   try {
-    const storeData = await page.evaluate(() => {
-      const store = (window as any).__TEST_STORE__;
-      if (!store) return null;
-      const s = store.getState();
-      return {
-        status: s.status,
-        accounts: s.accounts?.map((a: any) => ({
-          publicKey: a.publicKey,
-          name: a.name,
-        })),
-        currentAccount: s.currentAccount
-          ? { publicKey: s.currentAccount.publicKey, name: s.currentAccount.name }
-          : null,
-        balances: s.balances,
-      };
-    });
-
+    const storeData = await caps.readStore();
     if (storeData) {
+      const status = storeData.status;
       walletState = {
-        status: storeData.status === 2 ? 'Ready' : storeData.status === 1 ? 'Locked' : 'Idle',
+        status: status === 2 ? 'Ready' : status === 1 ? 'Locked' : String(status ?? 'Idle'),
         accountCount: storeData.accounts?.length ?? 0,
         currentAccountPublicKey: storeData.currentAccount?.publicKey ?? null,
         currentAccountName: storeData.currentAccount?.name ?? null,
       };
 
-      // Map balances from the store (keyed by address -> array of token balances)
       if (storeData.balances) {
-        const allBalances: WalletSnapshot['balances'] = [];
-        for (const tokenList of Object.values(storeData.balances) as any[]) {
+        const allBalances: NonNullable<WalletSnapshot['balances']> = [];
+        for (const tokenList of Object.values(storeData.balances) as unknown[]) {
           if (Array.isArray(tokenList)) {
-            for (const token of tokenList) {
+            for (const token of tokenList as Array<Record<string, unknown>>) {
               allBalances.push({
-                faucetId: token.faucetId ?? '',
-                symbol: token.symbol ?? 'Unknown',
+                faucetId: String(token.faucetId ?? ''),
+                symbol: String(token.symbol ?? 'Unknown'),
                 amount: String(token.amount ?? token.balance ?? '0'),
               });
             }
           }
         }
-        if (allBalances.length > 0) {
-          balances = allBalances;
-        }
+        if (allBalances.length > 0) balances = allBalances;
       }
     }
   } catch {
-    // page.evaluate may fail if page is navigating or closed
+    // readStore may fail if the page is navigating or closed
   }
 
-  // Determine service worker status
-  let serviceWorkerStatus: WalletSnapshot['serviceWorkerStatus'] = 'not_found';
+  let serviceWorkerStatus: WalletSnapshot['serviceWorkerStatus'];
+  if (caps.serviceWorkerStatus) {
+    try {
+      serviceWorkerStatus = await caps.serviceWorkerStatus();
+    } catch {
+      serviceWorkerStatus = 'not_found';
+    }
+  }
+
+  let currentUrl = '';
   try {
-    const workers = context.serviceWorkers();
-    const extensionWorker = workers.find(w => new URL(w.url()).host === extensionId);
-    serviceWorkerStatus = extensionWorker ? 'active' : 'inactive';
+    currentUrl = await caps.currentUrl();
   } catch {
-    // ignore
+    // page closed, leave empty
   }
 
   return {
@@ -86,10 +71,12 @@ export async function captureWalletSnapshot(
     wallet: walletLabel,
     stepIndex,
     stepName,
-    extensionId,
+    platform: caps.platform,
+    runtimeVersion: caps.runtimeVersion,
+    extensionId: caps.extensionId,
     walletState,
     balances,
-    currentUrl: page.url(),
+    currentUrl,
     serviceWorkerStatus,
   };
 }
@@ -98,16 +85,14 @@ export async function captureWalletSnapshot(
  * Capture and save a wallet snapshot to disk, emitting a timeline event.
  */
 export async function captureAndSaveSnapshot(
-  page: Page,
+  caps: SnapshotCaps,
   walletLabel: 'A' | 'B',
-  extensionId: string,
   stepIndex: number,
   stepName: string,
-  context: BrowserContext,
   outputDir: string,
   timeline: TimelineRecorder
 ): Promise<string> {
-  const snapshot = await captureWalletSnapshot(page, walletLabel, extensionId, stepIndex, stepName, context);
+  const snapshot = await captureWalletSnapshot(caps, walletLabel, stepIndex, stepName);
 
   const snapshotsDir = path.join(outputDir, 'state-snapshots');
   fs.mkdirSync(snapshotsDir, { recursive: true });
