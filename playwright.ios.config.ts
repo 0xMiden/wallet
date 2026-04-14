@@ -9,7 +9,7 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './playwright/e2e/ios/tests',
-  timeout: 600_000, // 10 min per test — WASM cold compile on sim is ~60s
+  timeout: 900_000, // 15 min per test — WASM prove on simulator is slow (~60-90s per consume)
   expect: {
     timeout: 60_000,
   },

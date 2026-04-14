@@ -259,27 +259,15 @@ export class IosWalletPage implements WalletPage {
   // ── Claim ─────────────────────────────────────────────────────────────────
 
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
-    await this.cdp.eval(`location.reload(); return null;`);
-    await sleep(3_000);
-    await this.pollForSelector('#root > *', 15_000);
-    await sleep(2_000);
-
+    // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
+    // — that's safe on Chrome because the SW holds the vault unlock in a
+    // separate context. On mobile there's no SW; a reload would drop the
+    // in-memory decryption key and kick the UI back to the password
+    // screen, where no Claim button exists. Stay in-session instead.
     await this.navigateTo('/receive');
     await sleep(3_000);
 
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const claimedAll = await this.cdp.eval<boolean>(
-        `var btns = Array.from(document.querySelectorAll('button')); ` +
-          `var all = btns.find(function(b) { return /claim all/i.test(b.textContent || ''); }); ` +
-          `if (all) { all.click(); return true; } ` +
-          `var singles = btns.filter(function(b) { return /^\\s*claim\\s*$/i.test(b.textContent || ''); }); ` +
-          `if (singles.length === 0) return false; ` +
-          `singles[0].click(); return true;`
-      );
-      if (claimedAll) break;
-      await this.triggerSync();
-      await sleep(3_000);
-    }
+    await this.triggerNavbarAction(60_000);
 
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -357,9 +345,13 @@ export class IosWalletPage implements WalletPage {
         .catch(() => false);
     }
 
-    await this.clickInTestId('send-flow', 'button', /continue/i);
+    // Send flow's Continue (SendDetails) and Confirm (ReviewTransaction)
+    // are native navbar actions on mobile, not DOM buttons. Trigger via
+    // the same hook we use for Claim All. Poll because the action only
+    // registers after the page mounts and inputs validate.
+    await this.triggerNavbarAction(15_000);
     await sleep(500);
-    await this.clickInTestId('send-flow', 'button', /confirm/i);
+    await this.triggerNavbarAction(15_000);
     await sleep(2_000);
 
     await this.pollForCondition(
@@ -431,6 +423,35 @@ export class IosWalletPage implements WalletPage {
     await this.fillInputAny(['input[type="password"]', 'input'], password);
     await this.clickByText('button', /unlock|continue|submit/i);
     await sleep(3_000);
+  }
+
+  /**
+   * Fire the currently-registered native navbar action on mobile. The
+   * wallet's native iOS overlay (MidenNavbarOverlayWindow) lives in a
+   * separate UIWindow outside the WebView that CDP sees, so a coordinate
+   * tap via simctl isn't an option. Instead, we call
+   * __TEST_TRIGGER_NAVBAR_ACTION__ (installed in E2E builds by
+   * lib/dapp-browser/use-native-navbar-action.ts) which invokes the same
+   * onTap the native button would dispatch. Poll until an action is
+   * registered (pages mount their action in useEffect — there's a small
+   * window where nothing is registered).
+   */
+  private async triggerNavbarAction(timeoutMs: number): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const fired = await this.cdp
+        .eval<boolean>(
+          `if (typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ !== 'function') return false; ` +
+            `return window.__TEST_TRIGGER_NAVBAR_ACTION__() === true;`
+        )
+        .catch(() => false);
+      if (fired) return;
+      await sleep(POLL_INTERVAL_MS);
+    }
+    throw new Error(
+      `triggerNavbarAction: no action registered within ${timeoutMs}ms — ` +
+        `is the wallet on the right page and is MIDEN_E2E_TEST=true baked into the build?`
+    );
   }
 
   // ── Internals (DOM helpers wired through CDP) ───────────────────────────

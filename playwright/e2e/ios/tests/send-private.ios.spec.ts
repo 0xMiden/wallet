@@ -27,13 +27,15 @@ test.describe('Private Note Send', () => {
       await midenCli.sync();
     });
 
+    // iOS divergence: claim before verifying balance. See CLAUDE.md
+    // "E2E iOS Simulator Test Harness" → "Empirical Status".
+    await steps.step('claim_notes_wallet_a', async () => {
+      await walletA.claimAllNotes(180_000);
+    });
+
     await steps.step('sync_wallet_a', async () => {
       const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
       expect(balance).toBeGreaterThan(0);
-    });
-
-    await steps.step('claim_notes_wallet_a', async () => {
-      await walletA.claimAllNotes(120_000);
     });
 
     await steps.step('send_private_note_a_to_b', async () => {
@@ -44,6 +46,12 @@ test.describe('Private Note Send', () => {
       });
     }, {
       screenshotWallets: [{ target: walletA, label: 'A' }],
+    });
+
+    // iOS divergence: claim the incoming private note on wallet B before
+    // verifying its balance.
+    await steps.step('claim_notes_wallet_b', async () => {
+      await walletB.claimAllNotes(180_000);
     });
 
     await steps.step('verify_receipt_wallet_b_via_transport', async () => {

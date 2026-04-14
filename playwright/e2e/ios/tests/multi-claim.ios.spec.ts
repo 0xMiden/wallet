@@ -39,6 +39,15 @@ test.describe('Multi-Note Claiming', () => {
       await midenCli.sync();
     });
 
+    // iOS divergence: claim the three pending notes so they appear in
+    // the consumed-balance read (mobile's getBalance can't see pending
+    // notes the way Chrome's does via chrome.storage.local).
+    await steps.step('claim_all_notes', async () => {
+      // 3 notes × ~90s/claim on simulator = ~4–5 min worst case; give it
+      // 7 min of headroom.
+      await walletA.claimAllNotes(420_000);
+    });
+
     await steps.step('sync_and_verify_total_balance', async () => {
       // Total minted: 100_000_000_000 base units = 1000 tokens with 8 decimals
       // Wait for balance to reflect all mints

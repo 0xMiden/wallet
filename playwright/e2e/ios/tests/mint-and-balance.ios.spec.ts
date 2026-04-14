@@ -42,6 +42,14 @@ test.describe('Faucet Minting and Balance', () => {
       await midenCli.sync();
     });
 
+    // iOS divergence: Chrome getBalance counts pending notes via
+    // chrome.storage.local; mobile has no equivalent, so claim explicitly
+    // before checking balance. See CLAUDE.md "E2E iOS Simulator Test
+    // Harness" → "Empirical Status".
+    await steps.step('claim_wallet_a', async () => {
+      await walletA.claimAllNotes(180_000);
+    });
+
     await steps.step('verify_balance_wallet_a', async () => {
       const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
       expect(balance).toBeGreaterThan(0);
@@ -54,6 +62,10 @@ test.describe('Faucet Minting and Balance', () => {
       expect(txId).toBeTruthy();
       expect(noteId).toBeTruthy();
       await midenCli.sync();
+    });
+
+    await steps.step('claim_wallet_b', async () => {
+      await walletB.claimAllNotes(180_000);
     });
 
     await steps.step('verify_balance_wallet_b', async () => {

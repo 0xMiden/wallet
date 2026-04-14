@@ -1129,15 +1129,28 @@ Same artifact tree as Chrome, output to `test-results-ios/run-<timestamp>/tests/
 
 ### Empirical Status (2026-04-14)
 
-- ✅ **wallet-lifecycle** — both tests pass on devnet (~42s wall clock).
-- ⚠️ **Balance-after-mint tests (`mint-and-balance`, `multi-claim`, `send-*`)** — need `walletX.claimAllNotes()` inserted between the mint and the `waitForBalanceAbove` on iOS. Product-level reason:
-  - Both Chrome and mobile auto-consume ONLY notes from the well-known MIDEN faucet (`Explore.tsx → autoConsumeMidenNotes`). E2E tests use a CUSTOM faucet, which requires manual claim on both platforms.
-  - Chrome hides this with a test-only trick: its `getBalance` reads `chrome.storage.local.miden_sync_data.notes` and counts pending-but-unconsumed notes as part of the displayed balance, so the test passes without a claim step.
-  - Mobile has no `chrome.storage.local` (no-op mock). A "pending notes count toward balance" hook was considered but rejected: exposing `getConsumableNotes` via a test hook deadlocks against `useSyncTrigger`'s WASM client lock, and skipping the lock violates the hard "WASM client cannot handle concurrent access" invariant.
-  - So iOS specs add an explicit `await walletX.claimAllNotes()` between mint and balance-verify. This is the honest flow on mobile anyway — users do have to tap "Claim" for custom faucets.
-- ⏸ **Claim timing on simulator** — even with explicit claim, the actual consume transaction on simulator takes ~60–180s (WASM prove + submit). Bump the spec's balance wait timeout accordingly if flake appears.
+**7/7 iOS specs pass on devnet in ~9 min wall clock.** Per-spec timing:
 
-The iOS infrastructure (SimulatorControl, CdpBridge, IosWalletPage, fixtures) is itself solid — wallet-lifecycle passing proves the build → install → launch → CDP eval → store readback chain works.
+| Spec | Duration |
+|---|---|
+| mint-and-balance | 1.7m |
+| multi-account | 1.2m |
+| multi-claim | 1.4m |
+| send-private | 1.8–2.4m |
+| send-public | 1.7m |
+| wallet-lifecycle (2 tests) | 42s total |
+
+### Key product/test patterns the iOS port uncovered
+
+- **Native navbar actions need a JS test hook.** The wallet hoists primary-CTA buttons ("Claim All", "Continue" in Send, etc.) to the native iOS navbar overlay (`MidenNavbarOverlayWindow`) via `useNativeNavbarAction`. That overlay lives in a separate `UIWindow` outside the WebView — CDP can't see it and `xcrun simctl` can't do coordinate taps, so a small test hook in `src/lib/dapp-browser/use-native-navbar-action.ts` exposes `globalThis.__TEST_TRIGGER_NAVBAR_ACTION__()` (gated on `MIDEN_E2E_TEST=true && isMobile()`). `IosWalletPage.triggerNavbarAction` polls + calls it. This is the ONLY wallet source-code change the iOS harness needed.
+- **Mobile auto-consume is identical to Chrome** (`Explore.tsx → autoConsumeMidenNotes`, gated to the well-known MIDEN faucet on both). The difference Chrome tests rely on is purely in `getBalance` reading `chrome.storage.local.miden_sync_data.notes` to count pending custom-faucet notes; mobile has no equivalent, so iOS specs call `walletX.claimAllNotes()` explicitly between mint and balance-verify. This is the honest user flow on mobile anyway.
+- **Reload kills mobile session.** Chrome's `claimAllNotes` does a `location.reload()` first to get a fresh Dexie handle — safe on Chrome because the SW holds the vault unlock in a separate context. On mobile there's no SW; a reload drops the in-memory decryption key and bounces back to the password screen. iOS `claimAllNotes` skips the reload.
+- **`useSyncTrigger` auto-syncs every 3s on mobile.** No need for iOS `triggerSync` to send `SYNC_REQUEST` — a sleep suffices. (The intercom `SYNC_REQUEST` handler doesn't exist on mobile anyway; it's a Chrome SW-only message.)
+- **`execute_script` vs `execute_async_script`.** Appium's sync atom fails silently on multi-statement bodies if you wrap them in `return (...)` — pass the body verbatim (with an explicit `return`). Promise-returning code must use the async atom with an explicit callback call; add an outer JS timeout to avoid waiting forever when the script never invokes the callback.
+
+### Why WASM-client access from CDP is off-limits
+
+Tempting to read `getConsumableNotes(address)` directly to mirror Chrome's "pending notes count toward balance" semantics. **Don't.** Any WASM client call must go through `withWasmClientLock`, but `useSyncTrigger` holds the lock for 30–60s on simulator while syncing; a concurrent read deadlocks, and skipping the lock violates the "recursive use of an object" invariant. Claim explicitly via the UI path instead.
 
 ## Internationalization (i18n)
 

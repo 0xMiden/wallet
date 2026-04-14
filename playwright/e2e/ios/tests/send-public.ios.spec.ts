@@ -27,15 +27,19 @@ test.describe('Public Note Send', () => {
       await midenCli.sync();
     });
 
+    // iOS divergence: claim before verifying balance — mobile's getBalance
+    // only reads consumed balances from the store; it cannot see pending
+    // notes the way Chrome's chrome.storage.local-backed getBalance can.
+    // See CLAUDE.md "E2E iOS Simulator Test Harness" → "Empirical Status".
+    await steps.step('claim_notes_wallet_a', async () => {
+      await walletA.claimAllNotes(180_000);
+    });
+
     await steps.step('sync_wallet_a', async () => {
       const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
       expect(balance).toBeGreaterThan(0);
     }, {
       captureStateFrom: [{ target: walletA, label: 'A' }],
-    });
-
-    await steps.step('claim_notes_wallet_a', async () => {
-      await walletA.claimAllNotes(120_000);
     });
 
     await steps.step('send_public_note_a_to_b', async () => {
@@ -46,6 +50,12 @@ test.describe('Public Note Send', () => {
       });
     }, {
       screenshotWallets: [{ target: walletA, label: 'A' }],
+    });
+
+    // iOS divergence: claim the received note on wallet B before checking
+    // its balance — same reason as claim_notes_wallet_a above.
+    await steps.step('claim_notes_wallet_b', async () => {
+      await walletB.claimAllNotes(180_000);
     });
 
     await steps.step('verify_receipt_wallet_b', async () => {

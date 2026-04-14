@@ -25,6 +25,13 @@ test.describe('Multi-Account Operations', () => {
       await midenCli.sync();
     });
 
+    // iOS divergence: mobile auto-consume only fires for the well-known
+    // MIDEN faucet; custom faucets need an explicit claim before
+    // getBalance returns a positive number. See CLAUDE.md.
+    await steps.step('claim_wallet_a', async () => {
+      await walletA.claimAllNotes(180_000);
+    });
+
     await steps.step('sync_wallet_a', async () => {
       const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
       expect(balance).toBeGreaterThan(0);
