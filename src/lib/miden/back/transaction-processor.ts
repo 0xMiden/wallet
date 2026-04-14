@@ -3,7 +3,11 @@
 // init_store → init_fetchBalances → init_prices → init_store (via __esmMin async factories).
 // Direct import avoids this because transaction-processor doesn't need the
 // activity module's full init chain.
-import { getAllUncompletedTransactions, hasQueuedTransactions, safeGenerateTransactionsLoop } from 'lib/miden/activity/transactions';
+import {
+  getAllUncompletedTransactions,
+  hasQueuedTransactions,
+  safeGenerateTransactionsLoop
+} from 'lib/miden/activity/transactions';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';

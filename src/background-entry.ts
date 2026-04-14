@@ -11,4 +11,5 @@
 import { Buffer } from 'buffer';
 (globalThis as any).Buffer = (globalThis as any).Buffer || Buffer;
 
+// eslint-disable-next-line import/first -- Buffer polyfill above must run before any module that uses Buffer at import time.
 import './background';

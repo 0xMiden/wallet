@@ -209,17 +209,14 @@ describe('actions', () => {
       expect(result.status).toBe(WalletStatus.Ready);
     });
 
-    it('retries when inited is false and then resolves', async () => {
-      // Start with inited=false, then switch to true after a delay
+    it('returns Idle immediately when inited is false (UI renders while backend inits)', async () => {
       mockStoreState.inited = false;
-      const promise = getFrontState();
-      // After a tick, set inited to true
-      await new Promise(r => setTimeout(r, 5));
-      mockStoreState.inited = true;
-      mockStoreState.status = WalletStatus.Ready;
 
-      const result = await promise;
-      expect(result.status).toBe(WalletStatus.Ready);
+      const result = await getFrontState();
+
+      expect(result.status).toBe(WalletStatus.Idle);
+      expect(result.accounts).toEqual([]);
+      expect(result.currentAccount).toBeNull();
     });
   });
 

@@ -36,8 +36,7 @@ const TabPickerItem: React.FC<TabPickerItemProps> = ({
   // variants don't reach it — resolve against the current theme at render
   // time. `text-black` / `text-white` Tailwind tokens map to CSS variables
   // that already flip with .dark, but this `fill=` is a direct string.
-  const isDarkMode =
-    typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const isDarkMode = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const iconColor = useMemo(
     () => (disabled ? colors.grey[400] : isDarkMode ? 'white' : 'black'),
     [disabled, isDarkMode]

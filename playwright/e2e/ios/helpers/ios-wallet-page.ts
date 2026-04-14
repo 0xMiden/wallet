@@ -489,18 +489,6 @@ export class IosWalletPage implements WalletPage {
     if (!ok) throw new Error(`clickByText: no <${tag}> matched ${pattern}`);
   }
 
-  private async clickInTestId(testId: string, tag: string, pattern: RegExp): Promise<void> {
-    const ok = await this.cdp.eval<boolean>(
-      `var c = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]'); ` +
-        `if (!c) return false; ` +
-        `var els = Array.from(c.querySelectorAll(${JSON.stringify(tag)})); ` +
-        `var re = ${pattern.toString()}; ` +
-        `var target = els.find(function(el) { return re.test(el.textContent || ''); }); ` +
-        `if (!target) return false; target.click(); return true;`
-    );
-    if (!ok) throw new Error(`clickInTestId: no <${tag}> in [data-testid=${testId}] matched ${pattern}`);
-  }
-
   private async fillInput(selector: string, value: string): Promise<void> {
     await this.cdp.eval(
       `var el = document.querySelector(${JSON.stringify(selector)}); ` +

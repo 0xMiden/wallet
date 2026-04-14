@@ -78,7 +78,7 @@ export async function getFrontState(): Promise<WalletState> {
     currentAccount: null,
     networks: [],
     settings: null,
-    ownMnemonic: null,
+    ownMnemonic: null
   } as WalletState;
 }
 
@@ -99,20 +99,16 @@ export async function isDAppEnabled() {
 export function registerNewWallet(password?: string, mnemonic?: string, ownMnemonic?: boolean) {
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
-    (self as any).__RNW_START = Date.now();
     try {
-    const vault = await Vault.spawn(password ?? '', mnemonic, ownMnemonic);
-    (self as any).__RNW_VAULT_DONE = Date.now();
-    console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
-    const accounts = await vault.fetchAccounts();
-    const settings = await vault.fetchSettings();
-    const currentAccount = await vault.getCurrentAccount();
-    const ownMnemonicFlag = await vault.isOwnMnemonic();
-    unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
-    console.log('[Actions.registerNewWallet] Completed');
-    (self as any).__RNW_DONE = Date.now();
+      const vault = await Vault.spawn(password ?? '', mnemonic, ownMnemonic);
+      console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
+      const accounts = await vault.fetchAccounts();
+      const settings = await vault.fetchSettings();
+      const currentAccount = await vault.getCurrentAccount();
+      const ownMnemonicFlag = await vault.isOwnMnemonic();
+      unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+      console.log('[Actions.registerNewWallet] Completed');
     } catch (err: any) {
-      (self as any).__RNW_ERR = err.message + ' ' + (err.stack || '').slice(0, 500);
       console.error('[Actions.registerNewWallet] FAILED:', err);
       throw err;
     }

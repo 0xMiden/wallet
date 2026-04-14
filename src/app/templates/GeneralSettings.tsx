@@ -37,6 +37,7 @@ const GeneralSettings: FC = () => {
   const handleThemeTabChange = useCallback(
     (index: number) => {
       const next = themeOptions[index];
+      if (!next) return;
       setThemeSettingState(next);
       setTheme(next);
     },
@@ -70,10 +71,7 @@ const GeneralSettings: FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-y-6">
-      <div
-        className="flex items-center justify-between gap-x-4"
-        data-testid={GeneralSettingsSelectors.ThemeSelector}
-      >
+      <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
         <span className="font-medium text-base leading-[130%] text-black">{t('theme')}</span>
         <TabPicker className="flex-shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />
       </div>

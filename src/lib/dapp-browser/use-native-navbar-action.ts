@@ -77,12 +77,11 @@ function ensureListener(): void {
 // Gated on MIDEN_E2E_TEST + isMobile so only mobile E2E builds install
 // this hook — keeps the Chrome extension bundle byte-identical to pre-iOS.
 if (process.env.MIDEN_E2E_TEST === 'true' && isMobile()) {
-  (globalThis as { __TEST_TRIGGER_NAVBAR_ACTION__?: () => boolean }).__TEST_TRIGGER_NAVBAR_ACTION__ =
-    () => {
-      if (!currentOnTap) return false;
-      currentOnTap();
-      return true;
-    };
+  (globalThis as { __TEST_TRIGGER_NAVBAR_ACTION__?: () => boolean }).__TEST_TRIGGER_NAVBAR_ACTION__ = () => {
+    if (!currentOnTap) return false;
+    currentOnTap();
+    return true;
+  };
 }
 
 export function useNativeNavbarAction(action: NavbarAction | null): void {

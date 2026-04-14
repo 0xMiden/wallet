@@ -77,7 +77,14 @@ export class IntercomServer {
     if (port.sender?.id === browser.runtime.id && msg?.type === MessageType.Req) {
       const reqType = msg?.data?.type;
       if (reqType && reqType !== 'GET_STATE_REQUEST' && reqType !== 'SYNC_REQUEST') {
-        console.log('[IntercomServer] handleMessage:', reqType, 'handlers:', this.reqHandlers.length, 'initialized:', this.initializedHandlers);
+        console.log(
+          '[IntercomServer] handleMessage:',
+          reqType,
+          'handlers:',
+          this.reqHandlers.length,
+          'initialized:',
+          this.initializedHandlers
+        );
       }
       // If no request handler registered yet, respond with a default "Idle" state
       // for GetStateRequest so the UI can render (onboarding/unlock screen).
@@ -97,16 +104,16 @@ export class IntercomServer {
                 currentAccount: null,
                 networks: [],
                 settings: null,
-                ownMnemonic: null,
-              },
-            },
+                ownMnemonic: null
+              }
+            }
           });
           return;
         } else if (reqMsg.data?.type === 'SYNC_REQUEST') {
           this.send(port, {
             type: MessageType.Res,
             reqId: reqMsg.reqId,
-            data: { type: 'SYNC_RESPONSE' },
+            data: { type: 'SYNC_RESPONSE' }
           });
           return;
         }
@@ -120,7 +127,7 @@ export class IntercomServer {
   }
 
   private processMessage(msg: RequestMessage, port: Runtime.Port) {
-    (async (msgInner) => {
+    (async msgInner => {
       try {
         for (const handler of this.reqHandlers) {
           const data = await handler(msg.data, port);

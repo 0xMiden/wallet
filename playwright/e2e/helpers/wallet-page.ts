@@ -373,7 +373,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * If tokenSymbol is not given, returns the balance of the first token row.
    * Returns 0 if no matching token found.
    */
-  async getBalance(tokenSymbol?: string): Promise<number> {
+  async getBalance(_tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await this.page.waitForTimeout(1_000);
 
@@ -381,7 +381,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // Read balances from the Zustand store (consumed assets) AND from
       // chrome.storage.local sync data (consumable notes not yet consumed).
       // The transaction processor auto-consumes notes but may not run in SW.
-      const result = await this.page.evaluate(async (symbol) => {
+      const result = await this.page.evaluate(async () => {
         const store = (window as any).__TEST_STORE__;
         if (!store) return { balance: 0, debug: 'no store' };
         const state = store.getState();
@@ -430,7 +430,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           balance: totalBalance,
           debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`,
         };
-      }, tokenSymbol);
+      });
 
       return typeof result === 'object' ? result.balance : result;
     } catch (e) {
