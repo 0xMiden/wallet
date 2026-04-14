@@ -215,6 +215,29 @@ yarn lint
 yarn format
 ```
 
+### E2E Blockchain Tests
+
+Spin up two Chrome-extension instances and drive a real wallet flow against a live Miden network — deploy a faucet via the `miden-client` CLI, mint tokens, send notes, claim them. Takes ~6 minutes end-to-end.
+
+```bash
+yarn test:e2e:blockchain:testnet     # default network
+yarn test:e2e:blockchain:devnet      # use when testnet is ahead/behind the wallet's SDK version
+yarn test:e2e:blockchain:localhost   # requires a local Miden node on :57291
+```
+
+Each script sets `E2E_NETWORK` and propagates `MIDEN_NETWORK` through to the extension build, so the test harness and the wallet always target the same network. Running the two on different networks silently fails (notes land on one, wallet listens on the other).
+
+Other useful scripts:
+
+```bash
+yarn test:e2e:blockchain:run       # skip rebuild; reruns tests against the last-built extension
+yarn test:e2e:blockchain:build     # rebuild only; picks up $E2E_NETWORK if set, else testnet
+yarn test:e2e:blockchain:agentic   # failure-on-first-error mode: browsers stay open on failure
+                                   # so a debugger (or AI agent) can inspect live wallet state
+```
+
+The harness auto-installs `miden-client-cli` from crates.io on first run, version-matched to the wallet's `@miden-sdk/miden-sdk` package. Requires the Rust toolchain.
+
 ## Internationalization
 
 The wallet supports multiple languages. Translation files are in `public/_locales/`.
