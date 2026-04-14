@@ -96,10 +96,22 @@ export function useIntercomSync() {
         if (!syncData) return;
         if (syncData.accountPublicKey !== accountPublicKey) return;
 
-        // Clear stale claiming IDs (sync data is authoritative)
-        store().clearExtensionClaimingNoteIds();
-        // Trigger note toast check (so popup shows toast for new notes)
         const noteIds = syncData.notes.map(n => n.id);
+
+        // Drop claiming IDs for notes that are no longer consumable (the SW has
+        // confirmed the consume). A blanket reset here would defeat the
+        // isBeingClaimed gate used by Explore's auto-consume, because
+        // NoteClaimStarted broadcasts fire once while this poll ticks every 3s.
+        const consumableIds = new Set(noteIds);
+        const staleClaimingIds: string[] = [];
+        for (const id of store().extensionClaimingNoteIds) {
+          if (!consumableIds.has(id)) staleClaimingIds.push(id);
+        }
+        if (staleClaimingIds.length > 0) {
+          store().removeExtensionClaimingNoteIds(staleClaimingIds);
+        }
+
+        // Trigger note toast check (so popup shows toast for new notes)
         store().checkForNewNotes(noteIds);
         // Convert vault assets → balances, update Zustand
         updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>

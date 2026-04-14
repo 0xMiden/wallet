@@ -45,13 +45,27 @@ jest.mock('lib/miden/repo', () => ({
     filter: jest.fn((fn: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => txStore.filter(fn))
     })),
-    where: jest.fn((query: any) => ({
-      first: jest.fn(async () => txStore.find(t => t.id === query.id)),
-      modify: jest.fn(async (fn: (tx: any) => void) => {
-        const tx = txStore.find(t => t.id === query.id);
-        if (tx) fn(tx);
-      })
-    }))
+    where: jest.fn((arg: any) => {
+      // Indexed lookup path: where('fieldName').equals(value).filter(fn).toArray()
+      if (typeof arg === 'string') {
+        const field = arg;
+        return {
+          equals: (val: any) => ({
+            filter: (fn: (tx: any) => boolean) => ({
+              toArray: async () => txStore.filter(t => t[field] === val).filter(fn)
+            })
+          })
+        };
+      }
+      // Primary-key path: where({ id }).first() / .modify()
+      return {
+        first: jest.fn(async () => txStore.find(t => t.id === arg.id)),
+        modify: jest.fn(async (fn: (tx: any) => void) => {
+          const tx = txStore.find(t => t.id === arg.id);
+          if (tx) fn(tx);
+        })
+      };
+    })
   }
 }));
 
@@ -598,6 +612,16 @@ describe('initiateConsumeTransactionFromId', () => {
 });
 
 describe('initiateConsumeTransaction reuse path', () => {
+  const buildNote = (overrides: Partial<any> = {}) => ({
+    id: 'note-1',
+    faucetId: 'f',
+    amount: '1',
+    senderAddress: 'sender',
+    isBeingClaimed: false,
+    type: NoteTypeEnum.Public,
+    ...overrides
+  });
+
   it('does not duplicate when an in-flight consume already exists for the same note', async () => {
     txStore.push({
       id: 'existing',
@@ -607,16 +631,54 @@ describe('initiateConsumeTransaction reuse path', () => {
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 100
     });
-    const note = {
-      id: 'note-1',
-      faucetId: 'f',
-      amount: '1',
-      senderAddress: 'sender',
-      isBeingClaimed: false,
-      type: NoteTypeEnum.Public
-    };
-    const result = await initiateConsumeTransaction('acc-1', note);
+    const result = await initiateConsumeTransaction('acc-1', buildNote());
     expect(result).toBe('existing');
     expect(txStore.filter(t => t.type === 'consume')).toHaveLength(1);
+  });
+
+  it('does not duplicate when a Completed consume already exists for the same note', async () => {
+    // Regression test for issue #171: after a consume completes, getConsumableNotes()
+    // may still return the same note briefly. Auto-consume must not enqueue another tx.
+    txStore.push({
+      id: 'completed',
+      type: 'consume',
+      noteId: 'note-1',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100,
+      completedAt: 200
+    });
+    const result = await initiateConsumeTransaction('acc-1', buildNote());
+    expect(result).toBe('completed');
+    expect(txStore.filter(t => t.type === 'consume')).toHaveLength(1);
+  });
+
+  it('allows retry when only a Failed consume exists for the same note', async () => {
+    txStore.push({
+      id: 'failed',
+      type: 'consume',
+      noteId: 'note-1',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Failed,
+      initiatedAt: 100,
+      completedAt: 200
+    });
+    const result = await initiateConsumeTransaction('acc-1', buildNote());
+    expect(result).not.toBe('failed');
+    expect(txStore.filter(t => t.type === 'consume')).toHaveLength(2);
+  });
+
+  it('does not dedup a consume from a different account with the same noteId', async () => {
+    txStore.push({
+      id: 'other-account',
+      type: 'consume',
+      noteId: 'note-1',
+      accountId: 'acc-2',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 100
+    });
+    const result = await initiateConsumeTransaction('acc-1', buildNote());
+    expect(result).not.toBe('other-account');
+    expect(txStore.filter(t => t.type === 'consume')).toHaveLength(2);
   });
 });

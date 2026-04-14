@@ -145,8 +145,16 @@ export const initiateConsumeTransaction = async (
   delegateTransaction?: boolean
 ): Promise<string> => {
   const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
-  const uncompletedTransactions = await getUncompletedTransactions(accountId);
-  const existingTransaction = uncompletedTransactions.find(tx => tx.type === 'consume' && tx.noteId === note.id);
+  // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
+  // Reason: getConsumableNotes() can still return a note for a short window after a local
+  // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
+  // tx every 5s until the sync catches up. Failed txs are excluded so retries still work.
+  const existingByNote = await Repo.transactions
+    .where('noteId')
+    .equals(note.id)
+    .filter(tx => tx.type === 'consume' && tx.status !== ITransactionStatus.Failed)
+    .toArray();
+  const existingTransaction = existingByNote.find(tx => compareAccountIds(tx.accountId, accountId));
   if (existingTransaction) {
     return existingTransaction.id;
   }
