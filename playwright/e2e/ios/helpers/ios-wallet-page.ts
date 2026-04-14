@@ -219,10 +219,16 @@ export class IosWalletPage implements WalletPage {
   async getBalance(_tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
-    // Read directly from the store. useSyncTrigger updates the store every
-    // 3s on mobile, so the cached balances are fresh — no need to call
-    // fetchBalances explicitly (and that path can deadlock waiting for the
-    // WASM client lock when sync is in flight).
+    // Reads consumed balances from the Zustand store. useSyncTrigger updates
+    // the store every 3s on mobile.
+    //
+    // IMPORTANT: unlike Chrome's getBalance (which reads
+    // chrome.storage.local.miden_sync_data.notes to count
+    // pending-but-unconsumed notes too), this method returns 0 until notes
+    // are actually consumed. Mobile has no chrome.storage equivalent. Both
+    // platforms auto-consume ONLY notes from the well-known MIDEN faucet;
+    // E2E tests use a CUSTOM faucet, so iOS specs need to call
+    // claimAllNotes() before waiting on a positive balance.
     return this.cdp.eval<number>(
       `var s = window.__TEST_STORE__; ` +
         `if (!s) return 0; ` +

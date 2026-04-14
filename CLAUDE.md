@@ -1130,11 +1130,12 @@ Same artifact tree as Chrome, output to `test-results-ios/run-<timestamp>/tests/
 ### Empirical Status (2026-04-14)
 
 - ✅ **wallet-lifecycle** — both tests pass on devnet (~42s wall clock).
-- ⚠️ **mint-and-balance and any spec that depends on `waitForBalanceAbove`** — currently fails. Root cause is a wallet-side semantic gap, NOT a harness bug:
-  - Chrome's `getBalance` reads `chrome.storage.local.miden_sync_data.notes` and counts pending-but-unconsumed notes as part of the displayed balance. The Chrome SW's `triggerSync` also fires `PROCESS_TRANSACTIONS_REQUEST` which auto-consumes notes server-side.
-  - Mobile has no `chrome.storage.local` (it's a no-op mock) and `useSyncTrigger` only calls `client.syncState()` — there's no auto-process counterpart. Unconsumed notes stay invisible to a store-based `getBalance`, and stay unconsumed.
-  - Two ways forward: (a) add an auto-process tick to `useSyncTrigger` for mobile (~5 lines), mirroring Chrome's SW behavior; (b) accept the divergence and adjust iOS specs to call `claimAllNotes` explicitly between mint and balance check. (a) is cleaner since it'd close a real product gap.
-- ⏸ **multi-claim, send-public, send-private, multi-account** — not yet exercised end-to-end on iOS; will likely run into the same sync/auto-process gap.
+- ⚠️ **Balance-after-mint tests (`mint-and-balance`, `multi-claim`, `send-*`)** — need `walletX.claimAllNotes()` inserted between the mint and the `waitForBalanceAbove` on iOS. Product-level reason:
+  - Both Chrome and mobile auto-consume ONLY notes from the well-known MIDEN faucet (`Explore.tsx → autoConsumeMidenNotes`). E2E tests use a CUSTOM faucet, which requires manual claim on both platforms.
+  - Chrome hides this with a test-only trick: its `getBalance` reads `chrome.storage.local.miden_sync_data.notes` and counts pending-but-unconsumed notes as part of the displayed balance, so the test passes without a claim step.
+  - Mobile has no `chrome.storage.local` (no-op mock). A "pending notes count toward balance" hook was considered but rejected: exposing `getConsumableNotes` via a test hook deadlocks against `useSyncTrigger`'s WASM client lock, and skipping the lock violates the hard "WASM client cannot handle concurrent access" invariant.
+  - So iOS specs add an explicit `await walletX.claimAllNotes()` between mint and balance-verify. This is the honest flow on mobile anyway — users do have to tap "Claim" for custom faucets.
+- ⏸ **Claim timing on simulator** — even with explicit claim, the actual consume transaction on simulator takes ~60–180s (WASM prove + submit). Bump the spec's balance wait timeout accordingly if flake appears.
 
 The iOS infrastructure (SimulatorControl, CdpBridge, IosWalletPage, fixtures) is itself solid — wallet-lifecycle passing proves the build → install → launch → CDP eval → store readback chain works.
 
