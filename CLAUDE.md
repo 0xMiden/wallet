@@ -1058,6 +1058,75 @@ The E2E harness deploys its own faucet via `miden-client new-account --account-t
 - Token metadata (symbol, decimals) is fetched from the RPC node as long as the faucet is deployed with `--storage-mode public`
 - Custom tokens show with their proper symbol (e.g., "TST") in the UI, are selectable in the send flow, and have correct decimal formatting
 
+## E2E iOS Simulator Test Harness
+
+Mirror of the Chrome E2E suite, but driving two iPhone 17 / iPhone 17 Pro simulators in parallel against the iOS app. Same 7 specs, ported to `playwright/e2e/ios/tests/*.ios.spec.ts`.
+
+### Quick Start
+
+```bash
+yarn test:e2e:mobile:devnet      # build app + run full iOS suite on devnet
+yarn test:e2e:mobile:testnet     # same on testnet
+yarn test:e2e:mobile:run         # skip rebuild (re-run only)
+yarn test:e2e:mobile:build       # build app only
+```
+
+The first run boots two simulators (iPhone 17 + iPhone 17 Pro), creating them if absent. UDIDs persist at `test-results-ios/.device-pair.json` so subsequent runs reuse the same booted devices — saves ~30s per run.
+
+### Architecture
+
+```
+playwright/e2e/ios/
+  helpers/
+    simulator-control.ts   # xcrun simctl wrapper (boot, install, launch, terminate)
+    cdp-bridge.ts          # WebKit Inspector bridge via appium-remote-debugger
+    ios-wallet-page.ts     # WalletPage interface impl backed by CDP + simctl
+  fixtures/
+    two-simulators.ts      # Playwright fixture; same shape as two-wallets
+    global-setup.ts        # asserts App.app, reserves+boots device pair
+    global-teardown.ts     # no-op (devices stay booted between runs)
+  tests/
+    *.ios.spec.ts          # ported specs (one-line import change from Chrome)
+```
+
+The `WalletPage` interface in `playwright/e2e/helpers/wallet-page.ts` is shared between Chrome and iOS — same method signatures, different impls. The harness (`playwright/e2e/harness/`) is platform-neutral and is reused wholesale; per-wallet `SnapshotCaps` closures supplied by the fixture absorb platform-specific bits (page.evaluate, service-worker queries on Chrome; CdpSession.evaluate on iOS).
+
+### CDP Bridge (appium-remote-debugger)
+
+`remotedebug-ios-webkit-adapter` does NOT work on simulators (it wraps libimobiledevice which is USB-only). We use `appium-remote-debugger` instead, which talks the WebKit Inspector Protocol directly over the per-simulator UNIX socket at `/private/tmp/com.apple.launchd.<RANDOM>/com.apple.webinspectord_sim.socket`.
+
+The socket path is discovered per-boot via:
+```bash
+xcrun simctl spawn <udid> launchctl print user/501 | grep RWI_LISTEN_SOCKET
+```
+
+`CdpBridge.connect({ udid, bundleId })` resolves the socket, calls `selectApp(null, 5, true)` with `additionalBundleIds: ['*']` to find the app's WebView page, then `selectPage(appKey, pageNum)`. Returns a `CdpSession` that wraps `executeAtom('execute_script', [body, []])` for repeated evaluation.
+
+### Per-Test Isolation
+
+Boot is amortized across runs (devices stay booted). Per-test, the fixture does:
+1. `terminate` the app (if running)
+2. `uninstall` it (wipes IndexedDB + Preferences sandbox)
+3. `install` the freshly-built `.app`
+4. `launch` with `MIDEN_E2E_TEST=true`
+5. Connect CDP and construct `IosWalletPage`
+
+Total ~5s per wallet — much cheaper than the ~30s `simctl erase` would cost.
+
+### Onboarding Bypass
+
+Mirroring the wallet's official test hook (`Welcome.tsx`), iOS spec wallets skip seed-phrase backup/verify by setting `window.__TEST_SKIP_ONBOARDING = true` + `?__test_skip_onboarding=1` and tapping "Get started". This is what `IosWalletPage.createNewWallet` does. Specs that need a real seed phrase should use `importWallet()`.
+
+### Reading iOS Failure Reports
+
+Same artifact tree as Chrome, output to `test-results-ios/run-<timestamp>/tests/<test>/`. The `WalletSnapshot.platform` discriminator is `'ios'` (vs `'chrome'`); `serviceWorkerStatus` and `extensionId` are omitted. `runtimeInfo.kind === 'ios'` in the run manifest. All consumers (`failure-report.ts`, `diagnostic-hints.ts`) handle both platforms.
+
+### Known Limitations
+
+- Headless mode is not available — Simulator.app must be running. The harness boots devices but does not control the GUI window. CI runners need a graphical session.
+- The CDP bridge picks the first WebKit page on the inspector. The wallet uses one WebView, so this is fine; if a future build adds a dApp browser WebView, `CdpBridge.connect` needs a target-disambiguation parameter.
+- `simctl` does NOT support keyboard input from outside the simulator. The iOS POM dispatches React-compatible `input`/`change` events directly via DOM rather than typing into native fields. For native iOS sheets / system dialogs this won't work — only WebView content is reachable.
+
 ## Internationalization (i18n)
 
 **IMPORTANT:** All user-facing text in React components MUST be internationalized. Never use hardcoded strings for UI text - always use `t('key')` or the `<T id="key" />` component. CI will block PRs with non-i18n'd strings (enforced by `yarn lint:i18n`).
