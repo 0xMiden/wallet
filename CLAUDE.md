@@ -1127,6 +1127,17 @@ Same artifact tree as Chrome, output to `test-results-ios/run-<timestamp>/tests/
 - The CDP bridge picks the first WebKit page on the inspector. The wallet uses one WebView, so this is fine; if a future build adds a dApp browser WebView, `CdpBridge.connect` needs a target-disambiguation parameter.
 - `simctl` does NOT support keyboard input from outside the simulator. The iOS POM dispatches React-compatible `input`/`change` events directly via DOM rather than typing into native fields. For native iOS sheets / system dialogs this won't work — only WebView content is reachable.
 
+### Empirical Status (2026-04-14)
+
+- ✅ **wallet-lifecycle** — both tests pass on devnet (~42s wall clock).
+- ⚠️ **mint-and-balance and any spec that depends on `waitForBalanceAbove`** — currently fails. Root cause is a wallet-side semantic gap, NOT a harness bug:
+  - Chrome's `getBalance` reads `chrome.storage.local.miden_sync_data.notes` and counts pending-but-unconsumed notes as part of the displayed balance. The Chrome SW's `triggerSync` also fires `PROCESS_TRANSACTIONS_REQUEST` which auto-consumes notes server-side.
+  - Mobile has no `chrome.storage.local` (it's a no-op mock) and `useSyncTrigger` only calls `client.syncState()` — there's no auto-process counterpart. Unconsumed notes stay invisible to a store-based `getBalance`, and stay unconsumed.
+  - Two ways forward: (a) add an auto-process tick to `useSyncTrigger` for mobile (~5 lines), mirroring Chrome's SW behavior; (b) accept the divergence and adjust iOS specs to call `claimAllNotes` explicitly between mint and balance check. (a) is cleaner since it'd close a real product gap.
+- ⏸ **multi-claim, send-public, send-private, multi-account** — not yet exercised end-to-end on iOS; will likely run into the same sync/auto-process gap.
+
+The iOS infrastructure (SimulatorControl, CdpBridge, IosWalletPage, fixtures) is itself solid — wallet-lifecycle passing proves the build → install → launch → CDP eval → store readback chain works.
+
 ## Internationalization (i18n)
 
 **IMPORTANT:** All user-facing text in React components MUST be internationalized. Never use hardcoded strings for UI text - always use `t('key')` or the `<T id="key" />` component. CI will block PRs with non-i18n'd strings (enforced by `yarn lint:i18n`).

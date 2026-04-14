@@ -68,3 +68,4 @@ android/app/*.jks
 # iOS build artifacts
 ios/App/build/
 sdk-debug/
+/test-results-ios

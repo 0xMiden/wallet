@@ -102,24 +102,20 @@ export class IosWalletPage implements WalletPage {
     // Welcome screen must be visible (fixture guarantees this on cold launch).
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
-    // Set the bypass flag and reload — Welcome.tsx auto-skips to the
-    // confirmation step and registers the wallet on "Get started".
+    // Trigger Welcome.tsx's official test bypass via URL params. After the
+    // navigation, the welcome screen auto-jumps to the confirmation step
+    // (random seed already generated, password set from the query param);
+    // tapping "Get started" then runs registerWallet().
+    const passwordEnc = encodeURIComponent(password);
     await this.cdp.eval(
-      `(window).__TEST_SKIP_ONBOARDING = true; ` +
-        `(window).__TEST_ONBOARDING_PASSWORD = ${JSON.stringify(password)}; ` +
-        `window.location.hash = '#/'; ` +
+      `var u = new URL(location.href); ` +
+        `u.searchParams.set('__test_skip_onboarding', '1'); ` +
+        `u.searchParams.set('password', '${passwordEnc}'); ` +
+        `location.href = u.toString(); ` +
         `return null;`
     );
-    // Trigger a soft re-render — Welcome.tsx watches the URL search/hash
-    // and flips into bypass mode. Use ?__test_skip_onboarding=1 fallback
-    // for robustness.
-    await this.cdp.eval(
-      `if (location.search.indexOf('__test_skip_onboarding') < 0) {
-         var u = new URL(location.href);
-         u.searchParams.set('__test_skip_onboarding', '1');
-         location.href = u.toString();
-       } return null;`
-    );
+    // Page is reloading — give the WebView time to settle before next eval.
+    await sleep(2_500);
 
     // Wait for the "Get started" / confirmation button to be tappable.
     await this.pollForCondition(
@@ -137,7 +133,7 @@ export class IosWalletPage implements WalletPage {
 
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
     await this.pollForCondition(
-      `var s = (window).__TEST_STORE__; ` +
+      `var s = window.__TEST_STORE__; ` +
         `if (!s) return false; ` +
         `var st = s.getState(); ` +
         `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
@@ -145,7 +141,7 @@ export class IosWalletPage implements WalletPage {
     );
 
     const address = await this.cdp.eval<string>(
-      `var s = (window).__TEST_STORE__.getState(); ` +
+      `var s = window.__TEST_STORE__.getState(); ` +
         `return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
     if (!address) throw new Error('IosWalletPage.createNewWallet: no currentAccount.publicKey after Ready');
@@ -223,47 +219,34 @@ export class IosWalletPage implements WalletPage {
   async getBalance(_tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
+    // Read directly from the store. useSyncTrigger updates the store every
+    // 3s on mobile, so the cached balances are fresh — no need to call
+    // fetchBalances explicitly (and that path can deadlock waiting for the
+    // WASM client lock when sync is in flight).
     return this.cdp.eval<number>(
-      `(async function() {
-         var s = (window).__TEST_STORE__;
-         if (!s) return 0;
-         var st = s.getState();
-         try {
-           if (st.currentAccount && st.currentAccount.publicKey && st.fetchBalances) {
-             await st.fetchBalances(st.currentAccount.publicKey, st.assetsMetadata || {});
-           }
-         } catch (e) {}
-         var fresh = s.getState();
-         var total = 0;
-         var balances = fresh.balances || {};
-         for (var k in balances) {
-           var list = balances[k];
-           if (!Array.isArray(list)) continue;
-           for (var i = 0; i < list.length; i++) {
-             var t = list[i];
-             var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0')));
-             if (amt > 0) total += amt;
-           }
-         }
-         return total;
-       })();`
+      `var s = window.__TEST_STORE__; ` +
+        `if (!s) return 0; ` +
+        `var st = s.getState(); ` +
+        `var total = 0; ` +
+        `var balances = st.balances || {}; ` +
+        `for (var k in balances) { ` +
+        `  var list = balances[k]; ` +
+        `  if (!Array.isArray(list)) continue; ` +
+        `  for (var i = 0; i < list.length; i++) { ` +
+        `    var t = list[i]; ` +
+        `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+        `    if (amt > 0) total += amt; ` +
+        `  } ` +
+        `} ` +
+        `return total;`
     );
   }
 
   async triggerSync(): Promise<void> {
-    try {
-      await this.cdp.eval(
-        `(async function() {
-           var i = (window).__TEST_INTERCOM__;
-           if (!i) return false;
-           await i.request({ type: 'SYNC_REQUEST' });
-           await i.request({ type: 'PROCESS_TRANSACTIONS_REQUEST' });
-           return true;
-         })();`
-      );
-    } catch {
-      // page may be navigating
-    }
+    // On mobile, the wallet auto-syncs every 3s in main thread via
+    // useSyncTrigger as soon as status === Ready (no SW indirection like
+    // Chrome). We don't need to send SYNC_REQUEST — we just need to wait
+    // long enough for at least one auto-sync tick to land.
     await sleep(SYNC_WAIT_MS);
   }
 
@@ -297,28 +280,20 @@ export class IosWalletPage implements WalletPage {
       await this.triggerSync();
       await sleep(5_000);
       const balance = await this.cdp.eval<number>(
-        `(async function() {
-           var s = (window).__TEST_STORE__;
-           if (!s) return 0;
-           var st = s.getState();
-           try {
-             if (st.currentAccount && st.currentAccount.publicKey && st.fetchBalances) {
-               await st.fetchBalances(st.currentAccount.publicKey, st.assetsMetadata || {});
-             }
-           } catch (e) {}
-           var fresh = s.getState();
-           var balances = fresh.balances || {};
-           for (var k in balances) {
-             var list = balances[k];
-             if (!Array.isArray(list)) continue;
-             for (var i = 0; i < list.length; i++) {
-               var t = list[i];
-               var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0')));
-               if (amt > 0) return amt;
-             }
-           }
-           return 0;
-         })();`
+        `var s = window.__TEST_STORE__; ` +
+          `if (!s) return 0; ` +
+          `var st = s.getState(); ` +
+          `var balances = st.balances || {}; ` +
+          `for (var k in balances) { ` +
+          `  var list = balances[k]; ` +
+          `  if (!Array.isArray(list)) continue; ` +
+          `  for (var i = 0; i < list.length; i++) { ` +
+          `    var t = list[i]; ` +
+          `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+          `    if (amt > 0) return amt; ` +
+          `  } ` +
+          `} ` +
+          `return 0;`
       );
       if (balance > 0) {
         await this.navigateHome();
@@ -429,16 +404,19 @@ export class IosWalletPage implements WalletPage {
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
 
   async lockWallet(): Promise<void> {
+    // Fire-and-forget the lock request — we reload immediately after, so we
+    // don't need to await the intercom roundtrip (which can hang on mobile
+    // when the SW-style port resolves on the same thread).
     await this.cdp.eval(
-      `(async function() {
-         var i = (window).__TEST_INTERCOM__;
-         if (i) await i.request({ type: 'LOCK_REQUEST' });
-         return null;
-       })();`
+      `var i = window.__TEST_INTERCOM__; ` +
+        `if (i) { try { i.request({ type: 'LOCK_REQUEST' }); } catch (e) {} } ` +
+        `return null;`
     );
     await sleep(2_000);
     await this.cdp.eval(`location.reload(); return null;`);
-    await sleep(2_000);
+    // Page is reloading — wait for the WebView to settle and re-acquire the
+    // page reference for subsequent eval calls.
+    await sleep(3_000);
   }
 
   async unlockWallet(password: string = DEFAULT_PASSWORD): Promise<void> {
@@ -454,9 +432,10 @@ export class IosWalletPage implements WalletPage {
   private async pollForSelector(selector: string, timeoutMs: number): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const found = await this.cdp.eval<boolean>(
-        `return !!document.querySelector(${JSON.stringify(selector)});`
-      );
+      // Catch eval errors (page reload mid-poll, inspector reattach race).
+      const found = await this.cdp
+        .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
+        .catch(() => false);
       if (found) return;
       await sleep(POLL_INTERVAL_MS);
     }

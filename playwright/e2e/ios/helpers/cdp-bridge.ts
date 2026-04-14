@@ -9,7 +9,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-const SELECT_APP_TIMEOUT = 15_000;
+const SELECT_APP_TIMEOUT = 60_000;
+const SELECT_APP_POLL_MS = 1_500;
 const PAGE_READY_TIMEOUT = 15_000;
 const SOCKET_DISCOVERY_TIMEOUT = 30_000;
 
@@ -38,16 +39,48 @@ export class CdpSession {
   constructor(private rd: RemoteDebugger) {}
 
   /**
-   * Evaluate an arbitrary JS expression and return the result. The body is
-   * passed as a function body to `executeAtom('execute_script', ...)`, so
-   * `return <expr>;` semantics apply.
+   * Evaluate synchronous JavaScript and return the result. The body is the
+   * function body for `executeAtom('execute_script', ...)`; callers MUST
+   * include their own `return` statement (mirrors WebDriver's
+   * `executeScript`). Multi-statement bodies are fine.
+   *
+   * For Promise-returning code, use `evalAsync` — `eval` resolves the
+   * Promise object itself, not its value.
    */
-  async eval<T = unknown>(expression: string): Promise<T> {
-    const body = expression.trim().startsWith('return ') ? expression : `return (${expression});`;
+  async eval<T = unknown>(body: string): Promise<T> {
     return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
       body,
       [],
     ])) as T;
+  }
+
+  /**
+   * Evaluate asynchronous JavaScript. The body MUST call the callback
+   * `arguments[arguments.length - 1]` with its result — this is the
+   * `execute_async_script` WebDriver atom contract. Useful when the page
+   * code awaits Promises (store.fetchBalances, intercom.request, etc.).
+   *
+   * The optional outer timeout protects against scripts that never invoke
+   * the callback — without it, executeAtomAsync waits forever. Default 30s.
+   */
+  async evalAsync<T = unknown>(body: string, opts: { timeoutMs?: number } = {}): Promise<T> {
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtomAsync(
+      'execute_async_script',
+      [body, []]
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`evalAsync: script did not invoke callback within ${timeoutMs}ms`)),
+        timeoutMs
+      );
+    });
+    try {
+      return (await Promise.race([exec, timeout])) as T;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**
@@ -136,15 +169,27 @@ export class CdpBridge {
     const rd = createRemoteDebugger(opts, false);
 
     await rd.connect();
-    // Brief settle so the inspector finishes enumerating webviews.
-    await sleep(2_000);
 
-    const pages = await (rd as unknown as SelectAppCapable).selectApp(null, 5, true);
+    // Poll for the app's WebView to register with webinspectord_sim. After a
+    // fresh `simctl launch`, registration can take 5–15s while the WKWebView
+    // initializes. Bail out only if the whole window passes empty-handed.
+    let pages: Array<{ id: string; url?: string; title?: string }> = [];
+    const selectStart = Date.now();
+    while (Date.now() - selectStart < SELECT_APP_TIMEOUT) {
+      try {
+        pages = await (rd as unknown as SelectAppCapable).selectApp(null, 3, true);
+        if (pages && pages.length > 0) break;
+      } catch {
+        // selectApp throws when no apps are connected at all — keep polling.
+      }
+      await sleep(SELECT_APP_POLL_MS);
+    }
     if (!pages || pages.length === 0) {
       await rd.disconnect();
       throw new Error(
-        `CdpBridge: no pages found for bundleId=${bundleId} on udid=${udid}. ` +
-          `Is the app running and built with isInspectable=true?`
+        `CdpBridge: no pages found for bundleId=${bundleId} on udid=${udid} ` +
+          `within ${SELECT_APP_TIMEOUT}ms. Is the app running and built with ` +
+          `isInspectable=true?`
       );
     }
 
@@ -167,6 +212,7 @@ export class CdpBridge {
 
 interface ExecuteAtomCapable {
   executeAtom(name: string, args: unknown[]): Promise<unknown>;
+  executeAtomAsync(name: string, args: unknown[]): Promise<unknown>;
 }
 interface SelectAppCapable {
   selectApp(currentUrl: string | null, maxTries: number, ignoreAboutBlankUrl: boolean): Promise<
