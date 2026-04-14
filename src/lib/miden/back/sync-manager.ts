@@ -12,7 +12,7 @@ import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { getBackupCredentials, triggerBackup } from './auto-backup-manager';
+import { getBackupCredentials, setCanonicalizationInProgress, triggerBackup } from './auto-backup-manager';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { accountsUpdated, store } from './store';
@@ -58,7 +58,7 @@ async function checkAndCanonicalize(): Promise<void> {
       const results: Array<{ publicKey: string; localHex: string; accountId: AccountId }> = [];
       for (const acc of accounts) {
         const account = await client.getAccount(acc.publicKey);
-        if (!account || account.isNew()) continue;
+        if (!account) continue;
         results.push({
           publicKey: acc.publicKey,
           localHex: account.to_commitment().toHex(),
@@ -117,7 +117,15 @@ async function checkAndCanonicalize(): Promise<void> {
       // Re-derive and persist auth secret keys so restored accounts are
       // signable — replaceAccounts only writes metadata.
       await vault.restoreAccountKeys(content.walletAccounts);
-      accountsUpdated({ accounts: content.walletAccounts });
+      // Suppress the auto-backup that would otherwise fire from the
+      // accountsUpdated watcher — we just restored from backup, no point
+      // re-uploading what we just downloaded.
+      setCanonicalizationInProgress(true);
+      try {
+        accountsUpdated({ accounts: content.walletAccounts });
+      } finally {
+        setCanonicalizationInProgress(false);
+      }
     }
 
     console.log('[SyncManager] Canonicalization complete — restored from backup');

@@ -31,6 +31,7 @@ let isBackingUp = false;
 let isPaused = false;
 let lastError: string | null = null;
 let settingsUpdateInProgress = false;
+let canonicalizationInProgress = false;
 let hooksRegistered = false;
 
 // ---- Public API ----
@@ -45,7 +46,9 @@ export function registerAutoBackupHooks(): void {
   if (hooksRegistered) return;
   hooksRegistered = true;
 
-  accountsUpdated.watch(() => triggerBackup());
+  accountsUpdated.watch(() => {
+    if (!canonicalizationInProgress) triggerBackup();
+  });
   settingsUpdated.watch(() => {
     if (!settingsUpdateInProgress) triggerBackup();
   });
@@ -148,6 +151,10 @@ export function onWalletUnlocked(): void {
 
 export function isInternalSettingsUpdate(): boolean {
   return settingsUpdateInProgress;
+}
+
+export function setCanonicalizationInProgress(value: boolean): void {
+  canonicalizationInProgress = value;
 }
 
 export function getStatus(): AutoBackupStatus {
