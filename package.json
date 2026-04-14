@@ -64,6 +64,7 @@
     "test:e2e:mobile:run": "playwright test --config playwright.ios.config.ts",
     "test:e2e:mobile:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:mobile",
     "test:e2e:mobile:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:mobile",
+    "test:e2e:mobile:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:mobile",
     "playwright:install": "playwright install --with-deps chromium",
     "clear:lint": "rimraf node_modules/.cache/eslint-loader",
     "clear:cache": "rimraf node_modules/.cache",
