@@ -238,6 +238,35 @@ yarn test:e2e:blockchain:agentic   # failure-on-first-error mode: browsers stay 
 
 The harness auto-installs `miden-client-cli` from crates.io on first run, version-matched to the wallet's `@miden-sdk/miden-sdk` package. Requires the Rust toolchain.
 
+### E2E iOS Simulator Tests
+
+Same 7 specs as the Chrome suite, ported to drive two parallel iOS Simulators (iPhone 17 + iPhone 17 Pro) over the WebKit Inspector Protocol via `appium-remote-debugger`. Takes ~9 minutes end-to-end on devnet. Requires Xcode + iOS Simulator runtime.
+
+```bash
+yarn test:e2e:mobile:devnet          # currently green — use this for CI
+yarn test:e2e:mobile:testnet         # see Chrome section caveat about testnet
+yarn test:e2e:mobile:localhost       # requires a local Miden node on :57291
+```
+
+The first run boots the simulator pair and creates them if absent; subsequent runs reuse the same booted devices (UDIDs cached at `test-results-ios/.device-pair.json`), which saves the ~30s cold-boot cost per run.
+
+Other useful scripts:
+
+```bash
+yarn test:e2e:mobile:run           # skip rebuild; reruns tests against the last-built App.app
+yarn test:e2e:mobile:build         # rebuild the iOS app only; picks up $E2E_NETWORK if set, else testnet
+```
+
+Run a single spec the same way as Chrome:
+
+```bash
+E2E_NETWORK=devnet yarn test:e2e:mobile:run send-public
+```
+
+The iOS POM (`playwright/e2e/ios/helpers/ios-wallet-page.ts`) implements the same `WalletPage` interface as the Chrome POM, so most of the harness (timeline recorder, failure reports, state snapshots) is shared. Per-spec divergences are documented in the `.ios.spec.ts` files — most notably an explicit `claimAllNotes()` call between mint and balance verification, since mobile has no `chrome.storage.local` to surface pending notes.
+
+Artifacts land in `test-results-ios/` with the same shape as the Chrome `test-results/` tree.
+
 ## Internationalization
 
 The wallet supports multiple languages. Translation files are in `public/_locales/`.
