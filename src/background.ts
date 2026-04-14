@@ -1,5 +1,4 @@
 import './xhr-shim';
-import 'mv3-hot-reload/background';
 
 import browser, { tabs, runtime } from 'webextension-polyfill';
 
@@ -7,7 +6,8 @@ import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
 
-// NOTE: onInstalled is handled in sw.js (must be synchronous for MV3)
+// NOTE: onInstalled and other synchronous MV3 listeners are registered in
+// background-entry.ts (the actual SW entry point) before this module loads.
 
 // Chrome: restore side panel preference on startup
 if (process.env.TARGET_BROWSER === 'chrome') {

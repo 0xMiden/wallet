@@ -67,6 +67,23 @@ function ensureListener(): void {
   });
 }
 
+// E2E test hook: expose a way to fire the currently-registered navbar
+// action from JS. The iOS E2E harness has no way to tap the native
+// overlay button (xcrun simctl doesn't do coordinate taps, and the
+// button lives in a separate UIWindow outside the WebView that CDP sees),
+// so it calls this hook to trigger the same onTap the real user would.
+// Returns true if an action was registered and fired; false otherwise
+// (lets the caller poll until the page has mounted and installed one).
+// Gated on MIDEN_E2E_TEST + isMobile so only mobile E2E builds install
+// this hook — keeps the Chrome extension bundle byte-identical to pre-iOS.
+if (process.env.MIDEN_E2E_TEST === 'true' && isMobile()) {
+  (globalThis as { __TEST_TRIGGER_NAVBAR_ACTION__?: () => boolean }).__TEST_TRIGGER_NAVBAR_ACTION__ = () => {
+    if (!currentOnTap) return false;
+    currentOnTap();
+    return true;
+  };
+}
+
 export function useNativeNavbarAction(action: NavbarAction | null): void {
   // Each hook instance gets a stable id from React. Used to gate the
   // unmount cleanup so we don't clear an action a successor page

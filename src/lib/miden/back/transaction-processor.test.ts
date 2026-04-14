@@ -33,7 +33,11 @@ const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
 const mockHasQueuedTransactions = jest.fn();
 
-jest.mock('lib/miden/activity', () => ({
+// transaction-processor.ts imports directly from lib/miden/activity/transactions
+// (not the activity/index re-export) to avoid a circular init deadlock in the
+// Vite SW bundle. Mock the same path so the real transactions.ts (which pulls
+// in lib/store → real intercom) isn't loaded.
+jest.mock('lib/miden/activity/transactions', () => ({
   safeGenerateTransactionsLoop: (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args),
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
   hasQueuedTransactions: (...args: unknown[]) => mockHasQueuedTransactions(...args)

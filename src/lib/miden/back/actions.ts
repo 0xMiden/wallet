@@ -39,8 +39,20 @@ import {
 
 const ACCOUNT_NAME_PATTERN = /^.{0,16}$/;
 
-const dappQueue = new PQueue({ concurrency: 1 });
-const unlockQueue = new PQueue({ concurrency: 1 });
+// Lazy queue initialization: in the Vite SW build, module-scope init (init_actions)
+// may not complete because it transitively depends on dapp.ts which imports frontend
+// modules that hang in SW context. Making queues lazy ensures they're available on
+// first use regardless of whether init_actions completed.
+let _dappQueue: PQueue | undefined;
+let _unlockQueue: PQueue | undefined;
+function getDappQueue() {
+  if (!_dappQueue) _dappQueue = new PQueue({ concurrency: 1 });
+  return _dappQueue;
+}
+function getUnlockQueue() {
+  if (!_unlockQueue) _unlockQueue = new PQueue({ concurrency: 1 });
+  return _unlockQueue;
+}
 
 export async function init() {
   console.log('[Actions.init] Starting...');
@@ -51,13 +63,23 @@ export async function init() {
 }
 
 export async function getFrontState(): Promise<WalletState> {
-  const state = store.getState();
-  if (state.inited) {
-    return toFront(state);
-  } else {
-    await new Promise(r => setTimeout(r, 10));
-    return getFrontState();
+  try {
+    const state = store.getState();
+    if (state.inited) {
+      return toFront(state);
+    }
+  } catch {
+    // store not initialized yet
   }
+  // Return Idle immediately so the UI can render while backend inits.
+  return {
+    status: 0,
+    accounts: [],
+    currentAccount: null,
+    networks: [],
+    settings: null,
+    ownMnemonic: null
+  } as WalletState;
 }
 
 export async function isDAppEnabled() {
@@ -77,17 +99,19 @@ export async function isDAppEnabled() {
 export function registerNewWallet(password?: string, mnemonic?: string, ownMnemonic?: boolean) {
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
-    // Password may be undefined for hardware-only wallets (mobile/desktop with Secure Enclave)
-    // Vault.spawn() will handle this by using hardware protection instead
-    // spawn() returns the vault directly, avoiding a second biometric prompt from unlock()
-    const vault = await Vault.spawn(password ?? '', mnemonic, ownMnemonic);
-    console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
-    const accounts = await vault.fetchAccounts();
-    const settings = await vault.fetchSettings();
-    const currentAccount = await vault.getCurrentAccount();
-    const ownMnemonicFlag = await vault.isOwnMnemonic();
-    unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
-    console.log('[Actions.registerNewWallet] Completed');
+    try {
+      const vault = await Vault.spawn(password ?? '', mnemonic, ownMnemonic);
+      console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
+      const accounts = await vault.fetchAccounts();
+      const settings = await vault.fetchSettings();
+      const currentAccount = await vault.getCurrentAccount();
+      const ownMnemonicFlag = await vault.isOwnMnemonic();
+      unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+      console.log('[Actions.registerNewWallet] Completed');
+    } catch (err: any) {
+      console.error('[Actions.registerNewWallet] FAILED:', err);
+      throw err;
+    }
   });
 }
 
@@ -112,7 +136,7 @@ export function lock() {
 
 export function unlock(password?: string) {
   return withInited(() =>
-    unlockQueue.add(async () => {
+    getUnlockQueue().add(async () => {
       const vault = await Vault.setup(password);
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
@@ -246,34 +270,34 @@ export async function processDApp(
       return withInited(() => getCurrentPermission(origin));
 
     case MidenDAppMessageType.PermissionRequest:
-      return withInited(() => dappQueue.add(() => requestPermission(origin, req, sessionId)));
+      return withInited(() => getDappQueue().add(() => requestPermission(origin, req, sessionId)));
 
     case MidenDAppMessageType.DisconnectRequest:
-      return withInited(() => dappQueue.add(() => requestDisconnect(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestDisconnect(origin, req)));
 
     case MidenDAppMessageType.TransactionRequest:
-      return withInited(() => dappQueue.add(() => requestTransaction(origin, req, sessionId)));
+      return withInited(() => getDappQueue().add(() => requestTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.SendTransactionRequest:
-      return withInited(() => dappQueue.add(() => requestSendTransaction(origin, req, sessionId)));
+      return withInited(() => getDappQueue().add(() => requestSendTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.ConsumeRequest:
-      return withInited(() => dappQueue.add(() => requestConsumeTransaction(origin, req, sessionId)));
+      return withInited(() => getDappQueue().add(() => requestConsumeTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.PrivateNotesRequest:
-      return withInited(() => dappQueue.add(() => requestPrivateNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req)));
 
     case MidenDAppMessageType.SignRequest:
-      return withInited(() => dappQueue.add(() => requestSign(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestSign(origin, req)));
 
     case MidenDAppMessageType.AssetsRequest:
-      return withInited(() => dappQueue.add(() => requestAssets(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestAssets(origin, req)));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
-      return withInited(() => dappQueue.add(() => requestImportPrivateNote(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req)));
 
     case MidenDAppMessageType.ConsumableNotesRequest:
-      return withInited(() => dappQueue.add(() => requestConsumableNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req)));
 
     case MidenDAppMessageType.WaitForTransactionRequest:
       return withInited(() => waitForTransaction(req));

@@ -1,8 +1,10 @@
-import React, { FC, useCallback, useRef, useState } from 'react';
+import React, { FC, useCallback, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { TabPicker } from 'components/TabPicker';
 import { isMobile } from 'lib/platform';
+import type { ThemeSetting } from 'lib/settings/constants';
 import {
   getThemeSetting,
   isAutoConsumeEnabled,
@@ -12,7 +14,7 @@ import {
   setDelegateProofSetting,
   setHapticFeedbackSetting
 } from 'lib/settings/helpers';
-import { toggleTheme } from 'lib/settings/theme';
+import { setTheme } from 'lib/settings/theme';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 import SettingToggle from './SettingToggle';
@@ -21,11 +23,26 @@ const GeneralSettings: FC = () => {
   const { t } = useTranslation();
   const mobile = isMobile();
 
-  const [isDark, setIsDark] = useState(() => getThemeSetting() === 'dark');
-  const handleThemeChange = useCallback(() => {
-    const newTheme = toggleTheme();
-    setIsDark(newTheme === 'dark');
-  }, []);
+  const [themeSetting, setThemeSettingState] = useState<ThemeSetting>(() => getThemeSetting());
+  const themeOptions = useMemo<ThemeSetting[]>(() => ['system', 'light', 'dark'], []);
+  const themeTabs = useMemo(
+    () =>
+      themeOptions.map(opt => ({
+        id: `theme-${opt}`,
+        title: t(opt === 'system' ? 'themeSystem' : opt === 'light' ? 'themeLight' : 'themeDark'),
+        active: themeSetting === opt
+      })),
+    [t, themeOptions, themeSetting]
+  );
+  const handleThemeTabChange = useCallback(
+    (index: number) => {
+      const next = themeOptions[index];
+      if (!next) return;
+      setThemeSettingState(next);
+      setTheme(next);
+    },
+    [themeOptions]
+  );
 
   const delegateEnabled = isDelegateProofEnabled();
   const delegateChangingRef = useRef(false);
@@ -54,13 +71,10 @@ const GeneralSettings: FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-y-6">
-      <SettingToggle
-        checked={isDark}
-        onChange={handleThemeChange}
-        name="darkMode"
-        testID={GeneralSettingsSelectors.DarkModeToggle}
-        title={t('darkMode')}
-      />
+      <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
+        <span className="font-medium text-base leading-[130%] text-black">{t('theme')}</span>
+        <TabPicker className="flex-shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />
+      </div>
 
       {mobile && (
         <SettingToggle

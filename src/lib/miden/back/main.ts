@@ -12,18 +12,28 @@ import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
-const frontStore = store.map(toFront);
+// frontStore is initialized lazily inside start() because with Vite's TLA stripping,
+// `store` may not be initialized at module scope evaluation time.
+let frontStore: ReturnType<typeof store.map> | null = null;
 
 export async function start() {
   console.log('Miden background script started');
   intercom.onRequest(processRequest);
+
+  // NOTE: The Vite sw-patches plugin injects await init_*() calls here
+  // (between intercom registration and Actions.init)
+
   await Actions.init();
+  frontStore = store.map(toFront);
   frontStore.watch(() => {
     intercom.broadcast({ type: WalletMessageType.StateUpdated });
   });
+  // Force frontend to re-fetch state now that everything is initialized
+  intercom.broadcast({ type: WalletMessageType.StateUpdated });
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
+  console.log('[processRequest] type:', req?.type);
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
       doSync().catch(err => console.warn('[SyncManager] Error:', err));
@@ -102,7 +112,14 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         state
       };
     case WalletMessageType.NewWalletRequest:
-      await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
+      console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
+      try {
+        await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
+        console.log('[processRequest] registerNewWallet completed successfully');
+      } catch (err: any) {
+        console.error('[processRequest] registerNewWallet FAILED:', err?.message, err?.stack?.slice(0, 500));
+        throw err;
+      }
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.ImportFromClientRequest:
       await Actions.registerImportedWallet(req.password, req.mnemonic);

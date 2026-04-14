@@ -2547,6 +2547,22 @@
     "message": "Modo escuro",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Tema",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "Sistema",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "Luz",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Escuro",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Feedback tátil",
     "englishSource": "Haptic Feedback"

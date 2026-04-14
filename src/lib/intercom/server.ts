@@ -48,6 +48,8 @@ export class IntercomServer {
   onRequest(handler: ReqHandler) {
     this.addReqHandler(handler);
     this.initializedHandlers = true;
+    // Replay any messages that arrived before the handler was registered
+    this.replayPendingMessages();
     return () => {
       this.removeReqHandler(handler);
     };
@@ -69,42 +71,94 @@ export class IntercomServer {
     return () => port.onDisconnect.removeListener(listener);
   }
 
+  private pendingMessages: Array<{ msg: RequestMessage; port: Runtime.Port }> = [];
+
   private handleMessage(msg: any, port: Runtime.Port) {
     if (port.sender?.id === browser.runtime.id && msg?.type === MessageType.Req) {
-      (async msgInner => {
-        try {
-          for (const handler of this.reqHandlers) {
-            const data = await handler(msg.data, port);
-            if (data !== undefined) {
-              this.send(port, {
-                type: MessageType.Res,
-                reqId: msgInner.reqId,
-                data
-              });
-
-              return;
+      const reqType = msg?.data?.type;
+      if (reqType && reqType !== 'GET_STATE_REQUEST' && reqType !== 'SYNC_REQUEST') {
+        console.log(
+          '[IntercomServer] handleMessage:',
+          reqType,
+          'handlers:',
+          this.reqHandlers.length,
+          'initialized:',
+          this.initializedHandlers
+        );
+      }
+      // If no request handler registered yet, respond with a default "Idle" state
+      // for GetStateRequest so the UI can render (onboarding/unlock screen).
+      // Other messages are queued for replay when the handler is registered.
+      if (!this.initializedHandlers && this.reqHandlers.length === 0) {
+        const reqMsg = msg as RequestMessage;
+        if (reqMsg.data?.type === 'GET_STATE_REQUEST') {
+          // Respond immediately with Idle state so the UI doesn't show blank
+          this.send(port, {
+            type: MessageType.Res,
+            reqId: reqMsg.reqId,
+            data: {
+              type: 'GET_STATE_RESPONSE',
+              state: {
+                status: 0, // WalletStatus.Idle
+                accounts: [],
+                currentAccount: null,
+                networks: [],
+                settings: null,
+                ownMnemonic: null
+              }
             }
-          }
+          });
+          return;
+        } else if (reqMsg.data?.type === 'SYNC_REQUEST') {
+          this.send(port, {
+            type: MessageType.Res,
+            reqId: reqMsg.reqId,
+            data: { type: 'SYNC_RESPONSE' }
+          });
+          return;
+        }
+        // Queue other messages for replay
+        this.pendingMessages.push({ msg: reqMsg, port });
+        return;
+      }
 
-          // Handle race-condition when no request handlers have been added yet
-          if (!this.initializedHandlers && this.reqHandlers.length === 0) {
+      this.processMessage(msg as RequestMessage, port);
+    }
+  }
+
+  private processMessage(msg: RequestMessage, port: Runtime.Port) {
+    (async msgInner => {
+      try {
+        for (const handler of this.reqHandlers) {
+          const data = await handler(msg.data, port);
+          if (data !== undefined) {
             this.send(port, {
               type: MessageType.Res,
               reqId: msgInner.reqId,
-              data: undefined
+              data
             });
             return;
           }
-
-          throw new Error('Not Found');
-        } catch (err: any) {
-          this.send(port, {
-            type: MessageType.Err,
-            reqId: msgInner.reqId,
-            data: serializeError(err)
-          });
         }
-      })(msg as RequestMessage);
+        throw new Error('Not Found');
+      } catch (err: any) {
+        this.send(port, {
+          type: MessageType.Err,
+          reqId: msgInner.reqId,
+          data: serializeError(err)
+        });
+      }
+    })(msg);
+  }
+
+  /** Replay any messages queued before the handler was registered */
+  private replayPendingMessages() {
+    const pending = this.pendingMessages;
+    this.pendingMessages = [];
+    for (const { msg, port } of pending) {
+      if (this.ports.has(port)) {
+        this.processMessage(msg, port);
+      }
     }
   }
 

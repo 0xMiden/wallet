@@ -2562,6 +2562,22 @@
     "message": "Темний режим",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Тема",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "система",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "світло",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Темний",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Тактильний зворотний зв'язок",
     "englishSource": "Haptic Feedback"

@@ -180,6 +180,11 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               errorCaption ? 'border-red-500' : 'border-gray-100',
               secretBannerDisplayed ? 'border border-gray-600' : 'border',
               'bg-gray-25 focus:bg-transparent',
+              // text-black maps to --color-text-primary → black in light,
+              // white in dark. Without this the <input> inherits the browser
+              // default (pure black), which renders the masked password dots
+              // invisible against the dark field background.
+              'text-black',
               'outline-none',
               'transition ease-in-out duration-200',
               'leading-tight',

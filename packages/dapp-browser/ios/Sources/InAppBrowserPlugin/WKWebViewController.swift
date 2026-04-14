@@ -2955,7 +2955,15 @@ private class NavbarButton: UIControl {
     // `activePillBg` is internal (not private) so MidenNavbarOverlayWindow's
     // shared row indicator can reuse the exact same color.
     private static let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
-    private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
+    // Inactive icon/label tracks the system appearance — matches the
+    // .systemUltraThinMaterial pill, which itself inverts light/dark.
+    // Light mode: original dark grey (#4D4D57). Dark mode: white so the
+    // label stays legible against the dark translucent material.
+    private static let inactiveColor = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor.white
+            : UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
+    }
     static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
 
     // Default-mode icon constraints: top-pinned 22×22 with the label
@@ -3150,7 +3158,13 @@ private class NavbarSecondaryButton: UIControl {
     // styling (`rgba(15, 23, 42, 0.08)` = slate-900 @ 8%) which read
     // better next to the orange main-row active pill than a second
     // orange fill would.
-    private static let inactiveColor = UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
+    // Dynamic so the label stays legible against the dark translucent
+    // material pill in system dark mode.
+    private static let inactiveColor = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor.white
+            : UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
+    }
     // Exposed to the enclosing MidenNavbarOverlayWindow so the shared
     // secondary-row indicator can reuse the exact same pill color.
     static let activePillBg = UIColor(red: 15.0 / 255.0, green: 23.0 / 255.0, blue: 42.0 / 255.0, alpha: 0.08)

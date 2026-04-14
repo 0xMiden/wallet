@@ -130,20 +130,31 @@ describe('IntercomServer', () => {
     });
   });
 
-  it('returns undefined when no handlers initialized', async () => {
-    // Don't register any handlers
+  it('queues request messages until a handler is registered, then replays them', async () => {
+    // Connect first, no handlers yet
     connectListener(mockPort);
 
     const messageHandler = mockAddListener.mock.calls[0][0];
 
-    await messageHandler({ type: MessageType.Req, reqId: 'req-2', data: {} }, mockPort);
+    // Send a non-GET_STATE/SYNC request — should be queued, NOT responded to
+    await messageHandler({ type: MessageType.Req, reqId: 'req-2', data: { type: 'OTHER_REQUEST' } }, mockPort);
 
     await new Promise(resolve => setTimeout(resolve, 0));
 
+    // No response sent yet — message is queued
+    expect(mockPostMessage).not.toHaveBeenCalled();
+
+    // Register a handler — queued message replays through it
+    const handler = jest.fn().mockResolvedValue({ result: 'replayed' });
+    server.onRequest(handler);
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(handler).toHaveBeenCalledWith({ type: 'OTHER_REQUEST' }, mockPort);
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Res,
       reqId: 'req-2',
-      data: undefined
+      data: { result: 'replayed' }
     });
   });
 

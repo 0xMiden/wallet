@@ -16,7 +16,8 @@
   "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "sidePanel"],
   "host_permissions": [
     "http://localhost/*",
-    "https://*.miden.fi/*"
+    "https://*.miden.fi/*",
+    "https://*.miden.io/*"
   ],
 
   "content_security_policy": {
@@ -70,7 +71,8 @@
   },
 
   "background": {
-    "service_worker": "sw.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
 
   "content_scripts": [

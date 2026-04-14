@@ -2561,6 +2561,22 @@
     "message": "ダークモード",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "テーマ",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "システム",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "ライト",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "暗い",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "触覚フィードバック",
     "englishSource": "Haptic Feedback"
