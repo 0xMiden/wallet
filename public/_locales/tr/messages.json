@@ -2549,6 +2549,22 @@
     "message": "Karanlık Mod",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Tema",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "Sistem",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "Işık",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Karanlık",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Dokunsal Geribildirim",
     "englishSource": "Haptic Feedback"

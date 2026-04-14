@@ -2561,6 +2561,22 @@
     "message": "Dunkler Modus",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Thema",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "System",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "Licht",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Dunkel",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Haptisches Feedback",
     "englishSource": "Haptic Feedback"

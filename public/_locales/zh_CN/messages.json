@@ -2561,6 +2561,22 @@
     "message": "深色模式",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "主题",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "系统",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "光",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "黑暗的",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "触觉反馈",
     "englishSource": "Haptic Feedback"

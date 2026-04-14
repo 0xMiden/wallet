@@ -2486,6 +2486,22 @@
     "message": "Tryb ciemny",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Temat",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "System",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "Światło",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Ciemny",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Informacje zwrotne dotykowe",
     "englishSource": "Haptic Feedback"
