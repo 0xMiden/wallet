@@ -89,6 +89,32 @@ function copyPublicAssets(outDir: string): Plugin {
       const manifestContent = JSON.parse(readFileSync(manifestSrc, 'utf8'));
       const transformed = transformManifestKeys(manifestContent, TARGET_BROWSER);
       writeFileSync(join(outDir, 'manifest.json'), JSON.stringify(transformed, null, 2));
+
+      // Copy WASM to paths the SDK's classic Worker expects.
+      // The worker is at /assets/web-client-methods-worker-[hash].js
+      // and resolves "assets/miden_client_web.wasm" relative to self.location.href,
+      // giving /assets/assets/miden_client_web.wasm.
+      // CRITICAL: copy from the SDK's node_modules — not from the extension's own
+      // static/wasm/ output. The extension build produces its OWN WASM binary for
+      // the background SW (with its own wasm-bindgen hash suffixes), and that WASM
+      // does NOT match the SDK Worker's embedded Cargo-XXXX.js glue. Using the
+      // wrong WASM produces a WebAssembly.LinkError on import.
+      const assetsDir = join(outDir, 'assets');
+      const sdkWasm = resolve(
+        __dirname,
+        'node_modules',
+        '@miden-sdk',
+        'miden-sdk',
+        'dist',
+        'assets',
+        'miden_client_web.wasm'
+      );
+      if (existsSync(sdkWasm) && existsSync(assetsDir)) {
+        const nestedDir = join(assetsDir, 'assets');
+        mkdirSync(nestedDir, { recursive: true });
+        cpSync(sdkWasm, join(nestedDir, 'miden_client_web.wasm'));
+        cpSync(sdkWasm, join(assetsDir, 'miden_client_web.wasm'));
+      }
     },
   };
 }

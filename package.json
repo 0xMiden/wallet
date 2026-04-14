@@ -52,7 +52,7 @@
     "format": "prettier --write src",
     "lint:i18n": "eslint src --config .eslintrc.i18n.json --no-eslintrc --max-warnings 0",
     "test:e2e": "playwright test",
-    "test:e2e:blockchain:build": "rimraf dist/chrome_unpacked && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true TARGET_BROWSER=chrome yarn build:bg && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
+    "test:e2e:blockchain:build": "rimraf dist/chrome_unpacked && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:bg && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
     "test:e2e:blockchain": "yarn test:e2e:blockchain:build && playwright test --config playwright.e2e.config.ts",
     "test:e2e:blockchain:run": "playwright test --config playwright.e2e.config.ts",
     "test:e2e:blockchain:agentic": "cross-env E2E_AGENTIC=true yarn test:e2e:blockchain",
