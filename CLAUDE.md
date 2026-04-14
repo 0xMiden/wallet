@@ -834,15 +834,22 @@ End-to-end tests that exercise real wallet operations against a live Miden netwo
 ### Quick Start
 
 ```bash
-# First run: install dependencies + build extension + run tests
-E2E_NETWORK=testnet yarn test:e2e:blockchain
+# Build + run against a specific network (default testnet)
+yarn test:e2e:blockchain:testnet
+yarn test:e2e:blockchain:devnet
+yarn test:e2e:blockchain:localhost
 
 # Subsequent runs (skip rebuild if no code changes)
-E2E_NETWORK=testnet yarn test:e2e:blockchain:run
+E2E_NETWORK=devnet yarn test:e2e:blockchain:run
 
-# Build only (no test run)
+# Build only (no test run) — picks up E2E_NETWORK if set, else testnet
 yarn test:e2e:blockchain:build
+
+# Raw form (equivalent to the :<network> shortcuts)
+E2E_NETWORK=testnet yarn test:e2e:blockchain
 ```
+
+The `:<network>` scripts set both `E2E_NETWORK` (which endpoints the harness + miden-client CLI use) AND propagate `MIDEN_NETWORK` through to the extension build (which network the wallet connects to). Running with a mismatched pair — e.g. harness on devnet but wallet built for testnet — silently fails because notes land on one network and the wallet listens on the other.
 
 The harness auto-installs `miden-client-cli` from crates.io on first run, version-matched to the wallet's `@miden-sdk/miden-sdk` package. Requires Rust toolchain (`cargo`).
 
@@ -862,17 +869,22 @@ playwright.e2e.config.ts       # Playwright config (5 min timeout, traces always
 
 ### Environment Selection
 
-Set `E2E_NETWORK` env var. Also set `MIDEN_DEFAULT_NETWORK` to match (controls which network the built extension connects to):
+`E2E_NETWORK` controls both:
+- which RPC/prover/transport endpoints the harness + `miden-client` CLI use (via `playwright/e2e/config/environments.ts`)
+- which network the extension build bakes into its bundle (piped through to `MIDEN_NETWORK` at build time in `test:e2e:blockchain:build`)
+
+Use the dedicated scripts to avoid mismatches:
 
 ```bash
-# Testnet (default)
-E2E_NETWORK=testnet yarn test:e2e:blockchain:run
+yarn test:e2e:blockchain:testnet    # default
+yarn test:e2e:blockchain:devnet
+yarn test:e2e:blockchain:localhost  # requires a local Miden node on :57291
+```
 
-# Local node
-E2E_NETWORK=localhost MIDEN_DEFAULT_NETWORK=localnet yarn test:e2e:blockchain
+Or set `E2E_NETWORK` explicitly with the generic script:
 
-# Devnet
-E2E_NETWORK=devnet MIDEN_DEFAULT_NETWORK=devnet yarn test:e2e:blockchain
+```bash
+E2E_NETWORK=devnet yarn test:e2e:blockchain
 ```
 
 ### Test Specs
