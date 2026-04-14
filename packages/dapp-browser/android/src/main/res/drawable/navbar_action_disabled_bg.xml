@@ -1,0 +1,12 @@
+<!--
+  Miden patch — compact-mode action button disabled background.
+  Heavily-desaturated gray matching iOS
+  `NavbarActionButton.disabledBg`:
+    UIColor(red: 0.74, green: 0.74, blue: 0.76, alpha: 1.0)
+    → rgb(189, 189, 194)
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <solid android:color="#FFBDBDC2" />
+</shape>

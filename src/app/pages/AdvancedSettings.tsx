@@ -28,7 +28,7 @@ const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
       if (publicKeyCommitments.length === 0) {
         return null;
       }
-      return publicKeyCommitments[0].toHex().slice(2);
+      return publicKeyCommitments[0]!.toHex().slice(2);
     });
     setPublicKey(key);
   }, [walletAccount.publicKey]);

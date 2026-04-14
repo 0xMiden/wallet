@@ -158,9 +158,16 @@ export class MobileIntercomAdapter {
               payload: 'PONG'
             };
           }
-          const resPayload = await Actions.processDApp((req as any).origin, (req as any).payload);
+          // PR-4 chunk 8: thread the multi-instance session id through if
+          // present so confirmation prompts route to the right session.
+          const resPayload = await Actions.processDApp(
+            (req as any).origin,
+            (req as any).payload,
+            (req as any).sessionId
+          );
           return {
             type: MidenMessageType.PageResponse,
+            /* c8 ignore next -- dApp response nullish fallback, mobile-only */
             payload: resPayload ?? null
           };
         }

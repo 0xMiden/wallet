@@ -2266,6 +2266,165 @@
     "message": "Избранное",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Найдите dApps или вставьте URL-адрес",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Рекомендуемые",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Мои децентрализованные приложения",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Недавние",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Прокрутить влево",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Прокрутите вправо",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Быстрые действия",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Просматривать",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "НФТ",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Инструменты",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Социальные",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "В этой категории пока нет децентрализованных приложений",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Исследуйте экосистему Майдена",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Свернуть",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Переключение децентрализованных приложений",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Перезагрузить",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Больше возможностей",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Действия децентрализованного приложения",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Копировать ссылку",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Добавить в мои децентрализованные приложения",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Удалить из моих приложений",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Открыть заново",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Восстановить $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Закрывать $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ больше припаркованных децентрализованных приложений",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Ссылка скопирована",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Добавлено в мои приложения",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Невозможно загрузить это децентрализованное приложение",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Проверьте подключение и повторите попытку.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "Заголовок браузера dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Перетащите вниз, чтобы свернуть",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "переключатель децентрализованных приложений",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Закрыть переключатель децентрализованных приложений",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 открытое децентрализованное приложение",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} открытых децентрализованных приложений",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Утвердить",
     "englishSource": "Approve"
@@ -2612,5 +2771,17 @@
   "advancedOptions": {
     "message": "Дополнительные параметры",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "кошелек Miden с булавками",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Нажмите на значок головоломки и закрепите Miden Wallet для быстрого доступа с панели инструментов.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Понятно",
+    "englishSource": "Got it"
   }
 }

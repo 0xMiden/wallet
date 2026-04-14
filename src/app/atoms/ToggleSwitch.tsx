@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import { AnalyticsEventCategory, TestIDProps, useAnalytics } from 'lib/analytics';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { checkedHandler } from 'lib/ui/inputHandlers';
+import { ACCENT_HEX } from 'utils/brand-colors';
 
 type ToggleSwitchProps = InputHTMLAttributes<HTMLInputElement> &
   TestIDProps & {
@@ -55,7 +56,7 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
           style={{
             width: '40px',
             height: '22px',
-            backgroundColor: localChecked ? '#EE622F' : '#E5E7EB',
+            backgroundColor: localChecked ? ACCENT_HEX : '#E5E7EB',
             pointerEvents: 'none'
           }}
         />

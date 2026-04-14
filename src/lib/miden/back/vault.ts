@@ -340,7 +340,7 @@ export class Vault {
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, newAccounts[0].publicKey);
+      await savePlain(currentAccPubKeyStrgKey, newAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       // Return the vault instance so caller doesn't need to call unlock() separately
@@ -431,9 +431,9 @@ export class Vault {
     });
   }
 
-  async importMnemonicAccount(chainId: string, mnemonic: string, password?: string, derivationPath?: string) {}
+  async importMnemonicAccount(_chainId: string, _mnemonic: string, _password?: string, _derivationPath?: string) {}
 
-  async importFundraiserAccount(chainId: string, email: string, password: string, mnemonic: string) {}
+  async importFundraiserAccount(_chainId: string, _email: string, _password: string, _mnemonic: string) {}
 
   async editAccountName(accPublicKey: string, name: string) {
     return withError('Failed to edit account name', async () => {
@@ -463,7 +463,7 @@ export class Vault {
     });
   }
 
-  async authorize(sendTransaction: SendTransaction) {}
+  async authorize(_sendTransaction: SendTransaction) {}
 
   async signData(publicKey: string, data: string, signKind: SignKind): Promise<string> {
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
@@ -508,13 +508,13 @@ export class Vault {
     return secretKey;
   }
 
-  async decrypt(accPublicKey: string, cipherTexts: string[]) {}
+  async decrypt(_accPublicKey: string, _cipherTexts: string[]) {}
 
-  async decryptCipherText(accPublicKey: string, cipherText: string, tpk: string, index: number) {}
+  async decryptCipherText(_accPublicKey: string, _cipherText: string, _tpk: string, _index: number) {}
 
   async decryptCipherTextOrRecord() {}
 
-  async revealViewKey(accPublicKey: string) {}
+  async revealViewKey(_accPublicKey: string) {}
 
   static async revealMnemonic(password?: string) {
     let vaultKey: CryptoKey;
@@ -543,7 +543,7 @@ export class Vault {
     }
     let currentAccount = allAccounts.find(acc => acc.publicKey === currAccountPubkey);
     if (!currentAccount) {
-      currentAccount = await this.setCurrentAccount(allAccounts[0].publicKey);
+      currentAccount = await this.setCurrentAccount(allAccounts[0]!.publicKey);
     }
     return currentAccount;
   }

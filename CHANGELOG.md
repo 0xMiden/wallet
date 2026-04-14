@@ -1,10 +1,37 @@
 # Changelog
 
-## 1.13.2 (TBD)
+## 1.14.0 (TBD)
 
 ### Features
 
 * [FIX][mobile] Fixed iOS release build by removing stale CocoaPods references, using correct workspace target, fixing ExportOptions team ID, and adding auto-versioning from `package.json`. (#172)
+* [FEATURE][mobile] **Embedded dApp browser** for iOS and Android with multi-instance tabs, parked-dApp switcher tray, and native navbar overlay.
+* [FEATURE][all] Migrated backend from `WasmWebClient` to the new `MidenClient` TypeScript API. All service-worker WASM access now goes through `MidenClientInterface` wrapping the high-level `MidenClient` surface.
+* [FEATURE][all] Migrated frontend to `@miden-sdk/react` hooks (`useMiden`, `useSyncState`, `useAccount`, etc.), replacing manual sync and balance-polling logic.
+
+---
+
+## 1.13.3 (2026-03-19)
+
+### Features
+
+* [FEATURE][arch][all] Moved to service-worker-first architecture. The WASM client now lives exclusively in the Chrome extension service worker, with the frontend communicating via intercom messaging. Eliminates duplicate WASM instances and fixes concurrency panics.
+* [FEATURE][all] Complete UI revamp with new design system, updated layouts, and refreshed components across all screens.
+
+---
+
+## 1.13.2 (2026-03-16)
+
+### Features
+
+* [FEATURE][extension] Chrome Side Panel mode with popup toggle. Users can switch between popup (default) and side panel via the maximize/minimize icon in the header. Preference persists across sessions. (#176)
+* [FEATURE][extension] Pin extension prompt shown once after fresh install, guiding users to pin the extension to the toolbar. (#176)
+* [FEATURE][all] Color-coded Send (blue) and Receive (green) action buttons on the home page, matching the token detail page. (#176)
+
+### Fixes
+
+* [FIX][extension] Fixed `onInstalled` event handler not firing on Chrome MV3 due to webpack async module loading delaying listener registration. Handler moved to `sw.js` for synchronous registration. (#176)
+* [FIX][all] Fixed `ConsumingNote` page using raw UA sniffing instead of `isMobile()` platform detection. (#176)
 * [FIX][all] Fixed transaction recovery after network outages. Private accounts could enter a permanently broken state where all transactions fail with "initial state commitment does not match". Root causes: AutoSync loop died on the generating-transaction page, transactions were built against stale local state, and the transaction modal blocked on stale tx failures. Now syncs state before executing transactions, keeps AutoSync alive during transaction generation, cancels crashed/stale transactions properly, and shows correct "Failed" status instead of misleading "Executing". (#150)
 * [FIX][all] Removed stale "Download Generated Files" button and output notes storage. The `useExportNotes` hook, `registerOutputNote`, and related storage key were unused dead code. Simplifies the transaction completion screen and its auto-close logic. (#160)
 * [FIX][all] Removed the "Upload File" button and drag-and-drop note import from the Receive page. The freed space is now used by the notes list, making it taller. (#161)

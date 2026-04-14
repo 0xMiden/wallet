@@ -97,6 +97,7 @@ const desktopAppConfig = {
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
       MIDEN_USE_MOCK_CLIENT: MIDEN_USE_MOCK_CLIENT || 'false',
+      MIDEN_NETWORK: process.env.MIDEN_NETWORK || 'testnet',
       // Flag to indicate desktop build
       MIDEN_PLATFORM: 'desktop'
     }),
@@ -308,6 +309,7 @@ const desktopWorkerConfig = {
     new Dotenv(),
     new webpack.EnvironmentPlugin({
       VERSION: pkg.version,
+      MIDEN_NETWORK: process.env.MIDEN_NETWORK || 'testnet',
       MIDEN_PLATFORM: 'desktop'
     }),
 
@@ -352,4 +354,4 @@ const desktopWorkerConfig = {
   }
 };
 
-module.exports = [desktopAppConfig, desktopWorkerConfig];
+module.exports = [desktopAppConfig];

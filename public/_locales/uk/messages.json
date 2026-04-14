@@ -2266,6 +2266,165 @@
     "message": "Вибране",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Знайдіть dApps або вставте URL-адресу",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Рекомендовані",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Мої dApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Останні",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Прокрутіть вліво",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Прокрутіть праворуч",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Швидкі дії",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "переглядати",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Інструменти",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Соціальний",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "У цій категорії ще немає dApps",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Дослідіть екосистему Miden",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Згорнути",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Переключити dApps",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Перезавантажити",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Більше варіантів",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Дії dApp",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Копіювати посилання",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Додати до моїх Dapps",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Видалити з Моїх програм",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Знову відкрити",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Відновити $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Закрити $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ більше припаркованих dApps",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Посилання скопійовано",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Додано до My Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Не вдається завантажити цей dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Перевірте підключення та повторіть спробу.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "Заголовок браузера dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Перетягніть вниз, щоб згорнути",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp перемикач",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Закрийте перемикач програм dApp",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 відкрити dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} відкритих програм dApps",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Затвердити",
     "englishSource": "Approve"
@@ -2612,5 +2771,17 @@
   "advancedOptions": {
     "message": "Додаткові параметри",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden Wallet",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Клацніть піктограму головоломки та закріпіть Miden Wallet для швидкого доступу з панелі інструментів.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "зрозумів",
+    "englishSource": "Got it"
   }
 }

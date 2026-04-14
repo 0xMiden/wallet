@@ -6,6 +6,34 @@
 
 export const INJECTION_SCRIPT = `
 (function() {
+  // CSS injection MUST run before the window.midenWallet early-return
+  // below, because the wallet bridge is idempotent across re-opens of
+  // the same session — but we may have updated the CSS we want to
+  // apply (e.g. when the navbar height or padding strategy changes),
+  // and the only way that lands on a previously-opened session is to
+  // rerun the style block on every executeScript call.
+  try {
+    const STYLE_ID = 'miden-wallet-bottom-pad';
+    var existing = document.getElementById(STYLE_ID);
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    const installPadding = function() {
+      if (!document || !document.head) return;
+      const style = document.createElement('style');
+      style.id = STYLE_ID;
+      style.textContent =
+        'html { scroll-padding-bottom: 96px !important; }' +
+        'body { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }';
+      document.head.appendChild(style);
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', installPadding, { once: true });
+    } else {
+      installPadding();
+    }
+  } catch (e) {
+    // Best-effort — never block the wallet bridge on a styling failure.
+  }
+
   if (window.midenWallet) return; // Already injected
 
   // Simple EventEmitter implementation
@@ -38,13 +66,14 @@ export const INJECTION_SCRIPT = `
 
     // Use Capacitor InAppBrowser's mobileApp interface
     if (window.mobileApp && window.mobileApp.postMessage) {
-      console.log('[MidenWallet] Sending message via mobileApp:', type, reqId);
+      // Intentionally NOT logging payload — this runs inside the dApp
+      // page and would leave wallet request breadcrumbs visible via
+      // Safari Web Inspector on any device that ever attaches to it.
       window.mobileApp.postMessage(message);
       return;
     }
 
     // Fallback for testing in regular browser
-    console.warn('[MidenWallet] mobileApp not available, using window.postMessage fallback');
     window.postMessage({ __midenNative: true, ...message }, '*');
   }
 
@@ -69,7 +98,9 @@ export const INJECTION_SCRIPT = `
   window.__midenWalletResponse = function(responseStr) {
     try {
       const response = typeof responseStr === 'string' ? JSON.parse(responseStr) : responseStr;
+      if (!response || typeof response !== 'object') return;
       const { type, payload, reqId, error } = response;
+      if (typeof reqId !== 'string') return;
 
       const pending = pendingRequests.get(reqId);
       if (!pending) return;
@@ -138,6 +169,17 @@ export const INJECTION_SCRIPT = `
         allowedPrivateData
       });
 
+      // Decode publicKey BEFORE touching other wallet state so a
+      // malformed publicKey response (e.g. wallet bug, corrupt
+      // base64) throws a clean error instead of leaving the dApp
+      // with a half-populated permission object.
+      let decodedPublicKey;
+      try {
+        decodedPublicKey = b64ToU8(res.publicKey);
+      } catch (e) {
+        throw new Error('Invalid publicKey in wallet response');
+      }
+
       this.permission = {
         rpc: res.network,
         address: res.accountId,
@@ -146,7 +188,7 @@ export const INJECTION_SCRIPT = `
       };
       this.address = res.accountId;
       this.network = network;
-      this.publicKey = b64ToU8(res.publicKey);
+      this.publicKey = decodedPublicKey;
 
       // Emit connect event for wallet adapters that listen to events
       this.emit('connect', this.publicKey);
@@ -263,7 +305,5 @@ export const INJECTION_SCRIPT = `
   } catch (e) {
     window.midenWallet = midenWallet;
   }
-
-  console.log('[MidenWallet] Wallet adapter injected');
 })();
 `;

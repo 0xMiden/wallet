@@ -3,10 +3,11 @@ import React from 'react';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useAccount } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 import { truncateAddress } from 'utils/string';
 
@@ -44,6 +45,15 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   const displayRecalLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
   const hasRecall = !!recallBlocks && parseInt(recallBlocks) > 0;
+
+  // On mobile, the Confirm CTA is hoisted into the always-on native navbar
+  // (compact mode morph). Cancel is dropped on mobile — the back arrow in
+  // NavigationHeader provides the same affordance, per design direction.
+  useNativeNavbarAction({
+    label: t('confirm'),
+    onTap: onSubmit,
+    enabled: true
+  });
 
   return (
     <div className="flex flex-col bg-app-bg h-full">
@@ -84,23 +94,27 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
           </div>
         </div>
 
-        {/* Buttons */}
-        <div className="shrink-0 pt-4 pb-4 flex flex-col gap-y-2">
-          <Button
-            type="submit"
-            title={t('confirm')}
-            variant={ButtonVariant.Primary}
-            onClick={onSubmit}
-            className="w-full rounded-5 text-base font-semibold"
-          />
-          <Button
-            type="button"
-            onClick={onGoBack}
-            variant={ButtonVariant.Secondary}
-            className="w-full rounded-5"
-            title={t('cancel')}
-          />
-        </div>
+        {/* Buttons — hidden on mobile (Confirm is hoisted to the native
+            navbar; Cancel is dropped because back-arrow in the header
+            already provides the affordance). */}
+        {!isMobile() && (
+          <div className="shrink-0 pt-4 pb-4 flex flex-col gap-y-2">
+            <Button
+              type="submit"
+              title={t('confirm')}
+              variant={ButtonVariant.Primary}
+              onClick={onSubmit}
+              className="w-full rounded-5 text-base font-semibold"
+            />
+            <Button
+              type="button"
+              onClick={onGoBack}
+              variant={ButtonVariant.Secondary}
+              className="w-full rounded-5"
+              title={t('cancel')}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

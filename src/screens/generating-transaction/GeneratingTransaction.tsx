@@ -19,6 +19,7 @@ import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
+import { PRIMARY_HEX, PRIMARY_HEX_LIGHT_ALPHA } from 'utils/brand-colors';
 
 export interface GeneratingTransactionPageProps {
   keepOpen?: boolean;
@@ -178,7 +179,6 @@ export interface GeneratingTransactionProps {
 }
 
 export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
-  onDoneClick,
   transactionComplete,
   hasErrors = false,
   failedCount = 0,
@@ -196,8 +196,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return (
         <svg className="size-32" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="64" cy="64" r="64" fill="rgba(255,85,0,0.10)" />
-          <circle cx="64" cy="64" r="42" fill="#FF5500" />
+          <circle cx="64" cy="64" r="64" fill={PRIMARY_HEX_LIGHT_ALPHA} />
+          <circle cx="64" cy="64" r="42" fill={PRIMARY_HEX} />
           <path
             d="M48 64L58 74L80 52"
             stroke="white"

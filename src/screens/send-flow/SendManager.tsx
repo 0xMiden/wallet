@@ -75,11 +75,11 @@ export interface SendManagerProps {
   preselectedTokenId?: string | null;
 }
 
-export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselectedTokenId }) => {
+export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
@@ -227,67 +227,64 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
     [navigateTo, goBack, onClose, onGenerateTransaction, setValue, trigger]
   );
 
-  const onSubmit = useCallback<SubmitHandler<SendFlowForm>>(
-    async data => {
-      if (isSubmitting) {
-        return;
+  const onSubmit = useCallback<SubmitHandler<SendFlowForm>>(async () => {
+    if (isSubmitting) {
+      return;
+    }
+    try {
+      clearErrors('root');
+
+      // Step 1: Create the transaction (same as Receive's initiateConsumeTransaction)
+      const txId = await initiateSendTransaction(
+        publicKey!,
+        recipientAddress!,
+        token!.id,
+        sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
+        stringToBigInt(amount!, token!.decimals),
+        recallBlocks ? parseInt(recallBlocks) : undefined,
+        delegateTransaction
+      );
+
+      // Step 2: Open the loading modal
+      useWalletStore.getState().openTransactionModal();
+
+      if (isExtension()) {
+        // On extension: tell SW to process, then wait for Dexie updates
+        requestSWTransactionProcessing();
       }
-      try {
-        clearErrors('root');
 
-        // Step 1: Create the transaction (same as Receive's initiateConsumeTransaction)
-        const txId = await initiateSendTransaction(
-          publicKey!,
-          recipientAddress!,
-          token!.id,
-          sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
-          stringToBigInt(amount!, token!.decimals),
-          recallBlocks ? parseInt(recallBlocks) : undefined,
-          delegateTransaction
-        );
+      // Step 3: Wait for transaction completion (Dexie liveQuery works cross-context)
+      const result = await waitForTransactionCompletion(txId);
 
-        // Step 2: Open the loading modal
-        useWalletStore.getState().openTransactionModal();
-
-        if (isExtension()) {
-          // On extension: tell SW to process, then wait for Dexie updates
-          requestSWTransactionProcessing();
-        }
-
-        // Step 3: Wait for transaction completion (Dexie liveQuery works cross-context)
-        const result = await waitForTransactionCompletion(txId);
-
-        if ('errorMessage' in result) {
-          setError('root', { type: 'manual', message: result.errorMessage });
+      if ('errorMessage' in result) {
+        setError('root', { type: 'manual', message: result.errorMessage });
+      } else {
+        // Success - navigate to home on mobile, or completion screen on desktop
+        if (isMobile()) {
+          navigate('/');
         } else {
-          // Success - navigate to home on mobile, or completion screen on desktop
-          if (isMobile()) {
-            navigate('/');
-          } else {
-            onAction({ id: SendFlowActionId.GenerateTransaction });
-          }
+          onAction({ id: SendFlowActionId.GenerateTransaction });
         }
-      } catch (e: any) {
-        if (e.message) {
-          setError('root', { type: 'manual', message: e.message });
-        }
-        console.error(e);
       }
-    },
-    [
-      isSubmitting,
-      clearErrors,
-      onAction,
-      publicKey,
-      recipientAddress,
-      sharePrivately,
-      delegateTransaction,
-      amount,
-      recallBlocks,
-      setError,
-      token
-    ]
-  );
+    } catch (e: any) {
+      if (e.message) {
+        setError('root', { type: 'manual', message: e.message });
+      }
+      console.error(e);
+    }
+  }, [
+    isSubmitting,
+    clearErrors,
+    onAction,
+    publicKey,
+    recipientAddress,
+    sharePrivately,
+    delegateTransaction,
+    amount,
+    recallBlocks,
+    setError,
+    token
+  ]);
 
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -459,11 +456,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ isLoading, preselected
 
   // On mobile, use h-full to inherit from parent chain (body has safe area padding)
   const isMobileDevice = isMobile();
-  const containerClass = isMobileDevice
-    ? 'h-full w-full'
-    : fullPage
-      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-      : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  const containerClass =
+    isMobileDevice || sidePanel
+      ? 'h-full w-full'
+      : fullPage
+        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
+        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   return (
     <div

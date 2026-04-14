@@ -50,6 +50,7 @@ export const Alert: React.FC<AlertProps> = ({
 }) => {
   const iconName = propsPerVariant[variant].icon;
   const iconColor = propsPerVariant[variant].color;
+  /* c8 ignore next -- title has default param, never falsy */
   const Title = title || 'Alert Title';
 
   return (

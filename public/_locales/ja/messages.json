@@ -2265,6 +2265,165 @@
     "message": "お気に入り",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "dAppを検索するかURLを貼り付けてください",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "注目の",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "私のdApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "最近",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "左にスクロール",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "右にスクロール",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "クイックアクション",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "ブラウズ",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "ツール",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "社交",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "このカテゴリにはまだ dApp がありません",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "ミデンのエコシステムを探索する",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "最小化する",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "dAppを切り替える",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "リロード",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "その他のオプション",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "dApp アクション",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "リンクをコピー",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "私のDappsに追加",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "My Dapps から削除する",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "再開",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "復元する $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "近い $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ より多くの dApp が駐車されています",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "リンクがコピーされました",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "私のDappsに追加されました",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "この dApp を読み込めません",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "接続を確認して、もう一度試してください。",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dAppブラウザのヘッダー",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "下にドラッグして最小化します",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dAppスイッチャー",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "dAppスイッチャーを閉じる",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 dAppを開く",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} 個の dApp を開きます",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "承認する",
     "englishSource": "Approve"
@@ -2611,5 +2770,17 @@
   "advancedOptions": {
     "message": "詳細オプション",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "ピンミデンウォレット",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "パズル アイコンをクリックして Miden Wallet を固定すると、ツールバーから簡単にアクセスできます。",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "わかった",
+    "englishSource": "Got it"
   }
 }

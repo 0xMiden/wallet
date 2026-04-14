@@ -23,7 +23,7 @@ export async function start() {
   });
 }
 
-async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
       doSync().catch(err => console.warn('[SyncManager] Error:', err));
@@ -62,7 +62,7 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         const results: SerializedInputNoteDetail[] = [];
         for (const noteId of req.noteIds) {
           try {
-            const record = await client.webClient.getInputNote(noteId);
+            const record = await client.getInputNote(noteId);
             if (!record) continue;
             const assets = record
               .details()
@@ -209,7 +209,9 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
             payload: 'PONG'
           };
         }
-        const resPayload = await Actions.processDApp(req.origin, req.payload);
+        // PR-4 chunk 8: thread sessionId through (extension flow leaves
+        // it undefined; mobile/desktop multi-instance pass it).
+        const resPayload = await Actions.processDApp(req.origin, req.payload, (req as any).sessionId);
         return {
           type: MidenMessageType.PageResponse,
           payload: resPayload ?? null

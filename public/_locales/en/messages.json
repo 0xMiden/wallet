@@ -2229,6 +2229,165 @@
     "message": "Favourites",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Search dApps or paste URL",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Featured",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "My dApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Recents",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Scroll left",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Scroll right",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Quick actions",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Browse",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Tools",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Social",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "No dApps in this category yet",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Explore the Miden ecosystem",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Minimize",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Switch dApps",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Reload",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "More options",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "dApp actions",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Copy link",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Add to My Dapps",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Remove from My Dapps",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Reopen",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Restore $name$",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Close $name$",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+$count$ more parked dApps",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Link copied",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Added to My Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Can't load this dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Check your connection and try again.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dApp browser header",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Drag down to minimize",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp switcher",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Close dApp switcher",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 open dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} open dApps",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Approve",
     "englishSource": "Approve"
@@ -2575,5 +2734,17 @@
   "advancedOptions": {
     "message": "Advanced Options",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden Wallet",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Got it",
+    "englishSource": "Got it"
   }
 }

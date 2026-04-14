@@ -2190,6 +2190,165 @@
     "message": "Favoritos",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Busque dApps o pegue la URL",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Presentado",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Mis dApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Recientes",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Desplazarse hacia la izquierda",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Desplácese hacia la derecha",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Acciones rápidas",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Navegar",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Herramientas",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Social",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "Aún no hay dApps en esta categoría",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Explora el ecosistema Miden",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Minimizar",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Cambiar aplicaciones",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Recargar",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Más opciones",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Acciones de dApp",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Copiar enlace",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Agregar a Mis Dapps",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Eliminar de Mis Dapps",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Reabrir",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Restaurar $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Cerca $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ más dApps estacionadas",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Enlace copiado",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Agregado a Mis Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "No se puede cargar esta dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Comprueba tu conexión y vuelve a intentarlo.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "encabezado del navegador dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Arrastre hacia abajo para minimizar",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "conmutador de aplicaciones",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Cerrar el conmutador de dApps",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 aplicación abierta",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} dApps abiertas",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Aprobar",
     "englishSource": "Approve"
@@ -2536,5 +2695,17 @@
   "advancedOptions": {
     "message": "Opciones avanzadas",
     "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Cartera Pin Miden",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Haga clic en el ícono del rompecabezas y fije Miden Wallet para acceder rápidamente desde su barra de herramientas.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Entiendo",
+    "englishSource": "Got it"
   }
 }

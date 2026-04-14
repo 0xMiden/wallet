@@ -94,4 +94,52 @@ describe('shared helpers', () => {
       expect(result).toBe('007f80ff');
     });
   });
+
+  describe('Buffer fallback paths', () => {
+    let origBtoa: typeof globalThis.btoa | undefined;
+    let origAtob: typeof globalThis.atob | undefined;
+
+    beforeEach(() => {
+      origBtoa = globalThis.btoa;
+      origAtob = globalThis.atob;
+      // Force the Buffer fallback by removing btoa/atob
+      (globalThis as any).btoa = undefined;
+      (globalThis as any).atob = undefined;
+    });
+
+    afterEach(() => {
+      (globalThis as any).btoa = origBtoa;
+      (globalThis as any).atob = origAtob;
+    });
+
+    it('u8ToB64 falls back to Buffer when btoa is unavailable', () => {
+      const result = u8ToB64(new Uint8Array([72, 105])); // "Hi"
+      expect(result).toBe('SGk=');
+    });
+
+    it('b64ToU8 falls back to Buffer when atob is unavailable', () => {
+      const result = b64ToU8('SGk=');
+      expect(Array.from(result)).toEqual([72, 105]);
+    });
+
+    it('u8ToB64 throws when neither btoa nor Buffer is available', () => {
+      const origBuffer = (globalThis as any).Buffer;
+      delete (globalThis as any).Buffer;
+      try {
+        expect(() => u8ToB64(new Uint8Array([1]))).toThrow(/No base64 encoder/);
+      } finally {
+        (globalThis as any).Buffer = origBuffer;
+      }
+    });
+
+    it('b64ToU8 throws when neither atob nor Buffer is available', () => {
+      const origBuffer = (globalThis as any).Buffer;
+      delete (globalThis as any).Buffer;
+      try {
+        expect(() => b64ToU8('AA==')).toThrow(/No base64 decoder/);
+      } finally {
+        (globalThis as any).Buffer = origBuffer;
+      }
+    });
+  });
 });

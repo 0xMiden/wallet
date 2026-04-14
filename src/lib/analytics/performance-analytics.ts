@@ -15,7 +15,11 @@ export function getLastPerformanceSent() {
 
 export const MIN_RECORDS_FOR_PERFORMANCE_ANALYTICS = 1000;
 
-export async function sendScanPerformanceEvent(event: string, timings: PerformanceTimings, additionalProperties = {}) {
+export async function sendScanPerformanceEvent(
+  _event: string,
+  _timings: PerformanceTimings,
+  _additionalProperties = {}
+) {
   const analytics = localStorage.getItem('analytics');
   if (analytics) {
     const analyticsState = JSON.parse(analytics);

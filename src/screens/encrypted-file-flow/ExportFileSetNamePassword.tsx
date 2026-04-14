@@ -8,6 +8,8 @@ import { lettersNumbersMixtureRegx, specialCharacterRegx, uppercaseLowercaseMixt
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
+import { isMobile } from 'lib/platform';
 import { PasswordStrengthIndicator, PasswordValidation } from 'screens/onboarding/common/CreatePassword';
 
 export interface ExportFilePasswordProps {
@@ -20,7 +22,6 @@ export interface ExportFilePasswordProps {
 }
 
 const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
-  onGoBack,
   onGoNext,
   handlePasswordChange,
   passwordValue,
@@ -92,6 +93,12 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
 
   const DEFAULT_FILE_NAME = 'Encrypted Wallet File';
   const EXTENSION = '.json';
+
+  useNativeNavbarAction({
+    label: t('continue'),
+    onTap: onGoNext,
+    enabled: !!passwordValue && !!verifyPassword && !!fileName && isValidPassword
+  });
 
   return (
     <div className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-app-bg">
@@ -173,13 +180,15 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           </div>
         </div>
 
-        <Button
-          variant={ButtonVariant.Primary}
-          onClick={onGoNext}
-          title={t('continue')}
-          className="mt-8"
-          disabled={!passwordValue || !verifyPassword || !fileName}
-        />
+        {!isMobile() && (
+          <Button
+            variant={ButtonVariant.Primary}
+            onClick={onGoNext}
+            title={t('continue')}
+            className="mt-8"
+            disabled={!passwordValue || !verifyPassword || !fileName}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { InAppBrowser } from '@capgo/inappbrowser';
+import { InAppBrowser } from '@miden/dapp-browser';
 
 import { hapticSuccess } from 'lib/mobile/haptics';
 import { isAndroid, isMobile } from 'lib/platform';
@@ -34,7 +34,7 @@ async function createNotificationChannel(): Promise<void> {
       vibration: true,
       sound: 'default'
     });
-  } catch (error) {
+  } /* c8 ignore next 2 -- Capacitor plugin error, mobile-only */ catch (error) {
     console.error('[NativeNotifications] Error creating channel:', error);
   }
 }
@@ -112,13 +112,20 @@ export async function setupNotificationTapListener(): Promise<void> {
 
       const extra = action.notification.extra;
       if (extra?.navigateTo) {
-        // Close InAppBrowser if it's open
+        // Close any open dApp browser webviews so the user lands on the
+        // intended route without an obscuring webview.
+        //
+        // PR-4 chunk 9: prefer closeAll() over the legacy single-instance
+        // close() so multi-instance dApps (each with their own UUID id)
+        // are also torn down. The legacy default slot is included in
+        // closeAll, so legacy callers (faucet-webview) still close
+        // correctly.
         const isDappBrowserOpen = useWalletStore.getState().isDappBrowserOpen;
         if (isDappBrowserOpen) {
           try {
-            await InAppBrowser.close();
-            // Store state will be updated by the closeEvent listener in Browser.tsx
-          } catch (e) {
+            await InAppBrowser.closeAll();
+            // Store state will be updated by closeEvent listeners.
+          } /* c8 ignore next 2 -- InAppBrowser plugin error, mobile-only */ catch (e) {
             console.warn('[NativeNotifications] Error closing InAppBrowser:', e);
           }
         }

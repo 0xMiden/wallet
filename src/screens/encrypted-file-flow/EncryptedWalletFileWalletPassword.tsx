@@ -8,6 +8,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { Vault } from 'lib/miden/back/vault';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
@@ -115,6 +116,16 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     [onSubmit, confirmed]
   );
 
+  const navbarEnabled = hasHardwareProtector
+    ? !!confirmed && !isSubmitting
+    : !isDisabled && !!confirmed && !!walletPassword && !isSubmitting;
+
+  useNativeNavbarAction({
+    label: t(hasHardwareProtector ? 'unlock' : 'continue'),
+    onTap: onSubmit,
+    enabled: navbarEnabled
+  });
+
   if (hasHardwareProtector === null) {
     return null;
   }
@@ -175,16 +186,18 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           )}
         </div>
       </div>
-      <div className="mt-auto">
-        <Button
-          className="w-full justify-center"
-          variant={ButtonVariant.Primary}
-          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-          disabled={hasHardwareProtector ? !confirmed : isDisabled || !confirmed || !walletPassword}
-          onClick={onSubmit}
-          isLoading={isSubmitting}
-        />
-      </div>
+      {!isMobile() && (
+        <div className="mt-auto">
+          <Button
+            className="w-full justify-center"
+            variant={ButtonVariant.Primary}
+            title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+            disabled={hasHardwareProtector ? !confirmed : isDisabled || !confirmed || !walletPassword}
+            onClick={onSubmit}
+            isLoading={isSubmitting}
+          />
+        </div>
+      )}
     </div>
   );
 };

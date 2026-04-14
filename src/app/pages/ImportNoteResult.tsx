@@ -1,10 +1,12 @@
-import React, { FC } from 'react';
+import React, { FC, useCallback } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
+import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
 type ImportNoteResultProps = {
@@ -13,6 +15,14 @@ type ImportNoteResultProps = {
 
 const ImportNoteResult: FC<ImportNoteResultProps> = ({ success }) => {
   const { t } = useTranslation();
+  const onDone = useCallback(() => navigate('/receive'), []);
+
+  useNativeNavbarAction({
+    label: success ? t('done') : t('close'),
+    onTap: onDone,
+    enabled: true
+  });
+
   return (
     <PageLayout pageTitle={t('transactionFile')} showBottomBorder={false} hasBackAction={false}>
       <div className="flex m-auto">
@@ -31,15 +41,17 @@ const ImportNoteResult: FC<ImportNoteResultProps> = ({ success }) => {
           </p>
         </div>
       </div>
-      <div className="px-6 pb-6">
-        <Button
-          className="w-full"
-          variant={ButtonVariant.Secondary}
-          onClick={() => navigate('/receive')}
-          title={success ? t('done') : t('close')}
-          style={{ cursor: 'pointer' }}
-        />
-      </div>
+      {!isMobile() && (
+        <div className="px-6 pb-6">
+          <Button
+            className="w-full"
+            variant={ButtonVariant.Secondary}
+            onClick={onDone}
+            title={success ? t('done') : t('close')}
+            style={{ cursor: 'pointer' }}
+          />
+        </div>
+      )}
     </PageLayout>
   );
 };

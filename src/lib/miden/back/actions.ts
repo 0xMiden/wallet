@@ -20,6 +20,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
 import {
+  dappDebug,
   getAllDApps,
   getCurrentPermission,
   removeDApp,
@@ -150,19 +151,22 @@ export function createHDAccount(walletType: WalletType, name?: string) {
   });
 }
 
-export function decryptCiphertexts(accPublicKey: string, cipherTexts: string[]) {}
+// Stub implementations kept in the exported shape so the frontend's
+// action map stays stable. Parameters are `_`-prefixed to satisfy
+// noUnusedParameters without stripping the public signature.
+export function decryptCiphertexts(_accPublicKey: string, _cipherTexts: string[]) {}
 
-export function revealViewKey(accPublicKey: string, password: string) {}
+export function revealViewKey(_accPublicKey: string, _password: string) {}
 
 export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
-export function revealPrivateKey(accPublicKey: string, password: string) {}
+export function revealPrivateKey(_accPublicKey: string, _password: string) {}
 
-export function revealPublicKey(accPublicKey: string) {}
+export function revealPublicKey(_accPublicKey: string) {}
 
-export function removeAccount(accPublicKey: string, password: string) {}
+export function removeAccount(_accPublicKey: string, _password: string) {}
 
 export function editAccount(accPublicKey: string, name: string) {
   console.log({ accPublicKey, name });
@@ -178,13 +182,13 @@ export function editAccount(accPublicKey: string, name: string) {
   });
 }
 
-export function importAccount(privateKey: string, encPassword?: string) {}
+export function importAccount(_privateKey: string, _encPassword?: string) {}
 
-export function importMnemonicAccount(mnemonic: string, password?: string, derivationPath?: string) {}
+export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}
 
-export function importFundraiserAccount(email: string, password: string, mnemonic: string) {}
+export function importFundraiserAccount(_email: string, _password: string, _mnemonic: string) {}
 
-export function importWatchOnlyAccount(viewKey: string) {}
+export function importWatchOnlyAccount(_viewKey: string) {}
 
 export function updateSettings(settings: Partial<WalletSettings>) {
   return withUnlocked(async ({ vault }) => {
@@ -211,33 +215,50 @@ export function getAllDAppSessions() {
 }
 
 export function removeDAppSession(origin: string) {
-  return withUnlocked(async ({ vault }) => {
+  return withUnlocked(async () => {
     const currentAccountPublicKey = await Vault.getCurrentAccountPublicKey();
     return removeDApp(origin, currentAccountPublicKey!);
   });
 }
 
-export async function processDApp(origin: string, req: MidenDAppRequest): Promise<MidenDAppResponse | void> {
-  console.log('[processDApp] Called with origin:', origin, 'req type:', req?.type);
-  console.log('[processDApp] Full request:', JSON.stringify(req));
+/**
+ * Top-level dApp request dispatcher.
+ *
+ * PR-4 chunk 8: accepts an optional `sessionId` parameter so multi-
+ * instance callers can route confirmation prompts to a specific dApp
+ * session. The id flows through to handlers in `dapp.ts` that key
+ * `dappConfirmationStore` requests by it. Single-session callers
+ * (extension popup, faucet-webview, native-notifications) omit the
+ * argument and the legacy "default" slot is used.
+ */
+export async function processDApp(
+  origin: string,
+  req: MidenDAppRequest,
+  sessionId?: string
+): Promise<MidenDAppResponse | void> {
+  dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
+  // This dumps the full request payload (addresses, amounts, note ids,
+  // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
+  // builds don't leak transaction data to os_log / logcat.
+  dappDebug('[processDApp] Full request:', JSON.stringify(req));
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));
 
     case MidenDAppMessageType.PermissionRequest:
-      return withInited(() => dappQueue.add(() => requestPermission(origin, req)));
+      return withInited(() => dappQueue.add(() => requestPermission(origin, req, sessionId)));
 
     case MidenDAppMessageType.DisconnectRequest:
       return withInited(() => dappQueue.add(() => requestDisconnect(origin, req)));
 
     case MidenDAppMessageType.TransactionRequest:
-      return withInited(() => dappQueue.add(() => requestTransaction(origin, req)));
+      return withInited(() => dappQueue.add(() => requestTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.SendTransactionRequest:
-      return withInited(() => dappQueue.add(() => requestSendTransaction(origin, req)));
+      return withInited(() => dappQueue.add(() => requestSendTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.ConsumeRequest:
-      return withInited(() => dappQueue.add(() => requestConsumeTransaction(origin, req)));
+      return withInited(() => dappQueue.add(() => requestConsumeTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.PrivateNotesRequest:
       return withInited(() => dappQueue.add(() => requestPrivateNotes(origin, req)));

@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ArrowRightIcon } from 'app/icons/arrow-right.svg';
@@ -18,7 +17,7 @@ type ImportTypeOption = {
   isLast?: boolean;
 };
 
-export const SelectImportTypeScreen = ({ onSubmit, ...props }: SelectImportTypeScreenProps) => {
+export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps) => {
   const { t } = useTranslation();
 
   const ImportTypeOptions: ImportTypeOption[] = useMemo(

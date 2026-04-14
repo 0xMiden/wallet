@@ -1,7 +1,6 @@
 import React, { FC, useCallback, useEffect, useMemo } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import Header from 'app/layouts/PageLayout/Header';
@@ -18,8 +17,6 @@ import {
 } from 'lib/miden/activity';
 import { setFaucetIdSetting, useAccount, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { openFaucetWebview } from 'lib/mobile/faucet-webview';
-import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -31,7 +28,6 @@ import MainBanner from './Explore/MainBanner';
 import Tokens from './Explore/Tokens';
 
 const Explore: FC = () => {
-  const { t } = useTranslation();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
   const { signTransaction } = useMidenContext();

@@ -29,7 +29,7 @@ const AddContactModal: FC<AddContactModalProps> = ({ address, onClose }) => {
   } = useForm<{ name: string }>();
 
   const onAddContactSubmit = useCallback(
-    async ({ name }: { name: string }) => {
+    async (_: { name: string }) => {
       if (isSubmitting) return;
 
       try {

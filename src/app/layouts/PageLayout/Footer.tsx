@@ -8,6 +8,7 @@ import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
 import { ReactComponent as GlobeIcon } from 'app/icons/globe-new.svg';
 import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
+import { springs } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isDesktop, isMobile } from 'lib/platform';
 import { Link, useLocation } from 'lib/woozie';
@@ -47,8 +48,8 @@ const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badg
         {active && (
           <motion.div
             layoutId={PILL_LAYOUT_ID}
-            className="absolute inset-0 rounded-full bg-pill-active/18"
-            transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
+            className="absolute inset-0 rounded-full bg-pill-active/18 dark:bg-pill-active/10"
+            transition={springs.pill}
           />
         )}
         <Icon
@@ -91,18 +92,22 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
     trackEvent('Footer/History', AnalyticsEventCategory.ButtonPress, { type: 'history' });
   };
 
-  const mobileBottomPadding = isMobile() ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : {};
+  // Mobile safe-area-inset-bottom is already applied on the body in
+  // public/mobile.html, so the footer doesn't need to re-apply it —
+  // stacking both pushes the pill ~34pt above where it should sit and
+  // leaves a huge empty band below the toolbar. The 12px gap between
+  // the pill and the safe-area floor comes from the Tailwind `pb-3`
+  // class below.
 
   return (
-    <footer className="w-full px-4 pb-3 pt-2 md:px-6" style={mobileBottomPadding}>
-      <div
-        className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)]"
-        style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.6)',
-          backdropFilter: 'blur(6px)',
-          WebkitBackdropFilter: 'blur(6px)'
-        }}
-      >
+    // NOTE: no `style={mobileBottomPadding}` here — on mobile the
+    // safe-area-inset-bottom is already applied to body in
+    // public/mobile.html, and stacking both pushes the pill ~34pt
+    // above where it should sit and leaves a huge empty band below
+    // the toolbar. Extension / desktop don't need the mobile
+    // padding either.
+    <footer className="w-full px-4 pb-3 pt-2 md:px-6">
+      <div className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] bg-pure-white/60 dark:bg-[#1e1e1e] backdrop-blur-md dark:backdrop-blur-none">
         <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
         <FooterNavButton
           Icon={ActivityIcon}

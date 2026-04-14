@@ -3,7 +3,7 @@ import { FC, useEffect } from 'react';
 import styles from './DisableOutlinesForClick.module.css';
 
 const TAB_KEY_CODE = 'Tab';
-const CLASS_NAME = styles['focus-disabled'];
+const CLASS_NAME = styles['focus-disabled']!;
 
 /**
  * A nifty little class that maintains event handlers to add a class

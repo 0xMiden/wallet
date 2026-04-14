@@ -17,7 +17,7 @@ dependencies {
     implementation project(':capacitor-preferences')
     implementation project(':capacitor-share')
     implementation project(':capacitor-splash-screen')
-    implementation project(':capgo-inappbrowser')
+    implementation project(':miden-dapp-browser')
     implementation project(':capacitor-barcode-scanner')
     implementation project(':capacitor-native-biometric')
 

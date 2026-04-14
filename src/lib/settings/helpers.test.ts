@@ -16,7 +16,9 @@ import {
   setAutoConsumeSetting,
   isAutoConsumeEnabled,
   setHapticFeedbackSetting,
-  isHapticFeedbackEnabled
+  isHapticFeedbackEnabled,
+  setThemeSetting,
+  getThemeSetting
 } from './helpers';
 
 describe('settings helpers', () => {
@@ -93,6 +95,45 @@ describe('settings helpers', () => {
       setHapticFeedbackSetting(false);
       expect(isHapticFeedbackEnabled()).toBe(false);
       expect(localStorage.getItem(HAPTIC_FEEDBACK_STORAGE_KEY)).toBe('false');
+    });
+  });
+
+  describe('theme setting', () => {
+    it('returns default theme when not set', () => {
+      expect(getThemeSetting()).toBe('light');
+    });
+
+    it('sets and gets dark theme', () => {
+      setThemeSetting('dark');
+      expect(getThemeSetting()).toBe('dark');
+    });
+
+    it('sets and gets light theme', () => {
+      setThemeSetting('light');
+      expect(getThemeSetting()).toBe('light');
+    });
+
+    it('returns default when stored value is invalid', () => {
+      localStorage.setItem('theme_setting', 'invalid');
+      expect(getThemeSetting()).toBe('light');
+    });
+
+    it('handles localStorage error in getThemeSetting', () => {
+      const originalGetItem = localStorage.getItem;
+      localStorage.getItem = () => {
+        throw new Error('Storage error');
+      };
+      expect(getThemeSetting()).toBe('light');
+      localStorage.getItem = originalGetItem;
+    });
+
+    it('handles localStorage error in setThemeSetting', () => {
+      const originalSetItem = localStorage.setItem;
+      localStorage.setItem = () => {
+        throw new Error('Storage full');
+      };
+      expect(() => setThemeSetting('dark')).not.toThrow();
+      localStorage.setItem = originalSetItem;
     });
   });
 

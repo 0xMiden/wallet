@@ -19,7 +19,7 @@ type WalletTypeOption = {
   isLast?: boolean;
 };
 
-export const SelectWalletTypeScreen = ({ onSubmit, ...props }: SelectWalletTypeScreenProps) => {
+export const SelectWalletTypeScreen = ({ onSubmit }: SelectWalletTypeScreenProps) => {
   const { t } = useTranslation();
   const WalletTypeOptions: WalletTypeOption[] = useMemo(
     () => [

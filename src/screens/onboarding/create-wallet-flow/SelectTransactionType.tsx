@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import colors from 'utils/tailwind-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 export interface SelectTransactionTypeScreenProps {
   onSubmit?: (selectedType: 'delegate' | 'local') => void;
@@ -143,10 +143,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               className={classNames('mt-4', { 'text-primary-500': selectedType === option.id })}
               iconLeft={
                 selectedType === option.id ? (
-                  <Icon
-                    name={IconName.CheckboxCircleFill}
-                    fill={selectedType === option.id ? colors.primary[500] : 'black'}
-                  />
+                  <Icon name={IconName.CheckboxCircleFill} fill={selectedType === option.id ? PRIMARY_HEX : 'black'} />
                 ) : null
               }
             />

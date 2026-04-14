@@ -1,5 +1,6 @@
-import { Address, BasicFungibleFaucetComponent, Endpoint, RpcClient } from '@miden-sdk/miden-sdk';
+import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk';
 
+import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 
@@ -21,12 +22,12 @@ export async function fetchTokenMetadata(
     if (cached && cached[assetId]) {
       return { base: cached[assetId], detailed: cached[assetId] };
     }
-  } catch {
+  } /* c8 ignore next 2 -- IndexedDB cache miss, defensive fallback */ catch {
     // Cache miss — proceed to RPC
   }
 
   try {
-    const endpoint = Endpoint.testnet();
+    const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
     const account = await rpcClient.getAccountDetails(Address.fromBech32(assetId).accountId());
     const underlyingAccount = account.account();

@@ -109,7 +109,7 @@ jobs:
         run: xvfb-run -a yarn test:e2e
 
   coverage:
-    name: Coverage Check (80% minimum)
+    name: Coverage Check (95% minimum)
     needs: translations
     runs-on: ubuntu-latest
     steps:
