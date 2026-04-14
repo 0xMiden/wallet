@@ -31,7 +31,7 @@ test.describe('Public Note Send', () => {
       const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
       expect(balance).toBeGreaterThan(0);
     }, {
-      captureStateFrom: [{ page: walletA.page, label: 'A', extensionId: walletA.extensionId }],
+      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
     });
 
     await steps.step('claim_notes_wallet_a', async () => {
@@ -45,7 +45,7 @@ test.describe('Public Note Send', () => {
         isPrivate: false,
       });
     }, {
-      screenshotWallets: [{ page: walletA.page, label: 'A' }],
+      screenshotWallets: [{ target: walletA.page, label: 'A' }],
     });
 
     await steps.step('verify_receipt_wallet_b', async () => {
@@ -53,12 +53,12 @@ test.describe('Public Note Send', () => {
       expect(balance).toBeGreaterThan(0);
     }, {
       captureStateFrom: [
-        { page: walletA.page, label: 'A', extensionId: walletA.extensionId },
-        { page: walletB.page, label: 'B', extensionId: walletB.extensionId },
+        { target: walletA.page, label: 'A', extensionId: walletA.extensionId },
+        { target: walletB.page, label: 'B', extensionId: walletB.extensionId },
       ],
       screenshotWallets: [
-        { page: walletA.page, label: 'A' },
-        { page: walletB.page, label: 'B' },
+        { target: walletA.page, label: 'A' },
+        { target: walletB.page, label: 'B' },
       ],
     });
   });

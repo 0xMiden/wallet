@@ -92,9 +92,9 @@ export class TestStepRunner {
         const screenshotsDir = path.join(this.outputDir, 'screenshots');
         fs.mkdirSync(screenshotsDir, { recursive: true });
 
-        for (const { page, label } of options.screenshotWallets) {
+        for (const { target, label } of options.screenshotWallets) {
           const filename = `step-${checkpoint.index}-${name}-wallet-${label.toLowerCase()}.png`;
-          await page.screenshot({ path: path.join(screenshotsDir, filename) });
+          await target.screenshot({ path: path.join(screenshotsDir, filename) });
           checkpoint.screenshotPaths = checkpoint.screenshotPaths ?? {};
           if (label === 'A') checkpoint.screenshotPaths.walletA = filename;
           else checkpoint.screenshotPaths.walletB = filename;
@@ -103,12 +103,12 @@ export class TestStepRunner {
 
       // Capture state snapshots
       if (options.captureStateFrom) {
-        for (const { page, label, extensionId } of options.captureStateFrom) {
+        for (const { target, label, extensionId } of options.captureStateFrom) {
           const context = this.walletContexts[label];
           if (!context) continue;
 
           const filename = await captureAndSaveSnapshot(
-            page,
+            target,
             label,
             extensionId,
             checkpoint.index,
@@ -146,12 +146,12 @@ export class TestStepRunner {
         const screenshotsDir = path.join(this.outputDir, 'screenshots');
         fs.mkdirSync(screenshotsDir, { recursive: true });
 
-        for (const { page, label } of options.screenshotWallets) {
+        for (const { target, label } of options.screenshotWallets) {
           try {
             const filename = `failure-wallet-${label.toLowerCase()}.png`;
-            await page.screenshot({ path: path.join(screenshotsDir, filename) });
+            await target.screenshot({ path: path.join(screenshotsDir, filename) });
           } catch {
-            // page may be closed
+            // target may be closed
           }
         }
       }

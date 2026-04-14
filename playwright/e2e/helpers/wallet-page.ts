@@ -7,10 +7,51 @@ const PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
 
 /**
+ * Platform-neutral wallet interaction surface.
+ *
+ * Both ChromeWalletPage (extension via Playwright) and IosWalletPage
+ * (simulator via appium-remote-debugger) implement this interface.
+ * Test specs are written against WalletPage and imported into either
+ * fixture; .page / .extensionId are NOT on the shared interface —
+ * Chrome-only specs that reach into Playwright internals use the
+ * ChromeWalletPageApi extension below.
+ */
+export interface WalletPage {
+  navigateTo(hash: string): Promise<void>;
+  navigateHome(): Promise<void>;
+  createNewWallet(password?: string): Promise<{ address: string; seedPhrase: string[] }>;
+  importWallet(seedPhrase: string[], password?: string): Promise<{ address: string }>;
+  getAccountAddress(): Promise<string>;
+  getBalance(tokenSymbol?: string): Promise<number>;
+  triggerSync(): Promise<void>;
+  claimAllNotes(timeoutMs?: number): Promise<void>;
+  sendTokens(params: { recipientAddress: string; amount: string; isPrivate: boolean }): Promise<void>;
+  waitForBalanceAbove(
+    minBalance: number,
+    timeoutMs: number,
+    timeline?: TimelineRecorder,
+    tokenSymbol?: string
+  ): Promise<number>;
+  lockWallet(): Promise<void>;
+  unlockWallet(password?: string): Promise<void>;
+}
+
+/**
+ * Chrome-specific extension of WalletPage. Kept for spec blocks that
+ * reach into the Playwright Page directly (currently multi-account's
+ * DOM probe) and for captureStateFrom entries that pass extensionId.
+ */
+export interface ChromeWalletPageApi extends WalletPage {
+  readonly page: Page;
+  readonly extensionId: string;
+  readonly userDataDir: string;
+}
+
+/**
  * Page Object Model for a single wallet extension instance.
  * Encapsulates all UI interactions, reusing selectors from popup-smoke.spec.ts.
  */
-export class WalletPage {
+export class ChromeWalletPage implements ChromeWalletPageApi {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;

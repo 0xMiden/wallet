@@ -13,13 +13,13 @@ import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
 import type { DebugSession, EnvironmentConfig } from '../harness/types';
 import { MidenCli, resolveCliPath } from '../helpers/miden-cli';
-import { WalletPage } from '../helpers/wallet-page';
+import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-page';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type TwoWalletFixtures = {
-  walletA: WalletPage;
-  walletB: WalletPage;
+  walletA: ChromeWalletPageApi;
+  walletB: ChromeWalletPageApi;
   midenCli: MidenCli;
   timeline: TimelineRecorder;
   steps: TestStepRunner;
@@ -234,7 +234,7 @@ async function launchWalletInstance(
     data: { extensionId, userDataDir },
   });
 
-  const walletPage = new WalletPage(page, extensionId, userDataDir);
+  const walletPage = new ChromeWalletPage(page, extensionId, userDataDir);
 
   return { walletPage, context, extensionId, userDataDir, page };
 }

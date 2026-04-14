@@ -46,7 +46,7 @@ test.describe('Faucet Minting and Balance', () => {
       const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
       expect(balance).toBeGreaterThan(0);
     }, {
-      captureStateFrom: [{ page: walletA.page, label: 'A', extensionId: walletA.extensionId }],
+      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
     });
 
     await steps.step('mint_tokens_to_wallet_b', async () => {
@@ -60,7 +60,7 @@ test.describe('Faucet Minting and Balance', () => {
       const balance = await walletB.waitForBalanceAbove(0, 120_000, timeline);
       expect(balance).toBeGreaterThan(0);
     }, {
-      captureStateFrom: [{ page: walletB.page, label: 'B', extensionId: walletB.extensionId }],
+      captureStateFrom: [{ target: walletB.page, label: 'B', extensionId: walletB.extensionId }],
     });
   });
 });

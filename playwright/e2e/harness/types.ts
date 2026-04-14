@@ -106,8 +106,8 @@ export interface Checkpoint {
 // ── Step Options ──────────────────────────────────────────────────────────────
 
 export interface StepOptions {
-  screenshotWallets?: Array<{ page: Page; label: 'A' | 'B' }>;
-  captureStateFrom?: Array<{ page: Page; label: 'A' | 'B'; extensionId: string }>;
+  screenshotWallets?: Array<{ target: Page; label: 'A' | 'B' }>;
+  captureStateFrom?: Array<{ target: Page; label: 'A' | 'B'; extensionId: string }>;
 }
 
 // ── CLI Invocation ────────────────────────────────────────────────────────────

@@ -45,7 +45,7 @@ test.describe('Multi-Account Operations', () => {
         data: { pageTextSnippet: pageText?.slice(0, 200) },
       });
     }, {
-      screenshotWallets: [{ page: walletA.page, label: 'A' }],
+      screenshotWallets: [{ target: walletA.page, label: 'A' }],
     });
 
     await steps.step('verify_account_selector', async () => {
@@ -62,8 +62,8 @@ test.describe('Multi-Account Operations', () => {
         data: { pageTextSnippet: pageText?.slice(0, 200) },
       });
     }, {
-      screenshotWallets: [{ page: walletA.page, label: 'A' }],
-      captureStateFrom: [{ page: walletA.page, label: 'A', extensionId: walletA.extensionId }],
+      screenshotWallets: [{ target: walletA.page, label: 'A' }],
+      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
     });
   });
 });

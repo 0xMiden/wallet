@@ -52,8 +52,8 @@ test.describe('Multi-Note Claiming', () => {
         data: { balance },
       });
     }, {
-      captureStateFrom: [{ page: walletA.page, label: 'A', extensionId: walletA.extensionId }],
-      screenshotWallets: [{ page: walletA.page, label: 'A' }],
+      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }],
+      screenshotWallets: [{ target: walletA.page, label: 'A' }],
     });
   });
 });
