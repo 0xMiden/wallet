@@ -151,33 +151,40 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const verifyContainer = this.page.getByTestId('verify-seed-phrase');
     await verifyContainer.waitFor({ timeout: 15_000 });
 
-    // Click the button containing the first word text, then the last word.
-    // Handle duplicates: if firstWord == lastWord, click the first instance
-    // then the SECOND instance (clicking the same button twice would deselect).
-    const firstButtons = verifyContainer.locator(`button:has-text("${firstWord}")`);
-    await firstButtons.first().click();
+    // Match word buttons by EXACT text (not substring). `has-text` would
+    // collide on prefixes — e.g. if firstWord is "fold" and the shuffled
+    // grid also contains "unfold", `.first()` picks whichever appears
+    // earlier in DOM order, and the verify screen's index-based check fails.
+    // Scope to <article> so the Continue button is not a candidate.
+    const articleButtons = verifyContainer.locator('article button');
+    const buttonTexts: string[] = await articleButtons.evaluateAll(els =>
+      els.map(b => (b.textContent ?? '').trim())
+    );
 
-    if (firstWord === lastWord) {
-      // Duplicate word: click the second instance
-      const count = await firstButtons.count();
-      if (count > 1) {
-        await firstButtons.nth(1).click();
-      }
-    } else {
-      await verifyContainer.locator(`button:has-text("${lastWord}")`).first().click();
+    const firstIndex = buttonTexts.indexOf(firstWord);
+    let lastIndex = buttonTexts.indexOf(lastWord);
+    // Duplicate word in the phrase: pick the next occurrence so we don't
+    // click (and deselect) the same button twice.
+    if (lastIndex === firstIndex && lastIndex >= 0) {
+      lastIndex = buttonTexts.indexOf(lastWord, firstIndex + 1);
     }
+    if (firstIndex < 0 || lastIndex < 0) {
+      throw new Error(
+        `Verify seed phrase: could not find "${firstWord}" / "${lastWord}" in grid. ` +
+        `Available: ${buttonTexts.join(', ')}`
+      );
+    }
+
+    await articleButtons.nth(firstIndex).click();
+    await articleButtons.nth(lastIndex).click();
 
     // Verify the Continue button is enabled before clicking
     const continueBtn = verifyContainer.getByRole('button', { name: /continue/i });
     const isDisabled = await continueBtn.isDisabled();
     if (isDisabled) {
-      // Debug: log what words are visible in the verify grid
-      const verifyWords = await verifyContainer.evaluate((el) => {
-        return Array.from(el.querySelectorAll('button')).map(b => b.textContent?.trim() || '');
-      });
       throw new Error(
         `Verify seed phrase: Continue button is disabled after selecting "${firstWord}" and "${lastWord}". ` +
-        `Available words: ${verifyWords.join(', ')}`
+        `Available words: ${buttonTexts.join(', ')}`
       );
     }
     await continueBtn.click();
