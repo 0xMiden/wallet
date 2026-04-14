@@ -8,6 +8,10 @@
 * [FEATURE][all] Migrated backend from `WasmWebClient` to the new `MidenClient` TypeScript API. All service-worker WASM access now goes through `MidenClientInterface` wrapping the high-level `MidenClient` surface.
 * [FEATURE][all] Migrated frontend to `@miden-sdk/react` hooks (`useMiden`, `useSyncState`, `useAccount`, etc.), replacing manual sync and balance-polling logic.
 
+### Fixes
+
+* [FIX][all] Fixed duplicate consume-transaction entries in wallet history when receiving a single note. `initiateConsumeTransaction` now dedups against all non-`Failed` consume txs for the same note (including `Completed`), preventing auto-consume from re-enqueueing while `getConsumableNotes` is still returning the note during chain-sync lag. Also replaced the sync poll's blanket clear of `extensionClaimingNoteIds` with a surgical remove so Explore's `isBeingClaimed` gate works correctly. (#184)
+
 ---
 
 ## 1.13.3 (2026-03-19)

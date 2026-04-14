@@ -288,20 +288,28 @@ describe('transactions utilities', () => {
   });
 
   describe('initiateConsumeTransaction', () => {
-    it('creates consume transaction when none exists', async () => {
-      mockTransactionsFilter.mockReturnValueOnce({
-        toArray: jest.fn().mockResolvedValueOnce([])
-      });
-      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+    const note = {
+      id: 'note-123',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: NoteTypeEnum.Private
+    };
 
-      const note = {
-        id: 'note-123',
-        faucetId: 'faucet',
-        amount: '100',
-        senderAddress: 'sender',
-        isBeingClaimed: false,
-        type: NoteTypeEnum.Private
-      };
+    const mockDedupQuery = (rows: any[]) => {
+      mockTransactionsWhere.mockReturnValueOnce({
+        equals: jest.fn().mockReturnValueOnce({
+          filter: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce(rows)
+          })
+        })
+      });
+    };
+
+    it('creates consume transaction when none exists', async () => {
+      mockDedupQuery([]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransaction('account-1', note);
 
@@ -309,7 +317,7 @@ describe('transactions utilities', () => {
       expect(typeof result).toBe('string');
     });
 
-    it('returns existing transaction id if consume for same note exists', async () => {
+    it('returns existing transaction id when a Queued consume exists for same note', async () => {
       const existingTx = {
         id: 'existing-tx',
         type: 'consume',
@@ -318,23 +326,64 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.Queued,
         initiatedAt: 100
       };
-      mockTransactionsFilter.mockReturnValueOnce({
-        toArray: jest.fn().mockResolvedValueOnce([existingTx])
-      });
-
-      const note = {
-        id: 'note-123',
-        faucetId: 'faucet',
-        amount: '100',
-        senderAddress: 'sender',
-        isBeingClaimed: false,
-        type: NoteTypeEnum.Private
-      };
+      mockDedupQuery([existingTx]);
 
       const result = await initiateConsumeTransaction('account-1', note);
 
       expect(result).toBe('existing-tx');
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('returns existing transaction id when a Completed consume exists for same note', async () => {
+      // This is the bug from issue #171: after a consume completes, getConsumableNotes()
+      // can still return the note briefly. Without Completed dedup, auto-consume would
+      // re-enqueue a fresh tx every SWR poll.
+      const existingTx = {
+        id: 'completed-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 100,
+        completedAt: 200
+      };
+      mockDedupQuery([existingTx]);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(result).toBe('completed-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('creates a new transaction when only a Failed consume exists (retry allowed)', async () => {
+      // Failed txs are excluded from the dedup filter, so the user can retry a consume
+      // that previously failed. The Dexie query filter drops Failed rows, so we simulate
+      // that here by returning [] from the filtered query.
+      mockDedupQuery([]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+      expect(typeof result).toBe('string');
+    });
+
+    it('does not dedup across different accounts', async () => {
+      const otherAccountTx = {
+        id: 'other-account-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-2',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 100
+      };
+      mockDedupQuery([otherAccountTx]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(result).not.toBe('other-account-tx');
+      expect(mockTransactionsAdd).toHaveBeenCalled();
     });
   });
 
@@ -343,8 +392,12 @@ describe('transactions utilities', () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })
       });
-      mockTransactionsFilter.mockReturnValueOnce({
-        toArray: jest.fn().mockResolvedValueOnce([])
+      mockTransactionsWhere.mockReturnValueOnce({
+        equals: jest.fn().mockReturnValueOnce({
+          filter: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce([])
+          })
+        })
       });
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 

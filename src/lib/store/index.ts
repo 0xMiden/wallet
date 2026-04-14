@@ -558,6 +558,18 @@ export const useWalletStore = create<WalletStore>()(
       }));
     },
 
+    removeExtensionClaimingNoteIds: noteIds => {
+      if (noteIds.length === 0) return;
+      set(state => {
+        const next = new Set(state.extensionClaimingNoteIds);
+        let changed = false;
+        for (const id of noteIds) {
+          if (next.delete(id)) changed = true;
+        }
+        return changed ? { extensionClaimingNoteIds: next } : {};
+      });
+    },
+
     clearExtensionClaimingNoteIds: () => {
       set({ extensionClaimingNoteIds: new Set<string>() });
     }

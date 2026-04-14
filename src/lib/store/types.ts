@@ -215,6 +215,8 @@ export interface ExtensionSyncSlice {
 export interface ExtensionSyncActions {
   setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
   addExtensionClaimingNoteId: (noteId: string) => void;
+  /** Remove specific note IDs from the claiming set (e.g. those no longer consumable). */
+  removeExtensionClaimingNoteIds: (noteIds: string[]) => void;
   clearExtensionClaimingNoteIds: () => void;
 }
 

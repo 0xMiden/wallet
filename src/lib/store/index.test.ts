@@ -1017,6 +1017,25 @@ describe('useWalletStore', () => {
       useWalletStore.getState().clearExtensionClaimingNoteIds();
       expect(useWalletStore.getState().extensionClaimingNoteIds.size).toBe(0);
     });
+
+    it('removeExtensionClaimingNoteIds removes only the specified ids', () => {
+      useWalletStore.getState().addExtensionClaimingNoteId('n1');
+      useWalletStore.getState().addExtensionClaimingNoteId('n2');
+      useWalletStore.getState().addExtensionClaimingNoteId('n3');
+      useWalletStore.getState().removeExtensionClaimingNoteIds(['n1', 'n3']);
+      const ids = useWalletStore.getState().extensionClaimingNoteIds;
+      expect(ids.has('n1')).toBe(false);
+      expect(ids.has('n2')).toBe(true);
+      expect(ids.has('n3')).toBe(false);
+    });
+
+    it('removeExtensionClaimingNoteIds is a no-op for empty input and unknown ids', () => {
+      useWalletStore.getState().addExtensionClaimingNoteId('n1');
+      const before = useWalletStore.getState().extensionClaimingNoteIds;
+      useWalletStore.getState().removeExtensionClaimingNoteIds([]);
+      useWalletStore.getState().removeExtensionClaimingNoteIds(['unknown']);
+      expect(useWalletStore.getState().extensionClaimingNoteIds).toBe(before);
+    });
   });
 
   describe('fetchBalances action (skip guard)', () => {
