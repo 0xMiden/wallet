@@ -238,6 +238,72 @@ yarn test:e2e:blockchain:agentic   # failure-on-first-error mode: browsers stay 
 
 The harness auto-installs `miden-client-cli` from crates.io on first run, version-matched to the wallet's `@miden-sdk/miden-sdk` package. Requires the Rust toolchain.
 
+### E2E Stress Tests
+
+Random-walk send/claim between two wallets with perturbations (lock/unlock, page reload, concurrent sends, idle periods) layered on top of the base flow. Parametrized by note count so the same suite dials from a ~15 min smoke to a multi-hour soak. Asserts **strict balance conservation** after the final drain — any missing note is treated as a real bug, not devnet flakiness.
+
+```bash
+# default ~15 min run on devnet, all perturbations on, fresh random seed
+yarn test:e2e:stress:devnet
+```
+
+All knobs are env vars — set on the command line to override. Full list in `playwright/e2e/stress/stress.spec.ts`; the highlights:
+
+| Var | Default | What it does |
+|---|---|---|
+| `STRESS_NUM_NOTES` | 20 | stop condition; ~15 min worth of sends on devnet |
+| `STRESS_INITIAL_MINTS` | 3 | 3000 TST per wallet going in |
+| `STRESS_AMOUNT_MIN` / `STRESS_AMOUNT_MAX` | 1 / 10 | display units |
+| `STRESS_DELAY_MIN_MS` / `STRESS_DELAY_MAX_MS` | 3000 / 10000 | inter-send gap |
+| `STRESS_PRIVATE_RATIO` | 0.5 | public vs private mix |
+| `STRESS_CLAIM_AFTER_SEND_PROB` | 0.5 | receiver claims immediately after each incoming note |
+| `STRESS_IDLE_EVERY` / `_MIN_MS` / `_MAX_MS` | 10 / 30000 / 60000 | user-stepped-away simulation |
+| `STRESS_LOCK_EVERY` | 15 | lock/unlock cycle frequency |
+| `STRESS_RELOAD_EVERY` | 20 | page reload cycle frequency |
+| `STRESS_CONCURRENT_PROB` | 0.15 | both wallets send at the same tick |
+| `STRESS_SEED` | `Date.now()` | reproducibility |
+| `STRESS_CONSERVATION_STRICT` | true | fail if final total != initial |
+
+Set any of the `*_EVERY` knobs (or `STRESS_CONCURRENT_PROB`) to `0` to disable that perturbation entirely.
+
+Example usage:
+
+```bash
+# Quick sanity check after a wallet change (~7 min, base loop only):
+STRESS_NUM_NOTES=5 \
+STRESS_LOCK_EVERY=0 STRESS_RELOAD_EVERY=0 STRESS_IDLE_EVERY=0 STRESS_CONCURRENT_PROB=0 \
+yarn test:e2e:stress:devnet
+
+# Overnight soak (~100 min):
+STRESS_NUM_NOTES=200 yarn test:e2e:stress:devnet
+
+# Reproduce a specific failure — every run logs its seed at the top of stdout
+# and inside stress-summary.json; pass it back in to replay the same sequence:
+STRESS_SEED=2433243116 STRESS_NUM_NOTES=20 yarn test:e2e:stress:devnet
+
+# Focus on a single perturbation (dense reload coverage, everything else off):
+STRESS_NUM_NOTES=30 \
+STRESS_RELOAD_EVERY=3 \
+STRESS_LOCK_EVERY=0 STRESS_IDLE_EVERY=0 STRESS_CONCURRENT_PROB=0 \
+yarn test:e2e:stress:devnet
+
+# Skip the rebuild when iterating:
+yarn test:e2e:stress:build                            # rebuild once
+STRESS_NUM_NOTES=10 yarn test:e2e:stress:run          # then re-run tests only
+
+# Switch networks:
+yarn test:e2e:stress:testnet
+yarn test:e2e:stress:localhost                        # expects a local node on :57291
+```
+
+Every run writes three artifacts into the timeline's output dir (under `test-results/run-*/tests/...`):
+
+- `stress-summary.json` — seed, options, initial/final balances, per-op latency percentiles, perturbation counts, conservation-held flag
+- `stress-operations.csv` — per-op record (sender, receiver, isPrivate, amount, sendMs, status, concurrent, perturbation, error)
+- `timeline.ndjson` — full event stream (same schema as the blockchain suite)
+
+Playwright traces + videos land under a separate `test-results-stress/` tree so stress runs don't clobber regular E2E artifacts.
+
 ### E2E iOS Simulator Tests
 
 Same 7 specs as the Chrome suite, ported to drive two parallel iOS Simulators (iPhone 17 + iPhone 17 Pro) over the WebKit Inspector Protocol via `appium-remote-debugger`. Takes ~9 minutes end-to-end on devnet. Requires Xcode + iOS Simulator runtime.
