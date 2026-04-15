@@ -31,22 +31,25 @@ export const TransactionProgressModal: FC = () => {
   // Track if we're actively processing (started when modal opens, continues even when hidden)
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // On extension: check for uncompleted send transactions on mount and auto-open modal
+  // On extension: if there are uncompleted send transactions on mount, nudge
+  // the SW to keep processing them. We deliberately do NOT auto-open the modal
+  // here — that would reintroduce the "page reload → modal covers Send/Home →
+  // cannot interact with the wallet until the pending tx confirms" block that
+  // the stress suite caught. The user's next explicit send action still opens
+  // the modal via `openTransactionModal()` in SendManager.
   useEffect(() => {
     if (!isExtension()) return;
 
-    const checkForSendTxs = async () => {
+    const resumeSwProcessingIfNeeded = async () => {
       const uncompleted = await getAllUncompletedTransactions();
       const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
       if (hasSendTxs) {
-        openModal();
-        // Ensure SW is processing (deduplicates via isProcessing flag)
         requestSWTransactionProcessing();
       }
     };
 
-    checkForSendTxs();
-  }, [openModal]);
+    resumeSwProcessingIfNeeded();
+  }, []);
 
   // Reset hasLoadedOnce when modal closes
   useEffect(() => {
