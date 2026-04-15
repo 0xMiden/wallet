@@ -11,7 +11,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useNativeNavbarAction } from 'lib/dapp-browser';
-import { getRpcEndpoint } from 'lib/miden-chain/constants';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
@@ -94,11 +94,20 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   const showScanButton = isScanAvailable();
 
   useEffect(() => {
-    const rpc = new RpcClient(getRpcEndpoint());
-    rpc
-      .getBlockHeaderByNumber()
-      .then(header => setSyncHeight(header.blockNum()))
+    let cancelled = false;
+    // Page-side SDK calls need WASM loaded — see ensureSdkWasmReady comment.
+    ensureSdkWasmReady()
+      .then(() => {
+        if (cancelled) return;
+        const rpc = new RpcClient(getRpcEndpoint());
+        return rpc.getBlockHeaderByNumber().then(header => {
+          if (!cancelled) setSyncHeight(header.blockNum());
+        });
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const computeAndSetRecallBlocks = useCallback(
