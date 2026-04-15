@@ -559,7 +559,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
         </div>
 
         {/* Right: Total amount */}
-        <span className={classNames('font-regular text-[#0000009E] pr-[12px]', isMobile() ? 'text-xs' : 'text-sm')}>
+        <span className={classNames('font-regular text-heading-gray pr-[12px]', isMobile() ? 'text-xs' : 'text-sm')}>
           {formattedTotal}
         </span>
 
@@ -721,7 +721,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
         <div className="flex items-center gap-3">
           <AssetIcon assetSlug={symbol} assetId={faucetId} size={32} />
           <div className="flex flex-col">
-            <span className="text-sm font-medium">
+            <span className="text-sm font-medium text-black">
               {formattedAmount} {symbol}
             </span>
             <span className="text-xs text-grey-500">

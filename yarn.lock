@@ -2272,19 +2272,15 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.14.1":
+"@miden-sdk/miden-sdk@file:../miden-client/crates/web-client":
   version "0.14.1"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.1.tgz#d5c3b1c1f4590076a289b44dd4e63495ee2e0825"
-  integrity sha512-ACa/UhHZ19WZSgqwrYtBp1Rqe97P+QKzkIf0/fAASQkpKI3UDAZaAJUqS5ADhHn+EhONYoYZg7XG7XFnpi5aTw==
   dependencies:
     "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
     glob "^11.0.0"
 
-"@miden-sdk/react@0.14.1":
+"@miden-sdk/react@file:../miden-client/packages/react-sdk":
   version "0.14.1"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.1.tgz#35c4cc1eda228bf9c97c287b24b50e4d79543dad"
-  integrity sha512-Jp1w4j7b0+hWLrMA3gQLdKx3IklqhYMYZOhW69o+cRbusgw8x9AuFz2s/CmZecnGkmc5/yINRhuj2bTLc/H2PA==
   dependencies:
     zustand "^5.0.0"
 

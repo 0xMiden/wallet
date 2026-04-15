@@ -5,8 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
-import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg';
-import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg';
+// `?url` — see Unlock.tsx for why the suffix is load-bearing.
+import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url';
+import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { BiometricAvailability, checkBiometricAvailability, unlockWithBiometric } from 'lib/biometric';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';

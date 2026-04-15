@@ -18,12 +18,13 @@ type HistoryProps = {
   scrollParentRef?: RefObject<HTMLDivElement>;
   className?: string;
   fullHistory?: boolean;
+  centerEmptyState?: boolean;
   tokenId?: string;
   searchQuery?: string;
 };
 
 const History = memo<HistoryProps>(
-  ({ address, className, numItems, scrollParentRef, fullHistory, tokenId, searchQuery }) => {
+  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -111,6 +112,7 @@ const History = memo<HistoryProps>(
         hasMore={hasMore}
         scrollParentRef={scrollParentRef}
         fullHistory={fullHistory}
+        centerEmptyState={centerEmptyState}
         className={className}
       />
     );

@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import { RpcClient } from '@miden-sdk/miden-sdk';
 import clsx from 'clsx';
@@ -87,6 +87,30 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   const [scanError, setScanError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const advancedButtonRef = useRef<HTMLButtonElement>(null);
+
+  const findScrollContainer = useCallback((el: HTMLElement): HTMLElement | null => {
+    let node: HTMLElement | null = el.parentElement;
+    while (node) {
+      const overflowY = getComputedStyle(node).overflowY;
+      if (overflowY === 'auto' || overflowY === 'scroll') return node;
+      node = node.parentElement;
+    }
+    return null;
+  }, []);
+
+  const alignButtonToTop = useCallback(() => {
+    const button = advancedButtonRef.current;
+    if (!button) return;
+    const container = findScrollContainer(button);
+    if (!container) return;
+    const buttonRect = button.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const delta = buttonRect.top - containerRect.top;
+    if (delta !== 0) {
+      container.scrollTop += delta;
+    }
+  }, [findScrollContainer]);
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -224,7 +248,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               <input
                 type="text"
                 placeholder={t('enterWalletAddress')}
-                className="w-full bg-pure-white border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
+                className="w-full bg-white border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
                 value={recipientAddress}
                 onChange={e => onAddressChange(e as any)}
               />
@@ -280,7 +304,11 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {/* Advanced Options */}
           <button
             type="button"
-            className="mt-6 flex items-center justify-between w-full rounded-[10px] px-4 py-3.5 transition-colors bg-pure-white cursor-pointer"
+            ref={advancedButtonRef}
+            className={clsx(
+              'mt-6 flex items-center justify-between w-full px-4 py-3.5 transition-colors bg-white cursor-pointer',
+              showAdvanced ? 'rounded-t-[10px]' : 'rounded-[10px]'
+            )}
             onClick={() => {
               hapticLight();
               setShowAdvanced(prev => !prev);
@@ -303,9 +331,12 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   collapsed: { opacity: 0, height: 0 }
                 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white"
+                onUpdate={() => {
+                  if (showAdvanced) alignButtonToTop();
+                }}
+                className="bg-white rounded-b-[10px] overflow-hidden shrink-0"
               >
-                <div className="px-4 bg-white rounded-b-10">
+                <div className="px-4 pb-4">
                   <div className="mt-4">
                     <OptionItem
                       title={t('delegateProving')}

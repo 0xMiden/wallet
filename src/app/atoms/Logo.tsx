@@ -3,7 +3,10 @@ import React, { CSSProperties, memo, HTMLAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import LogoTitle from 'app/misc/logo-title.png';
-import PlainLogo from 'app/misc/logo.svg';
+// `?url` — the svg-to-react Vite plugin emits "" as the default export (only
+// the named ReactComponent is real), so `<img src={import-without-suffix}>`
+// silently renders an empty src. Force URL import here.
+import PlainLogo from 'app/misc/logo.svg?url';
 
 type LogoProps = HTMLAttributes<HTMLImageElement> & {
   hasTitle?: boolean;

@@ -287,9 +287,11 @@ STRESS_RELOAD_EVERY=3 \
 STRESS_LOCK_EVERY=0 STRESS_IDLE_EVERY=0 STRESS_CONCURRENT_PROB=0 \
 yarn test:e2e:stress:devnet
 
-# Skip the rebuild when iterating:
+# Skip the rebuild when iterating (advanced — use only if you're sure
+# dist/chrome_unpacked is up-to-date; the normal variants rebuild every
+# time to avoid stale-bundle foot-guns):
 yarn test:e2e:stress:build                            # rebuild once
-STRESS_NUM_NOTES=10 yarn test:e2e:stress:run          # then re-run tests only
+STRESS_NUM_NOTES=10 yarn test:e2e:stress:run-only     # then re-run tests only
 
 # Switch networks:
 yarn test:e2e:stress:testnet

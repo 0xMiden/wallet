@@ -154,8 +154,12 @@ export function useIntercomSync() {
           store().removeExtensionClaimingNoteIds(staleClaimingIds);
         }
 
-        // Trigger note toast check (so popup shows toast for new notes)
-        store().checkForNewNotes(noteIds);
+        // Note: we used to call `store().checkForNewNotes(noteIds)` here too.
+        // `useNoteToastMonitor` (driven by `useClaimableNotes`) is now the single
+        // authoritative source for new-note detection — having two racing paths
+        // caused flaky toasts (spurious toasts when this poll landed before the
+        // async `seenNoteIds` hydration resolved; missing toasts when custom-faucet
+        // metadata arrived after Path A's notes had already been marked seen).
         // Convert vault assets → balances, update Zustand
         updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
           console.warn('[useIntercomSync] Balance update failed:', err)

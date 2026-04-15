@@ -48,6 +48,13 @@ declare module '*.svg' {
   export default src;
 }
 
+// Vite `?url` asset suffix — forces a plain URL import instead of the svgr
+// transform's "" default. Needed for `<img src={...}>` usages.
+declare module '*.svg?url' {
+  const src: string;
+  export default src;
+}
+
 declare module '*.module.css' {
   const classes: { readonly [key: string]: string };
   export default classes;
