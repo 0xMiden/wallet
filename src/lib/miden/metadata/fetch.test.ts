@@ -38,7 +38,8 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
-  getRpcEndpoint: jest.fn(() => 'mock-endpoint')
+  getRpcEndpoint: jest.fn(() => 'mock-endpoint'),
+  ensureSdkWasmReady: jest.fn(() => Promise.resolve())
 }));
 
 const mockFetchFromStorage = jest.fn();

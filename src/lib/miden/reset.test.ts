@@ -7,10 +7,14 @@ _g.__resetTest = {
 
 const mockDbDelete = jest.fn();
 const mockDbOpen = jest.fn();
+const mockTransactionsClear = jest.fn();
 jest.mock('lib/miden/repo', () => ({
   db: {
     delete: () => mockDbDelete(),
     open: () => mockDbOpen()
+  },
+  transactions: {
+    clear: () => mockTransactionsClear()
   }
 }));
 
@@ -42,7 +46,7 @@ jest.mock(
 
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
-import { clearClientStorage, clearStorage } from './reset';
+import { clearClientStorage, clearStorage, resetStorageDestructive } from './reset';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -52,14 +56,18 @@ beforeEach(() => {
 });
 
 describe('clearStorage', () => {
-  it('drops and reopens the IndexedDB by default', async () => {
+  it('clears the transactions table by default and never deletes the DB', async () => {
     await clearStorage();
-    expect(mockDbDelete).toHaveBeenCalled();
-    expect(mockDbOpen).toHaveBeenCalled();
+    expect(mockTransactionsClear).toHaveBeenCalled();
+    // db.delete() would force every other open handle closed and leave the
+    // page Dexie connection unrecoverable — see commit message.
+    expect(mockDbDelete).not.toHaveBeenCalled();
+    expect(mockDbOpen).not.toHaveBeenCalled();
   });
 
-  it('skips DB drop when clearDb=false', async () => {
+  it('skips the table clear when clearDb=false', async () => {
     await clearStorage(false);
+    expect(mockTransactionsClear).not.toHaveBeenCalled();
     expect(mockDbDelete).not.toHaveBeenCalled();
   });
 
@@ -81,6 +89,16 @@ describe('clearStorage', () => {
   it('clears browser.storage.local on extension', async () => {
     (isExtension as jest.Mock).mockReturnValue(true);
     await clearStorage();
+    expect(mockBrowserStorageClear).toHaveBeenCalled();
+  });
+});
+
+describe('resetStorageDestructive', () => {
+  it('drops and reopens the IndexedDB and clears platform storage', async () => {
+    (isExtension as jest.Mock).mockReturnValue(true);
+    await resetStorageDestructive();
+    expect(mockDbDelete).toHaveBeenCalled();
+    expect(mockDbOpen).toHaveBeenCalled();
     expect(mockBrowserStorageClear).toHaveBeenCalled();
   });
 });
