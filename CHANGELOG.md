@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.14.2 (TBD)
+
+### Fixes
+
+* [FIX][all] Gated page-side SDK WASM init. `fetchTokenMetadata` and `SendDetails` used to race the SDK's lazy wasm-bindgen load when constructing `Endpoint`/`RpcClient` directly on the page thread, hitting `Cannot read properties of undefined (reading '__wbindgen_malloc')` and blacklisting the token via `autoFetchMetadataFails` for the rest of the session. New `ensureSdkWasmReady()` helper actively triggers the SDK's `loadWasm()` via a Vite-aliased deep import and probes readiness, wired up before any page-side RPC construction. (#187)
+* [FIX][all] `clearStorage` no longer tears down live Dexie handles. The spawn-time reset used to call `Repo.db.delete() + db.open()`, which fired a `versionchange` event to every other open handle (notably the page's), forced them closed, and triggered `DatabaseClosedError` on subsequent page-side reads. Now clears only the transactions table; a new `resetStorageDestructive()` preserves the full-wipe semantics for the options-page "Reset Wallet" button that actually wants it. (#187)
+
+---
+
 ## 1.14.0 (TBD)
 
 ### Features
