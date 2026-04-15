@@ -18,6 +18,42 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
+ * Read the SW's last-broadcast sync snapshot from chrome.storage.local and
+ * invoke `onData` with it if present and for the current account.
+ */
+/* c8 ignore start -- extension-only chrome.storage bridge */
+function readSyncData(accountPublicKey: string, onData: (d: SyncData) => void): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = globalThis as any;
+  if (!g.chrome?.storage?.local) return;
+  g.chrome.storage.local.get('miden_sync_data', (result: any) => {
+    const syncData: SyncData | undefined = result?.miden_sync_data;
+    if (!syncData) return;
+    if (syncData.accountPublicKey !== accountPublicKey) return;
+    onData(syncData);
+  });
+}
+
+/**
+ * One-shot balance rehydration from the SW's last sync snapshot.
+ * Used on app mount so `useAllBalances` has something real to render
+ * instead of falling back to DEFAULT_ZERO_MIDEN_BALANCE while the 3s poll
+ * catches up.
+ */
+async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<void> {
+  await new Promise<void>(resolve => {
+    readSyncData(accountPublicKey, syncData => {
+      updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets)
+        .catch(err => console.warn('[useIntercomSync] Initial balance rehydrate failed:', err))
+        .finally(() => resolve());
+    });
+    // Resolve anyway if there's no sync data yet — don't block app mount.
+    setTimeout(resolve, 1_000);
+  });
+}
+/* c8 ignore stop */
+
+/**
  * Hook that sets up synchronization between the Zustand store and the backend.
  * Should be used once at the root of the app.
  */
@@ -36,6 +72,17 @@ export function useIntercomSync() {
       try {
         const state = await fetchStateFromBackend(5);
         syncFromBackend(state);
+
+        // Rehydrate balances from the last SW sync snapshot BEFORE the app
+        // renders. Without this, any non-MIDEN token (e.g. a custom faucet)
+        // is missing from `useAllBalances` until the 3s poll ticks below,
+        // so Send's token list shows only the MIDEN fallback for the first
+        // few seconds after any page (re)load. Surfaced by the E2E stress
+        // suite — receivers that claim mid-run would render Send as
+        // MIDEN-only until the next poll cycle.
+        if (isExtension() && state.currentAccount) {
+          await rehydrateBalancesFromStorage(state.currentAccount.publicKey);
+        }
       } /* c8 ignore next 3 -- retry path, requires backend error simulation */ catch (error) {
         console.error('Failed to fetch initial state:', error);
         initialFetchDone.current = false; // Allow retry
@@ -91,11 +138,7 @@ export function useIntercomSync() {
     const store = useWalletStore.getState;
 
     const poll = () => {
-      g.chrome.storage.local.get('miden_sync_data', (result: any) => {
-        const syncData: SyncData | undefined = result?.miden_sync_data;
-        if (!syncData) return;
-        if (syncData.accountPublicKey !== accountPublicKey) return;
-
+      readSyncData(accountPublicKey, syncData => {
         const noteIds = syncData.notes.map(n => n.id);
 
         // Drop claiming IDs for notes that are no longer consumable (the SW has
