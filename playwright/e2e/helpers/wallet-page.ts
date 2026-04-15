@@ -25,7 +25,7 @@ export interface WalletPage {
   getBalance(tokenSymbol?: string): Promise<number>;
   triggerSync(): Promise<void>;
   claimAllNotes(timeoutMs?: number): Promise<void>;
-  sendTokens(params: { recipientAddress: string; amount: string; isPrivate: boolean }): Promise<void>;
+  sendTokens(params: { recipientAddress: string; amount: string; isPrivate: boolean; tokenSymbol?: string }): Promise<void>;
   waitForBalanceAbove(
     minBalance: number,
     timeoutMs: number,
@@ -593,17 +593,31 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     recipientAddress: string;
     amount: string;
     isPrivate: boolean;
+    /**
+     * Optional token symbol (e.g. "TST"). When set, picks that token's row
+     * from the SelectToken list. Default: first row — fine when only one
+     * fundable token exists, but not when MIDEN sits at 0 balance above the
+     * real balance row.
+     */
+    tokenSymbol?: string;
   }): Promise<void> {
     // 1. Navigate to send
     await this.navigateTo('/send');
     const sendFlow = this.page.getByTestId('send-flow');
     await sendFlow.waitFor({ timeout: 15_000 });
 
-    // 2. SelectToken: click first available token
-    // CardItem renders as a <div> with cursor-pointer. Match the token row by its
-    // title text structure (token name + balance) inside the send flow container.
-    const tokenItem = sendFlow.locator('div.cursor-pointer').first();
-    await tokenItem.click({ timeout: 10_000 });
+    // 2. SelectToken: click target token row
+    if (params.tokenSymbol) {
+      const tokenRow = sendFlow.locator('div.cursor-pointer', {
+        has: this.page.getByText(params.tokenSymbol, { exact: true }),
+      }).first();
+      await tokenRow.click({ timeout: 10_000 });
+    } else {
+      // CardItem renders as a <div> with cursor-pointer. Match the token row by its
+      // title text structure (token name + balance) inside the send flow container.
+      const tokenItem = sendFlow.locator('div.cursor-pointer').first();
+      await tokenItem.click({ timeout: 10_000 });
+    }
 
     // 3. SendDetails: fill address, amount, toggle private
     // Wait for SendDetails page to appear

@@ -9,6 +9,7 @@ export type EventCategory =
   | 'browser_console'
   | 'network_request'
   | 'state_snapshot'
+  | 'stress_op'
   | 'error';
 
 export type EventSeverity = 'info' | 'warn' | 'error' | 'debug';
