@@ -64,6 +64,8 @@ jobs:
         uses: borales/actions-yarn@v4
         with:
           cmd: build:chrome
+        env:
+          MIDEN_USE_MOCK_CLIENT: 'true'
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
