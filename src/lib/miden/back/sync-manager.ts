@@ -78,7 +78,10 @@ async function checkAndCanonicalize(): Promise<void> {
       try {
         const fetched = await rpcClient.getAccountDetails(accountId);
         const onChainHex = fetched.commitment().toHex();
-        if (localHex !== onChainHex) {
+        // If local and on-chain commitments differ, and on-chain isn't the empty default, we have a mismatch —
+        // another device has submitted a transaction that this device hasn't seen yet. We must restore from backup
+        // before syncing, or we'll sync to the wrong state and lose the pending transaction.
+        if (localHex !== onChainHex && onChainHex !== `0x${'0'.repeat(64)}`) {
           console.log(
             '[SyncManager] Commitment mismatch for',
             publicKey,
