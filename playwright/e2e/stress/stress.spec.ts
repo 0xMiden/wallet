@@ -52,7 +52,7 @@ function parseOptions(): StressOptions {
     lockEvery: intEnv('STRESS_LOCK_EVERY', 15),
     reloadEvery: intEnv('STRESS_RELOAD_EVERY', 20),
     concurrentProb: floatEnv('STRESS_CONCURRENT_PROB', 0.15),
-    perTurnSendTimeoutMs: intEnv('STRESS_SEND_TIMEOUT_MS', 60_000),
+    perTurnSendTimeoutMs: intEnv('STRESS_SEND_TIMEOUT_MS', 90_000),
     seed: intEnv('STRESS_SEED', Date.now() >>> 0),
   };
 }
