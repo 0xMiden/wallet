@@ -97,6 +97,18 @@ export class MidenClientInterface {
     this.client.terminate();
   }
 
+  /**
+   * Resolves once any in-flight serialized WASM call on the underlying
+   * client has settled. Wallet-side code uses this to coordinate
+   * non-WASM state changes (e.g. clearing the in-memory auth key on
+   * lock) with the SDK's transaction execution pipeline — preventing
+   * races where the kernel's auth callback fires after the key is
+   * gone. See `Actions.lock` for the canonical use case.
+   */
+  async waitForIdle(): Promise<void> {
+    await this.client.waitForIdle();
+  }
+
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
     const isPublic = walletType === WalletType.OnChain;
     const wallet: Account = await this.client.accounts.create({

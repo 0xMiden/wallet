@@ -14,7 +14,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getMidenClient } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { WalletSettings, WalletState } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -137,9 +137,17 @@ export function lock() {
     // callback has no key → executeTransaction fails → notes can end up
     // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
     // coincided with LOCK_REQUEST arriving while a consume loop was active.
-    await withWasmClientLock(async () => {
-      locked();
-    });
+    //
+    // The SDK's WebClient serializes mutating calls internally via its
+    // `_wasmCallChain`; `waitForIdle()` returns once that chain has drained.
+    try {
+      const midenClient = await getMidenClient();
+      await midenClient.waitForIdle();
+    } catch {
+      // Client may not be initialized yet (e.g. lock from an unusual state).
+      // A missing client means no in-flight WASM work, so proceed to lock.
+    }
+    locked();
   });
 }
 

@@ -2272,10 +2272,8 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.14.2":
-  version "0.14.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.2.tgz#181b4997ee70020d5a91600f74fcd23116ec050d"
-  integrity sha512-GpdsywPJJs1+p3O3h6gqW5se/c3dicYhOqudkDWdC5XTg+oIafD+sx76zf/FCDRZvHfFZWmgov4oRHervwV01Q==
+"@miden-sdk/miden-sdk@file:../miden-client/crates/web-client":
+  version "0.14.3"
   dependencies:
     "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"

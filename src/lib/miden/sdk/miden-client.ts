@@ -93,20 +93,22 @@ class AsyncMutex {
   }
 }
 
-// Global mutex for all WASM client operations
+// Historically this module exposed a global mutex (`AsyncMutex` above) that
+// wallet-side code wrapped around every WASM call to prevent concurrent
+// access panics ("recursive use of an object detected ..."). That
+// responsibility now lives inside the SDK itself: `@miden-sdk/miden-sdk`'s
+// `WebClient` serializes every mutating method via its internal
+// `_serializeWasmCall` chain. The wrapper here is kept as a no-op
+// pass-through so the ~30 existing call sites (and their test mocks)
+// don't need a mass refactor. New code should call the SDK directly.
+//
+// For the specific case of "wait for any in-flight SDK call to finish
+// before doing something else" (e.g. clearing the vault key on lock),
+// callers should use `midenClient.waitForIdle()` directly.
 const wasmClientMutex = new AsyncMutex();
 
-/**
- * Execute an operation with the WASM client mutex held.
- * This ensures only one WASM client operation runs at a time across the entire app.
- */
 export async function withWasmClientLock<T>(operation: () => Promise<T>): Promise<T> {
-  await wasmClientMutex.acquire();
-  try {
-    return await operation();
-  } finally {
-    wasmClientMutex.release();
-  }
+  return await operation();
 }
 
 /**
