@@ -53,6 +53,11 @@ function parseOptions(): StressOptions {
     reloadEvery: intEnv('STRESS_RELOAD_EVERY', 20),
     concurrentProb: floatEnv('STRESS_CONCURRENT_PROB', 0.15),
     perTurnSendTimeoutMs: intEnv('STRESS_SEND_TIMEOUT_MS', 90_000),
+    // Probability [0,1] of intercepting and failing the transport call on
+    // a private-note send, so the retry loop can be exercised end-to-end.
+    // Kept at 0 by default so the default stress run matches historical
+    // behavior; set to e.g. 0.1 to validate #6 hardening.
+    transportFailProb: floatEnv('STRESS_TRANSPORT_FAIL_PROB', 0),
     seed: intEnv('STRESS_SEED', Date.now() >>> 0),
   };
 }

@@ -27,6 +27,15 @@ export interface StressOptions {
   reloadEvery: number;
   concurrentProb: number;
   perTurnSendTimeoutMs: number;
+  /**
+   * Probability [0,1] that each private-note send gets its transport
+   * request intercepted and forced to fail (via Playwright `page.route`).
+   * Exercises the wallet's transport-retry loop: on failure the tx is
+   * marked Completed-with-transportPending, the background retry should
+   * eventually deliver the note, and final balance conservation
+   * should still hold. 0 disables (default).
+   */
+  transportFailProb: number;
   seed: number;
 }
 
@@ -48,7 +57,13 @@ export interface StressResult {
   requested: number;
   completed: number;
   failed: number;
-  perturbations: { locks: number; reloads: number; concurrent: number; idles: number };
+  perturbations: {
+    locks: number;
+    reloads: number;
+    concurrent: number;
+    idles: number;
+    transportFails: number;
+  };
   perOp: StressOpRecord[];
 }
 
@@ -102,7 +117,7 @@ export async function runStressDriver(
   const wallets: Record<'A' | 'B', ChromeWalletPageApi> = { A: walletA, B: walletB };
   const addrs: Record<'A' | 'B', string> = { A: addressA, B: addressB };
   const perOp: StressOpRecord[] = [];
-  const perturbations = { locks: 0, reloads: 0, concurrent: 0, idles: 0 };
+  const perturbations = { locks: 0, reloads: 0, concurrent: 0, idles: 0, transportFails: 0 };
   let completed = 0;
   let failed = 0;
   let idx = 0;
@@ -139,6 +154,42 @@ export async function runStressDriver(
         `${isPrivate ? 'priv' : 'pub'} amt=${amount}${concurrent ? ' concurrent' : ''}`,
       data: { idx, sender: senderLabel, receiver: receiverLabel, isPrivate, amount, concurrent, phase: 'pre_send' },
     });
+
+    // Transport-failure perturbation (private notes only — public notes
+    // don't hit the transport layer). Installs a one-shot route on the
+    // sender's page that aborts the next SendNote gRPC request, forcing
+    // the wallet into its transport-pending retry path. The retry loop
+    // then delivers the note a few seconds later; we verify the full
+    // pipeline works via the final conservation check.
+    let transportRouteCleanup: (() => Promise<void>) | undefined;
+    if (
+      isPrivate &&
+      opts.transportFailProb > 0 &&
+      !concurrent && // concurrent ops are messy; skip to keep the signal clean
+      rng() < opts.transportFailProb
+    ) {
+      perturbations.transportFails++;
+      perturbation = perturbation ? `${perturbation}+transport_fail` : 'transport_fail';
+      timeline.emit({
+        category: 'stress_op',
+        severity: 'info',
+        message: `[stress] perturbation: block SendNote on ${senderLabel} for op#${idx}`,
+      });
+      const page = sender.page;
+      let armed = true;
+      const handler = async (route: import('@playwright/test').Route) => {
+        if (armed && /SendNote/i.test(route.request().url())) {
+          armed = false; // one-shot
+          await route.abort('failed').catch(() => {});
+          return;
+        }
+        await route.continue().catch(() => {});
+      };
+      await page.route('**/*transport*/**', handler);
+      transportRouteCleanup = async () => {
+        await page.unroute('**/*transport*/**', handler).catch(() => {});
+      };
+    }
 
     try {
       if (concurrent) {
@@ -184,6 +235,10 @@ export async function runStressDriver(
       status = 'fail';
       err = e instanceof Error ? e.message : String(e);
       failed += 1;
+    } finally {
+      if (transportRouteCleanup) {
+        await transportRouteCleanup();
+      }
     }
     const sendMs = Date.now() - start;
 
