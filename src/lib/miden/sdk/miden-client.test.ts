@@ -1,12 +1,13 @@
 import { runWhenClientIdle, withWasmClientLock } from './miden-client';
 
-// Historical context: `withWasmClientLock` used to serialize every WASM call
-// through a wallet-side global mutex. That responsibility moved into
-// `@miden-sdk/miden-sdk` itself (WebClient's `_serializeWasmCall` chain),
-// so this wrapper is now a pass-through. Call sites still use the name
-// while we migrate; new code should call the SDK directly or use
-// `midenClient.waitForIdle()` for coordination.
-describe('withWasmClientLock (pass-through)', () => {
+// `withWasmClientLock` is an active wallet-side mutex layered over the
+// SDK's per-instance `_serializeWasmCall` chain. The SDK serializes
+// mutating methods only; the wallet mutex covers everything as
+// belt-and-suspenders. Validated by every passing stress run since
+// 2026-04-16. A follow-up PR may attempt to drop this wrapper, gated on
+// a dedicated stress run that proves SDK coverage is sufficient on its
+// own — pass-through has been theorized to work but is untested at scale.
+describe('withWasmClientLock', () => {
   it('executes the operation and returns its result', async () => {
     const result = await withWasmClientLock(async () => 'test-result');
     expect(result).toBe('test-result');
@@ -20,7 +21,7 @@ describe('withWasmClientLock (pass-through)', () => {
     ).rejects.toThrow('test error');
   });
 
-  it('does not block concurrent callers (serialization now handled by SDK)', async () => {
+  it('serializes concurrent callers', async () => {
     let concurrentCount = 0;
     let maxConcurrent = 0;
 
@@ -35,11 +36,7 @@ describe('withWasmClientLock (pass-through)', () => {
     );
 
     await Promise.all(ops);
-
-    // The wrapper no longer serializes — the SDK handles that internally.
-    // At least two ops should have overlapped, proving the wrapper is a
-    // pure pass-through rather than a mutex.
-    expect(maxConcurrent).toBeGreaterThan(1);
+    expect(maxConcurrent).toBe(1);
   });
 });
 
@@ -104,7 +101,7 @@ describe('getMidenClient singleton', () => {
     jest.resetModules();
   });
 
-  it('reuses the same instance without options', async () => {
+  it('reuses the same singleton instance across calls', async () => {
     const create = jest.fn(async () => ({ free: jest.fn() }));
     jest.doMock('./miden-client-interface', () => ({
       MidenClientInterface: class {
@@ -119,29 +116,6 @@ describe('getMidenClient singleton', () => {
         expect(create).toHaveBeenCalledTimes(1);
         expect(first).toBe(second);
       });
-    });
-  });
-
-  it('disposes and recreates when called with options', async () => {
-    const free = jest.fn();
-    const create = jest.fn().mockResolvedValueOnce({ free }).mockResolvedValueOnce({ free });
-
-    jest.doMock('./miden-client-interface', () => ({
-      MidenClientInterface: class {
-        static create = create;
-        free = free;
-      }
-    }));
-
-    jest.isolateModules(() => {
-      const { getMidenClient } = require('./miden-client');
-      return Promise.resolve()
-        .then(() => getMidenClient({ seed: new Uint8Array([1]) }))
-        .then(() => getMidenClient({ seed: new Uint8Array([2]) }))
-        .then(() => {
-          expect(create).toHaveBeenCalledTimes(2);
-          expect(free).toHaveBeenCalledTimes(1);
-        });
     });
   });
 });

@@ -44,6 +44,13 @@ jest.mock('lib/miden/back/store', () => {
   };
 });
 
+// Bridge wiring is exercised separately in keystore-bridge.test.ts; mock
+// here so the test doesn't pull in the Effector store's unlocked/locked
+// events that this test fixture mocks away.
+jest.mock('lib/miden/back/keystore-wiring', () => ({
+  wireKeystoreBridge: jest.fn()
+}));
+
 describe('MobileIntercomAdapter', () => {
   let adapter: MobileIntercomAdapter;
 

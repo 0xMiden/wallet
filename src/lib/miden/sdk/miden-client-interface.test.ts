@@ -132,18 +132,18 @@ describe('MidenClientInterface', () => {
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const insertKeyCallback = jest.fn();
-    const client = await MidenClientInterface.create({
-      seed: new Uint8Array([1, 2, 3]),
-      insertKeyCallback
-    });
+    const bridge = await import('./keystore-bridge');
+    const client = await MidenClientInterface.create();
 
+    // Permanent keystore wiring: callbacks come from the bridge module,
+    // not from per-call options. Assert the bridge functions are wired.
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
         rpcUrl: 'rpc-local',
-        seed: expect.any(Uint8Array),
         keystore: expect.objectContaining({
-          insertKey: insertKeyCallback
+          insertKey: bridge.callInsertKey,
+          sign: bridge.callSign,
+          getKey: bridge.callGetKey
         })
       })
     );

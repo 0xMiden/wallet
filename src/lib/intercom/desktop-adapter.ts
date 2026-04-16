@@ -7,6 +7,7 @@
  */
 
 import * as Actions from 'lib/miden/back/actions';
+import { wireKeystoreBridge } from 'lib/miden/back/keystore-wiring';
 import { store, toFront } from 'lib/miden/back/store';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
@@ -26,6 +27,10 @@ export class DesktopIntercomAdapter {
    */
   async init(): Promise<void> {
     if (this.initialized) return;
+
+    // Wire the keystore bridge BEFORE Actions.init so the unlocked.watch
+    // is in place before any subsequent request can fire the unlocked event.
+    wireKeystoreBridge();
 
     console.log('DesktopIntercomAdapter: Initializing backend');
     await Actions.init();

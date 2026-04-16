@@ -131,15 +131,18 @@ export function registerImportedWallet(password?: string, mnemonic?: string) {
 
 export function lock() {
   return withInited(async () => {
-    // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
-    // consume loop) to drain before clearing the vault key. If we lock while
-    // the kernel is mid-`miden::protocol::auth::request`, the signing
-    // callback has no key → executeTransaction fails → notes can end up
-    // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
-    // coincided with LOCK_REQUEST arriving while a consume loop was active.
+    // Drain in-flight WASM operations before letting the `locked` event
+    // fire. The keystore-bridge watcher (in keystore-wiring.ts) clears
+    // the bridge's active insert-key slot only AFTER `locked()` fires.
+    // By draining the SDK's internal `_serializeWasmCall` chain first,
+    // any mid-flight signing call against the still-valid key completes
+    // cleanly. Without this drain, a stale call post-lock would throw
+    // "insert-key callback not wired" — which is a *correct* failure mode
+    // (we'd rather throw than persist with stale state) but causes
+    // spurious tx failures the user has to re-trigger.
     //
-    // The SDK's WebClient serializes mutating calls internally via its
-    // `_wasmCallChain`; `waitForIdle()` returns once that chain has drained.
+    // Seen in the 1000-op stress run: 7/7 executeTransaction errors
+    // coincided with LOCK_REQUEST arriving while a consume loop was active.
     try {
       const midenClient = await getMidenClient();
       await midenClient.waitForIdle();

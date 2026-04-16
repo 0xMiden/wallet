@@ -46,6 +46,13 @@ jest.mock('./transaction-processor', () => ({
   startTransactionProcessing: () => (globalThis as any).__mainTest.startTransactionProcessing()
 }));
 
+// Bridge wiring is exercised separately in keystore-bridge.test.ts; mock
+// here so the test doesn't pull in the Effector store's unlocked/locked
+// events that this test fixture mocks away.
+jest.mock('./keystore-wiring', () => ({
+  wireKeystoreBridge: jest.fn()
+}));
+
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__mainTest.client,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),

@@ -18,8 +18,8 @@ import {
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { setActiveSignCallback } from '../sdk/keystore-bridge';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { interpretTransactionResult } from './helpers';
 import { importAllNotes, queueNoteImport } from './notes';
@@ -634,10 +634,6 @@ export const generateTransaction = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
   // Sync state first to ensure we have latest account state
-  // Separate lock acquisition to avoid holding lock during network call
-  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
-  // catch block which cancels the transaction — this is intentional fail-fast behavior,
-  // since the transaction can't be submitted without network anyway
   await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
     await midenClient.syncState();
@@ -648,40 +644,49 @@ export const generateTransaction = async (
     processingStartedAt: Math.floor(Date.now() / 1000) // seconds
   });
 
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      try {
-        return await signCallback(keyString, signingInputsString);
-      } catch (err) {
-        // The SDK (WebKeyStore) captures the raw thrown value and exposes
-        // it via `midenClient.lastAuthError()`. Attach a stable `reason`
-        // tag so callers that catch the eventual executeTransaction
-        // failure can distinguish "wallet got locked mid-sign" from other
-        // failure modes (user rejection, keystore IO error, etc.).
-        throw buildSignCallbackError(err);
-      }
+  // Wire the per-tx sign callback into the keystore-bridge slot. The
+  // SDK's keystore.sign was bound permanently at MidenClient.create
+  // time to bridge.callSign, which delegates to this active slot.
+  // try/finally guarantees the slot is cleared even on error; the
+  // bridge's concurrent-set guard makes any future violation loud.
+  const sdkSignCallback = async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+    const keyString = Buffer.from(publicKey).toString('hex');
+    const signingInputsString = Buffer.from(signingInputs).toString('hex');
+    try {
+      return await signCallback(keyString, signingInputsString);
+    } catch (err) {
+      // The SDK (WebKeyStore) captures the raw thrown value and exposes
+      // it via `midenClient.lastAuthError()`. Attach a stable `reason`
+      // tag so callers that catch the eventual executeTransaction
+      // failure can distinguish "wallet got locked mid-sign" from other
+      // failure modes (user rejection, keystore IO error, etc.).
+      throw buildSignCallbackError(err);
     }
   };
 
-  // MidenClient handles the full pipeline (execute → prove → submit → apply)
-  const result = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient(options);
-    switch (transaction.type) {
-      case 'send':
-        return midenClient.sendTransaction(transaction as SendTransaction);
-      case 'consume':
-        return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
-      case 'execute':
-      default:
-        return midenClient.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes!,
-          transaction.delegateTransaction
-        );
-    }
-  });
+  setActiveSignCallback(sdkSignCallback);
+  let result: TransactionResult;
+  try {
+    // MidenClient handles the full pipeline (execute → prove → submit → apply)
+    result = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      switch (transaction.type) {
+        case 'send':
+          return await midenClient.sendTransaction(transaction as SendTransaction);
+        case 'consume':
+          return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
+        case 'execute':
+        default:
+          return await midenClient.newTransaction(
+            transaction.accountId,
+            transaction.requestBytes!,
+            transaction.delegateTransaction
+          );
+      }
+    });
+  } finally {
+    setActiveSignCallback(null);
+  }
 
   switch (transaction.type) {
     case 'send':

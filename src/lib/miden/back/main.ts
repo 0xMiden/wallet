@@ -2,6 +2,7 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
+import { wireKeystoreBridge } from 'lib/miden/back/keystore-wiring';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
@@ -18,6 +19,12 @@ let frontStore: ReturnType<typeof store.map> | null = null;
 
 export async function start() {
   console.log('Miden background script started');
+
+  // Wire the keystore bridge BEFORE accepting intercom requests. Otherwise
+  // an UnlockRequest arriving during the `await Actions.init()` window
+  // would fire `unlocked` before the bridge's watcher is registered, and
+  // the bridge slot would never get the new vault key.
+  wireKeystoreBridge();
   intercom.onRequest(processRequest);
 
   // NOTE: The Vite sw-patches plugin injects await init_*() calls here

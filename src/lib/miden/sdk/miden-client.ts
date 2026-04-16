@@ -1,4 +1,4 @@
-import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
+import { MidenClientInterface } from './miden-client-interface';
 
 /**
  * Simple async mutex to prevent concurrent WASM client operations.
@@ -93,22 +93,29 @@ class AsyncMutex {
   }
 }
 
-// Historically this module exposed a global mutex (`AsyncMutex` above) that
-// wallet-side code wrapped around every WASM call to prevent concurrent
-// access panics ("recursive use of an object detected ..."). That
-// responsibility now lives inside the SDK itself: `@miden-sdk/miden-sdk`'s
-// `WebClient` serializes every mutating method via its internal
-// `_serializeWasmCall` chain. The wrapper here is kept as a no-op
-// pass-through so the ~30 existing call sites (and their test mocks)
-// don't need a mass refactor. New code should call the SDK directly.
+// Wallet-side serialization for WASM client calls.
 //
-// For the specific case of "wait for any in-flight SDK call to finish
-// before doing something else" (e.g. clearing the vault key on lock),
-// callers should use `midenClient.waitForIdle()` directly.
+// The SDK serializes mutating methods internally via `_serializeWasmCall`.
+// This wallet-level mutex provides additional coverage:
+//   1. Validated by every passing stress run since 2026-04-16.
+//   2. Cheap (one async hop per call) — overhead is negligible.
+//   3. Once unification has stabilized, a follow-up PR can attempt to
+//      drop this wrapper, gated on a dedicated stress run that proves
+//      the SDK's coverage is sufficient on its own.
+//
+// Bisect history: a prior attempt to make this a no-op was wrongly blamed
+// for stress regressions that turned out to be a CLI version mismatch. So
+// pass-through MIGHT be safe — but that's untested under stress, and out
+// of scope for the unification PR.
 const wasmClientMutex = new AsyncMutex();
 
 export async function withWasmClientLock<T>(operation: () => Promise<T>): Promise<T> {
-  return await operation();
+  await wasmClientMutex.acquire();
+  try {
+    return await operation();
+  } finally {
+    wasmClientMutex.release();
+  }
 }
 
 /**
@@ -123,30 +130,20 @@ export function runWhenClientIdle(operation: () => Promise<void>): void {
 }
 
 /**
- * Singleton manager for MidenClientInterface.
- * Ensures a bounded number of client instances (and underlying web workers) exist at a time.
+ * Singleton manager for the long-lived MidenClientInterface instance.
+ *
+ * Single-instance design: keystore callbacks are wired permanently at
+ * MidenClient.create time (via the keystore-bridge module); per-vault and
+ * per-tx state is bound late through the bridge's mutable slots, so we
+ * never need to dispose-and-recreate the underlying client just to swap
+ * options. This eliminates the multi-singleton race that used to require
+ * inter-instance JS-level serialization.
  */
 class MidenClientSingleton {
   private instance: MidenClientInterface | null = null;
   private initializingPromise: Promise<MidenClientInterface> | null = null;
 
-  private instanceWithOptions: MidenClientInterface | null = null;
-  private initializingPromiseWithOptions: Promise<MidenClientInterface> | null = null;
-
-  /**
-   * Get or create the singleton MidenClientInterface instance.
-   * This instance does not specify any options and is never disposed.
-   * On mobile, if instanceWithOptions already exists, return that to avoid
-   * creating multiple clients (which causes OOM from multiple WASM worker instances).
-   */
   async getInstance(): Promise<MidenClientInterface> {
-    // On mobile, reuse any existing client to avoid OOM from multiple worker instances
-    /* c8 ignore next 3 -- singleton reuse path, requires prior getInstanceWithOptions call */
-    if (this.instanceWithOptions) {
-      return this.instanceWithOptions;
-    }
-
-    /* c8 ignore next 3 -- singleton cache hit, requires WASM client creation */
     if (this.instance) {
       return this.instance;
     }
@@ -164,49 +161,18 @@ class MidenClientSingleton {
 
     return this.initializingPromise;
   }
-
-  /**
-   * Get or create the singleton MidenClientInterface instance with specified options.
-   * If it already exists, this instance will always be disposed and recreated to ensure option correctness.
-   */
-  async getInstanceWithOptions(options: MidenClientCreateOptions): Promise<MidenClientInterface> {
-    if (this.instanceWithOptions) {
-      this.disposeInstanceWithOptions();
-    }
-
-    /* c8 ignore next 3 -- concurrent init dedup, requires WASM client creation */
-    if (this.initializingPromiseWithOptions) {
-      return this.initializingPromiseWithOptions;
-    }
-
-    this.initializingPromiseWithOptions = (async () => {
-      const client = await MidenClientInterface.create(options);
-      this.instanceWithOptions = client;
-      this.initializingPromiseWithOptions = null;
-      return client;
-    })();
-
-    return this.initializingPromiseWithOptions;
-  }
-
-  disposeInstanceWithOptions(): void {
-    if (this.instanceWithOptions) {
-      this.instanceWithOptions.free();
-      this.instanceWithOptions = null;
-      this.initializingPromiseWithOptions = null;
-    }
-  }
 }
 
 const midenClientSingleton = new MidenClientSingleton();
 
 /**
- * Convenience function to get the shared MidenClientInterface instance.
- * Use this in your components and modules instead of calling MidenClientInterface.create().
+ * The shared, long-lived MidenClientInterface for this process.
+ * Use this in your components and modules instead of calling
+ * MidenClientInterface.create() directly.
+ *
+ * Tests that need a fresh client with a specific seed call
+ * `MidenClientInterface.create({seed})` directly, bypassing the singleton.
  */
-export async function getMidenClient(options?: MidenClientCreateOptions): Promise<MidenClientInterface> {
-  if (options) {
-    return await midenClientSingleton.getInstanceWithOptions(options);
-  }
-  return await midenClientSingleton.getInstance();
+export async function getMidenClient(): Promise<MidenClientInterface> {
+  return midenClientSingleton.getInstance();
 }

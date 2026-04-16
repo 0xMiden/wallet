@@ -20,8 +20,8 @@ import { WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { setActiveInsertKey } from '../sdk/keystore-bridge';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
 const STORAGE_KEY_PREFIX = 'vault';
 const DEFAULT_SETTINGS = {};
@@ -48,12 +48,32 @@ enum StorageEntity {
 const checkStrgKey = createStorageKey(StorageEntity.Check);
 const mnemonicStrgKey = createStorageKey(StorageEntity.Mnemonic);
 const accPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccPubKey);
-const accAuthSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthSecretKey);
-const accAuthPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthPubKey);
+export const accAuthSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthSecretKey);
+export const accAuthPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthPubKey);
 const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey);
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
+
+/**
+ * Module-private helper for keystore entry persistence. Used by:
+ *   - Vault.encryptKeystoreEntry — writes under `this.vaultKey`
+ *   - Vault.spawn — writes under the just-derived local vaultKey, before
+ *     a Vault instance exists.
+ *
+ * Single-source-of-truth: drift between the two call sites is impossible.
+ */
+async function persistKeystoreEntry(key: Uint8Array, secretKey: Uint8Array, vaultKey: CryptoKey): Promise<void> {
+  const pubKeyHex = Buffer.from(key).toString('hex');
+  const secretKeyHex = Buffer.from(secretKey).toString('hex');
+  await encryptAndSaveMany(
+    [
+      [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
+      [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+    ],
+    vaultKey
+  );
+}
 
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
@@ -222,20 +242,14 @@ export class Vault {
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
-      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
-        const pubKeyHex = Buffer.from(key).toString('hex');
-        const secretKeyHex = Buffer.from(secretKey).toString('hex');
-        await encryptAndSaveMany(
-          [
-            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
-            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
-          ],
-          vaultKey
-        );
-      };
-      const options: MidenClientCreateOptions = {
-        insertKeyCallback
-      };
+      // Wire the keystore bridge to a closure over the just-derived
+      // vaultKey. The unlocked event hasn't fired yet (Vault doesn't
+      // exist until spawn returns), so the bridge's unlocked.watch
+      // hasn't pre-set the slot. After spawn returns and unlocked
+      // fires, the watcher re-points the slot at vault.encryptKeystoreEntry
+      // (same effective key — vaultKey persists into `new Vault(vaultKey)`).
+      setActiveInsertKey((key, secretKey) => persistKeystoreEntry(key, secretKey, vaultKey));
+
       const hdAccIndex = 0;
       const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
 
@@ -243,7 +257,7 @@ export class Vault {
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const accPublicKey = await withWasmClientLock(async () => {
         console.log('[Vault.spawn] Step 6: getting miden client...');
-        const midenClient = await getMidenClient(options);
+        const midenClient = await getMidenClient();
         console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
         if (ownMnemonic && midenClient.network !== 'mock') {
           try {
@@ -386,24 +400,15 @@ export class Vault {
 
       const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
 
-      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
-        const pubKeyHex = Buffer.from(key).toString('hex');
-        const secretKeyHex = Buffer.from(secretKey).toString('hex');
-        await encryptAndSaveMany(
-          [
-            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
-            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
-          ],
-          this.vaultKey
-        );
-      };
-      const options: MidenClientCreateOptions = {
-        insertKeyCallback
-      };
+      // No explicit setActiveInsertKey here: the unlocked event watcher
+      // already wired the bridge slot to point at this vault's
+      // encryptKeystoreEntry. `this` IS the active vault (gated by
+      // withUnlocked at every caller). A defensive set would mask
+      // any `this !== active vault` drift bug rather than expose it.
 
       // Wrap WASM client operations in a lock to prevent concurrent access
       const walletId = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient(options);
+        const midenClient = await getMidenClient();
         if (isOwnMnemonic && walletType === WalletType.OnChain) {
           try {
             return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
@@ -516,6 +521,19 @@ export class Vault {
   async getAuthSecretKey(key: string) {
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
     return secretKey;
+  }
+
+  /**
+   * Encrypt a freshly-derived account keypair under this vault's KEK and
+   * persist to storage. Intended for the keystore bridge's
+   * `activeInsertKey` slot only — other code paths should use the
+   * higher-level Vault methods (signTransaction, getAuthSecretKey, etc.).
+   *
+   * Encapsulates `this.vaultKey` so the KEK never leaves the Vault
+   * instance.
+   */
+  async encryptKeystoreEntry(key: Uint8Array, secretKey: Uint8Array): Promise<void> {
+    return persistKeystoreEntry(key, secretKey, this.vaultKey);
   }
 
   async decrypt(_accPublicKey: string, _cipherTexts: string[]) {}
