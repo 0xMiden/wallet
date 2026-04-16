@@ -351,29 +351,45 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
     if (!sendResult.success) {
       if (sendResult.errorType === 'transport') {
-        console.error('Failed to send private note through the transport layer', {
+        // The on-chain tx already committed — sender's asset is consumed,
+        // private note commitment is durable on chain. Only the transport
+        // blob failed to reach the recipient. Mark Completed (the tx IS
+        // live) but set `transportPending` so the background retry loop
+        // picks it up and calls `resendPrivateById` until the blob lands.
+        // Without the flag, a `Failed` status would hide a permanently
+        // undiscoverable note from the sender's balance reconciliation.
+        console.warn('Transport failed for private note; queued for retry', {
           txId: tx.id,
+          noteId,
           secondaryAccountId: tx.secondaryAccountId,
           error: sendResult.error
         });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport error',
-          displayIcon: 'FAILED',
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Sent (pending delivery)',
           transactionId: executedTx.id().toHex(),
           outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
+          completedAt: Math.floor(Date.now() / 1000),
+          transportPending: true,
+          transportAttempts: 1,
+          transportLastAttemptAt: Math.floor(Date.now() / 1000)
         });
       } else {
-        console.error('Failed to initialize Miden client for private note send', {
+        // errorType === 'init' — the miden client itself couldn't be
+        // created. No transport attempt happened, but the on-chain tx
+        // still committed via the SDK pipeline. Treat the same as
+        // transport failure: Completed with retry pending.
+        console.error('Miden client init failed during private note send; queued for retry', {
           txId: tx.id,
           error: sendResult.error
         });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport init error',
-          displayIcon: 'FAILED',
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Sent (pending delivery)',
           transactionId: executedTx.id().toHex(),
           outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
+          completedAt: Math.floor(Date.now() / 1000),
+          transportPending: true,
+          transportAttempts: 1,
+          transportLastAttemptAt: Math.floor(Date.now() / 1000)
         });
       }
       return;
@@ -838,6 +854,98 @@ export const safeGenerateTransactionsLoop = async (
       return false;
     });
 };
+
+// ── Transport retry for private-note sends ─────────────────────────────────
+//
+// Private notes require an out-of-band "transport" step after the on-chain tx
+// commits, delivering the note blob to the recipient's address. If that step
+// fails (transport service down, network blip), the sender's asset is spent
+// but the recipient has no way to discover the note — private notes have no
+// on-chain details. `completeSendTransaction` now records
+// `transportPending: true` on these txs; the loop below finds them and
+// re-drives transport via the SDK's `resendPrivateById` helper.
+
+/** Max transport retry attempts before giving up and flagging Failed. */
+const TRANSPORT_RETRY_MAX_ATTEMPTS = 20;
+/** Exponential backoff base, in seconds. Capped at ~10 min. */
+const TRANSPORT_RETRY_BASE_DELAY_S = 10;
+
+/**
+ * Run one pass of transport retries: finds all `transportPending` send txs,
+ * backs off by attempt count, and calls the SDK to re-send each note.
+ * Safe to call concurrently (serialized via a named Web Lock).
+ */
+export const retryPendingTransports = async (): Promise<void> => {
+  await navigator.locks
+    .request(`transport-retry-loop`, { ifAvailable: true }, async lock => {
+      if (!lock) return;
+      await retryPendingTransportsImpl();
+    })
+    .catch(e => {
+      logger.error('Error in transport-retry loop', e);
+    });
+};
+
+async function retryPendingTransportsImpl(): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const pending = await Repo.transactions.filter(tx => tx.type === 'send' && tx.transportPending === true).toArray();
+
+  for (const tx of pending) {
+    const attempts = tx.transportAttempts ?? 0;
+    const lastAttemptAt = tx.transportLastAttemptAt ?? 0;
+    // Exponential backoff: delay = base * 2^attempts, capped.
+    const delay = Math.min(TRANSPORT_RETRY_BASE_DELAY_S * 2 ** attempts, 600);
+    if (now - lastAttemptAt < delay) continue;
+
+    if (attempts >= TRANSPORT_RETRY_MAX_ATTEMPTS) {
+      logger.warning(`Transport retry budget exhausted for tx ${tx.id}; marking Failed`);
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportPending = false;
+        record.status = ITransactionStatus.Failed;
+        record.displayMessage = 'Send failed: transport unavailable';
+        record.displayIcon = 'FAILED';
+        record.error = 'Transport retries exhausted';
+      });
+      continue;
+    }
+
+    const noteId = tx.outputNoteIds?.[0];
+    const recipient = tx.secondaryAccountId;
+    if (!noteId || !recipient) {
+      logger.warning(`Transport-pending tx ${tx.id} missing noteId/recipient; clearing flag`);
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportPending = false;
+      });
+      continue;
+    }
+
+    try {
+      const midenClient = await getMidenClient();
+      const rawClient: any = (midenClient as any).client;
+      if (!rawClient?.notes?.resendPrivateById) {
+        // SDK doesn't have the helper (old version); leave the flag set
+        // so a future version picks it up. Don't burn the attempts budget.
+        return;
+      }
+      await rawClient.notes.resendPrivateById({ noteId, to: recipient });
+
+      // Success — clear the flag.
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportPending = false;
+        record.displayMessage = 'Sent';
+        record.transportAttempts = attempts + 1;
+        record.transportLastAttemptAt = now;
+      });
+      logger.info(`Transport retry succeeded for tx ${tx.id} (attempt ${attempts + 1})`);
+    } catch (err) {
+      logger.warning(`Transport retry attempt ${attempts + 1} failed for tx ${tx.id}`, err);
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportAttempts = attempts + 1;
+        record.transportLastAttemptAt = now;
+      });
+    }
+  }
+}
 
 /**
  * Start background transaction processing for dApp transactions.

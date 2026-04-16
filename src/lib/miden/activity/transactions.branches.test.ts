@@ -204,7 +204,13 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('marks failed on transport error during private note send', async () => {
+  it('marks Completed with transportPending on transport error during private note send', async () => {
+    // Previously transport failures marked the tx Failed. They now mark it
+    // Completed with `transportPending: true` because the on-chain tx
+    // already committed — a Failed status would hide the sender's asset
+    // as "lost" even though it's only the delivery blob that needs retry.
+    // See `retryPendingTransports` for the background loop that completes
+    // delivery via `resendPrivateById`.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -214,14 +220,19 @@ describe('completeSendTransaction', () => {
     const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.displayMessage).toContain('transport');
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.transportPending).toBe(true);
+      expect(txStore[0]!.transportAttempts).toBe(1);
+      expect(txStore[0]!.displayMessage).toContain('pending delivery');
     } finally {
       helpers.toNoteTypeString = orig;
     }
   });
 
-  it('marks failed on init error (withWasmClientLock itself rejects)', async () => {
+  it('marks Completed with transportPending on init error (withWasmClientLock rejects)', async () => {
+    // As above: even if the client itself failed to initialize, the tx
+    // already committed on chain. Mark Completed + transportPending so
+    // the retry loop can still deliver the note once the client is back.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
@@ -236,8 +247,9 @@ describe('completeSendTransaction', () => {
     const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.displayMessage).toContain('init');
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.transportPending).toBe(true);
+      expect(txStore[0]!.displayMessage).toContain('pending delivery');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;

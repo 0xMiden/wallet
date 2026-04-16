@@ -32,6 +32,7 @@ jest.mock('webextension-polyfill', () => mockPolyfill);
 const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
 const mockHasQueuedTransactions = jest.fn();
+const mockRetryPendingTransports = jest.fn().mockResolvedValue(undefined);
 
 // transaction-processor.ts imports directly from lib/miden/activity/transactions
 // (not the activity/index re-export) to avoid a circular init deadlock in the
@@ -40,7 +41,8 @@ const mockHasQueuedTransactions = jest.fn();
 jest.mock('lib/miden/activity/transactions', () => ({
   safeGenerateTransactionsLoop: (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args),
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
-  hasQueuedTransactions: (...args: unknown[]) => mockHasQueuedTransactions(...args)
+  hasQueuedTransactions: (...args: unknown[]) => mockHasQueuedTransactions(...args),
+  retryPendingTransports: (...args: unknown[]) => mockRetryPendingTransports(...args)
 }));
 
 const mockWithUnlocked = jest.fn();
