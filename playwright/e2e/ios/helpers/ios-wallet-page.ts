@@ -303,6 +303,8 @@ export class IosWalletPage implements WalletPage {
     recipientAddress: string;
     amount: string;
     isPrivate: boolean;
+    /** Optional token symbol — accepted for interface compatibility; iOS still uses first row. */
+    tokenSymbol?: string;
   }): Promise<void> {
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);

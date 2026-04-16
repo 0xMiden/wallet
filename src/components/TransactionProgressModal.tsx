@@ -9,7 +9,8 @@ import {
   hasQueuedTransactions,
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop as dbTransactionsLoop,
-  getAllUncompletedTransactions
+  getAllUncompletedTransactions,
+  startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import { useMidenContext } from 'lib/miden/front';
 import { isExtension } from 'lib/platform';
@@ -31,22 +32,31 @@ export const TransactionProgressModal: FC = () => {
   // Track if we're actively processing (started when modal opens, continues even when hidden)
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // On extension: check for uncompleted send transactions on mount and auto-open modal
+  // If there are uncompleted send transactions on mount (e.g. after a reload
+  // mid-send), resume processing silently. We deliberately do NOT auto-open
+  // the modal — that would reintroduce the "page reload → modal covers
+  // Send/Home → cannot interact with the wallet until the pending tx
+  // confirms" block that the stress suite caught. The user's next explicit
+  // send action still opens the modal via `openTransactionModal()` in
+  // SendManager.
+  //
+  // On extension: nudge the SW, which owns the tx loop.
+  // On mobile/desktop: no SW — drive the loop directly via the shared
+  // background processor (same entry point Explore's auto-consume uses).
   useEffect(() => {
-    if (!isExtension()) return;
-
-    const checkForSendTxs = async () => {
+    const resumeIfNeeded = async () => {
       const uncompleted = await getAllUncompletedTransactions();
       const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
-      if (hasSendTxs) {
-        openModal();
-        // Ensure SW is processing (deduplicates via isProcessing flag)
+      if (!hasSendTxs) return;
+      if (isExtension()) {
         requestSWTransactionProcessing();
+      } else {
+        startBackgroundTransactionProcessing(signTransaction);
       }
     };
 
-    checkForSendTxs();
-  }, [openModal]);
+    resumeIfNeeded();
+  }, [signTransaction]);
 
   // Reset hasLoadedOnce when modal closes
   useEffect(() => {

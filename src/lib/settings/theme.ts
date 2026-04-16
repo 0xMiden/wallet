@@ -24,7 +24,15 @@ export function applyTheme(setting: ThemeSetting) {
   } else {
     doc.classList.remove('dark');
   }
-  document.body.style.backgroundColor = resolved === 'dark' ? '#191919' : '#F6F4F2';
+  // Paint BOTH <html> and <body>. The HTML shells (fullpage.html, mobile.html,
+  // desktop.html, popup.html) hard-code a light inline `background-color` on
+  // <html> for pre-React paint — without overriding it here, switching to dark
+  // leaves the inline cream showing above the body and anywhere the body
+  // doesn't stretch to fill (e.g. content shorter than viewport, or the 24px
+  // margin-top fullpage.html sets on body).
+  const bg = resolved === 'dark' ? '#191919' : '#F6F4F2';
+  doc.style.backgroundColor = bg;
+  document.body.style.backgroundColor = bg;
 }
 
 // Single listener for the OS-level light/dark toggle. When the user's setting

@@ -19,6 +19,7 @@ const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 const MANIFEST_VERSION = process.env.MANIFEST_VERSION ?? '3';
 const MANIFEST_FILE = MANIFEST_VERSION === '3' ? 'manifest.json' : 'manifest.v2.json';
+const MIDEN_NETWORK = process.env.MIDEN_NETWORK ?? '';
 
 // ── Manifest transform (ported from webpack.public.config.js) ───────────────
 
@@ -88,32 +89,65 @@ function copyPublicAssets(outDir: string): Plugin {
       const manifestSrc = join(publicDir, MANIFEST_FILE);
       const manifestContent = JSON.parse(readFileSync(manifestSrc, 'utf8'));
       const transformed = transformManifestKeys(manifestContent, TARGET_BROWSER);
+
+      // Devnet builds get blue icons so the extension can be told apart from
+      // a production wallet at a glance. Swap both the top-level `icons` (shown
+      // on chrome://extensions/, app launcher, etc.) and `action.default_icon`
+      // (shown in the browser toolbar pin/pop-out row). Swap is done at
+      // manifest-write time so the source manifest stays canonical and we
+      // don't have to duplicate the vendor-key machinery.
+      if (MIDEN_NETWORK === 'devnet') {
+        const swap = (path: string) =>
+          path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) =>
+            `logo-devnet${suffix ?? ''}.png`
+          );
+        const swapIconDict = (dict: Record<string, string> | undefined) =>
+          dict
+            ? Object.fromEntries(
+                Object.entries(dict).map(([k, v]) => [k, swap(String(v))])
+              )
+            : dict;
+        if (transformed.icons) transformed.icons = swapIconDict(transformed.icons);
+        if (transformed.action?.default_icon) {
+          transformed.action.default_icon = swapIconDict(transformed.action.default_icon);
+        }
+        if (transformed.browser_action?.default_icon) {
+          transformed.browser_action.default_icon = swapIconDict(
+            transformed.browser_action.default_icon
+          );
+        }
+      }
+
       writeFileSync(join(outDir, 'manifest.json'), JSON.stringify(transformed, null, 2));
 
-      // Copy WASM to paths the SDK's classic Worker expects.
-      // The worker is at /assets/web-client-methods-worker-[hash].js
-      // and resolves "assets/miden_client_web.wasm" relative to self.location.href,
-      // giving /assets/assets/miden_client_web.wasm.
-      // CRITICAL: copy from the SDK's node_modules — not from the extension's own
-      // static/wasm/ output. The extension build produces its OWN WASM binary for
-      // the background SW (with its own wasm-bindgen hash suffixes), and that WASM
-      // does NOT match the SDK Worker's embedded Cargo-XXXX.js glue. Using the
-      // wrong WASM produces a WebAssembly.LinkError on import.
-      const assetsDir = join(outDir, 'assets');
-      const sdkWasm = resolve(
-        __dirname,
-        'node_modules',
-        '@miden-sdk',
-        'miden-sdk',
-        'dist',
-        'assets',
-        'miden_client_web.wasm'
-      );
-      if (existsSync(sdkWasm) && existsSync(assetsDir)) {
-        const nestedDir = join(assetsDir, 'assets');
-        mkdirSync(nestedDir, { recursive: true });
-        cpSync(sdkWasm, join(nestedDir, 'miden_client_web.wasm'));
-        cpSync(sdkWasm, join(assetsDir, 'miden_client_web.wasm'));
+      // Copy WASM to paths the SDK's classic Worker expects — but only when
+      // we're building for a target that actually runs the classic worker at
+      // runtime (Safari). On Chrome / Firefox / Edge, `WebClient._shouldUseClassicWorker`
+      // picks the module worker and never instantiates the classic one, so the
+      // classic-path WASM copies are pure bloat (~28 MB in-zip, two duplicates
+      // of a 14.6 MB binary).
+      //
+      // The classic worker's bundle has `self.location.href`-rewritten
+      // `new URL("assets/miden_client_web.wasm", ...)` which Vite can't statically
+      // trace, so we still have to hand-copy the peer when we DO ship the
+      // classic path.
+      if (TARGET_BROWSER === 'safari') {
+        const assetsDir = join(outDir, 'assets');
+        const sdkWasm = resolve(
+          __dirname,
+          'node_modules',
+          '@miden-sdk',
+          'miden-sdk',
+          'dist',
+          'assets',
+          'miden_client_web.wasm'
+        );
+        if (existsSync(sdkWasm) && existsSync(assetsDir)) {
+          const nestedDir = join(assetsDir, 'assets');
+          mkdirSync(nestedDir, { recursive: true });
+          cpSync(sdkWasm, join(nestedDir, 'miden_client_web.wasm'));
+          cpSync(sdkWasm, join(assetsDir, 'miden_client_web.wasm'));
+        }
       }
     },
   };

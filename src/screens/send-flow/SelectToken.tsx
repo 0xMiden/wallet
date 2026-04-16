@@ -72,7 +72,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
           placeholder={t('searchByNameOrSymbol')}
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          className="w-full bg-gray-25 rounded-xl py-4 px-4 text-center text-base placeholder-[#484848A3] outline-none"
+          className="w-full bg-gray-25 rounded-xl py-4 px-4 text-center text-base text-black placeholder-heading-gray outline-none"
         />
         <div className="flex flex-col py-4">
           {filteredTokens.map(token => {

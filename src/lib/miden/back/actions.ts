@@ -14,6 +14,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { WalletSettings, WalletState } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -130,7 +131,15 @@ export function registerImportedWallet(password?: string, mnemonic?: string) {
 
 export function lock() {
   return withInited(async () => {
-    locked();
+    // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
+    // consume loop) to drain before clearing the vault key. If we lock while
+    // the kernel is mid-`miden::protocol::auth::request`, the signing
+    // callback has no key → executeTransaction fails → notes can end up
+    // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
+    // coincided with LOCK_REQUEST arriving while a consume loop was active.
+    await withWasmClientLock(async () => {
+      locked();
+    });
   });
 }
 

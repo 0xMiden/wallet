@@ -129,30 +129,3 @@ export type OnboardingAction =
 export type OnboardingPlan = {
   steps: OnboardingStep[]; // Order maintained
 };
-
-export enum ForgotPasswordStep {
-  Welcome = 'welcome',
-  BackupSeedPhrase = 'backup-seed-phrase',
-  VerifySeedPhrase = 'verify-seed-phrase',
-  SelectImportType = 'select-import-type',
-  ImportFromSeed = 'import-from-seed',
-  ImportFromFile = 'import-from-file',
-  CreatePassword = 'create-password',
-  SelectTransactionType = 'select-transaction-type',
-  Confirmation = 'confirmation'
-}
-
-export type ForgotPasswordAction =
-  | CreateWalletAction
-  | BackupSeedPhraseAction
-  | VerifySeedPhraseAction
-  | SelectTransactionTypeAction
-  | SelectImportTypeAction
-  | ImportFromSeedAction
-  | ImportFromFileAction
-  | ImportSeedPhraseSubmitAction
-  | ImportWalletFileSubmitAction
-  | CreatePasswordAction
-  | CreatePasswordSubmitAction
-  | ConfirmationAction
-  | BackAction;

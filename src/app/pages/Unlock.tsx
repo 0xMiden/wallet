@@ -8,8 +8,13 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { openInFullPage, useAppEnv } from 'app/env';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
-import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg';
-import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg';
+// `?url` forces the asset pipeline to produce a plain URL string instead of
+// letting the svg-to-react plugin swallow the default export (the plugin sets
+// default to "" because it only means to emit the named `ReactComponent`).
+// Without the suffix `<img src={WalletLogo}>` renders an empty src and Chrome
+// falls back to showing the alt text.
+import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url';
+import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { useFormAnalytics } from 'lib/analytics';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
