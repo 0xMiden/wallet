@@ -3,7 +3,6 @@ import React, { HTMLAttributes } from 'react';
 import classNames from 'clsx';
 
 import { IconName } from 'app/icons/v2';
-import { isMobile } from 'lib/platform';
 
 import { CircleButton } from './CircleButton';
 

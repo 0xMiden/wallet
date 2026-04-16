@@ -45,7 +45,7 @@ const CopyButton: FC<CopyButtonProps> = ({
         setCopied(false);
       }
     }),
-    [copied, setCopied]
+    [copied, setCopied, t]
   );
 
   const buttonRef = useTippy<HTMLButtonElement>(tippyProps);

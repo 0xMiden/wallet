@@ -22,6 +22,7 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 import { truncateAddress } from 'utils/string';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
@@ -40,7 +41,7 @@ type TokenDetailProps = {
 
 const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const { t } = useTranslation();
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   const account = useAccount();
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const allTokensMetadata = useAllTokensBaseMetadata();
@@ -56,11 +57,12 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
   const handleBack = () => goBack();
 
-  const containerClass = isMobile()
-    ? 'h-full w-full'
-    : fullPage
-      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-      : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  const containerClass =
+    isMobile() || sidePanel
+      ? 'h-full w-full'
+      : fullPage
+        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
+        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
@@ -155,7 +157,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
         </div>
         <span className="text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>
         <div className="mt-3 h-20">
-          <ChartContainer config={{ price: { color: '#FF5500' } }} className="h-full w-full aspect-auto">
+          <ChartContainer config={{ price: { color: PRIMARY_HEX } }} className="h-full w-full aspect-auto">
             <LineChart data={chartData}>
               <YAxis domain={yDomain} hide />
               <Tooltip
@@ -173,10 +175,10 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
               <Line
                 type="monotone"
                 dataKey="value"
-                stroke="#FF5500"
+                stroke={PRIMARY_HEX}
                 strokeWidth={2}
                 dot={false}
-                activeDot={{ r: 4, stroke: '#FF5500', fill: '#fff', strokeWidth: 2 }}
+                activeDot={{ r: 4, stroke: PRIMARY_HEX, fill: '#fff', strokeWidth: 2 }}
               />
             </LineChart>
           </ChartContainer>

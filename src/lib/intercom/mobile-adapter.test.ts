@@ -3,7 +3,7 @@ import { store } from 'lib/miden/back/store';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { MobileIntercomAdapter, getMobileIntercomAdapter } from './mobile-adapter';
+import { MobileIntercomAdapter } from './mobile-adapter';
 
 // Mock the dependencies
 jest.mock('lib/miden/back/actions', () => ({
@@ -268,7 +268,7 @@ describe('MobileIntercomAdapter', () => {
         payload: { method: 'test' }
       } as any);
 
-      expect(Actions.processDApp).toHaveBeenCalledWith('https://example.com', { method: 'test' });
+      expect(Actions.processDApp).toHaveBeenCalledWith('https://example.com', { method: 'test' }, undefined);
       expect(response).toEqual({
         type: MidenMessageType.PageResponse,
         payload: { result: 'success' }

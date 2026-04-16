@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<android.widget.Toolbar xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#eeeeef"
+    android:elevation="4dp"
+    app:titleTextColor="#262626">
+
+	<ImageButton
+		android:id="@+id/closeButton"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:layout_gravity="start"
+		android:background="#eeeeef"
+		android:contentDescription="@string/close_button"
+		android:minWidth="38dp"
+		android:minHeight="38dp"
+		android:src="@drawable/ic_clear_24px"
+		android:translationX="-8dp" />
+
+    <ImageButton
+        android:id="@+id/buttonNearDone"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="end"
+        android:layout_marginEnd="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/button_near_done"
+        android:padding="12dp"
+        android:src="@drawable/ic_clear_24px"
+        android:visibility="gone" />
+    <ImageButton
+        android:id="@+id/reloadButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:background="#eeeeef"
+        android:paddingRight="10dp"
+        android:contentDescription="@string/reload_button"
+        android:src="@drawable/ic_refresh"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/titleText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:text="@string/title"
+        android:maxLines="5"
+        android:ellipsize="end"
+        android:singleLine="false"
+        android:textColor="#262626" />
+
+    <ImageButton
+        android:id="@+id/shareButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="end"
+        android:layout_marginEnd="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/share_button"
+        android:padding="12dp"
+        android:src="@drawable/ic_share"
+        android:visibility="gone" />
+
+    <ImageButton
+        android:id="@+id/forwardButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:background="#eeeeef"
+        android:contentDescription="@string/forward_button"
+        android:paddingRight="10dp"
+        android:src="@drawable/arrow_forward_disabled" />
+
+    <ImageButton
+        android:id="@+id/backButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:background="#eeeeef"
+        android:contentDescription="@string/back_button"
+        android:paddingRight="10dp"
+        android:src="@drawable/arrow_back_disabled" />
+</android.widget.Toolbar>

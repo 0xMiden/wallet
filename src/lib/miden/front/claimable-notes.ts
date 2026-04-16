@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
-import { type ConsumableNoteRecord } from '@miden-sdk/miden-sdk';
+import { type InputNoteRecord } from '@miden-sdk/miden-sdk';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { isExtension, isIOS } from 'lib/platform';
@@ -40,15 +40,14 @@ type ParsedNote = {
 
 // -------------------- Pure helpers (no side effects) --------------------
 
-function parseNotes(rawNotes: ConsumableNoteRecord[], notesBeingClaimed: Set<string>): ParsedNote[] {
+function parseNotes(rawNotes: InputNoteRecord[], notesBeingClaimed: Set<string>): ParsedNote[] {
   const parsed: ParsedNote[] = [];
 
   for (const note of rawNotes) {
     try {
-      const noteRecord = note.inputNoteRecord();
-      const noteId = noteRecord.id().toString();
-      const noteMeta = noteRecord.metadata();
-      const details = noteRecord.details();
+      const noteId = note.id().toString();
+      const noteMeta = note.metadata();
+      const details = note.details();
 
       const assetSet = details.assets();
       const fungibleAssets = assetSet.fungibleAssets();
@@ -170,7 +169,7 @@ async function fetchNotesFromLocalClient(
 
 // -------------------- Extension hook (reads from Zustand) --------------------
 
-function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
+function useExtensionClaimableNotes(_publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
   const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);

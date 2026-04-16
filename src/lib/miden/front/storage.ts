@@ -68,7 +68,7 @@ export function onStorageChanged<T = any>(key: string, callback: (newValue: T) =
     const browser = browserModule.default;
     const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
       if (areaName === 'local' && key in changes) {
-        callback(changes[key].newValue as T);
+        callback(changes[key]!.newValue as T);
       }
     };
 

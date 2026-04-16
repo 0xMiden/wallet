@@ -1,18 +1,28 @@
-import React, { FC, useCallback, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
-import { ReactComponent as AddressBookIcon } from 'app/icons/settings/address-book.svg';
-import { ReactComponent as ToolIcon } from 'app/icons/settings/advanced-settings.svg';
-import { ReactComponent as AppsIcon } from 'app/icons/settings/dapp.svg';
-import { ReactComponent as EncryptedWalletIcon } from 'app/icons/settings/encrypted-wallet-file.svg';
-import { ReactComponent as SettingsIcon } from 'app/icons/settings/general.svg';
-import { ReactComponent as LanguageIcon } from 'app/icons/settings/language.svg';
-import { ReactComponent as PrivacyPolicyIcon } from 'app/icons/settings/privacy-policy.svg';
-import { ReactComponent as SeedPhraseIcon } from 'app/icons/settings/seed-phrase.svg';
-import { ReactComponent as TosIcon } from 'app/icons/settings/tos.svg';
+import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
+import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
+import { ReactComponent as ToolIconDevnet } from 'app/icons/settings/advanced-settings-devnet.svg';
+import { ReactComponent as ToolIconOrange } from 'app/icons/settings/advanced-settings.svg';
+import { ReactComponent as AppsIconDevnet } from 'app/icons/settings/dapp-devnet.svg';
+import { ReactComponent as AppsIconOrange } from 'app/icons/settings/dapp.svg';
+import { ReactComponent as EncryptedWalletIconDevnet } from 'app/icons/settings/encrypted-wallet-file-devnet.svg';
+import { ReactComponent as EncryptedWalletIconOrange } from 'app/icons/settings/encrypted-wallet-file.svg';
+import { ReactComponent as SettingsIconDevnet } from 'app/icons/settings/general-devnet.svg';
+import { ReactComponent as SettingsIconOrange } from 'app/icons/settings/general.svg';
+import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/language-devnet.svg';
+import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
+import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
+import { ReactComponent as PrivacyPolicyIconOrange } from 'app/icons/settings/privacy-policy.svg';
+import { ReactComponent as SeedPhraseIconDevnet } from 'app/icons/settings/seed-phrase-devnet.svg';
+import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-phrase.svg';
+import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
+import { ReactComponent as TosIconOrange } from 'app/icons/settings/tos.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
@@ -25,7 +35,9 @@ import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { isMobile } from 'lib/platform';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
@@ -34,6 +46,17 @@ import pkg from '../../../package.json';
 import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
+
+const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
+const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
+const ToolIcon = isDevnet ? ToolIconDevnet : ToolIconOrange;
+const AppsIcon = isDevnet ? AppsIconDevnet : AppsIconOrange;
+const EncryptedWalletIcon = isDevnet ? EncryptedWalletIconDevnet : EncryptedWalletIconOrange;
+const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
+const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
+const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
+const SeedPhraseIcon = isDevnet ? SeedPhraseIconDevnet : SeedPhraseIconOrange;
+const TosIcon = isDevnet ? TosIconDevnet : TosIconOrange;
 
 type SettingsProps = {
   tabSlug?: string | null;
@@ -206,6 +229,57 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
 
+  // On mobile, morph the native navbar AND the parked-dApp bubbles
+  // OUT when a settings drawer / seed-warning overlay takes over the
+  // bottom of the screen — both would otherwise fight with the drawer
+  // for the same real estate. The navbar morph is a Swift spring
+  // animation on the native UIWindow; the bubbles morph via a CSS
+  // rule keyed on `body[data-drawer-open]` (see main.css).
+  //
+  // Morphs back IN when the drawer closes. No-op on desktop/extension.
+  const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (drawerOrSheetOpen) {
+      document.body.setAttribute('data-drawer-open', '');
+      InAppBrowser.morphNavbarOut().catch(() => {});
+    } else {
+      document.body.removeAttribute('data-drawer-open');
+      InAppBrowser.morphNavbarIn().catch(() => {});
+    }
+    // Unmount cleanup: if the Settings page unmounts while a drawer
+    // is still open (e.g. user swipes back mid-open), force both the
+    // navbar and the bubbles back in so nothing is stranded
+    // off-screen on the next page.
+    return () => {
+      if (!isMobile()) return;
+      if (drawerOrSheetOpen) {
+        document.body.removeAttribute('data-drawer-open');
+        InAppBrowser.morphNavbarIn().catch(() => {});
+      }
+    };
+  }, [drawerOrSheetOpen]);
+
+  // Mark Settings as an edge-to-edge page so it extends behind the
+  // navbar pill (no 88pt bottom gutter from main.css). The list
+  // container below adds its own pb-[88px] so the last item can
+  // still be scrolled above the floating toolbar — without that
+  // internal padding the bottom item would sit permanently under
+  // the pill and be unreachable. Only apply when we're showing the
+  // settings root (not an active sub-tab with its own layout).
+  const showSettingsRoot = !activeTab;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (showSettingsRoot) {
+      document.body.setAttribute('data-edge-to-edge', '');
+    } else {
+      document.body.removeAttribute('data-edge-to-edge');
+    }
+    return () => {
+      document.body.removeAttribute('data-edge-to-edge');
+    };
+  }, [showSettingsRoot]);
+
   const handleSeedWarningClose = useCallback(() => {
     hapticLight();
     setShowSeedWarning(false);
@@ -234,7 +308,12 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             </>
           )
         ) : (
-          <div className="flex flex-col w-full py-4 gap-8 text-heading-gray px-4">
+          // pb-[88px] reserves space at the bottom equal to the native
+          // navbar pill's height (76 + 12 gap = 88pt) so the last menu
+          // item can be scrolled above the floating toolbar. Without
+          // this, opting out of the body gutter via data-edge-to-edge
+          // would leave the bottom row permanently hidden behind the pill.
+          <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
             {TAB_GROUPS.map(group => (
               <div key={group.titleI18nKey}>
                 <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>

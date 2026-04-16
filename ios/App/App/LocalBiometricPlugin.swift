@@ -199,15 +199,23 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func isHardwareSecurityAvailable(_ call: CAPPluginCall) {
         os_log("[LocalBiometric] isHardwareSecurityAvailable called", log: logger, type: .debug)
 
+        // On Apple Silicon Macs the iOS Simulator can access the host's Secure
+        // Enclave, so `SecureEnclave.isAvailable` returns true even on the
+        // simulator. That breaks onboarding because `evaluatePolicy` against
+        // simulated Face ID is unreliable. Force false on the simulator so the
+        // wallet falls back to password-only protection there.
+        #if targetEnvironment(simulator)
+        os_log("[LocalBiometric] Running on simulator, reporting hardware security as unavailable", log: logger, type: .debug)
+        call.resolve(["available": false])
+        #else
         let hasSecureEnclave = SecureEnclave.isAvailable
 
         os_log("[LocalBiometric] Secure Enclave available: %{public}@",
                log: logger, type: .debug,
                String(describing: hasSecureEnclave))
 
-        // Only return true if Secure Enclave is available (real device)
-        // On simulator, this returns false and app falls back to password-only unlock
         call.resolve(["available": hasSecureEnclave])
+        #endif
     }
 
     /// Check if a hardware key already exists

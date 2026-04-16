@@ -1,4 +1,4 @@
-import React, { FC, memo, useCallback, useMemo } from 'react';
+import React, { FC, memo, useCallback } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,6 @@ import { Button } from 'app/atoms/Button';
 import { useAppEnv } from 'app/env';
 import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { isMobile } from 'lib/platform';
-import { formatAmount } from 'lib/shared/format';
 import { Link } from 'lib/woozie';
 
 import { IHistoryEntry } from './IHistoryEntry';
@@ -24,7 +23,7 @@ type HistoryItemProps = {
 
 const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry }) => {
   const { t } = useTranslation();
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
   const isReceive = entry.transactionIcon === 'RECEIVE' || entry.message === 'Consuming';
   const isFaucet = isFaucetRequest(entry);
 
@@ -61,7 +60,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         {entry.secondaryAddress && (
           <span className="text-xs text-grey-500 truncate flex gap-0.5">
             <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
-            <AddressShortView address={entry.secondaryAddress} trim={isMobile() || popup} />
+            <AddressShortView address={entry.secondaryAddress} trim={isMobile() || compact} />
           </span>
         )}
       </div>

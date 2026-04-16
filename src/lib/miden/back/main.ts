@@ -12,18 +12,28 @@ import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
-const frontStore = store.map(toFront);
+// frontStore is initialized lazily inside start() because with Vite's TLA stripping,
+// `store` may not be initialized at module scope evaluation time.
+let frontStore: ReturnType<typeof store.map> | null = null;
 
 export async function start() {
   console.log('Miden background script started');
   intercom.onRequest(processRequest);
+
+  // NOTE: The Vite sw-patches plugin injects await init_*() calls here
+  // (between intercom registration and Actions.init)
+
   await Actions.init();
+  frontStore = store.map(toFront);
   frontStore.watch(() => {
     intercom.broadcast({ type: WalletMessageType.StateUpdated });
   });
+  // Force frontend to re-fetch state now that everything is initialized
+  intercom.broadcast({ type: WalletMessageType.StateUpdated });
 }
 
-async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
+  console.log('[processRequest] type:', req?.type);
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
       doSync().catch(err => console.warn('[SyncManager] Error:', err));
@@ -62,7 +72,7 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         const results: SerializedInputNoteDetail[] = [];
         for (const noteId of req.noteIds) {
           try {
-            const record = await client.webClient.getInputNote(noteId);
+            const record = await client.getInputNote(noteId);
             if (!record) continue;
             const assets = record
               .details()
@@ -102,8 +112,14 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         state
       };
     case WalletMessageType.NewWalletRequest:
-      console.log('[Background] NewWalletRequest received with walletType:', req.walletType);
-      await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
+      console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
+      try {
+        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
+        console.log('[processRequest] registerNewWallet completed successfully');
+      } catch (err: unknown) {
+        console.error('[processRequest] registerNewWallet FAILED:', err);
+        throw err;
+      }
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.ImportFromClientRequest:
       await Actions.registerImportedWallet(req.password, req.mnemonic);
@@ -222,7 +238,9 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
             payload: 'PONG'
           };
         }
-        const resPayload = await Actions.processDApp(req.origin, req.payload);
+        // PR-4 chunk 8: thread sessionId through (extension flow leaves
+        // it undefined; mobile/desktop multi-instance pass it).
+        const resPayload = await Actions.processDApp(req.origin, req.payload, (req as any).sessionId);
         return {
           type: MidenMessageType.PageResponse,
           payload: resPayload ?? null

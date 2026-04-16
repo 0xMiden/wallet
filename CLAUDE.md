@@ -68,6 +68,18 @@ yarn format           # Prettier
 
 **IMPORTANT:** Always run `yarn lint` and `yarn format` before `yarn build`. The build will fail on lint/prettier errors.
 
+## Version Bumping
+
+**CRITICAL:** The extension manifest version is controlled by `package.json`'s `version` field, NOT by `public/manifest.json`. The webpack build (`webpack.public.config.js:69-70`) overrides the manifest version with `pkg.version` from `package.json` during the copy transform.
+
+When bumping the version:
+1. Update **both** `package.json` (`"version": "X.Y.Z"`) and `public/manifest.json` (`"version": "X.Y.Z"`) to keep them in sync
+2. Clear webpack cache: `rm -rf node_modules/.cache/webpack`
+3. Build: `yarn build:devnet` (or whichever build target)
+4. **Verify** the output manifest has the correct version: `grep '"version"' dist/chrome_unpacked/manifest.json`
+
+If the output still shows the old version, the webpack filesystem cache is stale — delete `node_modules/.cache/webpack` and `dist/` and rebuild.
+
 ## Mobile Development
 
 **IMPORTANT:** Always use these yarn scripts for mobile development. Do not run Capacitor or Xcode commands directly.
@@ -86,11 +98,15 @@ source ~/.nvm/nvm.sh && nvm use 22 && yarn mobile:android
 ### iOS
 
 ```bash
-yarn mobile:ios           # Build, sync, and open in Xcode
-yarn mobile:ios:run       # Build and run on iOS Simulator (includes FaceID setup)
-yarn mobile:ios:build     # Build for iOS Simulator only
-yarn mobile:ios:faceid    # Fix FaceID enrollment on simulator
+yarn mobile:ios                  # Build, sync, and open in Xcode
+yarn mobile:ios:run              # Build and run on iOS Simulator (default network)
+yarn mobile:ios:run:devnet       # Same but explicitly targets devnet
+yarn mobile:ios:build            # Build for iOS Simulator only
+yarn mobile:ios:build:devnet     # Same, devnet
+yarn mobile:ios:faceid           # Fix FaceID enrollment on simulator
 ```
+
+`MIDEN_NETWORK` is baked into the bundle at compile time, so network selection happens at build, not runtime. The `:devnet` variants just set `MIDEN_NETWORK=devnet` for you.
 
 ### Android
 
@@ -148,6 +164,30 @@ ios/App/build/
 3. Or run `yarn mobile:ios` to open in Xcode for debugging
 
 The mobile app shares the same React codebase as the browser extension. Mobile-specific code uses `isMobile()` checks from `lib/platform`.
+
+### Skip Onboarding (Mobile Testing)
+
+To skip the entire onboarding UI (seed phrase, verification, password) and jump directly to the "Your wallet is ready → Get started" screen, use one of these methods:
+
+**Method 1: URL parameter** — After the app launches on the welcome screen, navigate via CDP:
+```bash
+node /tmp/cdp-eval 'window.location.search = "?__test_skip_onboarding=1"'
+```
+
+**Method 2: JS global** — Set the global before the component mounts:
+```bash
+node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.reload()'
+```
+
+Both methods auto-generate a random seed phrase, set password to `password1`, and navigate to the confirmation screen. From there, tapping "Get started" (or triggering it via CDP) runs `registerWallet()` which initializes the WASM Worker and creates the wallet.
+
+To also auto-trigger "Get started" (full end-to-end skip):
+```bash
+# Wait a moment for the confirmation screen to render, then click
+node /tmp/cdp-eval 'document.querySelector("button")?.click(); "clicked"'
+```
+
+The bypass is in `src/app/pages/Welcome.tsx`. It only activates when `__test_skip_onboarding=1` is in the URL or `window.__TEST_SKIP_ONBOARDING` is set — zero impact on production.
 
 ### Platform-Specific Changes
 
@@ -236,6 +276,43 @@ When **removing** Capacitor plugins:
 2. Sync: `yarn mobile:sync` (updates iOS and Android native projects)
 3. **Remove ProGuard rules** from `android/app/proguard-rules.pro` for the removed plugin
 
+### Native Navbar Overlay (iOS + Android)
+
+The mobile wallet hides the React footer and renders its bottom nav as a native floating pill on both iOS and Android. The pill has a main row (Home / Activity / Browser), an optional secondary row (Send / Receive / Settings), and a compact mode with a primary action button (e.g. Continue in the Send flow).
+
+**iOS**: `MidenNavbarOverlayWindow` in `packages/dapp-browser/ios/Sources/InAppBrowserPlugin/WKWebViewController.swift` — a dedicated `UIWindow` at `.normal + 200` that sits above the Capacitor host window AND every dApp WKWebView window. UIWindow z-order is automatic.
+
+**Android**: `packages/dapp-browser/android/src/main/java/ee/forgr/capacitor_inappbrowser/navbar/` — a two-instance architecture:
+- `NavbarState` + `NavbarStateHolder` — immutable state + observer pattern
+- `NavbarOverlayManager` — coordinator that lazily creates the Activity-scoped `NavbarView`, spawns a fresh Dialog-scoped `NavbarView` when a `WebViewDialog` shows (via `OnShowListener`), and detaches it on dismiss. Arbitrates which instance is visible via a simple stack-top rule.
+- `NavbarView` — the actual FrameLayout hierarchy: shadowWrap → blurContainer → outerVStack → [secondaryRow, contentStack[navStack, actionButton]]
+- `NavbarButton`, `NavbarSecondaryButton`, `NavbarActionButton` — individual button views with platform-matched styling
+
+**Why two instances on Android**: Android sub-windows (`TYPE_APPLICATION_PANEL`) stack with their parent window's token, so a view attached to the Activity would be covered by a Dialog. Instead of fighting z-order, we give the Activity one navbar view and each WebViewDialog its own, both observing the same state holder. Exactly one instance is visible at any time, picked by which window is frontmost.
+
+**Plugin methods** (iOS + Android, same signatures):
+- `showNativeNavbar({items, activeId})` — show pill with 3 main-row items
+- `hideNativeNavbar()` — hide pill entirely
+- `setNativeNavbarActive({id})` — update active main-row pill without rebuild
+- `setNavbarSecondaryRow({items, activeId})` — populate or clear secondary row; empty items collapses the row via spring animation
+- `setNavbarAction({label, enabled})` — enter compact mode with a primary action pill
+- `clearNavbarAction()` — exit compact mode, restore default nav row layout
+- `morphNavbarOut()` / `morphNavbarIn()` — slide pill off-screen for drawer presentations
+
+**Events** (JS listens via `InAppBrowser.addListener`):
+- `nativeNavbarTap` → `{id}` when a main-row button is tapped
+- `nativeNavbarSecondaryTap` → `{id}` when a secondary-row button is tapped
+- `nativeNavbarActionTap` → `{}` when the compact-mode action button is tapped
+
+**Wallet JS wiring** lives in `src/app/providers/DappBrowserProvider.tsx` — two effects watching `location.pathname` drive the main and secondary rows; a third watches the confirmation store for drawer morph-out.
+
+**Gotchas**:
+- `MATCH_PARENT` children in `WRAP_CONTENT` FrameLayouts inflate the parent to ancestor AT_MOST. Use background drawables instead of child views for active-state pills (learned the hard way — `NavbarButton` used to do this and produced 1878px-tall buttons). See commit `64145d74` in the navbar checkin.
+- `NavbarButton` is pinned to 60dp via `setMinimumHeight` so compact mode can't grow the toolbar. Also mirrored on iOS as `NavbarButton.buttonHeight = 60`.
+- On Android, `Dialog.getWindow().setLayout(MATCH_PARENT, MATCH_PARENT)` must be called AFTER `setContentView()`. Otherwise the default `wrap_content` wins and the Dialog is a tiny centered blob.
+- Android's `setRenderEffect(createBlurEffect(...))` blurs the view's own content, NOT what's behind it. There's no clean backdrop blur primitive for a decor-view child. We use a solid translucent pill and accept the platform difference.
+- Shadow elevation must be on the view with the background drawable (blurContainer), not a wrapper without an outline — or the shadow just doesn't render.
+
 ### Debugging iOS Issues
 
 **Debug UI components:** When adding debug panels to the UI, ensure all text is **selectable** (use `select-text` or `user-select: text`) so the user can copy/paste error messages instead of retyping them.
@@ -257,6 +334,59 @@ xcrun simctl spawn booted log stream --predicate 'process == "App"' > ios_logs.t
 1. Run the app in simulator: `yarn mobile:ios:run`
 2. Open Safari on Mac → Develop menu → Simulator → select the app
 3. Console tab shows JavaScript logs
+
+### CDP Bridge for iOS WebView Debugging
+
+Use the `inspect` CLI (`@inspectdotdev/cli`) + a persistent-connection daemon to evaluate JavaScript in the Capacitor WKWebView from Claude Code. This gives you access to DOM, computed styles, console output, and error state — much more powerful than screenshots alone.
+
+**Known issue:** The inspect bridge has a single-use bug — after a WebSocket client disconnects, subsequent connections get no responses. The workaround is a persistent-connection daemon that holds ONE WebSocket open and routes all requests through it.
+
+**Bringup recipe (run once per session):**
+
+```bash
+# 1. Kill old bridges and free ports
+pkill -9 -f "inspect" 2>/dev/null
+pkill -9 -f "cdp-daemon" 2>/dev/null
+lsof -ti:9221,9222,9333 | xargs kill -9 2>/dev/null
+
+# 2. Reset webinspectord
+xcrun simctl spawn booted launchctl kill 9 user/501/com.apple.webinspectord
+
+# 3. Relaunch the app (re-registers WebView with fresh webinspectord)
+xcrun simctl terminate booted com.miden.wallet
+xcrun simctl launch booted com.miden.wallet
+sleep 2
+
+# 4. Start inspect bridge (wait ~5s for it to discover devices)
+source ~/.nvm/nvm.sh && nvm use 22
+nohup inspect --no-telemetry > /tmp/inspect.log 2>&1 &
+sleep 5
+
+# 5. Start CDP daemon (holds persistent WS, routes evals through it)
+nohup node /tmp/cdp-daemon.mjs > /tmp/cdp-daemon.log 2>&1 &
+sleep 3
+
+# 6. Smoke test — should print "2"
+node /tmp/cdp-eval '1+1'
+```
+
+**Usage after bringup:**
+```bash
+# Evaluate any JS in the WebView
+node /tmp/cdp-eval 'document.title'
+node /tmp/cdp-eval 'JSON.stringify(window.__cdp_errors)'
+
+# Set up an error trap to catch async failures
+node /tmp/cdp-eval 'window.__cdp_errors = []; window.addEventListener("error", e => window.__cdp_errors.push(e.message)); window.addEventListener("unhandledrejection", e => window.__cdp_errors.push("REJECTION: " + (e.reason?.message || e.reason))); "trap set"'
+```
+
+**Recovery when it stops working:**
+- Smoke test fails → restart from step 2 (webinspectord reset)
+- Bridge sees `[]` on `/json` → restart from step 3 (app crashed)
+- After `yarn mobile:ios:run` rebuild → restart from step 4 (PID changed)
+- Nothing works → quit Simulator.app entirely (`osascript -e 'tell application "Simulator" to quit'`), cold-boot, restart from step 1
+
+**Files:** `/tmp/cdp-daemon.mjs` (persistent WS daemon), `/tmp/cdp-eval` (one-shot client). If missing, recreate from the memory file at `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md`.
 
 ### Verifying Mobile UI Fixes
 
@@ -288,6 +418,27 @@ sleep 2 && xcrun simctl io booted screenshot /tmp/ios-main.png
 - **Grey bar at bottom:** Usually caused by `100dvh` height not accounting for safe areas. Use `100%` instead and ensure `mobile.html` body has proper safe area padding.
 - **Content cut off:** Check if containers have `overflow: hidden` without proper height constraints.
 - **Safe area gaps:** Ensure `public/mobile.html` has `padding: env(safe-area-inset-*)` on body, and body background color matches app background (white).
+
+## Tailwind theme tokens
+
+**CRITICAL:** In `tailwind.config.ts`, many Tailwind color tokens are mapped to CSS custom properties defined in `src/main.css` (`:root` for light, `.dark` for dark). These tokens **already auto-flip** with the active theme — do NOT add `dark:` variants on top, because that overrides the auto-flip with a *worse* value.
+
+Tokens that auto-flip:
+- `text-black` → `var(--color-text-primary)` → `#000` / `#fff`
+- `bg-white` → `var(--color-surface)` → `#fff` / `#3f3f3f99` (translucent)
+- `bg-gray-25` → `var(--color-surface-secondary)` → `#f9f9f9` / `#2a2a2a`
+- `bg-gray-50` → `var(--color-surface-tertiary)` → `#f3f3f3` / `#333333`
+- `bg-gray-100` → `var(--color-hover-bg)` → `#e1dbdb` / `#ffffff0d`
+- `text-heading-gray` → `var(--color-text-secondary)` → `#484848` / `#fff`
+
+**Gotcha:** Writing `text-black dark:text-white` makes `text-white` win in dark — but `white` is mapped to `var(--color-surface)` = `#3f3f3f99` (translucent dark grey). So the explicit `dark:` variant makes the label **less** readable than `text-black` alone.
+
+When to add `dark:` variants:
+- The base class points to a **fixed** palette color — the custom `grey.*` palette in `src/utils/tailwind-colors.js` is NOT theme-aware. Prefer `bg-gray-*` (spelled with `a`) over `bg-grey-*`.
+- You need dark-mode-specific contrast in kind — e.g. `dark:bg-pure-white/15` on a TabPicker active pill, where `bg-white` alone is too subtle in dark. `pure-white` / `pure-black` are literal hex (not remapped).
+- SVG `fill={...}` on `<Icon>` takes a literal JS color — Tailwind `dark:` variants don't reach prop values. Read `document.documentElement.classList.contains('dark')` at render time and pass the resolved color.
+
+Quick check before adding `dark:`: grep `tailwind.config.ts` for the base token name. If it maps to `var(--color-...)`, don't override.
 
 ## Desktop Development (Tauri)
 
@@ -687,6 +838,331 @@ afterEach(() => {
   testRoot.unmount();
 });
 ```
+
+## E2E Blockchain Test Harness
+
+End-to-end tests that exercise real wallet operations against a live Miden network (testnet, devnet, or localhost). Uses Playwright to automate two Chrome extension instances and `miden-client` CLI to deploy a faucet and mint tokens.
+
+### Quick Start
+
+```bash
+# Build + run against a specific network (default testnet)
+yarn test:e2e:blockchain:testnet
+yarn test:e2e:blockchain:devnet
+yarn test:e2e:blockchain:localhost
+
+# Subsequent runs (skip rebuild if no code changes)
+E2E_NETWORK=devnet yarn test:e2e:blockchain:run
+
+# Build only (no test run) — picks up E2E_NETWORK if set, else testnet
+yarn test:e2e:blockchain:build
+
+# Raw form (equivalent to the :<network> shortcuts)
+E2E_NETWORK=testnet yarn test:e2e:blockchain
+```
+
+The `:<network>` scripts set both `E2E_NETWORK` (which endpoints the harness + miden-client CLI use) AND propagate `MIDEN_NETWORK` through to the extension build (which network the wallet connects to). Running with a mismatched pair — e.g. harness on devnet but wallet built for testnet — silently fails because notes land on one network and the wallet listens on the other.
+
+The harness auto-installs `miden-client-cli` from crates.io on first run, version-matched to the wallet's `@miden-sdk/miden-sdk` package. Requires Rust toolchain (`cargo`).
+
+### Directory Layout
+
+```
+playwright/e2e/
+  config/environments.ts       # Network endpoints per E2E_NETWORK
+  harness/                     # Observability layer (types, timeline, capture, reports)
+  helpers/
+    miden-cli.ts               # miden-client CLI wrapper (init, deploy faucet, mint)
+    wallet-page.ts             # Page Object Model for wallet UI automation
+  fixtures/two-wallets.ts      # Playwright fixture: 2 Chrome instances + observability
+  tests/*.spec.ts              # Test specs
+playwright.e2e.config.ts       # Playwright config (5 min timeout, traces always on)
+```
+
+### Environment Selection
+
+`E2E_NETWORK` controls both:
+- which RPC/prover/transport endpoints the harness + `miden-client` CLI use (via `playwright/e2e/config/environments.ts`)
+- which network the extension build bakes into its bundle (piped through to `MIDEN_NETWORK` at build time in `test:e2e:blockchain:build`)
+
+Use the dedicated scripts to avoid mismatches:
+
+```bash
+yarn test:e2e:blockchain:testnet    # default
+yarn test:e2e:blockchain:devnet
+yarn test:e2e:blockchain:localhost  # requires a local Miden node on :57291
+```
+
+Or set `E2E_NETWORK` explicitly with the generic script:
+
+```bash
+E2E_NETWORK=devnet yarn test:e2e:blockchain
+```
+
+### Test Specs
+
+| Spec | What it tests |
+|------|---------------|
+| `wallet-lifecycle.spec.ts` | Create, lock, unlock wallets |
+| `mint-and-balance.spec.ts` | Deploy faucet via CLI, mint tokens, verify balance in UI |
+| `send-public.spec.ts` | Send public note A->B, B syncs and claims |
+| `send-private.spec.ts` | Send private note A->B via transport layer |
+| `multi-claim.spec.ts` | Mint 3 notes, batch claim |
+| `multi-account.spec.ts` | Multiple accounts, switch, send between own accounts |
+
+### Agentic Debug Mode
+
+**For AI agents running this as a verification loop.** On test failure, browsers stay open so the agent can inspect live state and hot-reload fixes.
+
+```bash
+# Run with agentic mode
+E2E_AGENTIC=true E2E_NETWORK=testnet yarn test:e2e:blockchain:run
+
+# Or use the shortcut script
+yarn test:e2e:blockchain:agentic
+```
+
+#### On Failure: What Happens
+
+1. **Browsers stay open** -- Both Chrome instances remain alive with full wallet state (IndexedDB, service worker, vault)
+2. **`test-results/debug-session.json`** is written with connection details:
+   ```json
+   {
+     "wallets": {
+       "A": { "extensionId": "abc...", "fullpageUrl": "chrome-extension://abc.../fullpage.html", "cdpUrl": "ws://...", "userDataDir": "/tmp/..." },
+       "B": { "extensionId": "def...", "fullpageUrl": "chrome-extension://def.../fullpage.html", "cdpUrl": "ws://...", "userDataDir": "/tmp/..." }
+     },
+     "midenCliWorkDir": "/tmp/miden-cli-...",
+     "reportPath": "test-results/run-.../tests/.../report.json"
+   }
+   ```
+3. **`report.json`** contains structured failure diagnosis (see "Reading Failure Reports" below)
+4. **Auto-cleanup** after 10 min (configurable via `E2E_AGENTIC_TIMEOUT`)
+
+#### Agent Investigation Workflow
+
+After a test failure in agentic mode:
+
+1. **Read the failure report:**
+   ```bash
+   cat test-results/run-<latest>/tests/<test-name>/report.json
+   ```
+   Key fields: `failureCategory`, `failedAtStep`, `diagnosticHints`, `stateAtFailure`, `browserErrors`
+
+2. **Take fresh screenshots of live wallets:**
+   Use CDP or Playwright's still-alive connection to screenshot the current state.
+
+3. **Query wallet state via the exposed Zustand store:**
+   ```typescript
+   // In page.evaluate() on an open wallet page:
+   const store = (window as any).__TEST_STORE__;
+   const state = store.getState();
+   // state.status, state.accounts, state.balances, state.currentAccount
+   ```
+
+4. **Trigger a sync manually:**
+   ```typescript
+   // In page.evaluate():
+   const intercom = (window as any).__TEST_INTERCOM__;
+   intercom.request({ type: 'SYNC_REQUEST' });
+   ```
+
+5. **Run miden-client commands against the preserved state:**
+   ```bash
+   cd <midenCliWorkDir>   # from debug-session.json
+   miden-client account --list
+   miden-client sync
+   miden-client notes --list
+   ```
+
+6. **Navigate the wallet UI** to different pages to investigate visually.
+
+#### Hot-Reload: Fix Code and Push to Live Browsers
+
+The agent can modify wallet source code, rebuild, and reload into the still-open browsers **without losing wallet state**:
+
+```bash
+# 1. Fix the bug in source code
+# 2. Rebuild the extension
+yarn test:e2e:blockchain:build
+
+# 3. Reload the extension in each open Chrome instance
+#    (via page.evaluate on the extension's fullpage tab)
+```
+
+```typescript
+// In page.evaluate() on the wallet's fullpage tab:
+chrome.runtime.reload();
+// Extension reloads from updated dist/chrome_unpacked/
+// IndexedDB + vault data PERSIST (tied to extension origin)
+// Service worker restarts, in-memory Zustand state resets
+```
+
+After `chrome.runtime.reload()`, extension pages unload. Re-open the fullpage tab:
+```
+chrome-extension://<extensionId>/fullpage.html
+```
+The wallet initializes from IndexedDB -- same accounts, same keys, same balances. The agent can now test the fix against the exact wallet state that caused the failure.
+
+### Reading Failure Reports
+
+The `report.json` is designed for machine consumption. Key fields for an AI agent:
+
+```typescript
+{
+  failureCategory: string,     // "timeout_waiting_for_sync" | "ui_element_not_found" | etc.
+  diagnosticHints: string[],   // Pre-computed suggestions, e.g., "NETWORK: 3 RPC requests failed"
+  failedAtStep: {
+    index: number,             // Which test step failed (0-based)
+    name: string,              // "sync_wallet_b"
+    lastAction: string         // What was happening when it failed
+  },
+  stateAtFailure: {
+    walletA: { status, balances, claimableNotes, currentUrl },
+    walletB: { status, balances, claimableNotes, currentUrl }
+  },
+  browserErrors: [...],        // JS errors from both extension instances
+  failedNetworkRequests: [...], // Failed RPC calls
+  recentEvents: [...],         // Last 50 timeline events before failure
+  timing: {
+    wasTimeout: boolean,       // Did we hit the test timeout?
+    slowestSteps: [...]        // Which steps were unusually slow?
+  }
+}
+```
+
+**Diagnosis flowchart:**
+- `wasTimeout: true` + `failedAtStep.name` contains "sync" -> Blockchain sync issue, check network
+- `browserErrors` contains "recursive use of an object" -> WASM concurrency bug
+- `failedNetworkRequests` not empty -> Node/RPC connectivity issue
+- `failureCategory === 'ui_element_not_found'` -> UI changed, update selectors in `wallet-page.ts`
+- `failureCategory === 'cli_command_failed'` -> Check `recentCliCommands` for stderr
+
+### Observability Artifacts
+
+Every test run produces structured artifacts in `test-results/run-<timestamp>/tests/<test-name>/`:
+
+| File | Purpose |
+|------|---------|
+| `report.json` | Primary diagnostic document (read this first) |
+| `timeline.ndjson` | Chronological event stream (every action, assertion, CLI call, console log) |
+| `checkpoints.json` | Step-by-step pass/fail with assertion details |
+| `state-snapshots/` | Wallet Zustand state at each checkpoint |
+| `cli/` | miden-client CLI invocations with full stdout/stderr |
+| `browser/wallet-{a,b}-console.ndjson` | Browser console output from both extensions |
+| `screenshots/` | Screenshots at checkpoints + on failure |
+| `traces/wallet-{a,b}.zip` | Playwright traces (open with `npx playwright show-trace`) |
+| `video/` | Video recordings (only on failure) |
+
+### Source Modifications for E2E
+
+The E2E build (`MIDEN_E2E_TEST=true`) exposes test hooks on `window`:
+
+- `window.__TEST_STORE__` -- Zustand store (`useWalletStore`) for reading wallet state via `page.evaluate()`
+- `window.__TEST_INTERCOM__` -- Intercom client instance for sending `SyncRequest` and other messages to the service worker
+
+These are only present when built with `MIDEN_E2E_TEST=true` and have zero impact on production builds.
+
+### Custom Faucet Token Discovery
+
+The E2E harness deploys its own faucet via `miden-client new-account --account-type fungible-faucet`. Tokens from this custom faucet appear in the wallet because:
+- The wallet fetches ALL fungible assets from the account vault (no `TOKEN_MAPPING` whitelist)
+- Token metadata (symbol, decimals) is fetched from the RPC node as long as the faucet is deployed with `--storage-mode public`
+- Custom tokens show with their proper symbol (e.g., "TST") in the UI, are selectable in the send flow, and have correct decimal formatting
+
+## E2E iOS Simulator Test Harness
+
+Mirror of the Chrome E2E suite, but driving two iPhone 17 / iPhone 17 Pro simulators in parallel against the iOS app. Same 7 specs, ported to `playwright/e2e/ios/tests/*.ios.spec.ts`.
+
+### Quick Start
+
+```bash
+yarn test:e2e:mobile:devnet      # build app + run full iOS suite on devnet
+yarn test:e2e:mobile:testnet     # same on testnet
+yarn test:e2e:mobile:run         # skip rebuild (re-run only)
+yarn test:e2e:mobile:build       # build app only
+```
+
+The first run boots two simulators (iPhone 17 + iPhone 17 Pro), creating them if absent. UDIDs persist at `test-results-ios/.device-pair.json` so subsequent runs reuse the same booted devices — saves ~30s per run.
+
+### Architecture
+
+```
+playwright/e2e/ios/
+  helpers/
+    simulator-control.ts   # xcrun simctl wrapper (boot, install, launch, terminate)
+    cdp-bridge.ts          # WebKit Inspector bridge via appium-remote-debugger
+    ios-wallet-page.ts     # WalletPage interface impl backed by CDP + simctl
+  fixtures/
+    two-simulators.ts      # Playwright fixture; same shape as two-wallets
+    global-setup.ts        # asserts App.app, reserves+boots device pair
+    global-teardown.ts     # no-op (devices stay booted between runs)
+  tests/
+    *.ios.spec.ts          # ported specs (one-line import change from Chrome)
+```
+
+The `WalletPage` interface in `playwright/e2e/helpers/wallet-page.ts` is shared between Chrome and iOS — same method signatures, different impls. The harness (`playwright/e2e/harness/`) is platform-neutral and is reused wholesale; per-wallet `SnapshotCaps` closures supplied by the fixture absorb platform-specific bits (page.evaluate, service-worker queries on Chrome; CdpSession.evaluate on iOS).
+
+### CDP Bridge (appium-remote-debugger)
+
+`remotedebug-ios-webkit-adapter` does NOT work on simulators (it wraps libimobiledevice which is USB-only). We use `appium-remote-debugger` instead, which talks the WebKit Inspector Protocol directly over the per-simulator UNIX socket at `/private/tmp/com.apple.launchd.<RANDOM>/com.apple.webinspectord_sim.socket`.
+
+The socket path is discovered per-boot via:
+```bash
+xcrun simctl spawn <udid> launchctl print user/501 | grep RWI_LISTEN_SOCKET
+```
+
+`CdpBridge.connect({ udid, bundleId })` resolves the socket, calls `selectApp(null, 5, true)` with `additionalBundleIds: ['*']` to find the app's WebView page, then `selectPage(appKey, pageNum)`. Returns a `CdpSession` that wraps `executeAtom('execute_script', [body, []])` for repeated evaluation.
+
+### Per-Test Isolation
+
+Boot is amortized across runs (devices stay booted). Per-test, the fixture does:
+1. `terminate` the app (if running)
+2. `uninstall` it (wipes IndexedDB + Preferences sandbox)
+3. `install` the freshly-built `.app`
+4. `launch` with `MIDEN_E2E_TEST=true`
+5. Connect CDP and construct `IosWalletPage`
+
+Total ~5s per wallet — much cheaper than the ~30s `simctl erase` would cost.
+
+### Onboarding Bypass
+
+Mirroring the wallet's official test hook (`Welcome.tsx`), iOS spec wallets skip seed-phrase backup/verify by setting `window.__TEST_SKIP_ONBOARDING = true` + `?__test_skip_onboarding=1` and tapping "Get started". This is what `IosWalletPage.createNewWallet` does. Specs that need a real seed phrase should use `importWallet()`.
+
+### Reading iOS Failure Reports
+
+Same artifact tree as Chrome, output to `test-results-ios/run-<timestamp>/tests/<test>/`. The `WalletSnapshot.platform` discriminator is `'ios'` (vs `'chrome'`); `serviceWorkerStatus` and `extensionId` are omitted. `runtimeInfo.kind === 'ios'` in the run manifest. All consumers (`failure-report.ts`, `diagnostic-hints.ts`) handle both platforms.
+
+### Known Limitations
+
+- Headless mode is not available — Simulator.app must be running. The harness boots devices but does not control the GUI window. CI runners need a graphical session.
+- The CDP bridge picks the first WebKit page on the inspector. The wallet uses one WebView, so this is fine; if a future build adds a dApp browser WebView, `CdpBridge.connect` needs a target-disambiguation parameter.
+- `simctl` does NOT support keyboard input from outside the simulator. The iOS POM dispatches React-compatible `input`/`change` events directly via DOM rather than typing into native fields. For native iOS sheets / system dialogs this won't work — only WebView content is reachable.
+
+### Empirical Status (2026-04-14)
+
+**7/7 iOS specs pass on devnet in ~9 min wall clock.** Per-spec timing:
+
+| Spec | Duration |
+|---|---|
+| mint-and-balance | 1.7m |
+| multi-account | 1.2m |
+| multi-claim | 1.4m |
+| send-private | 1.8–2.4m |
+| send-public | 1.7m |
+| wallet-lifecycle (2 tests) | 42s total |
+
+### Key product/test patterns the iOS port uncovered
+
+- **Native navbar actions need a JS test hook.** The wallet hoists primary-CTA buttons ("Claim All", "Continue" in Send, etc.) to the native iOS navbar overlay (`MidenNavbarOverlayWindow`) via `useNativeNavbarAction`. That overlay lives in a separate `UIWindow` outside the WebView — CDP can't see it and `xcrun simctl` can't do coordinate taps, so a small test hook in `src/lib/dapp-browser/use-native-navbar-action.ts` exposes `globalThis.__TEST_TRIGGER_NAVBAR_ACTION__()` (gated on `MIDEN_E2E_TEST=true && isMobile()`). `IosWalletPage.triggerNavbarAction` polls + calls it. This is the ONLY wallet source-code change the iOS harness needed.
+- **Mobile auto-consume is identical to Chrome** (`Explore.tsx → autoConsumeMidenNotes`, gated to the well-known MIDEN faucet on both). The difference Chrome tests rely on is purely in `getBalance` reading `chrome.storage.local.miden_sync_data.notes` to count pending custom-faucet notes; mobile has no equivalent, so iOS specs call `walletX.claimAllNotes()` explicitly between mint and balance-verify. This is the honest user flow on mobile anyway.
+- **Reload kills mobile session.** Chrome's `claimAllNotes` does a `location.reload()` first to get a fresh Dexie handle — safe on Chrome because the SW holds the vault unlock in a separate context. On mobile there's no SW; a reload drops the in-memory decryption key and bounces back to the password screen. iOS `claimAllNotes` skips the reload.
+- **`useSyncTrigger` auto-syncs every 3s on mobile.** No need for iOS `triggerSync` to send `SYNC_REQUEST` — a sleep suffices. (The intercom `SYNC_REQUEST` handler doesn't exist on mobile anyway; it's a Chrome SW-only message.)
+- **`execute_script` vs `execute_async_script`.** Appium's sync atom fails silently on multi-statement bodies if you wrap them in `return (...)` — pass the body verbatim (with an explicit `return`). Promise-returning code must use the async atom with an explicit callback call; add an outer JS timeout to avoid waiting forever when the script never invokes the callback.
+
+### Why WASM-client access from CDP is off-limits
+
+Tempting to read `getConsumableNotes(address)` directly to mirror Chrome's "pending notes count toward balance" semantics. **Don't.** Any WASM client call must go through `withWasmClientLock`, but `useSyncTrigger` holds the lock for 30–60s on simulator while syncing; a concurrent read deadlocks, and skipping the lock violates the "recursive use of an object" invariant. Claim explicitly via the UI path instead.
 
 ## Internationalization (i18n)
 

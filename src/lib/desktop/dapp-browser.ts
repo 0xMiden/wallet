@@ -8,12 +8,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
-// Log to Rust stdout for debugging (kept for future use)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function jsLog(message: string): void {
-  invoke('js_log', { message }).catch(() => {});
-}
-
 /**
  * Open a dApp in a new browser window
  *

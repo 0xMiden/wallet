@@ -119,6 +119,8 @@ button:disabled,
  */
 
 @config '../tailwind.config.ts';
+@source "../src/**/*.{js,jsx,ts,tsx}";
+@source "../public/**/*.html";
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
@@ -262,6 +264,63 @@ button,
 
 .mobile-page-enter {
   animation: mobile-slide-in 0.15s ease-out both;
+}
+
+/* Native navbar overlay hook (Architecture A — see DappBrowserProvider).
+ * On mobile, the wallet replaces the React Footer with a native
+ * MidenNavbarOverlayWindow at .normal+200 across every wallet page.
+ * The provider sets `data-native-navbar` on body whenever the user is
+ * past onboarding/unlock and the native navbar is up. */
+body[data-native-navbar] [data-tabbar-footer='true'] {
+  /* Hide the React footer — the native pill replaces it. */
+  display: none !important;
+}
+body[data-native-navbar] {
+  /* Reserve the vertical space the native pill occupies so React
+   * content doesn't scroll under it. The pill is 76pt tall and sits
+   * 12pt above the home-indicator safe area (see WKWebViewController
+   * .swift: shadowWrap 76pt tall, bottom = safeArea.bottom - 12), so
+   * the total bottom gutter = existing safe-area padding + 88pt.
+   * Pages using `h-full` inside body automatically shrink to this
+   * smaller inner box, keeping their bottom edge above the pill. */
+  padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 88px);
+}
+
+body[data-native-navbar][data-dapp-foreground],
+body[data-native-navbar][data-edge-to-edge] {
+  /* Pages that opt in to edge-to-edge layout (dApp browser, Settings
+   * list) extend BEHIND the navbar pill instead of stopping above it.
+   * The navbar's PassThroughView still routes pill-area taps to the
+   * navbar window so the buttons stay live; only the visual layer
+   * overlaps. Pages that opt in are responsible for their own internal
+   * bottom padding so scrollable content can be scrolled above the
+   * pill (otherwise the last item is permanently hidden behind it).
+   *
+   * Reset the gutter back to just the home-indicator safe area so
+   * h-full chains inside the body fill all the way to the screen
+   * bottom. */
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+/* Parked-dApp bubble host — default transform is identity, and it
+ * rides a ~spring transition so that when the drawer-open rule
+ * below kicks in the bubble slides off the bottom of the screen on
+ * roughly the same curve as the native navbar's morphOut. Opacity
+ * drops alongside so a ghost isn't visible behind a translucent
+ * drawer backdrop. */
+[data-dapp-bubble-host='true'] {
+  transition:
+    transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body[data-drawer-open] [data-dapp-bubble-host='true'] {
+  /* Slide 200px below the screen — comfortably clears the bubble's
+   * ~72pt diameter + its 88pt footer clearance. The bubble's own
+   * z-index and positioning are unchanged, and pointer events on
+   * its children move with the transform so taps no longer hit
+   * the phantom location. */
+  transform: translateY(200px);
+  opacity: 0;
 }
 
 @layer base {

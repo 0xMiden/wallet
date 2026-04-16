@@ -20,7 +20,7 @@ let package = Package(
         .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
         .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
         .package(name: "CapacitorSplashScreen", path: "../../../node_modules/@capacitor/splash-screen"),
-        .package(name: "CapgoInappbrowser", path: "../../../node_modules/@capgo/inappbrowser")
+        .package(name: "MidenDappBrowser", path: "../../../packages/dapp-browser")
     ],
     targets: [
         .target(
@@ -36,7 +36,7 @@ let package = Package(
                 .product(name: "CapacitorPreferences", package: "CapacitorPreferences"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "CapacitorSplashScreen", package: "CapacitorSplashScreen"),
-                .product(name: "CapgoInappbrowser", package: "CapgoInappbrowser")
+                .product(name: "MidenDappBrowser", package: "MidenDappBrowser")
             ]
         )
     ]

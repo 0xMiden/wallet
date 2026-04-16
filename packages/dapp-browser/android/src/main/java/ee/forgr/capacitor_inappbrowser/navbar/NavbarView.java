@@ -1,0 +1,1034 @@
+package ee.forgr.capacitor_inappbrowser.navbar;
+
+import android.content.Context;
+import android.graphics.Rect;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import androidx.annotation.NonNull;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.dynamicanimation.animation.DynamicAnimation;
+import androidx.dynamicanimation.animation.SpringAnimation;
+import androidx.dynamicanimation.animation.SpringForce;
+import ee.forgr.capacitor_inappbrowser.R;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Miden patch — Android port of iOS MidenNavbarOverlayWindow view
+ * tree.
+ *
+ * Layout hierarchy mirrors iOS:
+ *
+ *   NavbarView (FrameLayout, floats at bottom gravity)
+ *     shadowWrap (FrameLayout — elevation 20dp, 26dp radius)
+ *       blurContainer (FrameLayout — rounded corners, blur in Phase 5)
+ *         outerVStack (LinearLayout VERTICAL, gap 6dp)
+ *           secondaryRow (LinearLayout HORIZONTAL, weightSum=3) [Phase 3]
+ *             NavbarSecondaryButton ×N
+ *           contentStack (LinearLayout HORIZONTAL)
+ *             navStack (LinearLayout HORIZONTAL, weight=1, weightSum=3)
+ *               NavbarButton ×3
+ *             NavbarActionButton [Phase 4, 0-width default]
+ *
+ * Phase 2 scope: everything visible except the secondary row (hidden)
+ * and action button (hidden). Main row renders 3 real NavbarButtons
+ * bound to state items with correct icons, active states, and tap
+ * handlers.
+ */
+public final class NavbarView extends FrameLayout {
+
+    private static final String TAG = "NavbarView";
+
+    /** Side inset from the screen edges (matches iOS 16pt). */
+    private static final int SIDE_MARGIN_DP = 16;
+
+    /** Gap above the home-indicator safe area (matches iOS 12pt). */
+    private static final int BOTTOM_GAP_DP = 12;
+
+    /** Inner pill padding (matches iOS px-2 py-2 = 8pt). */
+    private static final int PILL_PADDING_DP = 8;
+
+    /** Vertical gap between secondary row and content stack. */
+    private static final int OUTER_STACK_SPACING_DP = 6;
+
+    // ─── View refs ────────────────────────────────────────────────────
+
+    private final LinearLayout secondaryRow;
+    private final LinearLayout navStack;
+    private final NavbarActionButton actionButton;
+    private final LinearLayout contentStack;
+    private final LinearLayout outerVStack;
+    private final FrameLayout blurContainer;
+    private final FrameLayout shadowWrap;
+
+    /** Map of item id → NavbarButton so we can update active state without rebuilding. */
+    private final Map<String, NavbarButton> mainButtons = new HashMap<>();
+
+    /** Map of item id → NavbarSecondaryButton for the secondary row. */
+    private final Map<String, NavbarSecondaryButton> secondaryButtons = new HashMap<>();
+
+    /** Animator controlling the secondary row's grow/collapse height transition. */
+    private SpringAnimation secondaryHeightAnim;
+
+    /** Last signature of the secondary items list — used to avoid unnecessary rebuilds. */
+    private String lastSecondarySignature = "";
+
+    /** Whether we're currently rendering the compact mode layout (action button visible). */
+    private boolean compactMode;
+
+    /** Animator that slides the pill off-screen / back for drawer morphs. */
+    private SpringAnimation morphTranslationAnim;
+
+    /** Whether we're currently in the morphed-out state. */
+    private boolean morphedOut;
+
+    // ─── Shared active-state indicator ─────────────────────────────────
+    //
+    // Mirrors iOS MidenNavbarOverlayWindow.sharedIndicator — a single
+    // view whose frame tracks whichever button is currently active,
+    // including cross-row transitions (HOME main → SEND secondary).
+    // Replaces the per-button background drawables we used to set on
+    // NavbarButton / NavbarSecondaryButton.
+    //
+    // On iOS this slides between positions with a spring. Android
+    // intentionally snaps — see the comment in refreshIndicator().
+
+    /** The floating pill view itself. Child of blurContainer so it can
+     *  overlay both rows while sitting behind the outerVStack in
+     *  z-order (outerVStack is added AFTER the indicator → drawn on
+     *  top → icons/labels stay visible over the pill). */
+    private final NavbarIndicatorView sharedIndicator;
+
+    /** Target screen the indicator should land on. `null` means
+     *  the indicator is hidden. Used to detect no-op refreshes. */
+    private IndicatorTarget indicatorCurrentTarget = null;
+
+    /** Coalescing flag. When a state update schedules a refresh, we
+     *  post it via the main-thread handler instead of running
+     *  synchronously — multiple updates in the same dispatch (e.g.
+     *  {@code setActive(null)} followed by secondary row update with
+     *  a new active id on a Home → Send navigation) coalesce into
+     *  ONE refresh that sees the final state instead of flashing
+     *  through an intermediate "no active" state. */
+    private boolean indicatorRefreshPending = false;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    /** Last-applied active ids. These are separate from
+     *  lastSecondarySignature (which tracks items only) so we can
+     *  refresh the indicator whenever the active changes without
+     *  having to rebuild buttons. */
+    private String lastActiveMainId = null;
+    private String lastActiveSecondaryId = null;
+
+    /** Target colors — resolved once, reused for each refresh. */
+    private int mainActivePillColor;
+    private int secondaryActivePillColor;
+
+    /** Identifies which row + item the indicator is currently on. */
+    private static final class IndicatorTarget {
+        final boolean secondary;
+        final String id;
+
+        IndicatorTarget(boolean secondary, String id) {
+            this.secondary = secondary;
+            this.id = id;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof IndicatorTarget)) return false;
+            IndicatorTarget other = (IndicatorTarget) o;
+            return secondary == other.secondary && Objects.equals(id, other.id);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(secondary, id);
+        }
+    }
+
+    // ─── State wiring ─────────────────────────────────────────────────
+
+    private final NavbarStateHolder stateHolder;
+    private final NavbarStateHolder.Observer stateObserver;
+    private boolean subscribed;
+    private boolean floatingVisible;
+
+    /**
+     * Optional callback set by {@link NavbarOverlayManager} so taps
+     * can be forwarded up to the plugin → JS bridge.
+     */
+    private NavbarOverlayManager manager;
+
+    public NavbarView(@NonNull Context context, @NonNull NavbarStateHolder stateHolder) {
+        super(context);
+        this.stateHolder = stateHolder;
+
+        // ─── Build the pill hierarchy ────────────────────────────
+
+        // Shadow wrap — outer view that exists only to prevent
+        // clipping of the blurContainer's drop shadow. It has no
+        // background of its own; the actual shadow lives on
+        // blurContainer via its elevation + its rounded outline
+        // (derived from the pill background shape drawable).
+        //
+        // Without shadowWrap.clipChildren=false + our own
+        // setClipChildren(false), Android would clip the shadow
+        // to shadowWrap's bounds, cutting off the bottom of the
+        // shadow below the pill.
+        shadowWrap = new FrameLayout(context);
+        shadowWrap.setClipChildren(false);
+        shadowWrap.setClipToPadding(false);
+        addView(
+            shadowWrap,
+            new FrameLayout.LayoutParams(
+                LayoutParams.MATCH_PARENT,
+                LayoutParams.WRAP_CONTENT
+            )
+        );
+        // Ensure THIS view (NavbarView) also doesn't clip its
+        // children's shadows — otherwise the pill shadow would
+        // be cropped by our own bounds.
+        setClipChildren(false);
+        setClipToPadding(false);
+
+        // Blur container — the actual pill. Rounded 26dp corners,
+        // translucent white fill.
+        //
+        // On Android we can't cleanly replicate iOS's UIGlassEffect
+        // backdrop blur. The only reliable Android primitives for
+        // backdrop blur (Window.setBackgroundBlurRadius, the
+        // BLUR_BEHIND_WINDOW_FLAG) only work on Windows (Dialogs),
+        // and we deliberately architected the navbar as a child
+        // View of the Activity/Dialog decor view — not its own
+        // Window — so it can share the host's z-order for free
+        // (see NavbarOverlayManager docs).
+        //
+        // View.setRenderEffect(createBlurEffect(...)) blurs the
+        // view's OWN rendered content (including children), not
+        // what's behind it — the opposite of what we want. So we
+        // stick with a solid translucent pill, which reads as a
+        // native Material surface on Android devices. This is the
+        // same compromise the system Material Bottom App Bar
+        // makes.
+        blurContainer = new FrameLayout(context);
+        blurContainer.setBackgroundResource(R.drawable.navbar_pill_bg);
+        blurContainer.setClipToOutline(true);
+        // Drop shadow — elevation lives on the pill itself because
+        // the pill has a background drawable (rounded 26dp shape)
+        // which Android uses as the outline for the shadow render.
+        // Without a background, elevation would render no shadow.
+        //
+        // iOS uses shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] — a
+        // very soft 20pt blur at 8% alpha. That's subtle enough
+        // that dropping the Android shadow entirely reads as
+        // visually consistent with iOS.
+        //
+        // Android shadow gotchas that burned us:
+        //
+        // 1. setOutline{Ambient,Spot}ShadowColor IGNORES the alpha
+        //    channel — only RGB matters. 0xFF000000 produces a
+        //    fully black shadow at whatever density the elevation
+        //    dictates, far heavier than iOS.
+        //
+        // 2. The elevation shadow follows the view's Outline
+        //    (which for a rounded-rect background drawable is the
+        //    rounded rect). The shadow wraps around the corners,
+        //    so even a faint shadow at the straight edges becomes
+        //    a clearly visible curved grey outline at the rounded
+        //    bottom corners. Users perceive this as a permanent
+        //    "grey outline" below the pill that follows it across
+        //    every dApp.
+        //
+        // 3. Lowering elevation + using a light-grey RGB makes the
+        //    straight-edge shadow fade but STILL leaves a visible
+        //    corner outline because the corner-wrapping
+        //    concentrates any remaining shadow into a curve that
+        //    contrasts with its surroundings.
+        //
+        // The only reliable cure is setting elevation to 0 — no
+        // shadow at all. iOS's 8% alpha shadow is faint enough
+        // that a flat Android pill looks equivalent to a user
+        // glancing between platforms. If we later need a subtle
+        // shadow we can fake it with a multi-layer
+        // GradientDrawable background rather than trusting the
+        // platform shadow pipeline.
+        blurContainer.setElevation(0f);
+        FrameLayout.LayoutParams blurLp = new FrameLayout.LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.WRAP_CONTENT
+        );
+        shadowWrap.addView(blurContainer, blurLp);
+
+        // Shared indicator — child of blurContainer, ADDED BEFORE
+        // outerVStack so it sits behind the rows in z-order. We set
+        // its size manually in refreshIndicator() (NOT via layout
+        // params tied to a button) — computing the target button's
+        // frame in blurContainer's coordinate space via
+        // offsetDescendantRectToMyCoords and animating x/y/width/
+        // height via 4 parallel SpringAnimations. See
+        // refreshIndicator() for the full logic.
+        //
+        // The pre-resolved colors match the old XML drawables that
+        // used to live on NavbarButton / NavbarSecondaryButton
+        // (navbar_button_active_bg.xml = #2EFF6B00 orange 18%,
+        // navbar_secondary_active_bg.xml = slate 8%) — so the
+        // visual doesn't change, only how it's applied.
+        mainActivePillColor = 0x2EFF6B00;
+        secondaryActivePillColor = androidx.core.content.ContextCompat.getColor(
+            context,
+            R.color.navbar_secondary_active_bg
+        );
+        sharedIndicator = new NavbarIndicatorView(context);
+        sharedIndicator.setBackgroundColor(mainActivePillColor);
+        sharedIndicator.setVisibility(INVISIBLE);
+        // FrameLayout.LayoutParams width/height are set in
+        // refreshIndicator — here we install with 0×0 so the layout
+        // pass doesn't measure the view until we bind it.
+        FrameLayout.LayoutParams indicatorLp = new FrameLayout.LayoutParams(0, 0);
+        blurContainer.addView(sharedIndicator, indicatorLp);
+
+        // Outer vertical stack — holds [secondaryRow, contentStack].
+        // Secondary row is GONE by default; setNavbarSecondaryRow
+        // populates it and animates it in.
+        outerVStack = new LinearLayout(context);
+        outerVStack.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout.LayoutParams outerLp = new FrameLayout.LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.WRAP_CONTENT
+        );
+        outerLp.setMargins(dp(PILL_PADDING_DP), dp(PILL_PADDING_DP), dp(PILL_PADDING_DP), dp(PILL_PADDING_DP));
+        blurContainer.addView(outerVStack, outerLp);
+
+        // Secondary row — horizontal LinearLayout with equal-weight
+        // children for Send / Receive / Settings. Collapsed by
+        // default via height=0; the spring animation grows it to
+        // intrinsic height when populated.
+        secondaryRow = new LinearLayout(context);
+        secondaryRow.setOrientation(LinearLayout.HORIZONTAL);
+        secondaryRow.setWeightSum(3f);
+        LinearLayout.LayoutParams secondaryLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0 // Start collapsed; animation will set the target height
+        );
+        secondaryLp.bottomMargin = 0; // Gap added dynamically in rebuildSecondaryRow
+        outerVStack.addView(secondaryRow, secondaryLp);
+
+        // Content stack — holds [navStack, actionButton]. Phase 4
+        // will add the action button as a sibling.
+        contentStack = new LinearLayout(context);
+        contentStack.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        outerVStack.addView(contentStack, contentLp);
+
+        // Nav stack — holds the main-row buttons (Home/Activity/
+        // Browser). Weight=1 so it expands to fill contentStack in
+        // default mode; compact mode flips this to 0.5 so the
+        // action button gets the other half.
+        navStack = new LinearLayout(context);
+        navStack.setOrientation(LinearLayout.HORIZONTAL);
+        navStack.setWeightSum(3);
+        LinearLayout.LayoutParams navLp = new LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        );
+        contentStack.addView(navStack, navLp);
+
+        // Action button — 0-width in default mode (hidden via weight
+        // sum), grows to 50% of the content stack in compact mode
+        // when the JS side calls setNavbarAction.
+        actionButton = new NavbarActionButton(context);
+        actionButton.setVisibility(GONE);
+        LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            0f
+        );
+        contentStack.addView(actionButton, actionLp);
+        actionButton.setOnClickListener(v -> {
+            if (manager != null && actionButton.isActionEnabled()) {
+                manager.dispatchActionTap();
+            }
+        });
+
+        // Register layout change listeners for the indicator target
+        // tracking. When the secondary row animates its height
+        // (growing from 0 to 32dp, or collapsing), blurContainer
+        // grows/shrinks and the main row gets pushed around.
+        // Without a re-bind the shared indicator stays at its old
+        // screen Y — visually it appears glued to where the button
+        // USED to be. We track layout changes of BOTH rows so the
+        // indicator always matches its target button's current
+        // position. `retargetIndicatorIfNeeded` handles the
+        // snap-vs-redirect logic based on whether an animation is
+        // in-flight.
+        View.OnLayoutChangeListener layoutListener = (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (left == oldLeft && top == oldTop && right == oldRight && bottom == oldBottom) return;
+            if (indicatorCurrentTarget == null) return;
+            retargetIndicatorIfNeeded();
+        };
+        outerVStack.addOnLayoutChangeListener(layoutListener);
+        navStack.addOnLayoutChangeListener(layoutListener);
+        secondaryRow.addOnLayoutChangeListener(layoutListener);
+
+        // ─── Subscribe to state ──────────────────────────────────
+
+        stateObserver = this::onStateChanged;
+        stateHolder.addObserver(stateObserver);
+        subscribed = true;
+
+        // ─── Window insets for safe-area-aware bottom gap ────────
+        //
+        // Goal: position the pill so its bottom sits at a FIXED
+        // SCREEN Y (= screen_bottom - gesture_bar - BOTTOM_GAP_DP),
+        // REGARDLESS of whether this NavbarView is attached to the
+        // Activity's decor view (which fills the screen) or to a
+        // WebViewDialog's decor view (which only fills the slot
+        // rect = ends roughly at the gesture-bar top). Both hosts
+        // must produce the exact same visible screen-y for the
+        // pill, otherwise the pill visibly jumps when maximizing a
+        // dApp.
+        //
+        // Target is computed in absolute screen coordinates. The
+        // bottomMargin is then whatever offset is needed from the
+        // host's decor-view bottom (also in screen coords) to land
+        // the pill bottom on that target:
+        //
+        //   targetScreenY = screenHeight - gestureInset - BOTTOM_GAP
+        //   bottomMargin  = rootBottomScreenY - targetScreenY
+        //
+        // For the Activity host (rootBottom = screenHeight):
+        //   bottomMargin = screenHeight - target
+        //                = gestureInset + BOTTOM_GAP
+        //                ≈ 24dp + 12dp = 36dp
+        //
+        // For the slot-rect Dialog host (rootBottom ≈ slot_bottom
+        // ≈ screen - gestureInset, i.e. already above the gesture
+        // bar):
+        //   bottomMargin ≈ (screen - gestureInset) - target
+        //                = BOTTOM_GAP - 0
+        //                ≈ 0dp (pill sits flush with dialog bottom)
+        //
+        // We DO NOT use ViewCompat.getRootWindowInsets because:
+        //   (1) For the Activity, the Capacitor WebView consumes
+        //       the systemBars inset before this listener fires, so
+        //       we see bottom=0 even though the host reaches the
+        //       screen edge.
+        //   (2) For the Dialog, it may return an inset even though
+        //       the Dialog's window frame doesn't touch the gesture
+        //       bar — we'd over-inset and the pill would sit too
+        //       high.
+        //
+        // Computing from geometry + the navigation_bar_height dimen
+        // resource is the only reliable path.
+        Runnable applyRootInsets = () -> {
+            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) getLayoutParams();
+            if (lp == null) return;
+
+            // Real screen height (includes all system bar areas) —
+            // WindowMetrics on API 30+, DisplayMetrics.heightPixels
+            // as a fallback (sufficient for target computation).
+            int screenHeightPx = 0;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    android.view.WindowManager wm = (android.view.WindowManager) getContext()
+                        .getSystemService(android.content.Context.WINDOW_SERVICE);
+                    screenHeightPx = wm.getCurrentWindowMetrics().getBounds().height();
+                } catch (Throwable ignored) {}
+            }
+            if (screenHeightPx == 0) {
+                screenHeightPx = getResources().getDisplayMetrics().heightPixels;
+            }
+
+            // Platform gesture-bar / nav-bar height from resources.
+            int gestureInsetPx = 0;
+            int navResId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+            if (navResId > 0) {
+                gestureInsetPx = getResources().getDimensionPixelSize(navResId);
+            }
+
+            // Absolute screen y that the pill's bottom should land on.
+            int targetScreenY = screenHeightPx - gestureInsetPx - dp(BOTTOM_GAP_DP);
+
+            // Root window's bottom in screen coords.
+            View root = getRootView();
+            int[] rootLoc = new int[2];
+            root.getLocationOnScreen(rootLoc);
+            int rootBottomScreen = rootLoc[1] + root.getHeight();
+
+            int bottomMargin = rootBottomScreen - targetScreenY;
+            if (bottomMargin < 0) bottomMargin = 0;
+
+            lp.bottomMargin = bottomMargin;
+            lp.leftMargin = dp(SIDE_MARGIN_DP);
+            lp.rightMargin = dp(SIDE_MARGIN_DP);
+            setLayoutParams(lp);
+        };
+        ViewCompat.setOnApplyWindowInsetsListener(this, (v, insets) -> {
+            applyRootInsets.run();
+            return insets;
+        });
+        // Run once at attach time so the listener doesn't have to
+        // fire before the first layout pass.
+        addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(@NonNull View v) {
+                applyRootInsets.run();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(@NonNull View v) {}
+        });
+
+        // Hidden by default — manager calls setFloatingVisible() to
+        // pick which instance is on top.
+        setVisibility(GONE);
+    }
+
+    /**
+     * Factory for the layout params used when attaching this view to
+     * either the Activity decor view or a Dialog decor view.
+     */
+    public static FrameLayout.LayoutParams floatingBottomLayoutParams() {
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        return lp;
+    }
+
+    /** Called by the manager to attach its tap callback plumbing. */
+    public void attachManager(NavbarOverlayManager manager) {
+        this.manager = manager;
+    }
+
+    // ─── Visibility arbitration hook ──────────────────────────────────
+
+    public void setFloatingVisible(boolean visible) {
+        if (this.floatingVisible == visible) return;
+        this.floatingVisible = visible;
+        setVisibility(visible ? VISIBLE : GONE);
+    }
+
+    public void onDetachedFromManager() {
+        if (subscribed) {
+            stateHolder.removeObserver(stateObserver);
+            subscribed = false;
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (subscribed) {
+            stateHolder.removeObserver(stateObserver);
+            subscribed = false;
+        }
+    }
+
+    // ─── State binding ────────────────────────────────────────────────
+
+    private void onStateChanged(NavbarState state) {
+        rebuildMainRow(state.items, state.activeId);
+        rebuildSecondaryRow(state.secondaryItems, state.secondaryActiveId);
+        applyActionState(state.action);
+        applyMorphState(state.morphedOut);
+
+        // Track the active ids here (independently of the button
+        // rebuild paths) so `refreshIndicator` always picks from the
+        // latest state. Using a coalesced refresh (main-thread
+        // post) batches multi-step transitions like Home → Send
+        // where both the main activeId and the secondary activeId
+        // change in the same state update — without the batching
+        // the intermediate "main cleared, secondary not yet set"
+        // would hide the indicator and then cold-snap to the new
+        // target.
+        lastActiveMainId = state.activeId;
+        lastActiveSecondaryId = state.secondaryActiveId;
+        scheduleIndicatorRefresh();
+
+        Log.d(
+            TAG,
+            "onStateChanged: visible=" + state.visible +
+            " items=" + state.items.size() +
+            " secondary=" + state.secondaryItems.size() +
+            " action=" + (state.action != null) +
+            " morph=" + state.morphedOut +
+            " active=" + state.activeId +
+            " secondaryActive=" + state.secondaryActiveId
+        );
+    }
+
+    // ─── Shared sliding indicator ─────────────────────────────────────
+
+    /**
+     * Schedule a refresh on the main thread handler. Multiple
+     * calls in the same run loop iteration coalesce to one. See
+     * the iOS `scheduleIndicatorRefresh` for the symmetric
+     * implementation — the problem and fix are identical.
+     */
+    private void scheduleIndicatorRefresh() {
+        if (indicatorRefreshPending) return;
+        indicatorRefreshPending = true;
+        mainHandler.post(() -> {
+            indicatorRefreshPending = false;
+            refreshIndicator();
+        });
+    }
+
+    /**
+     * Pick the target button and snap the shared indicator to its
+     * frame. Priority rule: secondary row active wins over main row
+     * active, because the secondary row represents a more specific
+     * in-flow state (e.g. /send clears main active and sets
+     * secondary active=send).
+     *
+     * Android intentionally snaps rather than sliding between
+     * positions — see the comment in the snap block below.
+     */
+    private void refreshIndicator() {
+        View targetButton = null;
+        IndicatorTarget nextTarget = null;
+        int nextColor = mainActivePillColor;
+
+        if (lastActiveSecondaryId != null) {
+            NavbarSecondaryButton b = secondaryButtons.get(lastActiveSecondaryId);
+            if (b != null && b.getVisibility() == VISIBLE) {
+                targetButton = b;
+                nextTarget = new IndicatorTarget(true, lastActiveSecondaryId);
+                nextColor = secondaryActivePillColor;
+            }
+        }
+        if (targetButton == null && lastActiveMainId != null) {
+            NavbarButton b = mainButtons.get(lastActiveMainId);
+            if (b != null && b.getVisibility() == VISIBLE) {
+                targetButton = b;
+                nextTarget = new IndicatorTarget(false, lastActiveMainId);
+                nextColor = mainActivePillColor;
+            }
+        }
+
+        // Nothing active → hide the indicator.
+        if (targetButton == null) {
+            sharedIndicator.setVisibility(INVISIBLE);
+            indicatorCurrentTarget = null;
+            return;
+        }
+
+        // Same target as before AND already visible → no-op.
+        if (
+            indicatorCurrentTarget != null &&
+            indicatorCurrentTarget.equals(nextTarget) &&
+            sharedIndicator.getVisibility() == VISIBLE
+        ) {
+            return;
+        }
+
+        // Compute the target button's frame in blurContainer's
+        // coordinate space. offsetDescendantRectToMyCoords walks
+        // up the view hierarchy accumulating offsets.
+        Rect targetRect = new Rect(0, 0, targetButton.getWidth(), targetButton.getHeight());
+        blurContainer.offsetDescendantRectToMyCoords(targetButton, targetRect);
+
+        // If the target button hasn't been measured yet (post-
+        // construction, before the first layout pass), postpone
+        // to the next layout pass.
+        if (targetRect.width() <= 0 || targetRect.height() <= 0) {
+            sharedIndicator.post(this::refreshIndicator);
+            return;
+        }
+
+        indicatorCurrentTarget = nextTarget;
+
+        // Android: snap the indicator to its new frame instead of
+        // sliding between positions. On Android emulators and mid-
+        // tier devices the spring-driven slide reads as choppy
+        // (capture framerate shows the pill jumping through a couple
+        // of intermediate positions rather than arcing smoothly),
+        // while on iOS the symmetric code produces a fluid motion.
+        // Rather than fight that asymmetry we pick the end state
+        // directly — same final appearance, no half-animation
+        // perception.
+        applyIndicatorFrame(targetRect.left, targetRect.top, targetRect.width(), targetRect.height());
+        sharedIndicator.setBackgroundColor(nextColor);
+        sharedIndicator.setVisibility(VISIBLE);
+    }
+
+    /**
+     * Directly set the indicator's frame (x, y, width, height).
+     * This is the only code path that moves the indicator on
+     * Android — animation is intentionally disabled (see
+     * {@link #refreshIndicator()}).
+     */
+    private void applyIndicatorFrame(int x, int y, int width, int height) {
+        sharedIndicator.setX((float) x);
+        sharedIndicator.setY((float) y);
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) sharedIndicator.getLayoutParams();
+        if (lp.width != width || lp.height != height) {
+            lp.width = width;
+            lp.height = height;
+            sharedIndicator.setLayoutParams(lp);
+        }
+    }
+
+    /**
+     * Recompute the current target button's frame and snap the
+     * indicator to it. Called whenever a row's layout bounds change
+     * so the indicator tracks buttons that are being pushed around
+     * by a sibling row's height animation (e.g. secondary row
+     * grow/collapse).
+     */
+    private void retargetIndicatorIfNeeded() {
+        if (indicatorCurrentTarget == null) return;
+        View targetButton = indicatorCurrentTarget.secondary
+            ? secondaryButtons.get(indicatorCurrentTarget.id)
+            : mainButtons.get(indicatorCurrentTarget.id);
+        if (targetButton == null) return;
+        if (targetButton.getWidth() == 0 || targetButton.getHeight() == 0) return;
+
+        Rect r = new Rect(0, 0, targetButton.getWidth(), targetButton.getHeight());
+        blurContainer.offsetDescendantRectToMyCoords(targetButton, r);
+        applyIndicatorFrame(r.left, r.top, r.width(), r.height());
+    }
+
+    /**
+     * Animate the pill off-screen (morph out) or back into view
+     * (morph in) in response to drawer-open state. The animation
+     * runs on the {@code shadowWrap}'s translationY so the child
+     * tree (buttons, labels, icons) moves as one rigid unit.
+     *
+     * Off-screen target = pill height + bottom margin, so the pill
+     * is fully hidden below the screen edge when morphed out.
+     */
+    private void applyMorphState(boolean newMorphedOut) {
+        if (this.morphedOut == newMorphedOut) return;
+        this.morphedOut = newMorphedOut;
+
+        // Cancel any in-flight morph so we don't have two springs
+        // fighting for the translation property.
+        if (morphTranslationAnim != null && morphTranslationAnim.isRunning()) {
+            morphTranslationAnim.cancel();
+        }
+
+        // Target = 0 when morphed in, pill_height + margin when
+        // morphed out. We use the laid-out height at call time; if
+        // the pill hasn't been measured yet we fall back to a
+        // reasonable constant.
+        float targetTranslationY;
+        if (newMorphedOut) {
+            int pillHeight = shadowWrap.getHeight();
+            if (pillHeight <= 0) pillHeight = dp(120); // reasonable fallback
+            targetTranslationY = pillHeight + dp(BOTTOM_GAP_DP) + dp(40);
+        } else {
+            targetTranslationY = 0f;
+        }
+
+        morphTranslationAnim = new SpringAnimation(shadowWrap, DynamicAnimation.TRANSLATION_Y);
+        morphTranslationAnim.setSpring(
+            new SpringForce(targetTranslationY)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY)
+                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+        );
+        morphTranslationAnim.start();
+    }
+
+    /**
+     * Apply the {@link NavbarState.Action} to the action button and
+     * flip the compact-mode layout accordingly. When action is null
+     * we revert to default (full-width nav stack, no action button);
+     * when non-null we bind the action button and split the content
+     * stack 50/50 between navStack and action.
+     */
+    private void applyActionState(NavbarState.Action action) {
+        if (action == null) {
+            if (!compactMode) return; // already default
+            compactMode = false;
+            setCompactLayout(false);
+            return;
+        }
+
+        // Bind content before animating so the morph reveals the
+        // final content (Continue label, enabled state) rather than
+        // an empty pill.
+        actionButton.bind(action);
+
+        if (compactMode) {
+            // Already in compact mode — just re-bind the action
+            // content without re-running the layout flip.
+            return;
+        }
+        compactMode = true;
+        setCompactLayout(true);
+    }
+
+    /**
+     * Switch the contentStack's weight distribution between default
+     * mode (navStack 100%, action 0%) and compact mode (navStack
+     * 50%, action 50%). Also flips each NavbarButton's internal
+     * layout to icon-only compact mode.
+     *
+     * Phase 4 applies the flip without animation so we can first
+     * verify the layout numerics are correct; Phase 5 will wrap this
+     * in a SpringAnimation so the morph is smooth.
+     */
+    private void setCompactLayout(boolean compact) {
+        // Flip each main-row button to compact (icon-only) or back
+        // to default (icon + label).
+        for (NavbarButton button : mainButtons.values()) {
+            button.setCompact(compact);
+        }
+
+        // Flip weight distribution on navStack vs actionButton.
+        LinearLayout.LayoutParams navLp = (LinearLayout.LayoutParams) navStack.getLayoutParams();
+        LinearLayout.LayoutParams actionLp = (LinearLayout.LayoutParams) actionButton.getLayoutParams();
+        if (compact) {
+            navLp.weight = 1f;
+            actionLp.weight = 1f;
+            actionButton.setVisibility(VISIBLE);
+        } else {
+            navLp.weight = 1f;
+            actionLp.weight = 0f;
+            actionButton.setVisibility(GONE);
+        }
+        navStack.setLayoutParams(navLp);
+        actionButton.setLayoutParams(actionLp);
+        requestLayout();
+    }
+
+    private String lastMainSignature = "";
+
+    private void rebuildMainRow(List<NavbarState.Item> items, String activeId) {
+        // Signature over items ONLY (not active) so a /home → /browser
+        // path change doesn't rebuild the button tree — that would
+        // invalidate the shared indicator's target references and
+        // kill the slide animation, same problem we fixed on the
+        // secondary row.
+        StringBuilder sigBuilder = new StringBuilder();
+        for (NavbarState.Item item : items) {
+            sigBuilder.append(item.id).append('/').append(item.title).append(';');
+        }
+        String signature = sigBuilder.toString();
+        if (signature.equals(lastMainSignature) && !mainButtons.isEmpty()) {
+            // Items unchanged — just sync the button tints with the
+            // new active id (the shared indicator is handled
+            // separately via scheduleIndicatorRefresh).
+            for (NavbarState.Item item : items) {
+                NavbarButton btn = mainButtons.get(item.id);
+                if (btn != null) btn.setActive(item.id.equals(activeId));
+            }
+            return;
+        }
+        lastMainSignature = signature;
+
+        navStack.removeAllViews();
+        mainButtons.clear();
+
+        for (NavbarState.Item item : items) {
+            NavbarButton button = new NavbarButton(getContext());
+            boolean isActive = item.id.equals(activeId);
+            button.bind(item, isActive);
+            // Carry over the current compact mode to the fresh
+            // button. Without this, any state update while in
+            // compact mode (e.g. setNavbarAction({enabled:false})
+            // while action is already showing) would silently
+            // revert the main row to default mode because the
+            // freshly-built buttons default to compact=false.
+            if (compactMode) button.setCompact(true);
+            button.setOnClickListener(v -> {
+                if (manager != null) manager.dispatchItemTap(item.id);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+            );
+            navStack.addView(button, lp);
+            mainButtons.put(item.id, button);
+        }
+    }
+
+    /**
+     * Rebuild the secondary row on a state change. Handles three
+     * scenarios:
+     *   1. Empty → empty: no-op (common case, avoids animation
+     *      churn)
+     *   2. Items present: rebuild content + animate grow to
+     *      intrinsic height
+     *   3. Items removed: animate collapse to 0
+     *
+     * Rebuilds are cheap (≤3 buttons) so we don't bother diffing
+     * by id unless the signature changes.
+     */
+    private void rebuildSecondaryRow(List<NavbarState.Item> items, String activeId) {
+        // Build a signature of the items LIST ONLY (not the active
+        // id) — we track the active id separately via
+        // lastActiveSecondaryId and use the shared sliding indicator
+        // for the active highlight, so a path change that only
+        // flips the active id should NOT trigger a button rebuild.
+        // Rebuilding the buttons nukes their references and forces
+        // the indicator to retarget a brand-new view, killing the
+        // slide animation — exactly what was breaking Send ↔
+        // Receive ↔ Settings transitions on iOS before the recent
+        // fix. This mirrors the iOS `itemsUnchanged` short-circuit.
+        StringBuilder sigBuilder = new StringBuilder();
+        for (NavbarState.Item item : items) {
+            sigBuilder.append(item.id).append('/').append(item.title).append(';');
+        }
+        String signature = sigBuilder.toString();
+        boolean sameSignature = signature.equals(lastSecondarySignature);
+
+        if (sameSignature) {
+            // Items unchanged — nothing to rebuild. The active id
+            // has already been copied into `lastActiveSecondaryId`
+            // in `onStateChanged` and `scheduleIndicatorRefresh`
+            // will animate the indicator to the new target on the
+            // next run-loop tick. We DO want to update each
+            // button's setActive so icon tint stays in sync, but
+            // leave the button layout untouched.
+            for (NavbarState.Item item : items) {
+                NavbarSecondaryButton btn = secondaryButtons.get(item.id);
+                if (btn != null) btn.setActive(item.id.equals(activeId));
+            }
+            return;
+        }
+        lastSecondarySignature = signature;
+
+        // Rebuild content.
+        secondaryRow.removeAllViews();
+        secondaryButtons.clear();
+
+        if (items.isEmpty()) {
+            // Animate collapse to height=0. The row's content is
+            // already empty so there's nothing to see mid-animation;
+            // the height transition just retracts the reserved
+            // vertical space cleanly.
+            animateSecondaryHeight(0);
+            return;
+        }
+
+        // Dynamic weightSum so rows with N buttons distribute
+        // correctly. Matches iOS NavbarSecondaryButton's
+        // .fillEqually distribution.
+        secondaryRow.setWeightSum((float) items.size());
+        for (NavbarState.Item item : items) {
+            NavbarSecondaryButton btn = new NavbarSecondaryButton(getContext());
+            boolean isActive = item.id.equals(activeId);
+            btn.bind(item, isActive);
+            btn.setOnClickListener(v -> {
+                if (manager != null) manager.dispatchSecondaryTap(item.id);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f
+            );
+            secondaryRow.addView(btn, lp);
+            secondaryButtons.put(item.id, btn);
+        }
+
+        // Animate grow to the row's intrinsic height — for a single
+        // row of 32dp pills that's 32dp + padding. We use a
+        // measured height instead of a hardcoded constant so future
+        // content size changes don't need a magic-number update.
+        int targetHeight = dp(NavbarSecondaryButton.BUTTON_HEIGHT_DP);
+        // Also add the spacing gap between secondary row and
+        // content stack so the two rows don't touch.
+        addSecondaryBottomMargin();
+        animateSecondaryHeight(targetHeight);
+    }
+
+    /**
+     * Ensure the secondary row has the correct bottom margin so
+     * there's a visible gap between it and the main content stack.
+     * Idempotent — safe to call on every populated rebuild.
+     */
+    private void addSecondaryBottomMargin() {
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) secondaryRow.getLayoutParams();
+        if (lp.bottomMargin != dp(OUTER_STACK_SPACING_DP)) {
+            lp.bottomMargin = dp(OUTER_STACK_SPACING_DP);
+            secondaryRow.setLayoutParams(lp);
+        }
+    }
+
+    /**
+     * Animate the secondary row's height to the given target using
+     * a spring with iOS-matching parameters (dampingRatio 0.85,
+     * medium stiffness). When the target is 0 we also clear the
+     * bottom margin on animation end so the collapsed row doesn't
+     * leave a ghost gap.
+     */
+    private void animateSecondaryHeight(int targetHeight) {
+        // Cancel any in-flight animation so we don't have two
+        // springs fighting for the same property.
+        if (secondaryHeightAnim != null && secondaryHeightAnim.isRunning()) {
+            secondaryHeightAnim.cancel();
+        }
+
+        // Custom property: animate the LinearLayout.LayoutParams
+        // height. SpringAnimation wants a FloatPropertyCompat so we
+        // wrap the layout height mutation in one.
+        secondaryHeightAnim = new SpringAnimation(
+            secondaryRow,
+            new androidx.dynamicanimation.animation.FloatPropertyCompat<View>("secondaryHeight") {
+                @Override
+                public float getValue(View object) {
+                    return object.getLayoutParams().height;
+                }
+
+                @Override
+                public void setValue(View object, float value) {
+                    ViewGroup.LayoutParams lp = object.getLayoutParams();
+                    lp.height = (int) value;
+                    object.setLayoutParams(lp);
+                }
+            }
+        );
+        secondaryHeightAnim.setSpring(
+            new SpringForce(targetHeight)
+                .setDampingRatio(SpringForce.DAMPING_RATIO_LOW_BOUNCY) // ~0.75 — iOS uses ~0.85 but this reads smoother on Android
+                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+        );
+        secondaryHeightAnim.addEndListener((animation, canceled, value, velocity) -> {
+            // If this animation was cancelled (typically by the next
+            // call restarting with a new target), don't clobber the
+            // margin — the replacement animation will manage it.
+            if (canceled) return;
+            if (targetHeight == 0) {
+                // Fully collapsed — clear the bottom margin so the
+                // row doesn't leave a reserved gap.
+                LinearLayout.LayoutParams lp =
+                    (LinearLayout.LayoutParams) secondaryRow.getLayoutParams();
+                if (lp.bottomMargin != 0) {
+                    lp.bottomMargin = 0;
+                    secondaryRow.setLayoutParams(lp);
+                }
+            }
+        });
+        secondaryHeightAnim.start();
+    }
+
+    private int dp(int value) {
+        return (int) TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            value,
+            getResources().getDisplayMetrics()
+        );
+    }
+}

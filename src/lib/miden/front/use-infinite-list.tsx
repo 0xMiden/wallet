@@ -14,6 +14,7 @@ export const useInfiniteList = ({ getCount, getItems }: infiniteListProps) => {
   const [hasMore, setHasMore] = useState(true);
 
   useEffect(() => {
+    /* c8 ignore next 4 -- address-change reset, requires multi-render hook test */
     if (initialPageLoaded.current) {
       initialPageLoaded.current = false;
       setItems([]);

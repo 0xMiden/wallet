@@ -50,10 +50,9 @@ export async function doSync(): Promise<void> {
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
-              const noteRecord = note.inputNoteRecord();
-              const noteId = noteRecord.id().toString();
-              const noteMeta = noteRecord.metadata();
-              const details = noteRecord.details();
+              const noteId = note.id().toString();
+              const noteMeta = note.metadata();
+              const details = note.details();
               const fungibleAssets = details.assets().fungibleAssets();
               if (!fungibleAssets || fungibleAssets.length === 0) return null;
               const firstAsset = fungibleAssets[0];
@@ -103,9 +102,7 @@ export async function doSync(): Promise<void> {
               name: base.name,
               thumbnailUri: base.thumbnailUri
             };
-          } catch {
-            // Leave metadata undefined — frontend will handle
-          }
+          } catch {}
         })
       );
 

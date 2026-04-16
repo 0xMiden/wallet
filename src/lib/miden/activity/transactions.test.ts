@@ -43,7 +43,7 @@ const mockGetInputNote = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue({ blockNum: () => 1 });
 const mockGetMidenClient = jest.fn((): any => ({
   syncState: mockSyncState,
-  webClient: { getInputNote: mockGetInputNote }
+  getInputNote: mockGetInputNote
 }));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
@@ -53,18 +53,6 @@ jest.mock('../sdk/miden-client', () => ({
 jest.mock('./notes', () => ({
   importAllNotes: jest.fn(),
   queueNoteImport: jest.fn()
-}));
-
-jest.mock('lib/miden-worker/consumeNoteId', () => ({
-  consumeNoteId: jest.fn()
-}));
-
-jest.mock('lib/miden-worker/sendTransaction', () => ({
-  sendTransaction: jest.fn()
-}));
-
-jest.mock('lib/miden-worker/submitTransaction', () => ({
-  submitTransaction: jest.fn()
 }));
 
 describe('transactions utilities', () => {
@@ -104,8 +92,8 @@ describe('transactions utilities', () => {
 
       const result = await getTransactionsInProgress();
 
-      expect(result[0].id).toBe('tx-2'); // Earlier initiatedAt first
-      expect(result[1].id).toBe('tx-1');
+      expect(result[0]!.id).toBe('tx-2'); // Earlier initiatedAt first
+      expect(result[1]!.id).toBe('tx-1');
     });
   });
 
@@ -135,7 +123,7 @@ describe('transactions utilities', () => {
 
       const result = await getFailedTransactions();
 
-      expect(result[0].id).toBe('tx-2');
+      expect(result[0]!.id).toBe('tx-2');
     });
   });
 
@@ -152,7 +140,7 @@ describe('transactions utilities', () => {
       const result = await getCompletedTransactions('acc-1');
 
       expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('tx-1');
+      expect(result[0]!.id).toBe('tx-1');
     });
 
     it('includes failed transactions when includeFailed is true', async () => {
@@ -300,20 +288,28 @@ describe('transactions utilities', () => {
   });
 
   describe('initiateConsumeTransaction', () => {
-    it('creates consume transaction when none exists', async () => {
-      mockTransactionsFilter.mockReturnValueOnce({
-        toArray: jest.fn().mockResolvedValueOnce([])
-      });
-      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+    const note = {
+      id: 'note-123',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: NoteTypeEnum.Private
+    };
 
-      const note = {
-        id: 'note-123',
-        faucetId: 'faucet',
-        amount: '100',
-        senderAddress: 'sender',
-        isBeingClaimed: false,
-        type: NoteTypeEnum.Private
-      };
+    const mockDedupQuery = (rows: any[]) => {
+      mockTransactionsWhere.mockReturnValueOnce({
+        equals: jest.fn().mockReturnValueOnce({
+          filter: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce(rows)
+          })
+        })
+      });
+    };
+
+    it('creates consume transaction when none exists', async () => {
+      mockDedupQuery([]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransaction('account-1', note);
 
@@ -321,7 +317,7 @@ describe('transactions utilities', () => {
       expect(typeof result).toBe('string');
     });
 
-    it('returns existing transaction id if consume for same note exists', async () => {
+    it('returns existing transaction id when a Queued consume exists for same note', async () => {
       const existingTx = {
         id: 'existing-tx',
         type: 'consume',
@@ -330,23 +326,64 @@ describe('transactions utilities', () => {
         status: ITransactionStatus.Queued,
         initiatedAt: 100
       };
-      mockTransactionsFilter.mockReturnValueOnce({
-        toArray: jest.fn().mockResolvedValueOnce([existingTx])
-      });
-
-      const note = {
-        id: 'note-123',
-        faucetId: 'faucet',
-        amount: '100',
-        senderAddress: 'sender',
-        isBeingClaimed: false,
-        type: NoteTypeEnum.Private
-      };
+      mockDedupQuery([existingTx]);
 
       const result = await initiateConsumeTransaction('account-1', note);
 
       expect(result).toBe('existing-tx');
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('returns existing transaction id when a Completed consume exists for same note', async () => {
+      // This is the bug from issue #171: after a consume completes, getConsumableNotes()
+      // can still return the note briefly. Without Completed dedup, auto-consume would
+      // re-enqueue a fresh tx every SWR poll.
+      const existingTx = {
+        id: 'completed-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 100,
+        completedAt: 200
+      };
+      mockDedupQuery([existingTx]);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(result).toBe('completed-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('creates a new transaction when only a Failed consume exists (retry allowed)', async () => {
+      // Failed txs are excluded from the dedup filter, so the user can retry a consume
+      // that previously failed. The Dexie query filter drops Failed rows, so we simulate
+      // that here by returning [] from the filtered query.
+      mockDedupQuery([]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+      expect(typeof result).toBe('string');
+    });
+
+    it('does not dedup across different accounts', async () => {
+      const otherAccountTx = {
+        id: 'other-account-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-2',
+        status: ITransactionStatus.Completed,
+        initiatedAt: 100
+      };
+      mockDedupQuery([otherAccountTx]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(result).not.toBe('other-account-tx');
+      expect(mockTransactionsAdd).toHaveBeenCalled();
     });
   });
 
@@ -355,8 +392,12 @@ describe('transactions utilities', () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })
       });
-      mockTransactionsFilter.mockReturnValueOnce({
-        toArray: jest.fn().mockResolvedValueOnce([])
+      mockTransactionsWhere.mockReturnValueOnce({
+        equals: jest.fn().mockReturnValueOnce({
+          filter: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce([])
+          })
+        })
       });
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
@@ -484,7 +525,7 @@ describe('transactions utilities', () => {
       await cancelTransaction(tx, new Error('Network failure'));
 
       expect(mockModify).toHaveBeenCalled();
-      const modifyFn = mockModify.mock.calls[0][0];
+      const modifyFn = mockModify.mock.calls[0]![0];
       const dbTx: any = {};
       modifyFn(dbTx);
 
@@ -501,7 +542,7 @@ describe('transactions utilities', () => {
       const tx = { id: 'tx-1' } as Transaction;
       await cancelTransaction(tx, 'simple error string');
 
-      const modifyFn = mockModify.mock.calls[0][0];
+      const modifyFn = mockModify.mock.calls[0]![0];
       const dbTx: any = {};
       modifyFn(dbTx);
 
@@ -528,22 +569,23 @@ describe('transactions utilities', () => {
       });
 
       // Mock the WASM client for the actual transaction execution
-      mockGetMidenClient.mockReturnValue({
+      // sendTransaction now returns TransactionResult directly (no worker)
+      mockGetMidenClient.mockResolvedValue({
         syncState: mockSyncState,
         sendTransaction: jest.fn().mockImplementation(() => {
           callOrder.push('sendTransaction');
-          return new Uint8Array();
+          return {
+            executedTransaction: () => ({
+              id: () => ({ toHex: () => 'tx-hex' }),
+              outputNotes: () => ({ notes: () => [] }),
+              inputNotes: () => ({ notes: () => [] })
+            }),
+            serialize: () => new Uint8Array([7])
+          };
         })
       });
 
-      // Mock sendTransaction worker
-      const { sendTransaction: mockSendTxWorker } = require('lib/miden-worker/sendTransaction');
-      const mockResultBytes = new Uint8Array([1, 2, 3]);
-      mockSendTxWorker.mockResolvedValue(mockResultBytes);
-
-      // We need to mock TransactionResult.deserialize — this will throw since we can't
-      // easily mock the SDK class. Instead, test a consume transaction that's simpler.
-      // Let's just verify syncState is called and the order is correct by catching the error
+      // Verify syncState is called and the order is correct by catching the error
       // after syncState + updateStatus
       const signCallback = jest.fn().mockResolvedValue(new Uint8Array());
       const transaction = {
@@ -611,7 +653,14 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       return { blockNum: () => 42 };
     });
 
-    const mockNewTransaction = jest.fn(async () => new Uint8Array([10, 20, 30]));
+    const mockNewTransaction = jest.fn(async () => ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'mock-tx-hash' }),
+        outputNotes: () => ({ notes: () => [] }),
+        inputNotes: () => ({ notes: () => [] })
+      }),
+      serialize: () => new Uint8Array([1, 2, 3])
+    }));
 
     jest.doMock('lib/miden/repo', () => repoMock);
 
@@ -624,17 +673,6 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     }));
 
     jest.doMock('@miden-sdk/miden-sdk', () => ({
-      Address: { fromBech32: jest.fn() },
-      TransactionResult: {
-        deserialize: jest.fn(() => ({
-          executedTransaction: () => ({
-            id: () => ({ toHex: () => 'mock-tx-hash' }),
-            outputNotes: () => ({ notes: () => [] }),
-            inputNotes: () => ({ notes: () => [] })
-          }),
-          serialize: () => new Uint8Array([1, 2, 3])
-        }))
-      },
       InputNoteState: {
         ConsumedAuthenticatedLocal: 0,
         ConsumedUnauthenticatedLocal: 1,
@@ -662,16 +700,6 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     jest.doMock('./notes', () => ({
       importAllNotes: jest.fn(),
       queueNoteImport: jest.fn()
-    }));
-
-    jest.doMock('lib/miden-worker/submitTransaction', () => ({
-      submitTransaction: jest.fn(async () => new Uint8Array([1, 2, 3]))
-    }));
-    jest.doMock('lib/miden-worker/consumeNoteId', () => ({
-      consumeNoteId: jest.fn()
-    }));
-    jest.doMock('lib/miden-worker/sendTransaction', () => ({
-      sendTransaction: jest.fn()
     }));
 
     jest.doMock('lib/platform', () => ({
@@ -800,18 +828,7 @@ describe('completeCustomTransaction (isolated)', () => {
       queueNoteImport: jest.fn()
     }));
 
-    jest.doMock('lib/miden-worker/consumeNoteId', () => ({
-      consumeNoteId: jest.fn()
-    }));
-    jest.doMock('lib/miden-worker/sendTransaction', () => ({
-      sendTransaction: jest.fn()
-    }));
-    jest.doMock('lib/miden-worker/submitTransaction', () => ({
-      submitTransaction: jest.fn()
-    }));
-
     jest.doMock('@miden-sdk/miden-sdk', () => ({
-      Address: { fromBech32: jest.fn() },
       InputNoteState: {
         ConsumedAuthenticatedLocal: 'ConsumedAuthenticatedLocal',
         ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',

@@ -15,7 +15,9 @@ function normalizeLocale(locale: string): string {
 // Set up extension message listener for cross-tab locale sync (extension only)
 if (isExtension()) {
   import('webextension-polyfill').then(browserModule => {
-    const runtime = browserModule.runtime;
+    // Resolve via .default to handle CJS-style default export (matches the
+    // pattern used in storage-adapter.ts and intercom/client.ts).
+    const runtime = (browserModule.default ?? browserModule).runtime;
     runtime.onMessage.addListener((msg: unknown) => {
       if (typeof msg === 'object' && msg !== null && (msg as { type?: string }).type === REFRESH_MSGTYPE) {
         const locale = (msg as { locale?: string }).locale;

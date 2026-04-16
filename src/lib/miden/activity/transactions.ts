@@ -11,9 +11,6 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
-import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
-import { sendTransaction } from 'lib/miden-worker/sendTransaction';
-import { submitTransaction } from 'lib/miden-worker/submitTransaction';
 import { getOrCreateMultisigService, isPsmAccount, type PsmAccountProvider } from 'lib/miden/front/psm-manager';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
@@ -104,8 +101,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
         try {
           await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-          const recipientAccountAddress = Address.fromBech32(transaction.secondaryAccountId!);
-          await midenClient.sendPrivateNote(fullNote, recipientAccountAddress);
+          await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
         } catch (error) {
           console.error('Failed to send private note through the transport layer', {
             txId: transaction.id,
@@ -136,7 +132,7 @@ export const initiateConsumeTransactionFromId = async (
   const sdkNote = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
 
-    return midenClient.webClient.getInputNote(noteId);
+    return midenClient.getInputNote(noteId);
   });
   if (!sdkNote) {
     throw new Error(`Note with id ${noteId} not found`);
@@ -160,8 +156,16 @@ export const initiateConsumeTransaction = async (
   delegateTransaction?: boolean
 ): Promise<string> => {
   const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
-  const uncompletedTransactions = await getUncompletedTransactions(accountId);
-  const existingTransaction = uncompletedTransactions.find(tx => tx.type === 'consume' && tx.noteId === note.id);
+  // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
+  // Reason: getConsumableNotes() can still return a note for a short window after a local
+  // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
+  // tx every 5s until the sync catches up. Failed txs are excluded so retries still work.
+  const existingByNote = await Repo.transactions
+    .where('noteId')
+    .equals(note.id)
+    .filter(tx => tx.type === 'consume' && tx.status !== ITransactionStatus.Failed)
+    .toArray();
+  const existingTransaction = existingByNote.find(tx => compareAccountIds(tx.accountId, accountId));
   if (existingTransaction) {
     return existingTransaction.id;
   }
@@ -224,7 +228,11 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 };
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const note = result.executedTransaction().inputNotes().notes()[0].note();
+  const firstInputNote = result.executedTransaction().inputNotes().notes()[0];
+  if (!firstInputNote) {
+    throw new Error('completeConsumeTransaction: no input notes on executed transaction');
+  }
+  const note = firstInputNote.note();
   const sender = getBech32AddressFromAccountId(note.metadata().sender());
   const executedTransaction = result.executedTransaction();
 
@@ -233,6 +241,9 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
   const secondaryAccountId = reclaimed ? undefined : sender;
   const asset = note.assets().fungibleAssets()[0];
+  if (!asset) {
+    throw new Error('completeConsumeTransaction: note has no fungible assets');
+  }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
   const amount = asset.amount();
 
@@ -275,12 +286,13 @@ const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
     const outputNotes = result.executedTransaction().outputNotes().notes();
 
-    if (!outputNotes || outputNotes.length === 0) {
+    const firstOutput = outputNotes?.[0];
+    if (!firstOutput) {
       console.error('No output notes found for executed transaction');
       return undefined;
     }
 
-    const fullNote = outputNotes[0].intoFull();
+    const fullNote = firstOutput.intoFull();
 
     if (!fullNote) {
       console.error('intoFull() returned undefined for first output note');
@@ -307,8 +319,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       try {
         const midenClient = await getMidenClient();
         await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-        const recipientAccountAddress = Address.fromBech32(tx.secondaryAccountId);
-        await midenClient.sendPrivateNote(note, recipientAccountAddress);
+        await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         return { success: true };
       } catch (error) {
         return { success: false, errorType: 'transport', error };
@@ -539,16 +550,13 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
     try {
       const noteDetails = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        const noteId = NoteId.fromHex(tx.noteId);
-        const noteFilter = new NoteFilter(NoteFilterTypes.List, [noteId]);
-        return await midenClient.getInputNoteDetails(noteFilter);
+        return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
       });
 
-      if (noteDetails.length === 0) {
+      const note = noteDetails[0];
+      if (!note) {
         continue;
       }
-
-      const note = noteDetails[0];
 
       if (CONSUMED_NOTE_STATES.includes(note.state)) {
         // Note has been consumed on-chain - mark transaction as completed
@@ -617,8 +625,6 @@ export const generateTransaction = async (
     return;
   }
 
-  // Process transaction
-  let result: TransactionResult;
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       const keyString = Buffer.from(publicKey).toString('hex');
@@ -627,8 +633,8 @@ export const generateTransaction = async (
     }
   };
 
-  // Wrap WASM client operations in a lock to prevent concurrent access
-  const transactionResultBytes = await withWasmClientLock(async () => {
+  // MidenClient handles the full pipeline (execute → prove → submit → apply)
+  const result = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
@@ -637,49 +643,23 @@ export const generateTransaction = async (
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'execute':
       default:
-        return midenClient.newTransaction(transaction.accountId, transaction.requestBytes!);
+        return midenClient.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes!,
+          transaction.delegateTransaction
+        );
     }
   });
 
-  // On mobile, always delegate transactions to avoid memory issues with local proving
-  const shouldDelegate = isMobile() ? true : transaction.delegateTransaction;
-
   switch (transaction.type) {
     case 'send':
-      if (useWorker) {
-        const resultBytes = await sendTransaction(transactionResultBytes, shouldDelegate);
-        result = TransactionResult.deserialize(resultBytes);
-      } else {
-        result = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          return await midenClient.submitTransaction(transactionResultBytes, shouldDelegate);
-        });
-      }
       await completeSendTransaction(transaction as SendTransaction, result);
       break;
     case 'consume':
-      if (useWorker) {
-        const resultBytes = await consumeNoteId(transactionResultBytes, shouldDelegate);
-        result = TransactionResult.deserialize(resultBytes);
-      } else {
-        result = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          return await midenClient.submitTransaction(transactionResultBytes, shouldDelegate);
-        });
-      }
       await completeConsumeTransaction(transaction.id, result);
       break;
     case 'execute':
     default:
-      if (useWorker) {
-        const resultBytes = await submitTransaction(transactionResultBytes, shouldDelegate);
-        result = TransactionResult.deserialize(resultBytes);
-      } else {
-        result = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          return await midenClient.submitTransaction(transactionResultBytes, shouldDelegate);
-        });
-      }
       await completeCustomTransaction(transaction, result);
       break;
   }
@@ -817,6 +797,7 @@ export const generateTransactionsLoop = async (
 
   // Process next transaction
   const nextTransaction = queuedTransactions[0];
+  if (!nextTransaction) return; // redundant after length check but satisfies the type narrower
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {

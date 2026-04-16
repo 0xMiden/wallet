@@ -3,7 +3,7 @@
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
-import { Address, FungibleAsset, NetworkId, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk';
+import { Address, FungibleAsset, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +13,7 @@ import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { CustomRpsContext } from 'lib/analytics';
+import { getNetworkId } from 'lib/miden-chain/constants';
 import { AssetMetadata, MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { MidenDAppPayload } from 'lib/miden/types';
@@ -191,7 +192,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <hr className="h-px bg-grey-100 my-4" />
           {payload.transactionMessages.slice(2).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Amount') {
               const microcredits = Number(value);
               const amount = microcredits / 10 ** MIDEN_METADATA.decimals;
@@ -238,7 +239,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <hr className="h-px bg-grey-100 my-4" />
           {payload.transactionMessages.slice(1).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Recipient') {
               value = truncateAddress(value);
             }
@@ -360,7 +361,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
         const ts = signingInputs.transactionSummaryPayload();
         const accountDelta = ts.accountDelta();
         const accountAddress = Address.fromAccountId(accountDelta.id(), 'BasicWallet');
-        const accountAddressAsBech32 = accountAddress.toBech32(NetworkId.testnet());
+        const accountAddressAsBech32 = accountAddress.toBech32(getNetworkId());
         const vault = accountDelta.vault();
         const storage = accountDelta.storage();
         const inputNotes = ts.inputNotes();
@@ -497,7 +498,7 @@ const ConfirmDAppForm: FC = () => {
       throw new Error(t('notIdentified'));
     }
     return pageId;
-  }, [loc.search]);
+  }, [loc.search, t]);
 
   const { data } = useRetryableSWR<MidenDAppPayload>([id], getDAppPayload, {
     suspense: true,
@@ -584,7 +585,7 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
   );
 
   const handleConfirmClick = useCallback(async () => {
@@ -786,7 +787,7 @@ const ConfirmDAppForm: FC = () => {
           )
         };
     }
-  }, [error, payload, privateDataPermission, isPublicAccount]);
+  }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
   return (
     <CustomRpsContext.Provider value={'TODO'}>

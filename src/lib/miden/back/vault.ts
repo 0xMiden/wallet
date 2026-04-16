@@ -193,16 +193,20 @@ export class Vault {
   ): Promise<Vault> {
     console.log('Spawning new vault with wallet type', walletType);
     return withError('Failed to create wallet', async (): Promise<Vault> => {
+      console.log('[Vault.spawn] Step 1: generating vault key...');
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
+      console.log('[Vault.spawn] Step 2: vault key generated');
 
       if (!mnemonic) {
         mnemonic = Bip39.generateMnemonic(128);
       }
 
       // Clear storage before any inserts to avoid wiping newly inserted keys later
+      console.log('[Vault.spawn] Step 3: clearing storage...');
       await clearStorage();
+      console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
       // If password is provided (user opted out of biometrics), use password protection
@@ -258,10 +262,14 @@ export class Vault {
       };
 
       // Wrap WASM client operations in a lock to prevent concurrent access
+      console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const accPublicKey = await withWasmClientLock(async () => {
+        console.log('[Vault.spawn] Step 6: getting miden client...');
         const midenClient = await getMidenClient(options);
+        console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
         if (ownMnemonic && midenClient.network !== 'mock') {
           try {
+            console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
             return await midenClient.importAccountBySeed(walletType, walletSeed, signWordFn, getPublicKeyForCommitment);
           } catch (e) {
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
@@ -269,7 +277,9 @@ export class Vault {
           }
         } else {
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
+          console.log('[Vault.spawn] Step 8b: syncing state...');
           await midenClient.syncState();
+          console.log('[Vault.spawn] Step 9: creating miden wallet...');
           return await midenClient.createMidenWallet(walletType, walletSeed);
         }
       });
@@ -362,7 +372,7 @@ export class Vault {
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, newAccounts[0].publicKey);
+      await savePlain(currentAccPubKeyStrgKey, newAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       // Return the vault instance so caller doesn't need to call unlock() separately
@@ -453,9 +463,9 @@ export class Vault {
     });
   }
 
-  async importMnemonicAccount(chainId: string, mnemonic: string, password?: string, derivationPath?: string) {}
+  async importMnemonicAccount(_chainId: string, _mnemonic: string, _password?: string, _derivationPath?: string) {}
 
-  async importFundraiserAccount(chainId: string, email: string, password: string, mnemonic: string) {}
+  async importFundraiserAccount(_chainId: string, _email: string, _password: string, _mnemonic: string) {}
 
   async editAccountName(accPublicKey: string, name: string) {
     return withError('Failed to edit account name', async () => {
@@ -485,7 +495,7 @@ export class Vault {
     });
   }
 
-  async authorize(sendTransaction: SendTransaction) {}
+  async authorize(_sendTransaction: SendTransaction) {}
 
   async signData(publicKey: string, data: string, signKind: SignKind): Promise<string> {
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
@@ -555,13 +565,13 @@ export class Vault {
     return secretKey;
   }
 
-  async decrypt(accPublicKey: string, cipherTexts: string[]) {}
+  async decrypt(_accPublicKey: string, _cipherTexts: string[]) {}
 
-  async decryptCipherText(accPublicKey: string, cipherText: string, tpk: string, index: number) {}
+  async decryptCipherText(_accPublicKey: string, _cipherText: string, _tpk: string, _index: number) {}
 
   async decryptCipherTextOrRecord() {}
 
-  async revealViewKey(accPublicKey: string) {}
+  async revealViewKey(_accPublicKey: string) {}
 
   static async revealMnemonic(password?: string) {
     let vaultKey: CryptoKey;
@@ -590,7 +600,7 @@ export class Vault {
     }
     let currentAccount = allAccounts.find(acc => acc.publicKey === currAccountPubkey);
     if (!currentAccount) {
-      currentAccount = await this.setCurrentAccount(allAccounts[0].publicKey);
+      currentAccount = await this.setCurrentAccount(allAccounts[0]!.publicKey);
     }
     return currentAccount;
   }
@@ -683,8 +693,8 @@ async function withError<T>(errMessage: string, factory: (doThrow: () => void) =
     return await factory(() => {
       throw new Error('<stub>');
     });
-  } catch (err: any) {
-    console.log('Error in vault operation', err);
+  } catch (err: unknown) {
+    console.error(`[Vault.withError] ${errMessage} - original error:`, err);
     throw err instanceof PublicError ? err : new PublicError(errMessage);
   }
 }

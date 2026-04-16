@@ -4,9 +4,7 @@ import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
 
@@ -41,7 +39,7 @@ const Header: React.FC<{
   onBack: () => void;
   step: OnboardingStep;
   onboardingType?: 'import' | 'create' | null;
-}> = ({ step, onBack }) => {
+}> = ({ step }) => {
   let currentStep: number | null = step === OnboardingStep.Welcome ? null : 3;
 
   if (step === OnboardingStep.BackupSeedPhrase) {
@@ -74,7 +72,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   seedPhrase,
   onboardingType,
   step,
-  password,
   isLoading,
   useBiometric = true,
   isHardwareSecurityAvailable = false,
@@ -242,7 +239,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   };
 
   return (
-    <div className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}>
+    <div
+      className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}
+      style={{ maxWidth: 420 }}
+    >
       <div className="flex flex-col flex-1 min-h-0">
         <AnimatePresence mode={'wait'} initial={false}>
           {step !== OnboardingStep.Welcome && (

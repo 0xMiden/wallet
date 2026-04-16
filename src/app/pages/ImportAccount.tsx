@@ -9,13 +9,15 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import NoSpaceField from 'app/atoms/NoSpaceField';
 import TabSwitcher from 'app/atoms/TabSwitcher';
 import PageLayout from 'app/layouts/PageLayout';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext, useAllAccounts } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
 import { clearClipboard } from '../../lib/ui/util';
 
 type ImportAccountProps = {
-  tabSlug: string | null;
+  tabSlug: string | null | undefined;
 };
 
 interface ImportTabDescriptor {
@@ -33,8 +35,11 @@ const ImportAccount: FC<ImportAccountProps> = ({ tabSlug }) => {
   useEffect(() => {
     const accLength = allAccounts.length;
     if (prevAccLengthRef.current < accLength) {
-      updateCurrentAccount(allAccounts[accLength - 1].publicKey);
-      navigate('/');
+      const lastAccount = allAccounts[accLength - 1];
+      if (lastAccount) {
+        updateCurrentAccount(lastAccount.publicKey);
+        navigate('/');
+      }
     }
     prevAccLengthRef.current = accLength;
   }, [allAccounts, updateCurrentAccount]);
@@ -57,7 +62,7 @@ const ImportAccount: FC<ImportAccountProps> = ({ tabSlug }) => {
   );
   const { slug, Form } = useMemo(() => {
     const tab = tabSlug ? allTabs.find(currentTab => currentTab.slug === tabSlug) : null;
-    return tab ?? allTabs[0];
+    return tab ?? allTabs[0]!;
   }, [allTabs, tabSlug]);
 
   return (
@@ -113,6 +118,12 @@ const ByPrivateKeyForm: FC = () => {
     [importAccount, isSubmitting, setError]
   );
 
+  useNativeNavbarAction({
+    label: t('importAccount'),
+    onTap: handleSubmit(onSubmit),
+    enabled: !isSubmitting
+  });
+
   return (
     <form className="w-full max-w-sm mx-auto my-8" onSubmit={handleSubmit(onSubmit)} style={{ minHeight: '325px' }}>
       {error && <Alert type="error" title={t('error')} autoFocus description={error} className="mb-6" />}
@@ -137,20 +148,22 @@ const ByPrivateKeyForm: FC = () => {
       <div className="mb-6 text-gray-200" style={{ fontSize: '12px', lineHeight: '16px' }}>
         {t('privateKeyInputDescription')}
       </div>
-      <FormSubmitButton
-        className="capitalize w-full justify-center"
-        style={{
-          fontSize: '18px',
-          lineHeight: '24px',
-          paddingLeft: '0.5rem',
-          paddingRight: '0.5rem',
-          paddingTop: '12px',
-          paddingBottom: '12px'
-        }}
-        loading={isSubmitting}
-      >
-        {t('importAccount')}
-      </FormSubmitButton>
+      {!isMobile() && (
+        <FormSubmitButton
+          className="capitalize w-full justify-center"
+          style={{
+            fontSize: '18px',
+            lineHeight: '24px',
+            paddingLeft: '0.5rem',
+            paddingRight: '0.5rem',
+            paddingTop: '12px',
+            paddingBottom: '12px'
+          }}
+          loading={isSubmitting}
+        >
+          {t('importAccount')}
+        </FormSubmitButton>
+      )}
     </form>
   );
 };
@@ -201,6 +214,12 @@ const WatchOnlyForm: FC = () => {
     [importWatchOnlyAccount, isSubmitting, setError]
   );
 
+  useNativeNavbarAction({
+    label: t('importAccount'),
+    onTap: handleSubmit(onSubmit),
+    enabled: !isSubmitting
+  });
+
   return (
     <form className="w-full max-w-sm mx-auto my-8" onSubmit={handleSubmit(onSubmit)} style={{ minHeight: '325px' }}>
       {error && <Alert type="error" title={t('error')} description={error} autoFocus className="mb-6" />}
@@ -210,7 +229,7 @@ const WatchOnlyForm: FC = () => {
         control={control}
         rules={{
           required: true,
-          validate: (value: any) => true
+          validate: () => true
         }}
         render={({ field }) => (
           <NoSpaceField
@@ -237,20 +256,22 @@ const WatchOnlyForm: FC = () => {
         {t('viewKeyInputDescription')}
       </div>
 
-      <FormSubmitButton
-        className="capitalize w-full justify-center"
-        style={{
-          fontSize: '18px',
-          lineHeight: '24px',
-          paddingLeft: '0.5rem',
-          paddingRight: '0.5rem',
-          paddingTop: '12px',
-          paddingBottom: '12px'
-        }}
-        loading={isSubmitting}
-      >
-        {t('importAccount')}
-      </FormSubmitButton>
+      {!isMobile() && (
+        <FormSubmitButton
+          className="capitalize w-full justify-center"
+          style={{
+            fontSize: '18px',
+            lineHeight: '24px',
+            paddingLeft: '0.5rem',
+            paddingRight: '0.5rem',
+            paddingTop: '12px',
+            paddingBottom: '12px'
+          }}
+          loading={isSubmitting}
+        >
+          {t('importAccount')}
+        </FormSubmitButton>
+      )}
     </form>
   );
 };

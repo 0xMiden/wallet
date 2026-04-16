@@ -94,8 +94,8 @@ describe('fetchBalances', () => {
     const result = await fetchBalances('my-address', {});
 
     expect(result).toHaveLength(1);
-    expect(result[0].tokenSlug).toBe('MIDEN');
-    expect(result[0].balance).toBe(1);
+    expect(result[0]!.tokenSlug).toBe('MIDEN');
+    expect(result[0]!.balance).toBe(1);
 
     // Restore default mock
     getBech32AddressFromAccountId.mockImplementation((id: string) => `bech32-${id}`);
@@ -122,11 +122,11 @@ describe('fetchBalances', () => {
     expect(mockFetchTokenMetadata).not.toHaveBeenCalled();
     expect(result).toHaveLength(2);
     // Other token
-    expect(result[0].tokenSlug).toBe('OTH');
-    expect(result[0].balance).toBe(1);
+    expect(result[0]!.tokenSlug).toBe('OTH');
+    expect(result[0]!.balance).toBe(1);
     // MIDEN with 0 balance
-    expect(result[1].tokenSlug).toBe('MIDEN');
-    expect(result[1].balance).toBe(0);
+    expect(result[1]!.tokenSlug).toBe('MIDEN');
+    expect(result[1]!.balance).toBe(0);
   });
 
   it('shows unknown tokens with default metadata when fetch fails', async () => {
@@ -150,8 +150,8 @@ describe('fetchBalances', () => {
 
     // Unknown token shown with default metadata + MIDEN with 0 balance
     expect(result).toHaveLength(2);
-    expect(result[0].tokenSlug).toBe('Unknown');
-    expect(result[1].tokenSlug).toBe('MIDEN');
+    expect(result[0]!.tokenSlug).toBe('Unknown');
+    expect(result[1]!.tokenSlug).toBe('MIDEN');
   });
 
   it('fetches metadata inline and calls setAssetsMetadata', async () => {
@@ -276,7 +276,7 @@ describe('fetchBalances', () => {
       'bech32-bad-faucet': DEFAULT_TOKEN_METADATA
     });
     expect(result).toHaveLength(2);
-    expect(result[0].tokenSlug).toBe('Unknown');
+    expect(result[0]!.tokenSlug).toBe('Unknown');
   });
 
   it('skips MIDEN token when fetching metadata', async () => {

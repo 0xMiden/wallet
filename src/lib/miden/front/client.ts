@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { isExtension } from 'lib/platform';
 import { WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenState } from '../types';
-import { AutoSync } from './autoSync';
 
 let intercom: IIntercomClient | null;
 function getIntercom() {
@@ -78,12 +76,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [status, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
-  // Update AutoSync when state changes (mobile/desktop only — extension uses service worker sync)
-  useEffect(() => {
-    if (!isExtension()) {
-      AutoSync.updateState(state);
-    }
-  }, [state]);
+  // AutoSync is now handled by the React SDK's MidenProvider — no manual state push needed.
 
   // Derive convenience booleans
   const idle = status === WalletStatus.Idle;
@@ -249,21 +242,27 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     storeResetConfirmation();
   }, [storeResetConfirmation]);
 
-  // Stub implementations for unimplemented actions
-  const decryptCiphertexts = useCallback(async (accPublicKey: string, ciphertexts: string[]) => {}, []);
-  const revealViewKey = useCallback(async (accountPublicKey: string, password: string) => {}, []);
-  const revealPrivateKey = useCallback(async (accountPublicKey: string, password: string) => {}, []);
-  const removeAccount = useCallback(async (accountPublicKey: string, password: string) => {}, []);
-  const importAccount = useCallback(async (privateKey: string, encPassword?: string) => {}, []);
-  const importWatchOnlyAccount = useCallback(async (viewKey: string) => {}, []);
+  // Stub implementations for unimplemented actions. Parameters are
+  // prefixed with `_` so TypeScript's noUnusedParameters allows them
+  // to stay as part of the public stub signatures; implementations
+  // will wire them up when the features land.
+  const decryptCiphertexts = useCallback(async (_accPublicKey: string, _ciphertexts: string[]) => {}, []);
+  const revealViewKey = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
+  const revealPrivateKey = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
+  const removeAccount = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
+  const importAccount = useCallback(async (_privateKey: string, _encPassword?: string) => {}, []);
+  const importWatchOnlyAccount = useCallback(async (_viewKey: string) => {}, []);
   const importMnemonicAccount = useCallback(
-    async (mnemonic: string, password?: string, derivationPath?: string) => {},
+    async (_mnemonic: string, _password?: string, _derivationPath?: string) => {},
     []
   );
-  const confirmDAppDecrypt = useCallback(async (id: string, confirmed: boolean) => {}, []);
-  const confirmDAppBulkTransactions = useCallback(async (id: string, confirmed: boolean, delegate: boolean) => {}, []);
-  const confirmDAppDeploy = useCallback(async (id: string, confirmed: boolean, delegate: boolean) => {}, []);
-  const getOwnedRecords = useCallback(async (accPublicKey: string) => {}, []);
+  const confirmDAppDecrypt = useCallback(async (_id: string, _confirmed: boolean) => {}, []);
+  const confirmDAppBulkTransactions = useCallback(
+    async (_id: string, _confirmed: boolean, _delegate: boolean) => {},
+    []
+  );
+  const confirmDAppDeploy = useCallback(async (_id: string, _confirmed: boolean, _delegate: boolean) => {}, []);
+  const getOwnedRecords = useCallback(async (_accPublicKey: string) => {}, []);
 
   return {
     state,
@@ -329,6 +328,7 @@ export async function request<T extends WalletRequest>(req: T) {
 }
 
 export function assertResponse(condition: any): asserts condition {
+  /* c8 ignore next 3 -- defensive assertion, never false in mocked intercom */
   if (!condition) {
     throw new Error('Invalid response received.');
   }

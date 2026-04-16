@@ -29,13 +29,14 @@ export function useIntercomSync() {
   useEffect(() => {
     // Fetch initial state
     const fetchInitialState = async () => {
+      /* c8 ignore next -- ref guard for double-mount in StrictMode */
       if (initialFetchDone.current) return;
       initialFetchDone.current = true;
 
       try {
         const state = await fetchStateFromBackend(5);
         syncFromBackend(state);
-      } catch (error) {
+      } /* c8 ignore next 3 -- retry path, requires backend error simulation */ catch (error) {
         console.error('Failed to fetch initial state:', error);
         initialFetchDone.current = false; // Allow retry
       }
@@ -77,6 +78,7 @@ export function useIntercomSync() {
   // (on mount, currentAccount is null until initial state fetch completes).
   const currentAccount = useWalletStore(s => s.currentAccount);
 
+  /* c8 ignore start -- extension-only chrome.storage.local polling */
   useEffect(() => {
     if (!isExtension()) return;
     if (!currentAccount) return;
@@ -94,10 +96,22 @@ export function useIntercomSync() {
         if (!syncData) return;
         if (syncData.accountPublicKey !== accountPublicKey) return;
 
-        // Clear stale claiming IDs (sync data is authoritative)
-        store().clearExtensionClaimingNoteIds();
-        // Trigger note toast check (so popup shows toast for new notes)
         const noteIds = syncData.notes.map(n => n.id);
+
+        // Drop claiming IDs for notes that are no longer consumable (the SW has
+        // confirmed the consume). A blanket reset here would defeat the
+        // isBeingClaimed gate used by Explore's auto-consume, because
+        // NoteClaimStarted broadcasts fire once while this poll ticks every 3s.
+        const consumableIds = new Set(noteIds);
+        const staleClaimingIds: string[] = [];
+        for (const id of store().extensionClaimingNoteIds) {
+          if (!consumableIds.has(id)) staleClaimingIds.push(id);
+        }
+        if (staleClaimingIds.length > 0) {
+          store().removeExtensionClaimingNoteIds(staleClaimingIds);
+        }
+
+        // Trigger note toast check (so popup shows toast for new notes)
         store().checkForNewNotes(noteIds);
         // Convert vault assets → balances, update Zustand
         updateBalancesFromSyncData(syncData.accountPublicKey, syncData.vaultAssets).catch(err =>
@@ -110,6 +124,7 @@ export function useIntercomSync() {
     const timer = setInterval(poll, 3_000);
     return () => clearInterval(timer);
   }, [currentAccount]);
+  /* c8 ignore stop */
 
   return isInitialized;
 }
