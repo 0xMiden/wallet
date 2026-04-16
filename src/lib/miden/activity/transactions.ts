@@ -29,6 +29,40 @@ import { compareAccountIds } from './utils';
 // On desktop extension, transactions can run in background tabs
 export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
 
+/**
+ * Stable tags attached to errors the sign callback throws, so the catch
+ * site for a failed executeTransaction can pattern-match on the raw
+ * thrown value (recovered via `midenClient.lastAuthError()`) and treat
+ * each failure mode differently — e.g. retry a `locked` failure after
+ * the wallet unlocks instead of marking the tx permanently Failed.
+ */
+export type SignCallbackReason = 'locked' | 'rejected' | 'not_found' | 'internal';
+
+export interface SignCallbackError extends Error {
+  reason: SignCallbackReason;
+}
+
+/**
+ * Wrap an underlying sign failure in a typed Error that the SDK will
+ * capture verbatim (see `WebClient.lastAuthError`). Classifies by
+ * inspecting the underlying error's shape — current signals are the
+ * Zustand-store locked state (string "Not initialized" from
+ * `assertInited`) and generic TypeError for null-vault access.
+ */
+function buildSignCallbackError(err: unknown): SignCallbackError {
+  const underlying = err instanceof Error ? err : new Error(String(err));
+  let reason: SignCallbackReason = 'internal';
+  const msg = underlying.message || '';
+  if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
+    reason = 'locked';
+  }
+  const wrapped = Object.assign(new Error(`Sign callback failed (${reason}): ${msg}`), {
+    reason,
+    cause: underlying
+  }) as SignCallbackError;
+  return wrapped;
+}
+
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
@@ -602,7 +636,16 @@ export const generateTransaction = async (
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       const keyString = Buffer.from(publicKey).toString('hex');
       const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
+      try {
+        return await signCallback(keyString, signingInputsString);
+      } catch (err) {
+        // The SDK (WebKeyStore) captures the raw thrown value and exposes
+        // it via `midenClient.lastAuthError()`. Attach a stable `reason`
+        // tag so callers that catch the eventual executeTransaction
+        // failure can distinguish "wallet got locked mid-sign" from other
+        // failure modes (user rejection, keystore IO error, etc.).
+        throw buildSignCallbackError(err);
+      }
     }
   };
 
@@ -692,12 +735,45 @@ export const generateTransactionsLoop = async (
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
+    // If the failure was caused by the wallet being locked mid-sign,
+    // leave the tx Queued rather than marking it Failed — the next
+    // auto-consume cycle (after the wallet unlocks) will retry it.
+    // This prevents the note-loss scenario the 1000-op stress run
+    // surfaced: lock during executeTransaction → tx cancelled → next
+    // cycle starts fresh but some races can leave the note stuck.
+    const authReason = await readLastAuthReason();
+    if (authReason === 'locked') {
+      logger.warning('Sign callback reported locked wallet; leaving tx queued for retry');
+      return false;
+    }
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
     return false;
   }
 };
+
+/**
+ * Reads the SDK-captured last auth error and extracts a `reason` tag if
+ * present. Returns undefined if there was no auth failure or the thrown
+ * value didn't carry a reason.
+ */
+async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
+  try {
+    const midenClient = await getMidenClient();
+    const rawClient = (midenClient as any).client;
+    if (!rawClient || typeof rawClient.lastAuthError !== 'function') return undefined;
+    const raw = rawClient.lastAuthError();
+    if (!raw || typeof raw !== 'object') return undefined;
+    const reason = (raw as { reason?: unknown }).reason;
+    if (reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal') {
+      return reason;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
