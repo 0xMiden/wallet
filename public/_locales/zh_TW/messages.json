@@ -743,8 +743,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "找不到操作",
-    "englishSource": "No operations found"
+    "message": "您当前没有任何交易。",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "帳戶將移除。",
@@ -2586,8 +2586,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "您目前没有 notes 可以领取，但当您领取时，它们会出现在此处。",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "您目前没有notes 可以领取。",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "您已收到note",

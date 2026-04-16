@@ -743,8 +743,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "Операцій не знайдено",
-    "englishSource": "No operations found"
+    "message": "Зараз у вас немає транзакцій.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Аккаунт для видалення.",
@@ -2587,8 +2587,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Зараз у вас немає notes, щоб вимагати, але коли ви це зробите, вони з’являться тут.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Наразі у вас немає notes, щоб вимагати.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Ви отримали note",

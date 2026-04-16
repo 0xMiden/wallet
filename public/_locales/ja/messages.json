@@ -743,8 +743,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "オペレーションが見つかりませんでした",
-    "englishSource": "No operations found"
+    "message": "現在取引はありません。",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "削除するアカウント。",
@@ -2586,8 +2586,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "現在、申請できる notes はありませんが、申請するとここに表示されます。",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "現在、申請できる notes はありません。",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "note を受け取りました",

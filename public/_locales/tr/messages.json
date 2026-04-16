@@ -743,8 +743,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "İşlem bulunamadı",
-    "englishSource": "No operations found"
+    "message": "Şu anda herhangi bir işleminiz bulunmamaktadır.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Kaldırılacak hesap.",
@@ -2574,8 +2574,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Şu anda talep edebileceğiniz notes yok, ancak aldığınızda burada görünecekler.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Şu anda talep edebileceğiniz notes hakkınız yok.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Bir note aldınız",
