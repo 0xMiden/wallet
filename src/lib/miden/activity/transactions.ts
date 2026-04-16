@@ -735,6 +735,11 @@ export const generateTransactionsLoop = async (
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
+    // The SDK attaches a stable `errorCode` string to thrown errors for
+    // variants callers are expected to dispatch on. See
+    // `error_code_from_client_error` in miden-client.
+    const errorCode = extractSdkErrorCode(e);
+
     // If the failure was caused by the wallet being locked mid-sign,
     // leave the tx Queued rather than marking it Failed — the next
     // auto-consume cycle (after the wallet unlocks) will retry it.
@@ -746,12 +751,49 @@ export const generateTransactionsLoop = async (
       logger.warning('Sign callback reported locked wallet; leaving tx queued for retry');
       return false;
     }
+
+    // Submit succeeded but apply failed: the tx IS live on chain. Mark
+    // as Completed (not Failed) so the activity tab shows the right
+    // outcome; the next sync will reconcile note states via
+    // ConsumedExternal. Retrying would hit the node's nullifier check
+    // and produce a misleading "already consumed" error.
+    if (errorCode === 'ApplyTransactionAfterSubmitFailed') {
+      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
+      const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
+      if (tx && tx.status !== ITransactionStatus.Completed) {
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Completed',
+          completedAt: Math.floor(Date.now() / 1000)
+        });
+      }
+      return false;
+    }
+
+    // If the input note was already consumed on chain, the pre-flight
+    // nullifier check transitioned it to ConsumedExternal. Mark this tx
+    // Failed (it never reached chain) but the note is already reconciled
+    // — subsequent cycles won't retry it.
+    if (errorCode === 'InputNoteAlreadyConsumedOnChain') {
+      logger.warning('Input note already consumed on chain; tx unnecessary');
+    }
+
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
     return false;
   }
 };
+
+/**
+ * Pulls the stable SDK error code off a thrown value, if present. The
+ * SDK attaches `errorCode` via `Reflect::set` on JsError — see
+ * `js_error_with_context` in miden-client.
+ */
+function extractSdkErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const code = (err as { errorCode?: unknown }).errorCode;
+  return typeof code === 'string' ? code : undefined;
+}
 
 /**
  * Reads the SDK-captured last auth error and extracts a `reason` tag if
