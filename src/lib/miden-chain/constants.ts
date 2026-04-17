@@ -64,14 +64,6 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
   { rpcBaseURL: 'http://localhost:57291', id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
 ];
 
-export enum MidenTokens {
-  Miden
-}
-
-export const TOKEN_MAPPING = {
-  [MidenTokens.Miden]: { faucetId: 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph' }
-};
-
 /**
  * Returns the SDK NetworkId for the current DEFAULT_NETWORK.
  */

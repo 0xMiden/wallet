@@ -1,3 +1,4 @@
+import { resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import * as Repo from 'lib/miden/repo';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
@@ -36,6 +37,7 @@ export async function clearStorage(clearDb: boolean = true) {
     await Repo.transactions.clear();
   }
   await clearPlatformKeyValueStorage();
+  await resetNativeAssetCache();
 }
 
 /**
@@ -49,6 +51,7 @@ export async function resetStorageDestructive() {
   await Repo.db.delete();
   await Repo.db.open();
   await clearPlatformKeyValueStorage();
+  await resetNativeAssetCache();
 }
 
 export function clearClientStorage() {

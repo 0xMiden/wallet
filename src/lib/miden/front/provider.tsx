@@ -3,6 +3,7 @@ import React, { FC, useEffect, useMemo } from 'react';
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
+import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { isExtension } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
@@ -37,6 +38,14 @@ if (typeof document !== 'undefined' && document.body) {
  * existing useMidenContext() hook API.
  */
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
+  // Prime native-asset-id discovery on every page mount. On extension this
+  // also happens on the SW side, but the SW can be killed before the popup
+  // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
+  // Cache-hit on repeat opens; one RPC call on first install per network.
+  useEffect(() => {
+    primeNativeAssetId();
+  }, []);
+
   // Eagerly initialize the Miden client singleton when the app starts
   // On extension, skip — the WASM client will lazy-init on first write operation
   useEffect(() => {

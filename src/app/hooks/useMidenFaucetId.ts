@@ -1,17 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
-import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
+import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 import { getFaucetIdSetting } from 'lib/miden/assets';
 
-function useMidenFaucetId() {
-  const [midenFaucetId, setMidenFaucetId] = useState<string>(TOKEN_MAPPING[MidenTokens.Miden].faucetId);
+/**
+ * Returns the current MIDEN native-asset faucet ID.
+ *
+ * Returns `null` until the ID is known (first install, pre-discovery). Callers
+ * that render MIDEN-specific UI should handle `null` by hiding / skeleton-ing
+ * that branch rather than falling back to a hardcoded value — otherwise we
+ * risk a brief flash of wrong data if the hardcoded constant drifts from the
+ * on-chain value.
+ */
+function useMidenFaucetId(): string | null {
+  const [midenFaucetId, setMidenFaucetId] = useState<string | null>(getNativeAssetIdSync());
 
   useEffect(() => {
-    const fetchFaucetId = async () => {
-      const faucetId = await getFaucetIdSetting();
-      setMidenFaucetId(faucetId);
+    let cancelled = false;
+
+    (async () => {
+      const id = await getFaucetIdSetting();
+      if (!cancelled) setMidenFaucetId(id);
+    })();
+
+    // Re-read when discovery fires — picks up the new native asset ID unless
+    // the user has an explicit override, in which case getFaucetIdSetting()
+    // keeps returning that.
+    const unsub = onNativeAssetChanged(async () => {
+      const id = await getFaucetIdSetting();
+      if (!cancelled) setMidenFaucetId(id);
+    });
+
+    return () => {
+      cancelled = true;
+      unsub();
     };
-    fetchFaucetId();
   }, []);
 
   return midenFaucetId;
