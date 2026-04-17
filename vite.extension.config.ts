@@ -96,6 +96,10 @@ function copyPublicAssets(outDir: string): Plugin {
       // (shown in the browser toolbar pin/pop-out row). Swap is done at
       // manifest-write time so the source manifest stays canonical and we
       // don't have to duplicate the vendor-key machinery.
+      //
+      // Also suffix the display name with "(Devnet)" so the extension is
+      // labeled as such in chrome://extensions/, the toolbar tooltip, and
+      // the app launcher. The source manifest stays canonical.
       if (MIDEN_NETWORK === 'devnet') {
         const swap = (path: string) =>
           path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) =>
@@ -115,6 +119,9 @@ function copyPublicAssets(outDir: string): Plugin {
           transformed.browser_action.default_icon = swapIconDict(
             transformed.browser_action.default_icon
           );
+        }
+        if (typeof transformed.name === 'string' && !transformed.name.includes('Devnet')) {
+          transformed.name = `${transformed.name} (Devnet)`;
         }
       }
 
