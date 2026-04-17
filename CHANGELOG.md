@@ -2,6 +2,14 @@
 
 ## 1.14.2 (TBD)
 
+### Features
+
+* [FEATURE][all] Unified `MidenClientSingleton` from two instances (dispose-recreate per-tx) to one long-lived singleton with a late-binding keystore bridge. Sends are ~2.5× faster (no per-tx client init overhead). New `keystore-bridge.ts` module and `keystore-wiring.ts` Effector event subscriptions manage vault key + sign callback lifecycle. (#189)
+* [FEATURE][all] Typed sign-callback failure recovery via SDK `lastAuthError()`. When the wallet gets locked mid-transaction, the TransactionProcessor now leaves the tx Queued for retry after unlock instead of marking it Failed. (#189)
+* [FEATURE][all] `ApplyTransactionAfterSubmitFailed` handling via SDK `errorCode` dispatch. Transactions that submit on-chain but fail to apply locally are marked Completed (not Failed). (#189)
+* [FEATURE][all] Private-note transport retry loop via SDK `resendPrivateNoteById()`. Failed P2P blob deliveries are retried with exponential backoff in the TransactionProcessor background loop. (#189)
+* [FEATURE][e2e] Transport-failure perturbation (`STRESS_TRANSPORT_FAIL_PROB`) in the stress suite for end-to-end coverage of the transport retry path. (#189)
+
 ### Fixes
 
 * [FIX][all] Gated page-side SDK WASM init. `fetchTokenMetadata` and `SendDetails` used to race the SDK's lazy wasm-bindgen load when constructing `Endpoint`/`RpcClient` directly on the page thread, hitting `Cannot read properties of undefined (reading '__wbindgen_malloc')` and blacklisting the token via `autoFetchMetadataFails` for the rest of the session. New `ensureSdkWasmReady()` helper actively triggers the SDK's `loadWasm()` via a Vite-aliased deep import and probes readiness, wired up before any page-side RPC construction. (#187)
