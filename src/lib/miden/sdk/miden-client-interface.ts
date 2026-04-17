@@ -286,16 +286,10 @@ export class MidenClientInterface {
       if (!shouldDelegate) {
         return await fn(TransactionProver.newLocalProver());
       }
-      // Build a fresh remote prover per-call instead of relying on the
-      // client's defaultProver. The default prover is bound once at
-      // MidenClient.create time and silently falls back to local proving
-      // after a single network failure — never recovering for the lifetime
-      // of the long-lived singleton. Explicit construction ensures every
-      // transaction attempt gets a clean remote connection.
-      const proverUrl = MIDEN_PROVING_ENDPOINTS.get(this.network);
-      if (proverUrl) {
-        return await fn(TransactionProver.newRemoteProver(proverUrl));
-      }
+      // Rely on MidenClient's defaultProver (set from proverUrl at create
+      // time). The SDK's proveTransactionWithProver now takes the prover
+      // by reference (not by value), so the JS handle is preserved across
+      // calls. See: crates/web-client/src/new_transactions.rs.
       return await fn();
     } catch (err) {
       // Fallback to local prover on desktop only
