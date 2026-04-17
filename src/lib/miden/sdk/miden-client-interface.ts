@@ -110,13 +110,7 @@ export class MidenClientInterface {
    * gone. See `Actions.lock` for the canonical use case.
    */
   async waitForIdle(): Promise<void> {
-    // waitForIdle is available in local SDK builds but may not exist in
-    // the published npm package yet. Use a runtime check to avoid
-    // crashing when the method is absent.
-    const client = this.client as any;
-    if (typeof client.waitForIdle === 'function') {
-      await client.waitForIdle();
-    }
+    await this.client.waitForIdle();
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
