@@ -743,8 +743,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "Aucune opération trouvée",
-    "englishSource": "No operations found"
+    "message": "Vous n'avez actuellement aucune transaction.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Compte à retirer.",
@@ -2573,8 +2573,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Vous n'avez actuellement pas de notes à réclamer, mais lorsque vous le ferez, ils apparaîtront ici.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Vous n'avez actuellement pas notes à réclamer.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Vous avez reçu un note",

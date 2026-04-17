@@ -743,8 +743,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "운영 내용을 찾을 수 없습니다",
-    "englishSource": "No operations found"
+    "message": "현재 거래가 없습니다.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "제거할 계정입니다.",
@@ -2586,8 +2586,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "현재 신청할 notes이 없지만 신청하면 여기에 표시됩니다.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "현재 청구할 notes이 없습니다.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "note을(를) 받았습니다.",
