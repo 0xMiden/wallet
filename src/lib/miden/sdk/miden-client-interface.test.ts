@@ -478,6 +478,47 @@ describe('MidenClientInterface', () => {
     process.env.MIDEN_USE_MOCK_CLIENT = originalEnv;
   });
 
+  it('throws on mobile when delegated proving fails (no fallback)', async () => {
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        send: jest.fn(async () => {
+          throw new Error('remote prover failed');
+        })
+      }
+    });
+
+    jest.doMock('@miden-sdk/miden-sdk', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local'),
+        newRemoteProver: jest.fn(() => 'remote')
+      }
+    }));
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+      addConnectivityIssue: jest.fn()
+    }));
+    jest.doMock('lib/platform', () => ({
+      isMobile: () => true,
+      isExtension: () => false
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(
+      client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any)
+    ).rejects.toThrow('remote prover failed');
+  });
+
   it('consumeNoteId returns TransactionResult', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
