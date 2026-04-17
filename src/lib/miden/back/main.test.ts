@@ -244,6 +244,18 @@ describe('processRequest', () => {
     expect(res.type).toBe(WalletMessageType.NewWalletResponse);
   });
 
+  it('NewWalletRequest rethrows when registerNewWallet fails', async () => {
+    (Actions.registerNewWallet as jest.Mock).mockRejectedValueOnce(new Error('wallet-creation-failed'));
+    await expect(
+      dispatch({
+        type: WalletMessageType.NewWalletRequest,
+        password: 'pw',
+        mnemonic: 'm',
+        ownMnemonic: false
+      })
+    ).rejects.toThrow('wallet-creation-failed');
+  });
+
   it('ImportFromClientRequest delegates to registerImportedWallet', async () => {
     const res = await dispatch({
       type: WalletMessageType.ImportFromClientRequest,
