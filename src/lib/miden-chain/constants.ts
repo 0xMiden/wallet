@@ -1,4 +1,4 @@
-import { Endpoint, NetworkId } from '@miden-sdk/miden-sdk';
+import { Endpoint, NetworkId } from '@miden-sdk/miden-sdk/lazy';
 
 import { MidenNetwork } from 'lib/miden/types';
 

@@ -49,8 +49,10 @@ export default {
     '^components/(.*)$': '<rootDir>/src/components/$1',
     '^screens/(.*)$': '<rootDir>/src/screens/$1',
     '^utils/(.*)$': '<rootDir>/src/utils/$1',
-    '@miden-sdk/miden-sdk': '<rootDir>/__mocks__/wasmMock.js',
-    '@miden-sdk/react': '<rootDir>/__mocks__/@miden-sdk/react.ts'
+    // Match both the eager default (`@miden-sdk/miden-sdk`) and the lazy
+    // subpath (`@miden-sdk/miden-sdk/lazy`) — tests mock them identically.
+    '^@miden-sdk/miden-sdk(/lazy)?$': '<rootDir>/__mocks__/wasmMock.js',
+    '^@miden-sdk/react(/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts'
   },
   testEnvironment: 'jsdom',
   transform: {

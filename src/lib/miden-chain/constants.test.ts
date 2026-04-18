@@ -6,7 +6,7 @@
 jest.mock('sdk-wasm-loader', () => ({ __esModule: true, default: jest.fn(async () => undefined) }), { virtual: true });
 
 const mockEndpoint = jest.fn();
-jest.mock('@miden-sdk/miden-sdk', () => ({
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Endpoint: function (url: string) {
     return mockEndpoint(url);
   },

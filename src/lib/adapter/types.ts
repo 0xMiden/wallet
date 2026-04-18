@@ -9,7 +9,7 @@ import {
   SignKind,
   WalletAdapterNetwork
 } from '@demox-labs/miden-wallet-adapter-base';
-import type { NoteFilterTypes } from '@miden-sdk/miden-sdk';
+import type { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 
 import { TransactionOutput } from 'lib/miden/db/types';
 

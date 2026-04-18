@@ -1,6 +1,6 @@
 import React, { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 
-import { RpcClient } from '@miden-sdk/miden-sdk';
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import clsx from 'clsx';
 import { addDays, addHours, addMinutes, format, differenceInSeconds } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';

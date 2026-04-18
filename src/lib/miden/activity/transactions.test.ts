@@ -672,7 +672,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       withWasmClientLock: jest.fn((cb: () => any) => cb())
     }));
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       InputNoteState: {
         ConsumedAuthenticatedLocal: 0,
         ConsumedUnauthenticatedLocal: 1,
@@ -828,7 +828,7 @@ describe('completeCustomTransaction (isolated)', () => {
       queueNoteImport: jest.fn()
     }));
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       InputNoteState: {
         ConsumedAuthenticatedLocal: 'ConsumedAuthenticatedLocal',
         ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
