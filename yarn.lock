@@ -2272,19 +2272,10 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.13.0":
-  version "0.13.0"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.13.0.tgz#df7f639f90931d279761a62bb513374366d755e4"
-  integrity sha512-N0qUCZW9Dvk3Oqj37IrGmm0b0v3Nq5qHsX3BtQIzZIwDXKXKPBxy/0lO40oCwDtwI8AfriZQyMLbJR81Fo4Vpg==
-  dependencies:
-    "@rollup/plugin-typescript" "^12.3.0"
-    dexie "^4.0.1"
-    glob "^11.0.0"
-
-"@miden-sdk/miden-sdk@0.14.1":
-  version "0.14.1"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.1.tgz#d5c3b1c1f4590076a289b44dd4e63495ee2e0825"
-  integrity sha512-ACa/UhHZ19WZSgqwrYtBp1Rqe97P+QKzkIf0/fAASQkpKI3UDAZaAJUqS5ADhHn+EhONYoYZg7XG7XFnpi5aTw==
+"@miden-sdk/miden-sdk@0.14.3", "@miden-sdk/miden-sdk@^0.14.3":
+  version "0.14.3"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.3.tgz#9b3e1466309b92a957eb92628e28141d0b773696"
+  integrity sha512-b/dY0qn9/crxjkotpkPjf+Mm5Gl04+8EYgm0c4M2Iz4A+IQWDDka9lWUt/pV7fLx+UeZCfeFMuphkHP9vqLzUg==
   dependencies:
     "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
@@ -2377,20 +2368,20 @@
     "@nodelib/fs.scandir" "2.1.5"
     fastq "^1.6.0"
 
-"@openzeppelin/guardian-client@^0.13.4":
-  version "0.13.4"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.13.4.tgz#7e1f419e14437ee329c1484df7050b84a51f3b9d"
-  integrity sha512-YMmeBfTOXy2DklfmLW4L7A2OAnzfxGgBZTDXi5XJUKY00E91xfdFkkK3Cgde2ydmFDdy5MYxtF/cyROv5ikJBQ==
+"@openzeppelin/guardian-client@^0.14.3":
+  version "0.14.3"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.14.3.tgz#7aa4602ac99aab174e4764dafa1dfd600522d9c5"
+  integrity sha512-t1HW2LxB0YWB4JZB0L1O3Ue3+/VFipmtumHbgnQeWloflym3bg6dWV75zZkcPyLACURJliT3LIhdg/3w0tcA5Q==
 
-"@openzeppelin/miden-multisig-client@^0.13.4":
-  version "0.13.4"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.13.4.tgz#41a5431b03d32939012c388ead208271d204d889"
-  integrity sha512-A4BhB5Rc3Y/wqsBPKe4nEmQE2ZnnwVoVRpyROp5+qg0jx3XFrjqn3e5CKZz0hC1b5ybb1d2RdTGLLmpIZshekA==
+"@openzeppelin/miden-multisig-client@^0.14.3":
+  version "0.14.3"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.14.3.tgz#f738f4ec80362a66fbd3e56cb6432d463852c682"
+  integrity sha512-kVBpEAU0cuAshVOGQ3RD+cFODxVr7dnipi1n7x2FCFmGTWktT8di441ZmPd3/qid1GEoG0Y8UaqrX+6v2YxCDw==
   dependencies:
-    "@miden-sdk/miden-sdk" "0.13.0"
+    "@miden-sdk/miden-sdk" "0.14.3"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.13.4"
+    "@openzeppelin/guardian-client" "^0.14.3"
 
 "@oxc-project/types@=0.124.0":
   version "0.124.0"

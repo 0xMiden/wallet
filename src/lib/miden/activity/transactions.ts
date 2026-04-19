@@ -1,13 +1,4 @@
-import {
-  Address,
-  InputNoteState,
-  Note,
-  NoteFilter,
-  NoteFilterTypes,
-  NoteId,
-  TransactionRequest,
-  TransactionResult
-} from '@miden-sdk/miden-sdk';
+import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
@@ -28,7 +19,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
@@ -694,18 +685,21 @@ const generatePsmTransaction = async (
       proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
       break;
     }
-    case 'execute':
+    // case 'execute':
+    // default: {
+    // // For custom transactions, get TransactionSummary and create a custom proposal
+    // const summaryBytes = await withWasmClientLock(async () => {
+    //   const midenClient = await getMidenClient();
+    //   const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
+    //   return (
+    //     await midenClient.client.transactions.preview(accountIdStringToSdk(transaction.accountId), txRequest)
+    //   ).serialize();
+    // });
+    // proposalResult = await multisigService.createCustomProposal(summaryBytes);
+    // break;
+    // }
     default: {
-      // For custom transactions, get TransactionSummary and create a custom proposal
-      const summaryBytes = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
-        return (
-          await midenClient.webClient.executeForSummary(accountIdStringToSdk(transaction.accountId), txRequest)
-        ).serialize();
-      });
-      proposalResult = await multisigService.createCustomProposal(summaryBytes);
-      break;
+      throw new Error(`Unsupported transaction type for PSM account: ${transaction.type}`);
     }
   }
 
@@ -720,17 +714,12 @@ const generatePsmTransaction = async (
     }
   };
 
-  // Wrap WASM client operations in a lock to prevent concurrent access
-  const transactionResultBytes = await withWasmClientLock(async () => {
+  const transactionResult = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient(options);
-    return await midenClient.newTransaction(transaction.accountId, tr.serialize());
-  });
-
-  const transactionResult = TransactionResult.deserialize(transactionResultBytes);
-
-  await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    await midenClient.submitTransaction(transactionResultBytes, transaction.delegateTransaction);
+    const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
+      prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+    });
+    return result;
   });
 
   switch (transaction.type) {
@@ -740,10 +729,10 @@ const generatePsmTransaction = async (
     case 'consume':
       await completeConsumeTransaction(transaction.id, transactionResult);
       break;
-    case 'execute':
-    default:
-      await completeCustomTransaction(transaction, transactionResult);
-      break;
+    // case 'execute':
+    // default:
+    //   await completeCustomTransaction(transaction, transactionResult);
+    //   break;
   }
 
   await multisigService.sync();

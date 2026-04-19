@@ -51,7 +51,7 @@ export class AuthDigest {
     for (let i = 0; i < bytes.length; i += 8) {
       let packed = 0n;
       for (let j = 0; j < 8 && i + j < bytes.length; j += 1) {
-        packed |= BigInt(bytes[i + j]) << (8n * BigInt(j));
+        packed |= BigInt(bytes[i + j]!) << (8n * BigInt(j));
       }
       payloadElements.push(new Felt(packed));
     }

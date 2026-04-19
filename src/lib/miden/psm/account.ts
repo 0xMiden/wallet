@@ -1,4 +1,4 @@
-import { Account, AuthSecretKey, WebClient } from '@miden-sdk/miden-sdk';
+import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk';
 import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
@@ -26,6 +26,10 @@ export async function getSignerDetailsFromAccount(
     throw new Error('No signer public keys found in account storage');
   }
 
+  if (!mapEntries[0]) {
+    throw new Error('No signer commitments found in account storage');
+  }
+
   const commitment = mapEntries[0].value.slice(2);
   if (!commitment) {
     throw new Error('Commitment not found in account storage');
@@ -45,7 +49,11 @@ export async function getSignerDetailsFromAccount(
  * @param seed - Optional seed for key derivation (random if not provided)
  * @returns The created Account
  */
-export async function createPsmAccount(webClient: WebClient, seed?: Uint8Array): Promise<Account> {
+export async function createPsmAccount(
+  webClient: MidenClient,
+  seed?: Uint8Array,
+  skipRegistration: boolean = false
+): Promise<Account> {
   if (!seed) {
     seed = crypto.getRandomValues(new Uint8Array(32));
   }
@@ -73,17 +81,21 @@ export async function createPsmAccount(webClient: WebClient, seed?: Uint8Array):
       },
       new FalconSigner(sk)
     );
-    await multisig.registerOnGuardian();
+
+    if (!skipRegistration) {
+      await multisig.registerOnGuardian();
+    }
     // Sync state with the node
-    await webClient.syncState();
+    await webClient.sync();
 
     // Store the secret key in WebStore for signing
-    await webClient.addAccountSecretKeyToWebStore(multisig.account.id(), sk);
+    await webClient.keystore.insert(multisig.account.id(), sk);
 
     console.log('PSM account created:', multisig.account.id().toString());
 
     return multisig.account;
   } catch (e) {
+    console.log(e);
     console.error('Error creating PSM account:', e);
     throw new Error('Failed to create PSM account');
   }

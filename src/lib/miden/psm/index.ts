@@ -1,8 +1,7 @@
-import { Account, TransactionRequest, WebClient } from '@miden-sdk/miden-sdk';
+import { Account, MidenClient, TransactionRequest, WebClient } from '@miden-sdk/miden-sdk';
 import {
   Multisig,
   MultisigClient,
-  MultisigConfig,
   GuardianHttpClient,
   type ProposalMetadata,
   type TransactionProposal,
@@ -13,8 +12,9 @@ import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 
-import { fetchFromStorage } from '../front';
+import { fetchFromStorage, putToStorage } from '../front';
 import { accountIdStringToSdk } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientInterface } from '../sdk/miden-client-interface';
 import { WalletSigner, type SignWordFunction } from './signer';
 
@@ -48,7 +48,7 @@ export class MultisigService {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
       const guardianEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
 
-      const webClient = (await MidenClientInterface.create({})).webClient;
+      const webClient = (await MidenClientInterface.create({})).client;
 
       const client = new MultisigClient(webClient, { guardianEndpoint });
       const multisig = await client.load(account.id().toString(), signer);
@@ -65,7 +65,7 @@ export class MultisigService {
     signerCommitment: string,
     signWordFn: SignWordFunction,
     accountId: string,
-    webClient: WebClient
+    webClient: MidenClient
   ) {
     const psmEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
     const psm = new GuardianHttpClient(psmEndpoint);
@@ -80,7 +80,7 @@ export class MultisigService {
         accountBytes[i] = binaryString.charCodeAt(i);
       }
       const account = Account.deserialize(accountBytes);
-      await webClient.newAccount(account, true);
+      await webClient.accounts.insert({ account, overwrite: true });
     } catch (error) {
       console.log('Error fetching account state from PSM:', error);
     }
@@ -150,9 +150,26 @@ export class MultisigService {
 
   async sync(): Promise<void> {
     try {
-      await this.multisig.syncState();
+      const { accountId, commitment } = await this.multisig.syncState();
+      console.log('Successfully synced multisig state for account', accountId);
+      console.log('Current commitment:', commitment);
+      const account = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        if (!client) throw new Error('WASM client not available');
+        const acc = await client.getAccount(accountId);
+        console.log(
+          acc
+            ?.vault()
+            .fungibleAssets()
+            .map((a: any) => a.amount().toString())
+        );
+        if (!acc) throw new Error('Account not found in WASM client after sync');
+        return acc;
+      });
+      console.log('Account commitment from WASM client:', account.to_commitment().toHex());
       this.syncRetryCount = 0; // Reset retry count on successful sync
     } catch (error) {
+      console.log('[PSM] sync error ', error);
       const isNonceTooLow =
         error instanceof Error && error.message.includes('nonce') && error.message.includes('too low');
 
@@ -175,6 +192,11 @@ export class MultisigService {
   async getConsumableNotes() {
     return this.multisig.getConsumableNotes();
   }
+
+  // async switchGuardian(newGuardianEndpoint: string) {
+  //   await putToStorage(PSM_URL_STORAGE_KEY, newGuardianEndpoint);
+  //   await this.multisig.createSwitchGuardianProposal()
+  // }
 }
 
 // Re-export types that may be needed by consumers

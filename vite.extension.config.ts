@@ -6,14 +6,14 @@
  *
  * Replaces webpack.config.js entirely for the extension build.
  */
-import { resolve, join, sep } from 'path';
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react-swc';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, cpSync, readdirSync, statSync } from 'fs';
+import { resolve, join, sep } from 'path';
+import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 // vite-plugin-svgr doesn't work with Vite 8's Rolldown -- use custom plugin
 import wasm from 'vite-plugin-wasm';
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react-swc';
-import { defineConfig, type Plugin } from 'vite';
 
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
@@ -115,7 +115,7 @@ function copyPublicAssets(outDir: string): Plugin {
         cpSync(sdkWasm, join(nestedDir, 'miden_client_web.wasm'));
         cpSync(sdkWasm, join(assetsDir, 'miden_client_web.wasm'));
       }
-    },
+    }
   };
 }
 
@@ -143,7 +143,7 @@ function swPatches(): Plugin {
           chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
         }
       }
-    },
+    }
   };
 }
 
@@ -158,7 +158,7 @@ function svgStubForBackground(): Plugin {
       if (id.endsWith('.svg') && this.getModuleInfo?.(id)?.isEntry === false) {
         return 'export const ReactComponent = () => null; export default "";';
       }
-    },
+    }
   };
 }
 
@@ -173,7 +173,7 @@ const sharedAlias = {
   components: resolve(__dirname, 'src/components'),
   screens: resolve(__dirname, 'src/screens'),
   utils: resolve(__dirname, 'src/utils'),
-  stories: resolve(__dirname, 'src/stories'),
+  stories: resolve(__dirname, 'src/stories')
 };
 
 const sharedDefine = {
@@ -183,7 +183,7 @@ const sharedDefine = {
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
-  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };
 
 export default defineConfig({
@@ -208,20 +208,24 @@ export default defineConfig({
         const { readFileSync } = await import('fs');
         const svgContent = readFileSync(filePath, 'utf8');
         const { transform } = await import('@svgr/core');
-        const jsxCode = await transform(svgContent, {
-          plugins: ['@svgr/plugin-jsx'],
-          exportType: 'named',
-          namedExport: 'ReactComponent',
-          jsxRuntime: 'automatic',
-          prettier: false,
-          svgo: false,
-          titleProp: true,
-          ref: true,
-        }, { filePath });
+        const jsxCode = await transform(
+          svgContent,
+          {
+            plugins: ['@svgr/plugin-jsx'],
+            exportType: 'named',
+            namedExport: 'ReactComponent',
+            jsxRuntime: 'automatic',
+            prettier: false,
+            svgo: false,
+            titleProp: true,
+            ref: true
+          },
+          { filePath }
+        );
         const code = jsxCode + '\nexport default "";';
         // Return as JSX so Vite/Rolldown transforms it to JS
         return { code, moduleType: 'jsx' };
-      },
+      }
     } satisfies Plugin,
     wasm(),
     // Polyfill Node built-ins used by crypto/stream libraries (readable-stream uses util.debuglog)
@@ -229,20 +233,19 @@ export default defineConfig({
     // to avoid injecting fake document/window that break React's CSS animation detection.
     nodePolyfills({
       include: ['util', 'stream', 'assert', 'buffer', 'process'],
-      globals: { Buffer: false, process: false },
+      globals: { Buffer: false, process: false }
     }),
     // Extension HTML fixes
     {
       name: 'extension-html-fixes',
       enforce: 'post',
       transformIndexHtml(html) {
-        return html
-          .replace(/ crossorigin/g, '')
-          // Inject process global via external script (inline scripts blocked by CSP)
-          .replace(
-            '<script type="module"',
-            '<script src="/globals.js"></script>\n    <script type="module"'
-          );
+        return (
+          html
+            .replace(/ crossorigin/g, '')
+            // Inject process global via external script (inline scripts blocked by CSP)
+            .replace('<script type="module"', '<script src="/globals.js"></script>\n    <script type="module"')
+        );
       },
       // Inject global React + Buffer for CJS dependencies that expect them.
       // Rolldown's CJS-to-ESM interop scopes `var React = require_react()` inside
@@ -257,9 +260,9 @@ export default defineConfig({
             'var React = $1; globalThis.React = globalThis.React || React;'
           );
         }
-      },
+      }
     } satisfies Plugin,
-    copyPublicAssets(resolve(__dirname, OUTPUT_DIR)),
+    copyPublicAssets(resolve(__dirname, OUTPUT_DIR))
   ],
 
   // Disable Vite's built-in public dir handling -- our copyPublicAssets plugin
@@ -284,12 +287,12 @@ export default defineConfig({
         sidepanel: resolve(__dirname, 'sidepanel.html'),
         // Content scripts (need to be standalone JS files)
         contentScript: resolve(__dirname, 'src/contentScript.ts'),
-        addToWindow: resolve(__dirname, 'src/addToWindow.ts'),
+        addToWindow: resolve(__dirname, 'src/addToWindow.ts')
         // NOTE: background is built separately via vite.background.config.ts
         // because it needs inlineDynamicImports (import() is banned in SWs)
       },
       output: {
-        entryFileNames: (chunkInfo) => {
+        entryFileNames: chunkInfo => {
           // Content scripts and background need fixed names
           if (chunkInfo.name === 'contentScript') return 'contentScript.js';
           if (chunkInfo.name === 'addToWindow') return 'addToWindow.js';
@@ -297,7 +300,14 @@ export default defineConfig({
           return '[name].js';
         },
         chunkFileNames: 'chunks/[name].[hash].js',
-        assetFileNames: (assetInfo) => {
+        manualChunks(id) {
+          // Force the wasm-bindgen glue into a single shared chunk so static
+          // and dynamic imports (via `sdk-wasm-loader`) resolve to the same
+          // `class Account` / `class WebClient` — otherwise Rolldown duplicates
+          // the module per chunk and `_assertClass` fails across them.
+          if (id.includes('@miden-sdk/miden-sdk/dist/Cargo-')) return 'miden-sdk-wasm';
+        },
+        assetFileNames: assetInfo => {
           if (assetInfo.names?.[0]?.endsWith('.wasm')) {
             return 'static/wasm/[name].[hash][extname]';
           }
@@ -305,13 +315,13 @@ export default defineConfig({
             return 'static/styles/[name][extname]';
           }
           return 'static/media/[name].[hash][extname]';
-        },
-      },
-    },
+        }
+      }
+    }
   },
 
   worker: {
-    format: 'es',
+    format: 'es'
   },
 
   resolve: {
@@ -328,11 +338,8 @@ export default defineConfig({
       // virtual specifier through to the wasm-loader file directly so
       // `ensureSdkWasmReady` can call it without tripping Rolldown's
       // exports-map enforcement. See lib/miden-chain/constants.ts.
-      'sdk-wasm-loader': resolve(
-        __dirname,
-        'node_modules/@miden-sdk/miden-sdk/dist/wasm.js'
-      ),
-    },
+      'sdk-wasm-loader': resolve(__dirname, 'node_modules/@miden-sdk/miden-sdk/dist/wasm.js')
+    }
   },
 
   define: {
@@ -340,12 +347,12 @@ export default defineConfig({
     // Provide process.browser for libraries that check it
     'process.browser': 'true',
     // Global process object for compatibility
-    'global': 'globalThis',
+    global: 'globalThis'
   },
 
   css: {
     modules: {
-      generateScopedName: '[path][name]__[local]--[hash:base64:5]',
-    },
-  },
+      generateScopedName: '[path][name]__[local]--[hash:base64:5]'
+    }
+  }
 });

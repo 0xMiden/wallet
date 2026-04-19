@@ -132,18 +132,24 @@ export class MidenClientInterface {
     getPublicKeyForCommitment: (commitment: string) => Promise<string>
   ): Promise<string> {
     if (walletType === WalletType.Psm) {
-      const account = await createPsmAccount(this.client, seed);
-      console.log('[MidenClientInterface] Imported PSM account from seed with ID:', account.id().toString());
-      const accountId = account.id().toString();
-      const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
-      await MultisigService.importAccountFromPsm(
-        `0x${publicKey}`,
-        `0x${commitment}`,
-        signWordFn,
-        accountId,
-        this.client
-      );
-      return getBech32AddressFromAccountId(account.id());
+      console.log('Importing PSM account from seed');
+      try {
+        const account = await createPsmAccount(this.client, seed, true);
+        console.log('[MidenClientInterface] Imported PSM account from seed with ID:', account.id().toString());
+        const accountId = account.id().toString();
+        const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
+        await MultisigService.importAccountFromPsm(
+          `0x${publicKey}`,
+          `0x${commitment}`,
+          signWordFn,
+          accountId,
+          this.client
+        );
+        return getBech32AddressFromAccountId(account.id());
+      } catch (error) {
+        console.log(error);
+        throw new Error('Failed to import PSM account from seed');
+      }
     }
 
     return await this.importPublicMidenWalletFromSeed(seed);
