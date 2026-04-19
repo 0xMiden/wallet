@@ -68,8 +68,15 @@ export enum MidenTokens {
   Miden
 }
 
+const NATIVE_MIDEN_FAUCET_IDS: Record<string, string> = {
+  [MIDEN_NETWORK_NAME.TESTNET]: 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph',
+  [MIDEN_NETWORK_NAME.DEVNET]: 'mdev1aqt0djza2efvjgqg0y29hlw6jvn93r0a_qr7qqq9wr6w'
+};
+
 export const TOKEN_MAPPING = {
-  [MidenTokens.Miden]: { faucetId: 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph' }
+  [MidenTokens.Miden]: {
+    faucetId: NATIVE_MIDEN_FAUCET_IDS[DEFAULT_NETWORK] ?? NATIVE_MIDEN_FAUCET_IDS[MIDEN_NETWORK_NAME.TESTNET]!
+  }
 };
 
 /**

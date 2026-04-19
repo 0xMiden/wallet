@@ -5,6 +5,7 @@
 ### Features
 
 * [FEATURE][all] Per-stage label in the transaction progress modal. Each observable phase boundary (`syncing`, `sending`, `confirming`, `delivering`) writes a stage marker during tx processing, and the modal renders a stage-specific title + description instead of a single opaque "Generating Transaction" for the whole 3-8s spinner window. Send-type sub-label varies by tx type (claim / execute / send), and the batch subtitle surfaces a remaining-count when more than one tx is in flight.
+* [FEATURE][all] Network-aware native MIDEN faucet fallback. `TOKEN_MAPPING[Miden].faucetId` now resolves per `DEFAULT_NETWORK` — devnet builds default to `mdev1aqt0djza2efvjgqg0y29hlw6jvn93r0a_qr7qqq9wr6w`, testnet keeps its existing `mtst1…` ID. Users can still override via the Edit Miden Faucet ID setting.
 
 ---
 
