@@ -13,6 +13,7 @@ import {
   getAllUncompletedTransactions,
   getFailedTransactions
 } from 'lib/miden/activity';
+import { ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { isExtension, isMobile } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
@@ -20,6 +21,19 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
 import { PRIMARY_HEX, PRIMARY_HEX_LIGHT_ALPHA } from 'utils/brand-colors';
+
+/**
+ * Picks the transaction whose stage the modal should display. Prefers the
+ * one currently `GeneratingTransaction`; falls back to the oldest queued
+ * one so the user sees "Syncing" immediately rather than a blank label
+ * before the SDK call starts.
+ */
+const pickActiveTx = (
+  txs: Array<{ status: ITransactionStatus; stage?: ITransactionStage; type: ITransactionType }>
+) => {
+  const processing = txs.find(tx => tx.status === ITransactionStatus.GeneratingTransaction);
+  return processing ?? txs[0];
+};
 
 export interface GeneratingTransactionPageProps {
   keepOpen?: boolean;
@@ -41,8 +55,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     async () => getAllUncompletedTransactions(),
     {
       revalidateOnMount: true,
-      refreshInterval: 5_000,
-      dedupingInterval: 3_000
+      // Faster poll so per-stage label changes feel responsive — stages can
+      // flip every ~500ms–1s during a single tx and a 5s poll hides them.
+      refreshInterval: 500,
+      dedupingInterval: 250
     }
   );
 
@@ -145,6 +161,11 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const transactionComplete = transactions.length === 0 && hasStartedProcessing;
   const hasErrors = failedCount > 0;
 
+  const active = pickActiveTx(transactions);
+  const activeStage = active?.stage;
+  const activeType = active?.type;
+  const remainingCount = transactions.length;
+
   return (
     <div
       className={classNames(
@@ -163,6 +184,9 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           hasErrors={hasErrors}
           failedCount={failedCount}
           keepOpen={keepOpen}
+          activeStage={activeStage}
+          activeType={activeType}
+          remainingCount={remainingCount}
         />
       </div>
     </div>
@@ -176,13 +200,22 @@ export interface GeneratingTransactionProps {
   failedCount?: number;
   keepOpen?: boolean;
   progress?: number;
+  /** Stage of the tx currently being processed (or head of queue). */
+  activeStage?: ITransactionStage;
+  /** Type of the tx currently being processed (for type-specific labels). */
+  activeType?: ITransactionType;
+  /** Number of tx still in-flight (queued + generating). */
+  remainingCount?: number;
 }
 
 export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   transactionComplete,
   hasErrors = false,
   failedCount = 0,
-  keepOpen
+  keepOpen,
+  activeStage,
+  activeType,
+  remainingCount = 0
 }) => {
   const { t } = useTranslation();
   const inExtension = isExtension();
@@ -237,6 +270,32 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     );
   }, [transactionComplete, hasErrors, inExtension]);
 
+  /**
+   * Stage label picks up the tx type so a claim flow reads "Claiming
+   * note" instead of "Sending transaction" during the SDK call. All other
+   * stages (syncing / confirming / delivering) are type-neutral — they
+   * either describe network state (syncing, confirming) or only apply to
+   * one type (delivering → private send only).
+   */
+  const stageTitleKey = useCallback((stage?: ITransactionStage, type?: ITransactionType): string => {
+    if (!stage) return 'generatingTransaction';
+    if (stage === 'syncing') return 'transactionStageSyncing';
+    if (stage === 'confirming') return 'transactionStageConfirming';
+    if (stage === 'delivering') return 'transactionStageDelivering';
+    // stage === 'sending' — only this one varies by type
+    if (type === 'consume') return 'transactionStageClaiming';
+    if (type === 'execute') return 'transactionStageExecuting';
+    return 'transactionStageSending';
+  }, []);
+
+  const stageDescriptionKey = useCallback((stage?: ITransactionStage): string => {
+    if (!stage) return 'generatingTransactionDescription';
+    if (stage === 'syncing') return 'transactionStageSyncingDescription';
+    if (stage === 'confirming') return 'transactionStageConfirmingDescription';
+    if (stage === 'delivering') return 'transactionStageDeliveringDescription';
+    return 'transactionStageSendingDescription';
+  }, []);
+
   const headerText = useCallback(() => {
     if (transactionComplete && hasErrors) {
       return t('transactionFailed');
@@ -244,8 +303,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return t('transactionCompleted');
     }
-    return t('generatingTransaction');
-  }, [transactionComplete, hasErrors, t]);
+    return t(stageTitleKey(activeStage, activeType));
+  }, [transactionComplete, hasErrors, t, stageTitleKey, activeStage, activeType]);
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
@@ -257,8 +316,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return t('transactionSuccessDescription');
     }
-    return t('generatingTransactionDescription');
-  }, [transactionComplete, hasErrors, failedCount, t]);
+    return t(stageDescriptionKey(activeStage));
+  }, [transactionComplete, hasErrors, failedCount, t, stageDescriptionKey, activeStage]);
 
   const alertText = useCallback(() => {
     if (keepOpen) {
@@ -292,6 +351,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           {descriptionText() && (
             <p className="text-heading-gray text-center mt-2 max-w-70" style={{ fontSize: 14, lineHeight: '130%' }}>
               {descriptionText()}
+            </p>
+          )}
+
+          {/* Batch subtitle — only when more than one tx is in flight */}
+          {!transactionComplete && remainingCount > 1 && (
+            <p className="text-heading-gray/60 text-center mt-3" style={{ fontSize: 12, lineHeight: '130%' }}>
+              {t('transactionsRemainingInBatch', { count: remainingCount })}
             </p>
           )}
         </div>
