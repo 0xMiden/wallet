@@ -11,6 +11,7 @@ import { logger } from 'shared/logger';
 import {
   ConsumeTransaction,
   ITransaction,
+  ITransactionStage,
   ITransactionStatus,
   SendTransaction,
   Transaction,
@@ -338,10 +339,12 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
     // Wrap all WASM client operations in a lock to prevent concurrent access
     type SendResult = { success: true } | { success: false; errorType: 'init' | 'transport'; error: unknown };
+    await setTransactionStage(tx.id, 'confirming');
     const sendResult = await withWasmClientLock<SendResult>(async () => {
       try {
         const midenClient = await getMidenClient();
         await midenClient.waitForTransactionCommit(executedTx.id().toHex());
+        await setTransactionStage(tx.id, 'delivering');
         await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         return { success: true };
       } catch (error) {
@@ -441,6 +444,23 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
     t.status = status;
+  });
+};
+
+/**
+ * Informational stage write. Called at phase boundaries inside
+ * `generateTransaction` / `completeSendTransaction` so the progress modal
+ * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
+ * a single opaque "Generating transaction". Does not gate on status —
+ * late writes after `Completed` are no-ops via the `.modify` callback
+ * (the stage field is informational and only read while status is
+ * pre-terminal).
+ */
+export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
+      tx.stage = stage;
+    }
   });
 };
 
@@ -634,6 +654,7 @@ export const generateTransaction = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
   // Sync state first to ensure we have latest account state
+  await setTransactionStage(transaction.id, 'syncing');
   await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
     await midenClient.syncState();
@@ -641,7 +662,8 @@ export const generateTransaction = async (
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
-    processingStartedAt: Math.floor(Date.now() / 1000) // seconds
+    processingStartedAt: Math.floor(Date.now() / 1000), // seconds
+    stage: 'sending'
   });
 
   // Wire the per-tx sign callback into the keystore-bridge slot. The

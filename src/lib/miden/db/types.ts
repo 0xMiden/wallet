@@ -17,6 +17,18 @@ export enum ITransactionStatus {
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType = 'send' | 'consume' | 'execute';
 
+/**
+ * Sub-phase of a transaction while `status === GeneratingTransaction` (or
+ * still `Queued` during the initial sync). Drives the modal's per-stage
+ * label so users see what the wallet is actually doing during the 3-8s
+ * spinner window. Not all stages apply to all tx types:
+ *   - syncing    : all types, before `syncState()`
+ *   - sending    : all types, during the SDK execute→prove→submit→apply
+ *   - confirming : send-private only, during `waitForTransactionCommit`
+ *   - delivering : send-private only, during `sendPrivateNote`
+ */
+export type ITransactionStage = 'syncing' | 'sending' | 'confirming' | 'delivering';
+
 export interface ITransaction {
   id: string;
   type: ITransactionType;
@@ -53,6 +65,12 @@ export interface ITransaction {
   transportAttempts?: number;
   /** Unix-seconds timestamp of the most recent transport-retry attempt. */
   transportLastAttemptAt?: number;
+  /**
+   * Current sub-phase during active processing. Readers should treat this
+   * as informational only — it is overwritten without coordination with
+   * `status`, and is stale once `status` reaches `Completed`/`Failed`.
+   */
+  stage?: ITransactionStage;
 }
 
 export interface ISuccessTransactionOutput {
