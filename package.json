@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.14.2",
+  "version": "1.14.3",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -61,7 +61,7 @@
     "test:e2e:blockchain:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:blockchain",
     "test:e2e:blockchain:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:blockchain",
     "test:e2e:blockchain:agentic": "cross-env E2E_AGENTIC=true yarn test:e2e:blockchain",
-    "test:e2e:stress:build": "yarn test:e2e:blockchain:build",
+    "test:e2e:stress:build": "yarn install && yarn test:e2e:blockchain:build",
     "test:e2e:stress": "yarn test:e2e:stress:build && playwright test --config playwright.stress.config.ts",
     "test:e2e:stress:run": "yarn test:e2e:stress:build && playwright test --config playwright.stress.config.ts",
     "test:e2e:stress:run-only": "playwright test --config playwright.stress.config.ts",
@@ -112,8 +112,8 @@
     "@dicebear/avatars-jdenticon-sprites": "4.2.5",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.14.2",
-    "@miden-sdk/react": "0.14.2",
+    "@miden-sdk/miden-sdk": "0.14.3",
+    "@miden-sdk/react": "0.14.3",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
     "@noble/hashes": "^1.4.0",
@@ -197,7 +197,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.0.1",
     "@chromatic-com/storybook": "^1.5.0",
-    "@miden-sdk/vite-plugin": "0.14.2",
+    "@miden-sdk/vite-plugin": "0.14.3",
     "@playwright/test": "^1.48.2",
     "@resvg/resvg-js": "^2.6.2",
     "@serh11p/jest-webextension-mock": "4.0.0",
@@ -310,7 +310,7 @@
     "**/axios": "^1.13.0",
     "**/cross-spawn": "^7.0.5",
     "**/nth-check": "^2.1.1",
-    "**/@miden-sdk/miden-sdk": "0.14.2"
+    "**/@miden-sdk/miden-sdk": "0.14.3"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
