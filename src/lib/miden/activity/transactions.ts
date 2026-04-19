@@ -11,6 +11,7 @@ import { logger } from 'shared/logger';
 import {
   ConsumeTransaction,
   ITransaction,
+  ITransactionStage,
   ITransactionStatus,
   SendTransaction,
   Transaction,
@@ -18,8 +19,8 @@ import {
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { setActiveSignCallback } from '../sdk/keystore-bridge';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { interpretTransactionResult } from './helpers';
 import { importAllNotes, queueNoteImport } from './notes';
@@ -28,6 +29,40 @@ import { compareAccountIds } from './utils';
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
 export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
+
+/**
+ * Stable tags attached to errors the sign callback throws, so the catch
+ * site for a failed executeTransaction can pattern-match on the raw
+ * thrown value (recovered via `midenClient.lastAuthError()`) and treat
+ * each failure mode differently — e.g. retry a `locked` failure after
+ * the wallet unlocks instead of marking the tx permanently Failed.
+ */
+export type SignCallbackReason = 'locked' | 'rejected' | 'not_found' | 'internal';
+
+export interface SignCallbackError extends Error {
+  reason: SignCallbackReason;
+}
+
+/**
+ * Wrap an underlying sign failure in a typed Error that the SDK will
+ * capture verbatim (see `WebClient.lastAuthError`). Classifies by
+ * inspecting the underlying error's shape — current signals are the
+ * Zustand-store locked state (string "Not initialized" from
+ * `assertInited`) and generic TypeError for null-vault access.
+ */
+function buildSignCallbackError(err: unknown): SignCallbackError {
+  const underlying = err instanceof Error ? err : new Error(String(err));
+  let reason: SignCallbackReason = 'internal';
+  const msg = underlying.message || '';
+  if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
+    reason = 'locked';
+  }
+  const wrapped = Object.assign(new Error(`Sign callback failed (${reason}): ${msg}`), {
+    reason,
+    cause: underlying
+  }) as SignCallbackError;
+  return wrapped;
+}
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
@@ -304,10 +339,12 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
     // Wrap all WASM client operations in a lock to prevent concurrent access
     type SendResult = { success: true } | { success: false; errorType: 'init' | 'transport'; error: unknown };
+    await setTransactionStage(tx.id, 'confirming');
     const sendResult = await withWasmClientLock<SendResult>(async () => {
       try {
         const midenClient = await getMidenClient();
         await midenClient.waitForTransactionCommit(executedTx.id().toHex());
+        await setTransactionStage(tx.id, 'delivering');
         await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         return { success: true };
       } catch (error) {
@@ -317,29 +354,45 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
     if (!sendResult.success) {
       if (sendResult.errorType === 'transport') {
-        console.error('Failed to send private note through the transport layer', {
+        // The on-chain tx already committed — sender's asset is consumed,
+        // private note commitment is durable on chain. Only the transport
+        // blob failed to reach the recipient. Mark Completed (the tx IS
+        // live) but set `transportPending` so the background retry loop
+        // picks it up and calls `resendPrivateById` until the blob lands.
+        // Without the flag, a `Failed` status would hide a permanently
+        // undiscoverable note from the sender's balance reconciliation.
+        console.warn('Transport failed for private note; queued for retry', {
           txId: tx.id,
+          noteId,
           secondaryAccountId: tx.secondaryAccountId,
           error: sendResult.error
         });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport error',
-          displayIcon: 'FAILED',
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Sent (pending delivery)',
           transactionId: executedTx.id().toHex(),
           outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
+          completedAt: Math.floor(Date.now() / 1000),
+          transportPending: true,
+          transportAttempts: 1,
+          transportLastAttemptAt: Math.floor(Date.now() / 1000)
         });
       } else {
-        console.error('Failed to initialize Miden client for private note send', {
+        // errorType === 'init' — the miden client itself couldn't be
+        // created. No transport attempt happened, but the on-chain tx
+        // still committed via the SDK pipeline. Treat the same as
+        // transport failure: Completed with retry pending.
+        console.error('Miden client init failed during private note send; queued for retry', {
           txId: tx.id,
           error: sendResult.error
         });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport init error',
-          displayIcon: 'FAILED',
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Sent (pending delivery)',
           transactionId: executedTx.id().toHex(),
           outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
+          completedAt: Math.floor(Date.now() / 1000),
+          transportPending: true,
+          transportAttempts: 1,
+          transportLastAttemptAt: Math.floor(Date.now() / 1000)
         });
       }
       return;
@@ -391,6 +444,23 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
     t.status = status;
+  });
+};
+
+/**
+ * Informational stage write. Called at phase boundaries inside
+ * `generateTransaction` / `completeSendTransaction` so the progress modal
+ * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
+ * a single opaque "Generating transaction". Does not gate on status —
+ * late writes after `Completed` are no-ops via the `.modify` callback
+ * (the stage field is informational and only read while status is
+ * pre-terminal).
+ */
+export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
+      tx.stage = stage;
+    }
   });
 };
 
@@ -584,10 +654,7 @@ export const generateTransaction = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
   // Sync state first to ensure we have latest account state
-  // Separate lock acquisition to avoid holding lock during network call
-  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
-  // catch block which cancels the transaction — this is intentional fail-fast behavior,
-  // since the transaction can't be submitted without network anyway
+  await setTransactionStage(transaction.id, 'syncing');
   await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
     await midenClient.syncState();
@@ -595,34 +662,53 @@ export const generateTransaction = async (
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
-    processingStartedAt: Math.floor(Date.now() / 1000) // seconds
+    processingStartedAt: Math.floor(Date.now() / 1000), // seconds
+    stage: 'sending'
   });
 
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
+  // Wire the per-tx sign callback into the keystore-bridge slot. The
+  // SDK's keystore.sign was bound permanently at MidenClient.create
+  // time to bridge.callSign, which delegates to this active slot.
+  // try/finally guarantees the slot is cleared even on error; the
+  // bridge's concurrent-set guard makes any future violation loud.
+  const sdkSignCallback = async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+    const keyString = Buffer.from(publicKey).toString('hex');
+    const signingInputsString = Buffer.from(signingInputs).toString('hex');
+    try {
       return await signCallback(keyString, signingInputsString);
+    } catch (err) {
+      // The SDK (WebKeyStore) captures the raw thrown value and exposes
+      // it via `midenClient.lastAuthError()`. Attach a stable `reason`
+      // tag so callers that catch the eventual executeTransaction
+      // failure can distinguish "wallet got locked mid-sign" from other
+      // failure modes (user rejection, keystore IO error, etc.).
+      throw buildSignCallbackError(err);
     }
   };
 
-  // MidenClient handles the full pipeline (execute → prove → submit → apply)
-  const result = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient(options);
-    switch (transaction.type) {
-      case 'send':
-        return midenClient.sendTransaction(transaction as SendTransaction);
-      case 'consume':
-        return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
-      case 'execute':
-      default:
-        return midenClient.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes!,
-          transaction.delegateTransaction
-        );
-    }
-  });
+  setActiveSignCallback(sdkSignCallback);
+  let result: TransactionResult;
+  try {
+    // MidenClient handles the full pipeline (execute → prove → submit → apply)
+    result = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      switch (transaction.type) {
+        case 'send':
+          return await midenClient.sendTransaction(transaction as SendTransaction);
+        case 'consume':
+          return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
+        case 'execute':
+        default:
+          return await midenClient.newTransaction(
+            transaction.accountId,
+            transaction.requestBytes!,
+            transaction.delegateTransaction
+          );
+      }
+    });
+  } finally {
+    setActiveSignCallback(null);
+  }
 
   switch (transaction.type) {
     case 'send':
@@ -692,12 +778,87 @@ export const generateTransactionsLoop = async (
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
+    // The SDK attaches a stable `errorCode` string to thrown errors for
+    // variants callers are expected to dispatch on. See
+    // `error_code_from_client_error` in miden-client.
+    const errorCode = extractSdkErrorCode(e);
+
+    // If the failure was caused by the wallet being locked mid-sign,
+    // leave the tx Queued rather than marking it Failed — the next
+    // auto-consume cycle (after the wallet unlocks) will retry it.
+    // This prevents the note-loss scenario the 1000-op stress run
+    // surfaced: lock during executeTransaction → tx cancelled → next
+    // cycle starts fresh but some races can leave the note stuck.
+    const authReason = await readLastAuthReason();
+    if (authReason === 'locked') {
+      logger.warning('Sign callback reported locked wallet; leaving tx queued for retry');
+      return false;
+    }
+
+    // Submit succeeded but apply failed: the tx IS live on chain. Mark
+    // as Completed (not Failed) so the activity tab shows the right
+    // outcome; the next sync will reconcile note states via
+    // ConsumedExternal. Retrying would hit the node's nullifier check
+    // and produce a misleading "already consumed" error.
+    if (errorCode === 'ApplyTransactionAfterSubmitFailed') {
+      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
+      const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
+      if (tx && tx.status !== ITransactionStatus.Completed) {
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Completed',
+          completedAt: Math.floor(Date.now() / 1000)
+        });
+      }
+      return false;
+    }
+
+    // If the input note was already consumed on chain, the pre-flight
+    // nullifier check transitioned it to ConsumedExternal. Mark this tx
+    // Failed (it never reached chain) but the note is already reconciled
+    // — subsequent cycles won't retry it.
+    if (errorCode === 'InputNoteAlreadyConsumedOnChain') {
+      logger.warning('Input note already consumed on chain; tx unnecessary');
+    }
+
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
     return false;
   }
 };
+
+/**
+ * Pulls the stable SDK error code off a thrown value, if present. The
+ * SDK attaches `errorCode` via `Reflect::set` on JsError — see
+ * `js_error_with_context` in miden-client.
+ */
+function extractSdkErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const code = (err as { errorCode?: unknown }).errorCode;
+  return typeof code === 'string' ? code : undefined;
+}
+
+/**
+ * Reads the SDK-captured last auth error and extracts a `reason` tag if
+ * present. Returns undefined if there was no auth failure or the thrown
+ * value didn't carry a reason.
+ */
+async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
+  try {
+    const midenClient = await getMidenClient();
+    const rawClient = (midenClient as any).client;
+    if (!rawClient || typeof rawClient.lastAuthError !== 'function') return undefined;
+    const raw = rawClient.lastAuthError();
+    if (!raw || typeof raw !== 'object') return undefined;
+    const reason = (raw as { reason?: unknown }).reason;
+    if (reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal') {
+      return reason;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
@@ -720,6 +881,98 @@ export const safeGenerateTransactionsLoop = async (
       return false;
     });
 };
+
+// ── Transport retry for private-note sends ─────────────────────────────────
+//
+// Private notes require an out-of-band "transport" step after the on-chain tx
+// commits, delivering the note blob to the recipient's address. If that step
+// fails (transport service down, network blip), the sender's asset is spent
+// but the recipient has no way to discover the note — private notes have no
+// on-chain details. `completeSendTransaction` now records
+// `transportPending: true` on these txs; the loop below finds them and
+// re-drives transport via the SDK's `resendPrivateById` helper.
+
+/** Max transport retry attempts before giving up and flagging Failed. */
+const TRANSPORT_RETRY_MAX_ATTEMPTS = 20;
+/** Exponential backoff base, in seconds. Capped at ~10 min. */
+const TRANSPORT_RETRY_BASE_DELAY_S = 10;
+
+/**
+ * Run one pass of transport retries: finds all `transportPending` send txs,
+ * backs off by attempt count, and calls the SDK to re-send each note.
+ * Safe to call concurrently (serialized via a named Web Lock).
+ */
+export const retryPendingTransports = async (): Promise<void> => {
+  await navigator.locks
+    .request(`transport-retry-loop`, { ifAvailable: true }, async lock => {
+      if (!lock) return;
+      await retryPendingTransportsImpl();
+    })
+    .catch(e => {
+      logger.error('Error in transport-retry loop', e);
+    });
+};
+
+async function retryPendingTransportsImpl(): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const pending = await Repo.transactions.filter(tx => tx.type === 'send' && tx.transportPending === true).toArray();
+
+  for (const tx of pending) {
+    const attempts = tx.transportAttempts ?? 0;
+    const lastAttemptAt = tx.transportLastAttemptAt ?? 0;
+    // Exponential backoff: delay = base * 2^attempts, capped.
+    const delay = Math.min(TRANSPORT_RETRY_BASE_DELAY_S * 2 ** attempts, 600);
+    if (now - lastAttemptAt < delay) continue;
+
+    if (attempts >= TRANSPORT_RETRY_MAX_ATTEMPTS) {
+      logger.warning(`Transport retry budget exhausted for tx ${tx.id}; marking Failed`);
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportPending = false;
+        record.status = ITransactionStatus.Failed;
+        record.displayMessage = 'Send failed: transport unavailable';
+        record.displayIcon = 'FAILED';
+        record.error = 'Transport retries exhausted';
+      });
+      continue;
+    }
+
+    const noteId = tx.outputNoteIds?.[0];
+    const recipient = tx.secondaryAccountId;
+    if (!noteId || !recipient) {
+      logger.warning(`Transport-pending tx ${tx.id} missing noteId/recipient; clearing flag`);
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportPending = false;
+      });
+      continue;
+    }
+
+    try {
+      const midenClient = await getMidenClient();
+      const rawClient: any = (midenClient as any).client;
+      if (!rawClient?.notes?.resendPrivateById) {
+        // SDK doesn't have the helper (old version); leave the flag set
+        // so a future version picks it up. Don't burn the attempts budget.
+        return;
+      }
+      await rawClient.notes.resendPrivateById({ noteId, to: recipient });
+
+      // Success — clear the flag.
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportPending = false;
+        record.displayMessage = 'Sent';
+        record.transportAttempts = attempts + 1;
+        record.transportLastAttemptAt = now;
+      });
+      logger.info(`Transport retry succeeded for tx ${tx.id} (attempt ${attempts + 1})`);
+    } catch (err) {
+      logger.warning(`Transport retry attempt ${attempts + 1} failed for tx ${tx.id}`, err);
+      await Repo.transactions.where({ id: tx.id }).modify(record => {
+        record.transportAttempts = attempts + 1;
+        record.transportLastAttemptAt = now;
+      });
+    }
+  }
+}
 
 /**
  * Start background transaction processing for dApp transactions.

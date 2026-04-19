@@ -668,25 +668,15 @@ describe('Vault.legacyPasswordUnlock + insertKeyCallback', () => {
     await expect(Vault.setup('wrong-pw')).rejects.toThrow(PublicError);
   });
 
-  it('insertKeyCallback persists a fresh secret key when getMidenClient invokes it during spawn', async () => {
-    // Make the createMidenWallet call invoke the supplied insertKeyCallback
-    // before resolving — that's the path the real WASM client takes.
-    mockGetMidenClient.mockImplementationOnce(async (options: any) => {
-      if (options?.insertKeyCallback) {
-        await options.insertKeyCallback(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
-      }
-      return {
-        createMidenWallet: mockCreateMidenWallet,
-        importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
-        getAccounts: mockGetAccounts,
-        getAccount: mockGetAccount,
-        syncState: mockSyncState,
-        network: 'devnet'
-      } as any;
-    });
+  it('encryptKeystoreEntry persists a fresh secret key under the vault key', async () => {
+    // Round-trip via the public Vault API — no KEK exposure to the test.
+    // Today's keystore wiring delegates to Vault.encryptKeystoreEntry via
+    // the keystore-bridge module; testing the method directly exercises
+    // the same encrypt-and-save logic without mocking the SDK.
     const vault = await Vault.spawn('cb-pw');
     expect(vault).toBeInstanceOf(Vault);
-    // Verify the callback wrote to storage by checking the auth secret key slot
+
+    await vault.encryptKeystoreEntry(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
     const sk = await vault.getAuthSecretKey('010203');
     expect(sk).toBe('040506');
   });

@@ -46,6 +46,13 @@ jest.mock('./transaction-processor', () => ({
   startTransactionProcessing: () => (globalThis as any).__mainTest.startTransactionProcessing()
 }));
 
+// Bridge wiring is exercised separately in keystore-bridge.test.ts; mock
+// here so the test doesn't pull in the Effector store's unlocked/locked
+// events that this test fixture mocks away.
+jest.mock('./keystore-wiring', () => ({
+  wireKeystoreBridge: jest.fn()
+}));
+
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__mainTest.client,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
@@ -235,6 +242,18 @@ describe('processRequest', () => {
     });
     expect(Actions.registerNewWallet).toHaveBeenCalledWith('pw', 'm', false);
     expect(res.type).toBe(WalletMessageType.NewWalletResponse);
+  });
+
+  it('NewWalletRequest rethrows when registerNewWallet fails', async () => {
+    (Actions.registerNewWallet as jest.Mock).mockRejectedValueOnce(new Error('wallet-creation-failed'));
+    await expect(
+      dispatch({
+        type: WalletMessageType.NewWalletRequest,
+        password: 'pw',
+        mnemonic: 'm',
+        ownMnemonic: false
+      })
+    ).rejects.toThrow('wallet-creation-failed');
   });
 
   it('ImportFromClientRequest delegates to registerImportedWallet', async () => {

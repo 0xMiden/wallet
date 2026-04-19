@@ -429,6 +429,10 @@ const generatePromisifySign = async (
       if (confirmReq?.type === MidenMessageType.DAppSignConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
+            // vault.signData calls AuthSecretKey.signData() directly on a
+            // locally deserialized secret key — does NOT go through the
+            // SDK's signCallback / keystore-bridge path. The bridge's
+            // activeSignCallback slot is unrelated to this code path.
             let signature = await withUnlocked(async ({ vault }) => {
               const signDataResult = await vault.signData(req.sourcePublicKey, req.payload, req.kind);
               return signDataResult;

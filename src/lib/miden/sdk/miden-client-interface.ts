@@ -29,13 +29,18 @@ import { WalletType } from 'screens/onboarding/types';
 import { ConsumeTransaction, SendTransaction } from '../db/types';
 import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
+import { callGetKey, callInsertKey, callSign } from './keystore-bridge';
 
+/**
+ * Reduced from the historical 6-field shape (insertKey/getKey/sign/
+ * onConnectivityIssue closures + seed) to just `seed` for the mock-client
+ * test path. Production keystore wiring is now permanent: the bridge in
+ * `keystore-bridge.ts` provides the callbacks at MidenClient.create time;
+ * the wiring layer in `keystore-wiring.ts` re-points them on vault
+ * unlock/lock.
+ */
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
-  insertKeyCallback?: (key: Uint8Array, secretKey: Uint8Array) => void;
-  getKeyCallback?: (key: Uint8Array) => Promise<Uint8Array>;
-  signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
-  onConnectivityIssue?: () => void;
 };
 
 export type InputNoteDetails = {
@@ -70,19 +75,18 @@ export class MidenClientInterface {
       return new MidenClientInterface(mockClient, 'mock');
     }
 
-    const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
-
+    // Permanent keystore wiring via the bridge. Late-binding: the
+    // bridge's slots are populated by keystore-wiring.ts on Effector
+    // unlocked/locked events. callSign throws if no active sign session;
+    // callInsertKey throws if vault is locked.
     const midenClient = await MidenClient.create({
       rpcUrl: MIDEN_NETWORK_ENDPOINTS.get(network)!,
       noteTransportUrl: MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network),
-      seed: options.seed,
-      keystore: hasKeystore
-        ? {
-            getKey: options.getKeyCallback!,
-            insertKey: options.insertKeyCallback!,
-            sign: options.signCallback!
-          }
-        : undefined,
+      keystore: {
+        getKey: callGetKey,
+        insertKey: callInsertKey,
+        sign: callSign
+      },
       proverUrl: MIDEN_PROVING_ENDPOINTS.get(network)
     });
 
@@ -95,6 +99,24 @@ export class MidenClientInterface {
 
   free() {
     this.client.terminate();
+  }
+
+  /**
+   * Resolves once any in-flight serialized WASM call on the underlying
+   * client has settled. Wallet-side code uses this to coordinate
+   * non-WASM state changes (e.g. clearing the in-memory auth key on
+   * lock) with the SDK's transaction execution pipeline — preventing
+   * races where the kernel's auth callback fires after the key is
+   * gone. See `Actions.lock` for the canonical use case.
+   */
+  async waitForIdle(): Promise<void> {
+    // waitForIdle is available in local SDK builds but may not exist in
+    // the published npm package yet. Use a runtime check to avoid
+    // crashing when the method is absent.
+    const client = this.client as any;
+    if (typeof client.waitForIdle === 'function') {
+      await client.waitForIdle();
+    }
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
@@ -270,7 +292,11 @@ export class MidenClientInterface {
       if (!shouldDelegate) {
         return await fn(TransactionProver.newLocalProver());
       }
-      return await fn(); // uses MidenClient's defaultProver (remote)
+      // Rely on MidenClient's defaultProver (set from proverUrl at create
+      // time). The SDK's proveTransactionWithProver now takes the prover
+      // by reference (not by value), so the JS handle is preserved across
+      // calls. See: crates/web-client/src/new_transactions.rs.
+      return await fn();
     } catch (err) {
       // Fallback to local prover on desktop only
       if (shouldDelegate && !isMobile()) {

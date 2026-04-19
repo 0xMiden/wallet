@@ -132,18 +132,18 @@ describe('MidenClientInterface', () => {
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const insertKeyCallback = jest.fn();
-    const client = await MidenClientInterface.create({
-      seed: new Uint8Array([1, 2, 3]),
-      insertKeyCallback
-    });
+    const bridge = await import('./keystore-bridge');
+    const client = await MidenClientInterface.create();
 
+    // Permanent keystore wiring: callbacks come from the bridge module,
+    // not from per-call options. Assert the bridge functions are wired.
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({
         rpcUrl: 'rpc-local',
-        seed: expect.any(Uint8Array),
         keystore: expect.objectContaining({
-          insertKey: insertKeyCallback
+          insertKey: bridge.callInsertKey,
+          sign: bridge.callSign,
+          getKey: bridge.callGetKey
         })
       })
     );
@@ -346,6 +346,177 @@ describe('MidenClientInterface', () => {
 
     expect(result).toBe(fakeTransactionResult);
     expect(fakeMidenClient.transactions.send).toHaveBeenCalled();
+  });
+
+  it('waitForIdle calls client method when available', async () => {
+    const waitForIdleMock = jest.fn(async () => {});
+    const fakeMidenClient = buildFakeMidenClient({ waitForIdle: waitForIdleMock });
+
+    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+      addConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.waitForIdle();
+    expect(waitForIdleMock).toHaveBeenCalled();
+  });
+
+  it('waitForIdle is a no-op when client lacks the method', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+    // Ensure waitForIdle is absent
+    delete (fakeMidenClient as any).waitForIdle;
+
+    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+      addConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    // Should not throw
+    await client.waitForIdle();
+    expect(true).toBe(true);
+  });
+
+  it('getInputNote returns a note by id', async () => {
+    const fakeNote = { id: () => 'note-1' };
+    const fakeMidenClient = buildFakeMidenClient({
+      notes: { get: jest.fn(async () => fakeNote) }
+    });
+
+    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+      addConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const result = await client.getInputNote('note-1');
+    expect(result).toBe(fakeNote);
+    expect(fakeMidenClient.notes.get).toHaveBeenCalledWith('note-1');
+  });
+
+  it('delegates proving and falls back to local prover on error', async () => {
+    let callCount = 0;
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        send: jest.fn(async () => {
+          callCount++;
+          if (callCount === 1) throw new Error('remote prover failed');
+          return { txId: 'tx-id', result: fakeTransactionResult };
+        })
+      }
+    });
+
+    jest.doMock('@miden-sdk/miden-sdk', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local'),
+        newRemoteProver: jest.fn(() => 'remote')
+      }
+    }));
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    const connectivityMock = { addConnectivityIssue: jest.fn() };
+    jest.doMock('lib/miden/activity/connectivity-issues', () => connectivityMock);
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const result = await client.sendTransaction({
+      accountId: 'sender',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      amount: BigInt(100),
+      extraInputs: {},
+      delegateTransaction: true
+    } as any);
+
+    expect(result).toBe(fakeTransactionResult);
+    expect(connectivityMock.addConnectivityIssue).toHaveBeenCalled();
+    expect(fakeMidenClient.transactions.send).toHaveBeenCalledTimes(2);
+  });
+
+  it('creates mock client when MIDEN_USE_MOCK_CLIENT is set', async () => {
+    const originalEnv = process.env.MIDEN_USE_MOCK_CLIENT;
+    process.env.MIDEN_USE_MOCK_CLIENT = 'true';
+
+    const fakeMockClient = buildFakeMidenClient();
+    jest.doMock('@miden-sdk/miden-sdk', () => ({
+      MidenClient: {
+        create: jest.fn(),
+        createMock: jest.fn(async () => fakeMockClient)
+      }
+    }));
+    jest.doMock('lib/miden-chain/constants', () => ({
+      MIDEN_NETWORK_ENDPOINTS: new Map([['testnet', 'rpc']]),
+      MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS: new Map(),
+      MIDEN_PROVING_ENDPOINTS: new Map(),
+      DEFAULT_NETWORK: 'testnet'
+    }));
+    jest.doMock('./keystore-bridge', () => ({
+      callGetKey: jest.fn(),
+      callInsertKey: jest.fn(),
+      callSign: jest.fn()
+    }));
+    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+      addConnectivityIssue: jest.fn()
+    }));
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = await MidenClientInterface.create();
+
+    expect(client.network).toBe('mock');
+    expect(client.client).toBe(fakeMockClient);
+
+    process.env.MIDEN_USE_MOCK_CLIENT = originalEnv;
+  });
+
+  it('throws on mobile when delegated proving fails (no fallback)', async () => {
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        send: jest.fn(async () => {
+          throw new Error('remote prover failed');
+        })
+      }
+    });
+
+    jest.doMock('@miden-sdk/miden-sdk', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local'),
+        newRemoteProver: jest.fn(() => 'remote')
+      }
+    }));
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+      addConnectivityIssue: jest.fn()
+    }));
+    jest.doMock('lib/platform', () => ({
+      isMobile: () => true,
+      isExtension: () => false
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(
+      client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any)
+    ).rejects.toThrow('remote prover failed');
   });
 
   it('consumeNoteId returns TransactionResult', async () => {
