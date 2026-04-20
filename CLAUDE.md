@@ -324,11 +324,9 @@ xcrun simctl spawn booted log stream --predicate 'process == "App"' > ios_logs.t
 
 ### CDP Bridge for iOS WebView Debugging
 
-Use `@inspectdotdev/cli` + a persistent-connection daemon (`/tmp/cdp-daemon.mjs` + `/tmp/cdp-eval`) to evaluate JS in the Capacitor WKWebView. Needed because the inspect bridge has a single-use bug — the daemon holds one WebSocket and routes all evals through it.
+Use `@inspectdotdev/cli` to evaluate JS inside the Capacitor WKWebView — DOM, computed styles, console, arbitrary `Runtime.evaluate`. More useful than screenshots when you need to know _why_ pixels look wrong.
 
-Once set up: `node /tmp/cdp-eval 'document.title'`.
-
-Full bringup recipe, recovery steps, and both daemon/eval scripts live in the memory file `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md` — read it before debugging.
+Full bringup recipe, usage examples, recovery steps, and CDP-vs-native tradeoffs live in [`docs/ios-cdp-bridge.md`](docs/ios-cdp-bridge.md).
 
 ### Verifying Mobile UI Fixes
 
