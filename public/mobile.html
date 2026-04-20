@@ -30,9 +30,10 @@
         text-rendering: optimizeLegibility;
       }
 
-      /* Safe area padding for notched devices - bottom handled by footer */
+      /* Safe area padding for notched devices */
       body {
         padding-top: env(safe-area-inset-top);
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
         padding-left: env(safe-area-inset-left);
         padding-right: env(safe-area-inset-right);
         box-sizing: border-box;
@@ -70,9 +71,48 @@
       img, svg {
         max-width: 100%;
       }
+
+      /*
+       * Splash placeholder shown until React mounts.
+       *
+       * On iOS 26+ the WKWebView blanks the page if there's no first paint
+       * before the page's main script finishes evaluating. The Miden SDK
+       * uses a top-level `await __wbg_init` to load the 62.7MB WASM module,
+       * which delays module evaluation by hundreds of ms — long enough that
+       * iOS 26 sees "no paint since load commit" and forcibly clears the
+       * compositor layers, leaving the user staring at a blank screen for
+       * the rest of the session.
+       *
+       * Putting visible content inside `<div id="root">` gives WebKit
+       * something to paint immediately, satisfying the first-paint check.
+       * React's `createRoot(...).render()` replaces this content as soon
+       * as the WASM finishes loading.
+       */
+      #miden-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #F6F4F2;
+      }
+      #miden-splash img {
+        width: 96px;
+        height: 96px;
+        object-fit: contain;
+      }
     </style>
   </head>
-  <body style="background-color: #FFFFFF;">
+  <body style="background-color: #F6F4F2;">
+    <!--
+      Splash element lives OUTSIDE #root so it stays paintable while
+      React's createRoot mounts into the empty #root. mobile-app.tsx
+      removes #miden-splash after the React render call returns.
+    -->
+    <div id="miden-splash">
+      <img src="misc/logo-white-bg-16.png" alt="" />
+    </div>
     <div id="root"></div>
+    <script type="module" src="/src/mobile-app.tsx"></script>
   </body>
 </html>

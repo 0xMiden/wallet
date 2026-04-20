@@ -1,6 +1,6 @@
 import BigNumber from 'bignumber.js';
 
-import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { fetchFromStorage } from 'lib/miden/front';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
@@ -22,7 +22,12 @@ jest.mock('lib/miden/front', () => ({
   useAllTokensBaseMetadata: jest.fn()
 }));
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: jest.fn()
+}));
+
 const mockFetchFromStorage = fetchFromStorage as jest.Mock;
+const mockGetNativeAssetId = getNativeAssetId as jest.Mock;
 
 describe('assets/utils', () => {
   beforeEach(() => {
@@ -111,21 +116,35 @@ describe('assets/utils', () => {
   });
 
   describe('getFaucetIdSetting', () => {
-    it('returns stored faucet id when available', async () => {
+    it('returns stored faucet id override when set', async () => {
       mockFetchFromStorage.mockResolvedValue('stored-faucet-id');
 
       const result = await getFaucetIdSetting();
 
       expect(result).toBe('stored-faucet-id');
       expect(mockFetchFromStorage).toHaveBeenCalledWith(FAUCET_ID_STORAGE_KEY);
+      expect(mockGetNativeAssetId).not.toHaveBeenCalled();
     });
 
-    it('returns default miden faucet id when not stored', async () => {
+    it('falls through to discovered native asset id when no override', async () => {
       mockFetchFromStorage.mockResolvedValue(null);
+      mockGetNativeAssetId.mockResolvedValue('discovered-native-id');
 
       const result = await getFaucetIdSetting();
 
-      expect(result).toBe(TOKEN_MAPPING[MidenTokens.Miden].faucetId);
+      expect(result).toBe('discovered-native-id');
+      expect(mockGetNativeAssetId).toHaveBeenCalled();
+    });
+
+    it('returns null when discovery fails (no hardcoded fallback)', async () => {
+      mockFetchFromStorage.mockResolvedValue(null);
+      mockGetNativeAssetId.mockRejectedValue(new Error('RPC unreachable'));
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await getFaucetIdSetting();
+
+      expect(result).toBeNull();
+      warnSpy.mockRestore();
     });
   });
 
@@ -139,7 +158,7 @@ describe('assets/utils', () => {
 
   describe('getTokenId', () => {
     it('returns "MIDEN" for miden faucet', async () => {
-      const midenFaucetId = TOKEN_MAPPING[MidenTokens.Miden].faucetId;
+      const midenFaucetId = 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph';
       mockFetchFromStorage.mockResolvedValue(midenFaucetId);
 
       const result = await getTokenId(midenFaucetId);

@@ -1,25 +1,17 @@
-import {
-  Address,
-  InputNoteState,
-  Note,
-  NoteFilter,
-  NoteFilterTypes,
-  NoteId,
-  TransactionResult
-} from '@demox-labs/miden-sdk';
+import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
-import { consumeNoteId } from 'lib/miden-worker/consumeNoteId';
-import { sendTransaction } from 'lib/miden-worker/sendTransaction';
-import { submitTransaction } from 'lib/miden-worker/submitTransaction';
 import * as Repo from 'lib/miden/repo';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { WalletMessageType } from 'lib/shared/types';
+import { getIntercom } from 'lib/store';
 import { logger } from 'shared/logger';
 
 import {
   ConsumeTransaction,
   ITransaction,
+  ITransactionStage,
   ITransactionStatus,
   SendTransaction,
   Transaction,
@@ -31,12 +23,15 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { interpretTransactionResult } from './helpers';
-import { importAllNotes, queueNoteImport, registerOutputNote } from './notes';
+import { importAllNotes, queueNoteImport } from './notes';
 import { compareAccountIds } from './utils';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
-export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60_000 : 30 * 60_000; // 2 mins on mobile, 30 mins on desktop
+export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
+
+// Maximum age for a queued transaction before it's considered stale and cancelled
+export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -74,8 +69,6 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       continue;
     }
 
-    await registerOutputNote(note.id().toString());
-
     let fullNote: Note;
 
     // intoFull() can throw or return undefined
@@ -98,8 +91,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
         try {
           await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-          const recipientAccountAddress = Address.fromBech32(transaction.secondaryAccountId!);
-          await midenClient.sendPrivateNote(fullNote, recipientAccountAddress);
+          await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
         } catch (error) {
           console.error('Failed to send private note through the transport layer', {
             txId: transaction.id,
@@ -127,12 +119,22 @@ export const initiateConsumeTransactionFromId = async (
   noteId: string,
   delegateTransaction?: boolean
 ): Promise<string> => {
+  const sdkNote = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+
+    return midenClient.getInputNote(noteId);
+  });
+  if (!sdkNote) {
+    throw new Error(`Note with id ${noteId} not found`);
+  }
+  const noteMeta = sdkNote.metadata();
   const note: ConsumableNote = {
     id: noteId,
     faucetId: '',
     amount: '',
     senderAddress: '',
-    isBeingClaimed: false
+    isBeingClaimed: false,
+    type: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
   };
 
   return await initiateConsumeTransaction(accountId, note, delegateTransaction);
@@ -144,15 +146,38 @@ export const initiateConsumeTransaction = async (
   delegateTransaction?: boolean
 ): Promise<string> => {
   const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
-  const uncompletedTransactions = await getUncompletedTransactions(accountId);
-  const existingTransaction = uncompletedTransactions.find(tx => tx.type === 'consume' && tx.noteId === note.id);
-  if (existingTransaction) {
-    return existingTransaction.id;
+  // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
+  // Reason: getConsumableNotes() can still return a note for a short window after a local
+  // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
+  // tx every 5s until the sync catches up. Failed txs are excluded so retries still work.
+  //
+  // The check-and-add is wrapped in a Dexie `rw` transaction so concurrent callers for the
+  // same noteId are serialized at the DB layer. Without this, two callers that slip past
+  // the isBeingClaimed gate (e.g. two Explore re-renders racing the NoteClaimStarted
+  // intercom round-trip) both see `[]` from the check and both `.add()`, producing two
+  // queued consume rows — the second of which fails on-chain with "note has already been
+  // consumed" and spuriously trips the connectivity-issue banner.
+  const committedId = await Repo.db.transaction('rw', Repo.transactions, async () => {
+    const existingByNote = await Repo.transactions
+      .where('noteId')
+      .equals(note.id)
+      .filter(tx => tx.type === 'consume' && tx.status !== ITransactionStatus.Failed)
+      .toArray();
+    const existingTransaction = existingByNote.find(tx => compareAccountIds(tx.accountId, accountId));
+    if (existingTransaction) return existingTransaction.id;
+    await Repo.transactions.add(dbTransaction);
+    return dbTransaction.id;
+  });
+
+  // Only broadcast NoteClaimStarted if WE were the caller that actually queued the row —
+  // duplicate broadcasts for the same note are a no-op but wasteful.
+  if (committedId === dbTransaction.id && isExtension()) {
+    getIntercom()
+      .request({ type: WalletMessageType.NoteClaimStarted, noteId: note.id })
+      .catch(() => {});
   }
 
-  await Repo.transactions.add(dbTransaction);
-
-  return dbTransaction.id;
+  return committedId;
 };
 
 // Timeout for waiting on consume transactions (5 minutes)
@@ -201,7 +226,11 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 };
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const note = result.executedTransaction().inputNotes().notes()[0].note();
+  const firstInputNote = result.executedTransaction().inputNotes().notes()[0];
+  if (!firstInputNote) {
+    throw new Error('completeConsumeTransaction: no input notes on executed transaction');
+  }
+  const note = firstInputNote.note();
   const sender = getBech32AddressFromAccountId(note.metadata().sender());
   const executedTransaction = result.executedTransaction();
 
@@ -210,6 +239,9 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
   const secondaryAccountId = reclaimed ? undefined : sender;
   const asset = note.assets().fungibleAssets()[0];
+  if (!asset) {
+    throw new Error('completeConsumeTransaction: note has no fungible assets');
+  }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
   const amount = asset.amount();
 
@@ -220,7 +252,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     faucetId,
     amount,
     noteType: toNoteTypeString(note.metadata().noteType()),
-    completedAt: Date.now() / 1000, // Convert to seconds.
+    completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
 };
@@ -252,12 +284,13 @@ const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
     const outputNotes = result.executedTransaction().outputNotes().notes();
 
-    if (!outputNotes || outputNotes.length === 0) {
+    const firstOutput = outputNotes?.[0];
+    if (!firstOutput) {
       console.error('No output notes found for executed transaction');
       return undefined;
     }
 
-    const fullNote = outputNotes[0].intoFull();
+    const fullNote = firstOutput.intoFull();
 
     if (!fullNote) {
       console.error('intoFull() returned undefined for first output note');
@@ -278,16 +311,15 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   const outputNoteIds = noteId ? [noteId] : [];
 
   if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
-    await registerOutputNote(noteId);
-
     // Wrap all WASM client operations in a lock to prevent concurrent access
     type SendResult = { success: true } | { success: false; errorType: 'init' | 'transport'; error: unknown };
+    await setTransactionStage(tx.id, 'confirming');
     const sendResult = await withWasmClientLock<SendResult>(async () => {
       try {
         const midenClient = await getMidenClient();
         await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-        const recipientAccountAddress = Address.fromBech32(tx.secondaryAccountId);
-        await midenClient.sendPrivateNote(note, recipientAccountAddress);
+        await setTransactionStage(tx.id, 'delivering');
+        await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         return { success: true };
       } catch (error) {
         return { success: false, errorType: 'transport', error };
@@ -373,6 +405,23 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   });
 };
 
+/**
+ * Informational stage write. Called at phase boundaries inside
+ * `generateTransaction` / `completeSendTransaction` so the progress modal
+ * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
+ * a single opaque "Generating transaction". Does not gate on status —
+ * late writes after `Completed` are no-ops via the `.modify` callback
+ * (the stage field is informational and only read while status is
+ * pre-terminal).
+ */
+export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
+      tx.stage = stage;
+    }
+  });
+};
+
 export const hasQueuedTransactions = async () => {
   const tx = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
   return tx.length > 0;
@@ -442,11 +491,23 @@ export const cancelStuckTransactions = async () => {
   const transactions = await getTransactionsInProgress();
   const cancelTransactionUpdates = transactions
     .filter(tx => {
-      return tx.processingStartedAt && Date.now() - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
+      // Crashed before processing started — processingStartedAt is set atomically
+      // with the status change, so undefined means the app crashed mid-transition
+      if (!tx.processingStartedAt) return true;
+      return Math.floor(Date.now() / 1000) - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
     })
     .map(async tx => cancelTransaction(tx, 'Transaction took too long to process and was cancelled'));
 
   await Promise.all(cancelTransactionUpdates);
+};
+
+/**
+ * Cancel queued transactions that have been waiting too long (TTL expired)
+ */
+export const cancelStaleQueuedTransactions = async () => {
+  const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
+  const stale = queued.filter(tx => Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE);
+  await Promise.all(stale.map(tx => cancelTransaction(tx, 'Transaction expired after being queued too long')));
 };
 
 /**
@@ -472,7 +533,7 @@ const CONSUMED_NOTE_STATES = [
 
 // Minimum time a transaction must be in GeneratingTransaction status before we consider it "stuck"
 // This prevents cancelling transactions that are actively being processed
-const MIN_PROCESSING_TIME_BEFORE_STUCK = 60_000; // 1 minute
+const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
 
 /**
  * Verify stuck transactions by checking note state from the node.
@@ -506,22 +567,19 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
     try {
       const noteDetails = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        const noteId = NoteId.fromHex(tx.noteId);
-        const noteFilter = new NoteFilter(NoteFilterTypes.List, [noteId]);
-        return await midenClient.getInputNoteDetails(noteFilter);
+        return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
       });
 
-      if (noteDetails.length === 0) {
+      const note = noteDetails[0];
+      if (!note) {
         continue;
       }
-
-      const note = noteDetails[0];
 
       if (CONSUMED_NOTE_STATES.includes(note.state)) {
         // Note has been consumed on-chain - mark transaction as completed
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Received',
-          completedAt: Date.now() / 1000
+          completedAt: Math.floor(Date.now() / 1000)
         });
         resolvedCount++;
       } else if (note.state === InputNoteState.Invalid) {
@@ -535,7 +593,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
       ) {
         // Note is still claimable - only cancel if tx has been processing for a while
         // This prevents cancelling transactions that are actively being processed
-        const processingTime = tx.processingStartedAt ? Date.now() - tx.processingStartedAt : 0;
+        const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
         if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
           await cancelTransaction(tx, 'Transaction was interrupted');
           resolvedCount++;
@@ -553,14 +611,23 @@ export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
-  // Mark transaction as in progress
-  await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
-    processingStartedAt: Date.now()
+  // Sync state first to ensure we have latest account state
+  // Separate lock acquisition to avoid holding lock during network call
+  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
+  // catch block which cancels the transaction — this is intentional fail-fast behavior,
+  // since the transaction can't be submitted without network anyway
+  await setTransactionStage(transaction.id, 'syncing');
+  await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    await midenClient.syncState();
   });
 
-  // Process transaction
-  let resultBytes: Uint8Array;
-  let result: TransactionResult;
+  // Mark transaction as in progress
+  await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
+    processingStartedAt: Math.floor(Date.now() / 1000), // seconds
+    stage: 'sending'
+  });
+
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       const keyString = Buffer.from(publicKey).toString('hex');
@@ -569,8 +636,8 @@ export const generateTransaction = async (
     }
   };
 
-  // Wrap WASM client operations in a lock to prevent concurrent access
-  const transactionResultBytes = await withWasmClientLock(async () => {
+  // MidenClient handles the full pipeline (execute → prove → submit → apply)
+  const result = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
@@ -579,28 +646,23 @@ export const generateTransaction = async (
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'execute':
       default:
-        return midenClient.newTransaction(transaction.accountId, transaction.requestBytes!);
+        return midenClient.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes!,
+          transaction.delegateTransaction
+        );
     }
   });
 
-  // On mobile, always delegate transactions to avoid memory issues with local proving
-  const shouldDelegate = isMobile() ? true : transaction.delegateTransaction;
-
   switch (transaction.type) {
     case 'send':
-      resultBytes = await sendTransaction(transactionResultBytes, shouldDelegate);
-      result = TransactionResult.deserialize(resultBytes);
       await completeSendTransaction(transaction as SendTransaction, result);
       break;
     case 'consume':
-      resultBytes = await consumeNoteId(transactionResultBytes, shouldDelegate);
-      result = TransactionResult.deserialize(resultBytes);
       await completeConsumeTransaction(transaction.id, result);
       break;
     case 'execute':
     default:
-      resultBytes = await submitTransaction(transactionResultBytes, shouldDelegate);
-      result = TransactionResult.deserialize(resultBytes);
       await completeCustomTransaction(transaction, result);
       break;
   }
@@ -609,9 +671,11 @@ export const generateTransaction = async (
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
   // Cancel the transaction
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
-    dbTx.completedAt = Date.now() / 1000; // Convert to seconds
+    dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
-    dbTx.error = error.toString();
+    dbTx.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    dbTx.displayMessage = 'Failed';
+    dbTx.displayIcon = 'FAILED';
   });
 };
 
@@ -630,6 +694,7 @@ export const generateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
+  await cancelStaleQueuedTransactions();
 
   // Import any notes needed for queued transactions
   await importAllNotes();
@@ -649,6 +714,7 @@ export const generateTransactionsLoop = async (
 
   // Process next transaction
   const nextTransaction = queuedTransactions[0];
+  if (!nextTransaction) return; // redundant after length check but satisfies the type narrower
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
@@ -686,17 +752,13 @@ export const safeGenerateTransactionsLoop = async (
 };
 
 /**
- * Start background transaction processing for mobile dApp transactions.
+ * Start background transaction processing for dApp transactions.
  * This runs the transaction loop without any UI, using the backend's signTransaction directly.
  * Polls every 5 seconds until all queued transactions are processed.
  */
-export const startBackgroundTransactionProcessing = async (
-  signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+export const startBackgroundTransactionProcessing = (
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
-  const signCallback = async (publicKey: string, signingInputs: string): Promise<Uint8Array> => {
-    return signTransaction(publicKey, signingInputs);
-  };
-
   // Process transactions in a loop until none are left
   const processLoop = async () => {
     let hasMore = true;

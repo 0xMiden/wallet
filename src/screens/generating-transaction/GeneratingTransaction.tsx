@@ -5,24 +5,35 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import CircularProgress from 'app/atoms/CircularProgress';
-import useBeforeUnload from 'app/hooks/useBeforeUnload';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
-import { Button, ButtonVariant } from 'components/Button';
 import { useAnalytics } from 'lib/analytics';
 import {
   safeGenerateTransactionsLoop as dbTransactionsLoop,
   getAllUncompletedTransactions,
   getFailedTransactions
 } from 'lib/miden/activity';
-import { useExportNotes } from 'lib/miden/activity/notes';
+import { ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { isExtension, isMobile } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
+import { PRIMARY_HEX, PRIMARY_HEX_LIGHT_ALPHA } from 'utils/brand-colors';
+
+/**
+ * Picks the transaction whose stage the modal should display. Prefers the
+ * one currently `GeneratingTransaction`; falls back to the oldest queued
+ * one so the user sees "Syncing" immediately rather than a blank label
+ * before the SDK call starts.
+ */
+const pickActiveTx = (
+  txs: Array<{ status: ITransactionStatus; stage?: ITransactionStage; type: ITransactionType }>
+) => {
+  const processing = txs.find(tx => tx.status === ITransactionStatus.GeneratingTransaction);
+  return processing ?? txs[0];
+};
 
 export interface GeneratingTransactionPageProps {
   keepOpen?: boolean;
@@ -31,7 +42,6 @@ export interface GeneratingTransactionPageProps {
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ keepOpen = false }) => {
   const { signTransaction } = useMidenContext();
   const { pageEvent, trackEvent } = useAnalytics();
-  const [outputNotes, downloadAll] = useExportNotes();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Track failed transaction count during this session
   const [failedCount, setFailedCount] = useState(0);
@@ -45,8 +55,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     async () => getAllUncompletedTransactions(),
     {
       revalidateOnMount: true,
-      refreshInterval: 5_000,
-      dedupingInterval: 3_000
+      // Faster poll so per-stage label changes feel responsive — stages can
+      // flip every ~500ms–1s during a single tx and a 5s poll hides them.
+      refreshInterval: 500,
+      dedupingInterval: 250
     }
   );
 
@@ -106,12 +118,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [transactions, hasStartedProcessing, failedCount]);
 
   useEffect(() => {
-    if (
-      outputNotes.length === 0 &&
-      prevTransactionsLength.current &&
-      prevTransactionsLength.current > 0 &&
-      transactions.length === 0
-    ) {
+    if (prevTransactionsLength.current && prevTransactionsLength.current > 0 && transactions.length === 0) {
       new Promise(res => setTimeout(res, 10_000)).then(async () => {
         await trackEvent('GeneratingTransaction Page Closed Automatically');
         isAutoCloseEnabled() && onClose();
@@ -119,7 +126,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     }
 
     prevTransactionsLength.current = transactions.length;
-  }, [transactions, trackEvent, outputNotes, onClose]);
+  }, [transactions, trackEvent, onClose]);
 
   const generateTransaction = useCallback(async () => {
     setHasStartedProcessing(true);
@@ -150,24 +157,22 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     };
   }, [generateTransaction]);
 
-  useBeforeUnload(transactions.length !== 0, downloadAll);
   const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   const transactionComplete = transactions.length === 0 && hasStartedProcessing;
   const hasErrors = failedCount > 0;
 
-  // On mobile, use h-full to inherit from parent chain (body has safe area padding)
-  const isMobileDevice = typeof window !== 'undefined' && /Android|iPhone|iPad/i.test(navigator.userAgent);
-  const containerClass = isMobileDevice
-    ? 'h-full w-full'
-    : 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl';
+  const active = pickActiveTx(transactions);
+  const activeStage = active?.stage;
+  const activeType = active?.type;
+  const remainingCount = transactions.length;
 
   return (
     <div
       className={classNames(
-        containerClass,
-        'mx-auto overflow-hidden ',
+        'w-full',
+        'mx-auto overflow-hidden',
         'flex flex-1',
-        'flex-col bg-white p-6',
+        'flex-col bg-transparent',
         'overflow-hidden relative'
       )}
     >
@@ -179,6 +184,9 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           hasErrors={hasErrors}
           failedCount={failedCount}
           keepOpen={keepOpen}
+          activeStage={activeStage}
+          activeType={activeType}
+          remainingCount={remainingCount}
         />
       </div>
     </div>
@@ -192,45 +200,101 @@ export interface GeneratingTransactionProps {
   failedCount?: number;
   keepOpen?: boolean;
   progress?: number;
+  /** Stage of the tx currently being processed (or head of queue). */
+  activeStage?: ITransactionStage;
+  /** Type of the tx currently being processed (for type-specific labels). */
+  activeType?: ITransactionType;
+  /** Number of tx still in-flight (queued + generating). */
+  remainingCount?: number;
 }
 
 export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
-  onDoneClick,
   transactionComplete,
   hasErrors = false,
   failedCount = 0,
   keepOpen,
-  progress = 80
+  activeStage,
+  activeType,
+  remainingCount = 0
 }) => {
   const { t } = useTranslation();
-  const [outputNotes, downloadAll] = useExportNotes();
   const inExtension = isExtension();
 
   const renderIcon = useCallback(() => {
     const iconSize = inExtension ? 'xl' : '3xl';
-    const circleSize = inExtension ? 32 : 55;
 
     if (transactionComplete && hasErrors) {
-      // Mixed results or all failed - show warning/error icon
       return <Icon name={IconName.Failed} size={iconSize} />;
     }
     if (transactionComplete) {
-      return <Icon name={IconName.Success} size={iconSize} />;
+      return (
+        <svg className="size-32" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="64" cy="64" r="64" fill={PRIMARY_HEX_LIGHT_ALPHA} />
+          <circle cx="64" cy="64" r="42" fill={PRIMARY_HEX} />
+          <path
+            d="M48 64L58 74L80 52"
+            stroke="white"
+            strokeWidth="4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </svg>
+      );
     }
 
     return (
-      <div className="flex items-center justify-center">
-        <Icon name={IconName.InProgress} className="absolute" size={iconSize} />
-        <CircularProgress
-          borderWeight={2}
-          progress={progress}
-          circleColor="black"
-          circleSize={circleSize}
-          spin={true}
-        />
-      </div>
+      <svg className="size-32" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="179" height="179" rx="40" stroke="rgba(0,0,0,0.06)" strokeWidth="1" />
+        <circle cx="90" cy="90" r="74" fill="rgba(255,85,0,0.10)" stroke="rgba(255,85,0,0.25)" strokeWidth="2" />
+        <circle cx="90" cy="90" r="23" fill="rgba(255,85,0,0.08)" stroke="rgba(255,85,0,0.15)" strokeWidth="2" />
+        <g className="origin-center animate-spin" style={{ animationDuration: '1.5s', transformOrigin: '90px 90px' }}>
+          <defs>
+            <linearGradient id="spinner-gradient" x1="62" y1="90" x2="118" y2="90" gradientUnits="userSpaceOnUse">
+              <stop stopColor="rgba(255,85,0,1)" />
+              <stop offset="1" stopColor="rgba(255,85,0,0.2)" />
+            </linearGradient>
+          </defs>
+          <circle
+            cx="90"
+            cy="90"
+            r="27"
+            fill="none"
+            stroke="url(#spinner-gradient)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray="130 170"
+          />
+        </g>
+      </svg>
     );
-  }, [transactionComplete, hasErrors, progress, inExtension]);
+  }, [transactionComplete, hasErrors, inExtension]);
+
+  /**
+   * Stage label picks up the tx type so a claim flow reads "Claiming
+   * note" instead of "Sending transaction" during the SDK call. All other
+   * stages (syncing / confirming / delivering) are type-neutral — they
+   * either describe network state (syncing, confirming) or only apply to
+   * one type (delivering → private send only).
+   */
+  const stageTitleKey = useCallback((stage?: ITransactionStage, type?: ITransactionType): string => {
+    if (!stage) return 'generatingTransaction';
+    if (stage === 'syncing') return 'transactionStageSyncing';
+    if (stage === 'confirming') return 'transactionStageConfirming';
+    if (stage === 'delivering') return 'transactionStageDelivering';
+    // stage === 'sending' — only this one varies by type
+    if (type === 'consume') return 'transactionStageClaiming';
+    if (type === 'execute') return 'transactionStageExecuting';
+    return 'transactionStageSending';
+  }, []);
+
+  const stageDescriptionKey = useCallback((stage?: ITransactionStage): string => {
+    if (!stage) return 'generatingTransactionDescription';
+    if (stage === 'syncing') return 'transactionStageSyncingDescription';
+    if (stage === 'confirming') return 'transactionStageConfirmingDescription';
+    if (stage === 'delivering') return 'transactionStageDeliveringDescription';
+    return 'transactionStageSendingDescription';
+  }, []);
 
   const headerText = useCallback(() => {
     if (transactionComplete && hasErrors) {
@@ -239,8 +303,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return t('transactionCompleted');
     }
-    return t('generatingTransaction');
-  }, [transactionComplete, hasErrors, t]);
+    return t(stageTitleKey(activeStage, activeType));
+  }, [transactionComplete, hasErrors, t, stageTitleKey, activeStage, activeType]);
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
@@ -252,8 +316,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return t('transactionSuccessDescription');
     }
-    return '';
-  }, [transactionComplete, hasErrors, failedCount, t]);
+    return t(stageDescriptionKey(activeStage));
+  }, [transactionComplete, hasErrors, failedCount, t, stageDescriptionKey, activeStage]);
 
   const alertText = useCallback(() => {
     if (keepOpen) {
@@ -264,51 +328,40 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [keepOpen, t]);
 
   return (
-    <>
+    <div className="flex flex-1 flex-col">
+      {/* Warning alert for desktop */}
       {!transactionComplete && !isMobile() && !inExtension && (
-        <Alert variant={AlertVariant.Warning} title={alertText()} />
+        <div className="px-6 pt-6">
+          <Alert variant={AlertVariant.Warning} title={alertText()} />
+        </div>
       )}
-      <div className="flex-1 flex flex-col justify-center md:w-[460px] md:mx-auto">
-        <div className="flex flex-col justify-center items-center">
-          <div
-            className={classNames(
-              'aspect-square flex items-center justify-center',
-              inExtension ? 'w-24 mb-4' : 'w-40 mb-8'
-            )}
-          >
-            {renderIcon()}
-          </div>
-          <div className="flex flex-col items-center">
-            <h1 className={classNames('font-semibold lh-title', inExtension ? 'text-lg' : 'text-2xl')}>
-              {headerText()}
-            </h1>
-            <p className={classNames('text-center lh-title', inExtension ? 'text-sm' : 'text-base')}>
+
+      {/* Main white card area */}
+      <div className="flex-1 flex flex-col justify-center items-center bg-app-bg rounded-3xl py-8">
+        <div className="flex flex-col items-center">
+          {/* Icon / Spinner */}
+          <div className="mb-6">{renderIcon()}</div>
+
+          {/* Title */}
+          <h1 className="font-semibold text-heading-gray text-center" style={{ fontSize: 28, lineHeight: '130%' }}>
+            {headerText()}
+          </h1>
+
+          {/* Description */}
+          {descriptionText() && (
+            <p className="text-heading-gray text-center mt-2 max-w-70" style={{ fontSize: 14, lineHeight: '130%' }}>
               {descriptionText()}
             </p>
-          </div>
-        </div>
-        <div className={classNames('flex flex-col gap-y-4', inExtension ? 'mt-4' : 'mt-8')}>
-          {outputNotes.length > 0 && transactionComplete && !hasErrors && (
-            <Button
-              title={t('downloadGeneratedFiles')}
-              iconLeft={IconName.Download}
-              variant={ButtonVariant.Primary}
-              className="flex-1"
-              onClick={downloadAll}
-            />
           )}
-          {/* Show Done button when transaction is complete */}
-          {transactionComplete && (
-            <Button
-              title={t('done')}
-              variant={outputNotes.length > 0 ? ButtonVariant.Secondary : ButtonVariant.Primary}
-              onClick={onDoneClick}
-            />
+
+          {/* Batch subtitle — only when more than one tx is in flight */}
+          {!transactionComplete && remainingCount > 1 && (
+            <p className="text-heading-gray/60 text-center mt-3" style={{ fontSize: 12, lineHeight: '130%' }}>
+              {t('transactionsRemainingInBatch', { count: remainingCount })}
+            </p>
           )}
-          {/* Show Hide button while transaction is in progress */}
-          {!transactionComplete && <Button title={t('hide')} variant={ButtonVariant.Primary} onClick={onDoneClick} />}
         </div>
       </div>
-    </>
+    </div>
   );
 };

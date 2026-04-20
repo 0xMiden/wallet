@@ -19,7 +19,7 @@ const UploadFileButton: FC<UploadFileButtonProps> = ({ uploadFile }) => {
         'flex justify-center',
         'font-medium',
         'transition duration-200 ease-in-out',
-        'text-white'
+        'text-pure-white'
       )}
       style={{
         padding: '12px 16px',

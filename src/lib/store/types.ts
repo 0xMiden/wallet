@@ -1,12 +1,12 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
+import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
-import { WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
+import { type TokenPrices } from 'lib/prices/binance';
+import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
-
-import { TokenBalanceData } from '../miden/front/balance';
 
 /**
  * Core wallet state (synced from backend)
@@ -21,7 +21,7 @@ export interface WalletSlice {
 }
 
 /**
- * Balance state (previously separate SWR cache)
+ * Balance state (cached from IndexedDB via fetchBalances)
  */
 export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
@@ -51,6 +51,7 @@ export interface FiatCurrencySlice {
   selectedFiatCurrency: FiatCurrencyOption | null;
   fiatRates: ExchangeRateRecord | null;
   fiatRatesLoading: boolean;
+  tokenPrices: TokenPrices;
 }
 
 /**
@@ -72,8 +73,21 @@ export interface TransactionModalSlice {
   isTransactionModalOpen: boolean;
   /** Whether the user explicitly dismissed the modal (prevents auto-reopen until transactions complete) */
   isTransactionModalDismissedByUser: boolean;
-  /** Whether the dApp browser is open (mobile only) */
+  /**
+   * Whether the dApp browser is open (mobile only).
+   *
+   * Backwards-compat boolean — kept in lockstep with `activeDappSessionId`.
+   * Existing consumers like `native-notifications.ts` continue to read this.
+   * New code should prefer `activeDappSessionId` (a string id is friendlier
+   * for the multi-instance world that lands in PR-4).
+   */
   isDappBrowserOpen: boolean;
+  /**
+   * The id of the dApp session currently in the foreground, or null when the
+   * launcher is showing. Single-session in PR-1; PR-3 adds a parked-session
+   * list; PR-4 generalizes to a per-instance map.
+   */
+  activeDappSessionId: string | null;
 }
 
 /**
@@ -108,7 +122,7 @@ export interface WalletActions {
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
-  revealMnemonic: (password: string | undefined) => Promise<string>;
+  revealMnemonic: (password?: string) => Promise<string>;
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
@@ -143,16 +157,13 @@ export interface WalletActions {
 }
 
 /**
- * Balance actions
+ * Asset actions
  */
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
 }
 
-/**
- * Asset actions
- */
 export interface AssetActions {
   setAssetsMetadata: (metadata: Record<string, AssetMetadata>) => void;
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;
@@ -165,6 +176,7 @@ export interface FiatCurrencyActions {
   setSelectedFiatCurrency: (currency: FiatCurrencyOption) => void;
   setFiatRates: (rates: ExchangeRateRecord | null) => void;
   fetchFiatRates: () => Promise<void>;
+  setTokenPrices: (prices: TokenPrices) => void;
 }
 
 /**
@@ -184,6 +196,32 @@ export interface TransactionModalActions {
   /** Reset the dismissed flag (called when all transactions complete) */
   resetTransactionModalDismiss: () => void;
   setDappBrowserOpen: (isOpen: boolean) => void;
+  /**
+   * Set the active dApp session id (or clear it). Updates `isDappBrowserOpen`
+   * in lockstep so legacy consumers stay correct.
+   */
+  setActiveDappSession: (sessionId: string | null) => void;
+}
+
+/**
+ * Extension sync state (service worker pushes data to frontend via SyncCompleted)
+ */
+export interface ExtensionSyncSlice {
+  /** Claimable notes pushed from service worker (null = not yet received) */
+  extensionClaimableNotes: SerializedConsumableNote[] | null;
+  /** Note IDs being claimed (optimistic, cleared on each SyncCompleted) */
+  extensionClaimingNoteIds: Set<string>;
+}
+
+/**
+ * Extension sync actions
+ */
+export interface ExtensionSyncActions {
+  setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
+  addExtensionClaimingNoteId: (noteId: string) => void;
+  /** Remove specific note IDs from the claiming set (e.g. those no longer consumable). */
+  removeExtensionClaimingNoteIds: (noteIds: string[]) => void;
+  clearExtensionClaimingNoteIds: () => void;
 }
 
 /**
@@ -211,10 +249,12 @@ export interface WalletStore
     SyncSlice,
     TransactionModalSlice,
     NoteToastSlice,
+    ExtensionSyncSlice,
     WalletActions,
     BalanceActions,
     AssetActions,
     FiatCurrencyActions,
     SyncActions,
     TransactionModalActions,
-    NoteToastActions {}
+    NoteToastActions,
+    ExtensionSyncActions {}

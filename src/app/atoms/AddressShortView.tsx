@@ -15,7 +15,7 @@ const AddressShortView = memo<AddressShortViewProps>(({ address, displayName, tr
     if (displayName) return displayName;
     if (!trim) return address;
 
-    return truncateAddress(address);
+    return truncateAddress(address, false, 8);
   })();
 
   return <>{trimmedDisplayValue}</>;

@@ -1,64 +1,70 @@
-import React, { FC } from 'react';
+import React, { FC, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
-import { SyncWaveBackground } from 'components/SyncWaveBackground';
+import { TokenLogo } from 'components/TokenLogo';
 import { useAccount, useAllTokensBaseMetadata, useAllBalances } from 'lib/miden/front';
+import { getTokenPrice } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
-import { truncateAddress } from 'utils/string';
 
 const Tokens: FC = () => {
   const midenFaucetId = useMidenFaucetId();
   const account = useAccount();
   const { t } = useTranslation();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: allTokenBalances = [], isLoading: isLoadingBalances } = useAllBalances(
-    account.publicKey,
-    allTokensBaseMetadata
-  );
-  const hasCompletedInitialSync = useWalletStore(s => s.hasCompletedInitialSync);
+  const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const [search, setSearch] = useState('');
 
-  // Show loading indicator during initial balance fetch and first chain sync
-  const showLoadingWave = isLoadingBalances || !hasCompletedInitialSync;
+  const filteredTokens = useMemo(() => {
+    const sorted = [...allTokenBalances].sort(a => (a.tokenId === midenFaucetId ? -1 : 1));
+    if (!search.trim()) return sorted;
+    const query = search.toLowerCase();
+    return sorted.filter(
+      asset => asset.metadata.symbol.toLowerCase().includes(query) || asset.metadata.name?.toLowerCase().includes(query)
+    );
+  }, [allTokenBalances, midenFaucetId, search]);
 
   return (
-    <>
-      <div className={classNames('w-full pt-3 mb-2', 'flex justify-start', 'text-sm font-semibold text-black')}>
-        {allTokenBalances.length > 0 && <span>{t('tokens')}</span>}
+    <div className={classNames('w-full mb-2 px-4')}>
+      <input
+        type="text"
+        placeholder={t('searchForToken')}
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        className="w-full rounded-10 bg-white py-2 pl-4 text-sm placeholder:text-black/50 outline-none placeholder:text-sm placeholder:font-medium"
+      />
+      <div className="flex flex-col pt-3 pb-4 w-full px-4 gap-6">
+        {filteredTokens.length > 0 &&
+          filteredTokens.map(asset => {
+            const balance = asset.balance;
+            const { tokenId, metadata } = asset;
+            const priceInfo = getTokenPrice(tokenPrices, metadata.symbol);
+            return (
+              <div key={tokenId} className="relative flex">
+                <CardItem
+                  iconLeft={<TokenLogo symbol={metadata.symbol} />}
+                  title={metadata.name || metadata.symbol}
+                  subtitle={`${balance.toFixed(2)} ${metadata.symbol}`}
+                  titleRight={`$${(balance * priceInfo.price).toFixed(2)}`}
+                  subtitleRight={`${priceInfo.percentageChange24h >= 0 ? '+' : ''}${priceInfo.percentageChange24h.toFixed(2)}%`}
+                  subtitleRightClassName={classNames(
+                    '!opacity-100',
+                    priceInfo.percentageChange24h >= 0 ? '!text-green-500' : '!text-red-500'
+                  )}
+                  className="rounded-none justify-between p-0!"
+                  hoverable={true}
+                  onClick={() => navigate(`/token-detail/${tokenId}`)}
+                />
+              </div>
+            );
+          })}
       </div>
-      <div className="flex-1 flex flex-col pb-4 gap-2">
-        {allTokenBalances.length > 0 &&
-          allTokenBalances
-            .sort(a => (a.tokenId === midenFaucetId ? -1 : 1))
-            .map(asset => {
-              const isMiden = asset.tokenId === midenFaucetId;
-              const balance = asset.balance;
-              const { tokenId, metadata } = asset;
-              return (
-                <div key={tokenId} className="relative flex">
-                  <SyncWaveBackground isSyncing={showLoadingWave} className="rounded-lg" />
-                  <CardItem
-                    iconLeft={
-                      <Avatar size="lg" image={isMiden ? '/misc/miden.png' : '/misc/token-logos/default.svg'} />
-                    }
-                    title={metadata.symbol}
-                    subtitle={truncateAddress(tokenId, false)}
-                    titleRight={`$${balance.toFixed(2)}`}
-                    subtitleRight={balance.toFixed(2)}
-                    className="flex-1 border border-grey-50 rounded-lg"
-                    hoverable={true}
-                    onClick={() => navigate(`/token-history/${tokenId}`)}
-                  />
-                </div>
-              );
-            })}
-      </div>
-    </>
+    </div>
   );
 };
 

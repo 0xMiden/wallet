@@ -2,9 +2,9 @@ import React, { FC, useCallback, useState } from 'react';
 
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { CircleButton } from 'components/CircleButton';
+import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
 import type { WalletAccount } from 'lib/shared/types';
@@ -39,13 +39,7 @@ const Header: React.FC<{
   onBack: () => void;
   step: OnboardingStep;
   onboardingType?: 'import' | 'create' | null;
-}> = ({ step, onBack }) => {
-  // Hide header on full-screen steps
-  if (step === OnboardingStep.Confirmation || step === OnboardingStep.SelectTransactionType) {
-    return null;
-  }
-
-  const shouldRenderBackButton = step !== OnboardingStep.Welcome;
+}> = ({ step }) => {
   let currentStep: number | null = step === OnboardingStep.Welcome ? null : 3;
 
   if (step === OnboardingStep.BackupSeedPhrase) {
@@ -58,25 +52,15 @@ const Header: React.FC<{
     currentStep = 3;
   } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
     currentStep = 2;
+  } else if (step === OnboardingStep.Confirmation) {
+    currentStep = 4;
   }
 
   return (
-    <div className="flex justify-between items-center pt-6 px-6">
-      <CircleButton
-        icon={IconName.ArrowLeft}
-        onClick={onBack}
-        className={shouldRenderBackButton ? '' : 'opacity-0 pointer-events-none'}
-      />
-
-      <Icon
-        name={IconName.LeoLogoAndName}
-        style={{
-          width: 228,
-          height: 24
-        }}
-      />
-
-      <ProgressIndicator currentStep={currentStep || 1} steps={3} className={currentStep ? '' : 'opacity-0'} />
+    <div className="w-full flex items-center px-4 pt-8">
+      <div className="flex-1 flex justify-center">
+        <ProgressIndicator currentStep={currentStep || 1} steps={3} className={currentStep ? '' : 'opacity-0'} />
+      </div>
     </div>
   );
 };
@@ -86,7 +70,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   seedPhrase,
   onboardingType,
   step,
-  password,
   isLoading,
   useBiometric = true,
   isHardwareSecurityAvailable = false,
@@ -95,6 +78,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   onBiometricChange,
   onAction
 }) => {
+  const { t } = useTranslation();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
   const onForwardAction = useCallback(
@@ -225,26 +209,20 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onAction?.({ id: 'back' });
   };
 
-  const mobile = isMobile();
-
   return (
     <div
-      className={classNames(
-        'flex flex-col',
-        'bg-white',
-        'overflow-hidden',
-        mobile ? 'w-full h-full' : 'w-[37.5rem] h-[40rem] mx-auto border border-gray-100 rounded-3xl'
-      )}
+      className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}
+      style={{ maxWidth: 420 }}
     >
-      <div className="flex-1 flex flex-col">
+      <div className="flex flex-col flex-1 min-h-0">
         <AnimatePresence mode={'wait'} initial={false}>
-          {step !== OnboardingStep.Confirmation && step !== OnboardingStep.SelectTransactionType && (
+          {step !== OnboardingStep.Welcome && (
             <Header onBack={onBack} step={step} onboardingType={onboardingType} key={'header'} />
           )}
         </AnimatePresence>
         <AnimatePresence mode={'wait'} initial={false}>
           <motion.div
-            className="flex-1 flex flex-col"
+            className="flex flex-col flex-1 min-h-0"
             key={step}
             initial="initialState"
             animate="animateState"
@@ -270,6 +248,11 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             }}
           >
             {renderStep()}
+            {step !== OnboardingStep.Welcome && step !== OnboardingStep.Confirmation && (
+              <div className="px-4 pt-2 pb-4">
+                <Button title={t('back')} variant={ButtonVariant.Secondary} onClick={onBack} className="w-full" />
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
       </div>

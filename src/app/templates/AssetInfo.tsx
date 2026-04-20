@@ -22,7 +22,7 @@ const AssetInfo: FC<AssetInfoProps> = ({ assetSlug }) => {
         rows={2}
         id="contract-address"
         label={t('contract')}
-        labelDescription={t('addressOfTokenContract', { substitutions: 'TODO' })}
+        labelDescription={t('addressOfTokenContract', { assetSymbol: 'TODO' })}
         value={asset}
         size={36}
         style={{

@@ -20,7 +20,16 @@ import {
   init,
   isDAppEnabled,
   revealMnemonic,
-  removeDAppSession
+  removeDAppSession,
+  decryptCiphertexts,
+  revealViewKey,
+  revealPrivateKey,
+  revealPublicKey,
+  removeAccount,
+  importAccount,
+  importMnemonicAccount,
+  importFundraiserAccount,
+  importWatchOnlyAccount
 } from './actions';
 
 // Create mock vault instance
@@ -84,6 +93,7 @@ jest.mock('./store', () => ({
 }));
 
 jest.mock('./dapp', () => ({
+  dappDebug: jest.fn(),
   getAllDApps: jest.fn(),
   removeDApp: jest.fn(),
   getCurrentPermission: jest.fn(),
@@ -96,7 +106,8 @@ jest.mock('./dapp', () => ({
   requestSign: jest.fn(),
   requestAssets: jest.fn(),
   requestImportPrivateNote: jest.fn(),
-  requestConsumableNotes: jest.fn()
+  requestConsumableNotes: jest.fn(),
+  waitForTransaction: jest.fn()
 }));
 
 jest.mock('webextension-polyfill', () => ({
@@ -174,6 +185,18 @@ describe('actions', () => {
 
       expect(result).toBe(false);
     });
+
+    it('defaults to true when DAppEnabled key is not in storage', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.isExist.mockResolvedValueOnce(true);
+
+      // Mock storage to return empty object (key not present)
+      const browser = jest.requireMock('webextension-polyfill');
+      browser.storage.local.get.mockResolvedValueOnce({});
+
+      const result = await isDAppEnabled();
+      expect(result).toBe(true);
+    });
   });
 
   describe('getFrontState', () => {
@@ -184,6 +207,16 @@ describe('actions', () => {
       const result = await getFrontState();
 
       expect(result.status).toBe(WalletStatus.Ready);
+    });
+
+    it('returns Idle immediately when inited is false (UI renders while backend inits)', async () => {
+      mockStoreState.inited = false;
+
+      const result = await getFrontState();
+
+      expect(result.status).toBe(WalletStatus.Idle);
+      expect(result.accounts).toEqual([]);
+      expect(result.currentAccount).toBeNull();
     });
   });
 
@@ -234,6 +267,23 @@ describe('actions', () => {
     });
   });
 
+  describe('registerNewWallet with undefined password', () => {
+    it('passes empty string when password is undefined', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const mockVaultInstance = {
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(false)
+      };
+      Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
+
+      await registerNewWallet(undefined, 'mnemonic words', true);
+
+      expect(Vault.spawn).toHaveBeenCalledWith('', 'mnemonic words', true);
+    });
+  });
+
   describe('registerImportedWallet', () => {
     it('imports wallet from miden client and unlocks', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
@@ -251,6 +301,23 @@ describe('actions', () => {
       expect(mockUnlocked).toHaveBeenCalled();
       expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words', []);
       expect(Vault.setup).toHaveBeenCalledWith('password123');
+    });
+  });
+
+  describe('registerImportedWallet with undefined params', () => {
+    it('passes empty strings when password and mnemonic are undefined', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const mockVaultInstance = {
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+      };
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
+
+      await registerImportedWallet(undefined, undefined);
+
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', []);
     });
   });
 
@@ -416,7 +483,9 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.PermissionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestPermission).toHaveBeenCalledWith('https://example.com', req);
+      // PR-4 chunk 8: processDApp threads sessionId (undefined for legacy
+      // single-instance callers) through to handlers.
+      expect(requestPermission).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ approved: true });
     });
 
@@ -455,7 +524,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.TransactionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ txId: 'tx-123' });
     });
 
@@ -466,7 +535,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.SendTransactionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestSendTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestSendTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ sent: true });
     });
 
@@ -477,7 +546,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.ConsumeRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestConsumeTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestConsumeTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ consumed: true });
     });
 
@@ -523,6 +592,55 @@ describe('actions', () => {
 
       expect(requestConsumableNotes).toHaveBeenCalledWith('https://example.com', req);
       expect(result).toEqual({ notes: [] });
+    });
+
+    it('handles WaitForTransactionRequest', async () => {
+      const { waitForTransaction } = jest.requireMock('./dapp');
+      waitForTransaction.mockResolvedValueOnce({ status: 'completed' });
+
+      const req = { type: MidenDAppMessageType.WaitForTransactionRequest, txId: 'tx-123' };
+      const result = await processDApp('https://example.com', req as any);
+
+      expect(waitForTransaction).toHaveBeenCalledWith(req);
+      expect(result).toEqual({ status: 'completed' });
+    });
+  });
+
+  describe('stub action functions', () => {
+    it('decryptCiphertexts is a no-op stub', () => {
+      expect(() => decryptCiphertexts('pk', ['ct1'])).not.toThrow();
+    });
+
+    it('revealViewKey is a no-op stub', () => {
+      expect(() => revealViewKey('pk', 'pw')).not.toThrow();
+    });
+
+    it('revealPrivateKey is a no-op stub', () => {
+      expect(() => revealPrivateKey('pk', 'pw')).not.toThrow();
+    });
+
+    it('revealPublicKey is a no-op stub', () => {
+      expect(() => revealPublicKey('pk')).not.toThrow();
+    });
+
+    it('removeAccount is a no-op stub', () => {
+      expect(() => removeAccount('pk', 'pw')).not.toThrow();
+    });
+
+    it('importAccount is a no-op stub', () => {
+      expect(() => importAccount('pk')).not.toThrow();
+    });
+
+    it('importMnemonicAccount is a no-op stub', () => {
+      expect(() => importMnemonicAccount('mnemonic')).not.toThrow();
+    });
+
+    it('importFundraiserAccount is a no-op stub', () => {
+      expect(() => importFundraiserAccount('e@x', 'pw', 'mnemonic')).not.toThrow();
+    });
+
+    it('importWatchOnlyAccount is a no-op stub', () => {
+      expect(() => importWatchOnlyAccount('vk')).not.toThrow();
     });
   });
 });

@@ -2,13 +2,11 @@ import React, { useCallback, useEffect } from 'react';
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { useAppEnv } from 'app/env';
 import { Icon, IconName } from 'app/icons/v2';
-import { Alert, AlertVariant } from 'components/Alert';
 import { Button, ButtonVariant } from 'components/Button';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
 import { exportDb } from 'lib/miden/repo';
@@ -26,16 +24,10 @@ export interface ExportFileCompleteProps {
 
 const EXTENSION = '.json';
 
-const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
-  filePassword,
-  fileName,
-  walletPassword,
-  onDone,
-  onGoBack
-}) => {
+const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
   const { t } = useTranslation();
   const { revealMnemonic, accounts } = useMidenContext();
-  const { fullPage } = useAppEnv();
+
   const getExportFile = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
     const midenClientDbDump = await withWasmClientLock(async () => {
@@ -48,7 +40,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
 
     const filePayload: DecryptedWalletFile = {
       seedPhrase,
-      midenClientDbContent: midenClientDbDump,
+      midenClientDbContent: midenClientDbDump as string,
       walletDbContent: walletDbDump,
       accounts
     };
@@ -108,30 +100,41 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
     getExportFile();
   }, [getExportFile]);
 
+  useNativeNavbarAction({
+    label: t('done'),
+    onTap: onDone,
+    enabled: true
+  });
+
   return (
-    <div className="flex flex-col justify-between md:w-[460px] mx-auto items-center">
-      <div className="flex flex-col w-full items-center p-4 justify-center flex-1">
-        <div className="w-40 aspect-square flex items-center justify-center">
-          <Icon name={IconName.Success} size="3xl" />
+    <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
+      <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
+        <div className="w-49 aspect-square flex items-center justify-center">
+          <Icon name={IconName.Success} size="4xl" />
         </div>
-        <div className="flex flex-col items-center mt-8 max-w-sm">
-          <h1 className="font-semibold text-2xl lh-title text-center">{t('encryptedWalletFileExported')}</h1>
-          <p className="mt-2 text-sm text-center lh-title">{t('encryptedWalletFileExportedDescription')}</p>
-          <Alert
-            variant={AlertVariant.Warning}
-            className={classNames('mt-4 text-left', fullPage ? 'text-sm' : 'text-xs')}
-            title={
-              <>
-                <p className="font-medium">{t('doNotShareEncryptedWalletFile')}</p>
-                <p>{t('doNotShareEncryptedWalletFileDescription')}</p>
-              </>
-            }
+        <div className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+          <h1 className="text-[32px] leading-[120%] tracking-[-0.04em]">
+            <span className="font-semibold">{t('encryptedWalletFileExportedTitle1')}</span>
+            <br />
+            <span className="font-medium">{t('encryptedWalletFileExportedTitle2')}</span>
+          </h1>
+          <div className="pt-6 text-base leading-[130%]">
+            <p>{t('encryptedWalletFileExportedDesc1')}</p>
+            <p className="font-bold pt-5">{t('encryptedWalletFileExportedDesc2')}</p>
+            <p className="pt-5">{t('encryptedWalletFileExportedDesc3')}</p>
+          </div>
+        </div>
+      </div>
+      {!isMobile() && (
+        <div className="w-full pt-8 pb-4">
+          <Button
+            className="w-full justify-center"
+            title={t('done')}
+            variant={ButtonVariant.Primary}
+            onClick={onDone}
           />
         </div>
-      </div>
-      <div className="w-full pb-4 px-4">
-        <Button className="w-full justify-center" title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />
-      </div>
+      )}
     </div>
   );
 };

@@ -25,6 +25,9 @@ export const intercom = {
   },
   broadcast: (...args: Parameters<import('lib/intercom/server').IntercomServer['broadcast']>) => {
     return getIntercom()!.broadcast(...args);
+  },
+  hasClients: () => {
+    return getIntercom()!.hasClients();
   }
 };
 

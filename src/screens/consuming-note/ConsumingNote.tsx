@@ -1,25 +1,23 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
+import { useConsume } from '@miden-sdk/react/lazy';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import CircularProgress from 'app/atoms/CircularProgress';
+import { useAppEnv } from 'app/env';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { Button, ButtonVariant } from 'components/Button';
-import { safeGenerateTransactionsLoop as dbTransactionsLoop, initiateConsumeTransaction } from 'lib/miden/activity';
-import { useAccount, useMidenContext } from 'lib/miden/front';
-import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { useAccount } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { truncateHash } from 'utils/string';
 
-const NOTE_CONSUME_TIMEOUT = 30_000;
 const AUTO_CLOSE_TIMEOUT = 5_000;
 
 const enum ConsumingNoteStatus {
-  Waiting,
-  TxQueued,
+  Processing,
   Completed,
   Failed
 }
@@ -29,103 +27,65 @@ export interface ConsumingNotePageProps {
 }
 
 export const ConsumingNotePage: FC<ConsumingNotePageProps> = ({ noteId }) => {
-  console.log('[ConsumingNotePage] Rendering with noteId:', noteId);
-  const [status, setStatus] = useState(ConsumingNoteStatus.Waiting);
-  const [noteConsumeTimedOut, setNoteConsumeTimedOut] = useState(false);
-  const [noteConsumeTimeoutId, setNoteConsumeTimeoutId] = useState<ReturnType<typeof setTimeout> | null>(null);
-
-  const { signTransaction } = useMidenContext();
+  const [status, setStatus] = useState(ConsumingNoteStatus.Processing);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const account = useAccount();
-  const isDelegatedProvingEnabled = isDelegateProofEnabled();
-
-  const shouldFetchClaimableNotes = status === ConsumingNoteStatus.Waiting;
-  const { data: claimableNotes = [] } = useClaimableNotes(account.publicKey, shouldFetchClaimableNotes);
-
-  const noteToConsume = useMemo(() => {
-    const note = claimableNotes.find(note => note!.id === noteId);
-    return note;
-  }, [claimableNotes, noteId]);
-
-  const tryConsumeNote = useCallback(async () => {
-    console.log(
-      '[ConsumingNote] tryConsumeNote called, status:',
-      status,
-      'noteToConsume:',
-      noteToConsume?.id,
-      'timedOut:',
-      noteConsumeTimedOut
-    );
-    if (noteConsumeTimedOut) {
-      console.log('[ConsumingNote] Note consume timed out, setting TxQueued');
-      setStatus(ConsumingNoteStatus.TxQueued);
-      return;
-    }
-
-    if (!noteToConsume) {
-      console.log('[ConsumingNote] No note to consume yet');
-      return;
-    }
-
-    // If isBeingClaimed is true, the note is already queued for transaction generation
-    if (!noteToConsume.isBeingClaimed) {
-      console.log('[ConsumingNote] Calling initiateConsumeTransaction...');
-      await initiateConsumeTransaction(account.publicKey, noteToConsume, isDelegatedProvingEnabled);
-      console.log('[ConsumingNote] initiateConsumeTransaction completed');
-    } else {
-      console.log('[ConsumingNote] Note is already being claimed');
-    }
-    setStatus(ConsumingNoteStatus.TxQueued);
-  }, [account.publicKey, noteToConsume, isDelegatedProvingEnabled, noteConsumeTimedOut, status]);
-
-  const generateTransaction = useCallback(async () => {
-    console.log('[ConsumingNote] generateTransaction called, calling dbTransactionsLoop...');
-    const success = await dbTransactionsLoop(signTransaction);
-    console.log('[ConsumingNote] dbTransactionsLoop returned:', success);
-    if (success === false) {
-      setStatus(ConsumingNoteStatus.Failed);
-    } else {
-      setStatus(ConsumingNoteStatus.Completed);
-    }
-  }, [setStatus, signTransaction]);
+  const { consume } = useConsume();
 
   const onClose = useCallback(() => {
     const { hash } = window.location;
     if (!hash.includes('consuming-note')) {
-      // If we're not on the consuming note page, don't close the window
       return;
     }
-
     useWalletStore.getState().closeTransactionModal();
-  }, [noteId]);
+  }, []);
 
+  // Consume the note via SDK (guarded to prevent double-execution if consume ref changes)
+  const hasStartedConsume = useRef(false);
   useEffect(() => {
-    console.log('[ConsumingNotePage] useEffect triggered, status:', status);
-    if (status === ConsumingNoteStatus.Waiting) {
-      console.log('[ConsumingNotePage] Status is Waiting');
-      // Notes may be claimed in the background, so the timeout prevents endless waiting
-      if (!noteConsumeTimeoutId) {
-        const timeoutId = setTimeout(() => {
-          setNoteConsumeTimedOut(true);
-        }, NOTE_CONSUME_TIMEOUT);
-        setNoteConsumeTimeoutId(timeoutId);
+    if (hasStartedConsume.current) return;
+    hasStartedConsume.current = true;
+
+    let cancelled = false;
+
+    const doConsume = async () => {
+      try {
+        await consume({
+          accountId: account.publicKey,
+          notes: [noteId]
+        });
+        if (!cancelled) {
+          setStatus(ConsumingNoteStatus.Completed);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setStatus(ConsumingNoteStatus.Failed);
+          setErrorMessage(e.message || 'Unknown error');
+        }
+        console.error('[ConsumingNote] Failed to consume note:', e);
       }
-      tryConsumeNote();
-    } else if (status === ConsumingNoteStatus.TxQueued) {
-      console.log('[ConsumingNotePage] Status is TxQueued, calling generateTransaction');
-      generateTransaction();
-    } else {
-      console.log('[ConsumingNotePage] Status is:', status, '- auto closing in', AUTO_CLOSE_TIMEOUT, 'ms');
-      setTimeout(() => {
+    };
+
+    doConsume();
+    return () => {
+      cancelled = true;
+    };
+  }, [account.publicKey, noteId, consume]);
+
+  // Auto-close after completion/failure
+  useEffect(() => {
+    if (status === ConsumingNoteStatus.Completed || status === ConsumingNoteStatus.Failed) {
+      const timeoutId = setTimeout(() => {
         onClose();
       }, AUTO_CLOSE_TIMEOUT);
+      return () => clearTimeout(timeoutId);
     }
-  }, [tryConsumeNote, status, generateTransaction, onClose, noteToConsume, noteConsumeTimeoutId]);
+    return undefined;
+  }, [status, onClose]);
 
-  // On mobile, use h-full to inherit from parent chain (body has safe area padding)
-  const isMobileDevice = typeof window !== 'undefined' && /Android|iPhone|iPad/i.test(navigator.userAgent);
-  const containerClass = isMobileDevice
-    ? 'h-full w-full'
-    : 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl';
+  const { sidePanel } = useAppEnv();
+  const containerClass =
+    isMobile() || sidePanel ? 'h-full w-full' : 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl';
 
   return (
     <div
@@ -133,12 +93,12 @@ export const ConsumingNotePage: FC<ConsumingNotePageProps> = ({ noteId }) => {
         containerClass,
         'mx-auto overflow-hidden ',
         'flex flex-1',
-        'flex-col bg-white p-6',
+        'flex-col bg-app-bg p-6',
         'overflow-hidden relative'
       )}
     >
       <div className={classNames('flex flex-1 flex-col w-full')}>
-        <ConsumingNote noteId={noteId} onDoneClick={onClose} status={status} />
+        <ConsumingNote noteId={noteId} onDoneClick={onClose} status={status} errorMessage={errorMessage} />
       </div>
     </div>
   );
@@ -148,9 +108,10 @@ export interface ConsumingNoteProps {
   noteId: string;
   onDoneClick: () => void;
   status: ConsumingNoteStatus;
+  errorMessage?: string | null;
 }
 
-export const ConsumingNote: React.FC<ConsumingNoteProps> = ({ noteId, onDoneClick, status }) => {
+export const ConsumingNote: React.FC<ConsumingNoteProps> = ({ noteId, onDoneClick, status, errorMessage }) => {
   const { t } = useTranslation();
 
   const renderIcon = useCallback(() => {
@@ -175,9 +136,7 @@ export const ConsumingNote: React.FC<ConsumingNoteProps> = ({ noteId, onDoneClic
         return `Note Consumed: ${truncateHash(noteId)}`;
       case ConsumingNoteStatus.Failed:
         return 'Note Consumption Failed';
-      case ConsumingNoteStatus.TxQueued:
-        return `Generating Transaction`;
-      case ConsumingNoteStatus.Waiting:
+      case ConsumingNoteStatus.Processing:
       default:
         return `Consuming Note: ${truncateHash(noteId)}`;
     }
@@ -187,9 +146,7 @@ export const ConsumingNote: React.FC<ConsumingNoteProps> = ({ noteId, onDoneClic
 
   return (
     <>
-      {status !== ConsumingNoteStatus.Completed && status !== ConsumingNoteStatus.Failed && (
-        <Alert variant={AlertVariant.Warning} title={alertText} />
-      )}
+      {status === ConsumingNoteStatus.Processing && <Alert variant={AlertVariant.Warning} title={alertText} />}
       <div className="flex-1 flex flex-col justify-center md:w-[460px] md:mx-auto">
         <div className="flex flex-col justify-center items-center">
           <div className={classNames('w-40 aspect-square flex items-center justify-center mb-8')}>{renderIcon()}</div>
@@ -197,7 +154,7 @@ export const ConsumingNote: React.FC<ConsumingNoteProps> = ({ noteId, onDoneClic
             <h1 className="font-semibold text-2xl lh-title">{headerText()}</h1>
             <p className="text-base text-center lh-title">
               {status === ConsumingNoteStatus.Completed && t('noteConsumedSuccessfully')}
-              {status === ConsumingNoteStatus.Failed && t('noteConsumptionError')}
+              {status === ConsumingNoteStatus.Failed && (errorMessage || t('noteConsumptionError'))}
             </p>
           </div>
         </div>
@@ -206,7 +163,7 @@ export const ConsumingNote: React.FC<ConsumingNoteProps> = ({ noteId, onDoneClic
             title={t('done')}
             variant={ButtonVariant.Primary}
             onClick={onDoneClick}
-            disabled={status !== ConsumingNoteStatus.Completed && status !== ConsumingNoteStatus.Failed}
+            disabled={status === ConsumingNoteStatus.Processing}
           />
         </div>
       </div>

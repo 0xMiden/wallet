@@ -3,12 +3,16 @@ import React, { FC, useEffect, useMemo } from 'react';
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
+import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { isExtension } from 'lib/platform';
+import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { getMidenClient } from '../sdk/miden-client';
 import { TokensMetadataProvider } from './assets';
+import { useSyncTrigger } from './useSyncTrigger';
 
 // Pre-create the modal container to avoid flash when first opening
 if (typeof document !== 'undefined' && document.body) {
@@ -34,12 +38,23 @@ if (typeof document !== 'undefined' && document.body) {
  * existing useMidenContext() hook API.
  */
 export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
-  // Eagerly initialize the Miden client singleton when the app starts
+  // Prime native-asset-id discovery on every page mount. On extension this
+  // also happens on the SW side, but the SW can be killed before the popup
+  // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
+  // Cache-hit on repeat opens; one RPC call on first install per network.
   useEffect(() => {
+    primeNativeAssetId();
+  }, []);
+
+  // Eagerly initialize the Miden client singleton when the app starts
+  // On extension, skip — the WASM client will lazy-init on first write operation
+  useEffect(() => {
+    if (isExtension()) return;
+
     const initializeClient = async () => {
       try {
         await getMidenClient();
-      } catch (err) {
+      } /* c8 ignore next 2 -- WASM init failure untestable in jsdom */ catch (err) {
         console.error('Failed to initialize Miden client singleton:', err);
       }
     };
@@ -71,11 +86,15 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
 const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   const { ready } = useMidenContext();
 
+  // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
+  useSyncTrigger();
+
   return useMemo(
     () =>
       ready ? (
         <TokensMetadataProvider>
           <FiatCurrencyProvider>
+            <PriceProvider />
             {children}
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />

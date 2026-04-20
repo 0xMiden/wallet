@@ -12,7 +12,7 @@ export const useIntersectionDetection = (ref: RefObject<HTMLDivElement>, callbac
     if (isHitDetected) {
       const observer = new IntersectionObserver(
         ([entry]) => {
-          if (entry.isIntersecting) {
+          if (entry?.isIntersecting) {
             callback();
           }
         },

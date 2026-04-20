@@ -26,6 +26,10 @@ db.version(1.1)
     await tx.db.table<ITransaction, string>(Table.Transactions).clear();
   });
 
+db.version(1.2).stores({
+  [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt', 'noteId')
+});
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
 function indexes(...items: string[]) {

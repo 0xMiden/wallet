@@ -31,7 +31,7 @@ const PageLayout: FC<PageLayoutProps> = ({
   showBottomBorder = true,
   ...toolbarProps
 }) => {
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
 
   // Platform-specific sizing:
   // - Mobile: 100% to inherit from parent chain (body has safe area padding)
@@ -41,16 +41,18 @@ const PageLayout: FC<PageLayoutProps> = ({
     ? { height: '100%', width: '100%' }
     : isDesktop()
       ? { height: '100%', width: '100%', maxWidth: '600px' }
-      : fullPage
-        ? { height: '640px', width: '600px' }
-        : { height: '600px', width: '360px' };
+      : sidePanel
+        ? { height: '100%', width: '100%' }
+        : fullPage
+          ? { height: '640px', width: '600px' }
+          : { height: '600px', width: '360px' };
 
   return (
     <>
-      <DocBg bgClassName="bg-white" />
+      <DocBg bgClassName="bg-app-bg" />
 
       <div
-        className={classNames('bg-white m-auto rounded-3xl relative flex flex-col flex-1 min-h-0 overflow-hidden')}
+        className={classNames('bg-app-bg m-auto rounded-3xl relative flex flex-col flex-1 min-h-0 overflow-hidden')}
         style={{ ...containerStyles }}
       >
         <ContentPaper>
@@ -79,7 +81,7 @@ const ContentPaper: FC<ContentPaparProps> = ({ className, style = {}, children, 
   return appEnv.fullPage ? (
     <ContentContainer>
       <div
-        className={classNames('bg-white', 'rounded-3xl', 'flex flex-col flex-1 min-h-0 overflow-hidden', className)}
+        className={classNames('bg-app-bg', 'rounded-3xl', 'flex flex-col flex-1 min-h-0 overflow-hidden', className)}
         style={{ minHeight: '20rem', ...style }}
         {...rest}
       >
@@ -89,7 +91,7 @@ const ContentPaper: FC<ContentPaparProps> = ({ className, style = {}, children, 
   ) : (
     <ContentContainer
       padding={false}
-      className={classNames('bg-white flex flex-col flex-1 min-h-0 overflow-hidden', className)}
+      className={classNames('bg-app-bg flex flex-col flex-1 min-h-0 overflow-hidden', className)}
       style={style}
       {...rest}
     >
@@ -157,8 +159,12 @@ const Toolbar: FC<ToolbarProps> = ({
     });
   }, [registerBackHandler, historyPosition, inHome]);
 
+  // `sticked` is intentionally unread — the setter fires an
+  // IntersectionObserver-driven state change that could be consumed
+  // later (e.g. to swap a sticky-header shadow). Prefix-underscore to
+  // keep TS's noUnusedLocals happy without losing the slot.
   // eslint-disable-next-line
-  const [sticked, setSticked] = useState(false);
+  const [, setSticked] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -167,6 +173,7 @@ const Toolbar: FC<ToolbarProps> = ({
     if ('IntersectionObserver' in window && toolbarEl) {
       const observer = new IntersectionObserver(
         ([entry]) => {
+          if (!entry) return;
           setSticked(entry.boundingClientRect.y < entry.rootBounds!.y);
         },
         { threshold: [1] }
@@ -186,7 +193,7 @@ const Toolbar: FC<ToolbarProps> = ({
       className={classNames(
         'sticky z-20',
         titleContainerClassName || 'mx-4',
-        'bg-white',
+        'bg-app-bg',
         'rounded-t-lg',
         'flex flex-col items-center',
         'transition ease-in-out duration-300'
@@ -221,7 +228,7 @@ const Toolbar: FC<ToolbarProps> = ({
                 'rounded-full',
                 'flex',
                 'text-black font-bold text-shadow-black',
-                'hover:bg-black hover:bg-opacity-5',
+                'hover:bg-grey-100/5',
                 'transition duration-300 ease-in-out',
                 'opacity-90 hover:opacity-100'
               )}
@@ -245,7 +252,7 @@ const Toolbar: FC<ToolbarProps> = ({
               'flex items-center',
               'text-black text-shadow-black',
               'text-sm font-semibold leading-none',
-              'hover:bg-black hover:bg-opacity-5',
+              'hover:bg-pure-black/5',
               'transition duration-300 ease-in-out',
               'opacity-90 hover:opacity-100'
             )}

@@ -88,7 +88,7 @@ describe('miden wallet smoke harness', () => {
       payload: {
         type: 'PERMISSION_REQUEST',
         appMeta: { name: 'Test DApp' },
-        network: 'testnet'
+        network: 'devnet'
       }
     })) as any;
 

@@ -1,6 +1,6 @@
 import { derivePath } from '@demox-labs/aleo-hd-key';
-import { SecretKey, SigningInputs, Word } from '@demox-labs/miden-sdk';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
+import { AuthSecretKey, SigningInputs, Word } from '@miden-sdk/miden-sdk/lazy';
 import * as Bip39 from 'bip39';
 
 import { getMessage } from 'lib/i18n';
@@ -73,9 +73,7 @@ export class Vault {
   constructor(private vaultKey: CryptoKey) {}
 
   static async isExist() {
-    console.log('[Vault.isExist] Checking if vault exists, key:', checkStrgKey);
     const stored = await isStored(checkStrgKey);
-    console.log('[Vault.isExist] Result:', stored);
     return stored;
   }
 
@@ -107,39 +105,35 @@ export class Vault {
    * @returns Vault instance if successful, null if hardware unlock not available/failed
    */
   static async tryHardwareUnlock(): Promise<Vault | null> {
-    if (!isDesktop() && !isMobile()) {
+    try {
+      const vaultKey = await Vault.getHardwareVaultKey();
+      return new Vault(vaultKey);
+    } catch {
       return null;
+    }
+  }
+
+  /**
+   * Get the vault key using hardware-backed security (biometric).
+   * Throws if hardware unlock is not available or fails.
+   */
+  private static async getHardwareVaultKey(): Promise<CryptoKey> {
+    if (!isDesktop() && !isMobile()) {
+      throw new PublicError('Hardware unlock is not available on this platform');
     }
 
     const encryptedVaultKey = await getPlain<string>(VAULT_KEY_HARDWARE_STORAGE_KEY);
     if (!encryptedVaultKey) {
-      return null;
+      throw new PublicError('Hardware protector is not configured');
     }
 
-    try {
-      if (isDesktop()) {
-        const { decryptWithHardwareKey } = await import('lib/desktop/secure-storage');
-        const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey);
-        const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
-        const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
-        return new Vault(vaultKey);
-      }
+    const decryptWithHardwareKey = isDesktop()
+      ? (await import('lib/desktop/secure-storage')).decryptWithHardwareKey
+      : (await import('lib/biometric')).decryptWithHardwareKey;
 
-      if (isMobile()) {
-        console.log('[tryHardwareUnlock] Mobile: Attempting hardware unlock...');
-        const { decryptWithHardwareKey } = await import('lib/biometric');
-        const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey);
-        const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
-        const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
-        console.log('[tryHardwareUnlock] Mobile: Hardware unlock successful');
-        return new Vault(vaultKey);
-      }
-
-      return null;
-    } catch (error) {
-      console.log('Hardware unlock failed or was cancelled:', error);
-      return null;
-    }
+    const vaultKeyBase64 = await decryptWithHardwareKey(encryptedVaultKey);
+    const vaultKeyBytes = new Uint8Array(Buffer.from(vaultKeyBase64, 'base64'));
+    return Passworder.importVaultKey(vaultKeyBytes);
   }
 
   /**
@@ -190,19 +184,6 @@ export class Vault {
     }
   }
 
-  private static async getVaultKey(password?: string): Promise<CryptoKey> {
-    // If password is not provided, try hardware unlock first
-    if (!password) {
-      const vault = await Vault.tryHardwareUnlock();
-      if (vault) {
-        return vault.vaultKey;
-      }
-      throw new PublicError('Password required');
-    }
-    // Password-based unlock
-    return Vault.unlockWithPassword(password);
-  }
-
   /**
    * Legacy password unlock for wallets created before vault key model
    * This maintains backward compatibility with existing wallets
@@ -220,16 +201,20 @@ export class Vault {
 
   static async spawn(password: string, mnemonic?: string, ownMnemonic?: boolean): Promise<Vault> {
     return withError('Failed to create wallet', async (): Promise<Vault> => {
+      console.log('[Vault.spawn] Step 1: generating vault key...');
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
+      console.log('[Vault.spawn] Step 2: vault key generated');
 
       if (!mnemonic) {
         mnemonic = Bip39.generateMnemonic(128);
       }
 
       // Clear storage before any inserts to avoid wiping newly inserted keys later
+      console.log('[Vault.spawn] Step 3: clearing storage...');
       await clearStorage();
+      console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
       // If password is provided (user opted out of biometrics), use password protection
@@ -242,7 +227,6 @@ export class Vault {
         const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
         if (!hardwareSetupSuccess) {
           // Hardware setup failed - this shouldn't happen if user chose biometric
-          console.log('[Vault.spawn] Hardware setup failed, but no password provided');
           throw new PublicError('Hardware security setup failed. Please try again.');
         }
         // If hardware succeeded, we don't store password protector (hardware-only mode)
@@ -258,16 +242,24 @@ export class Vault {
       const hdAccIndex = 0;
       const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
       // Wrap WASM client operations in a lock to prevent concurrent access
+      console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const accPublicKey = await withWasmClientLock(async () => {
+        console.log('[Vault.spawn] Step 6: getting miden client...');
         const midenClient = await getMidenClient(options);
-        if (ownMnemonic) {
+        console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
+        if (ownMnemonic && midenClient.network !== 'mock') {
           try {
+            console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
             return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
           } catch (e) {
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
             return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
           }
         } else {
+          // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
+          console.log('[Vault.spawn] Step 8b: syncing state...');
+          await midenClient.syncState();
+          console.log('[Vault.spawn] Step 9: creating miden wallet...');
           return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
         }
       });
@@ -321,7 +313,6 @@ export class Vault {
         const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
         if (!hardwareSetupSuccess) {
           // Hardware setup failed - this shouldn't happen if user chose biometric
-          console.log('[Vault.spawnFromMidenClient] Hardware setup failed, but no password provided');
           throw new PublicError('Hardware security setup failed. Please try again.');
         }
       } else {
@@ -356,8 +347,8 @@ export class Vault {
             throw new PublicError('Account from Miden Client not found in provided wallet accounts');
           }
           const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
-          const secretKey = SecretKey.rpoFalconWithRNG(walletSeed);
-          await midenClient.webClient.addAccountSecretKeyToWebStore(secretKey);
+          const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
+          await midenClient.client.keystore.insert(account.id(), secretKey);
         }
       });
 
@@ -369,7 +360,7 @@ export class Vault {
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, walletAccounts[0].publicKey);
+      await savePlain(currentAccPubKeyStrgKey, walletAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       // Return the vault instance so caller doesn't need to call unlock() separately
@@ -448,9 +439,9 @@ export class Vault {
     });
   }
 
-  async importMnemonicAccount(chainId: string, mnemonic: string, password?: string, derivationPath?: string) {}
+  async importMnemonicAccount(_chainId: string, _mnemonic: string, _password?: string, _derivationPath?: string) {}
 
-  async importFundraiserAccount(chainId: string, email: string, password: string, mnemonic: string) {}
+  async importFundraiserAccount(_chainId: string, _email: string, _password: string, _mnemonic: string) {}
 
   async editAccountName(accPublicKey: string, name: string) {
     return withError('Failed to edit account name', async () => {
@@ -480,7 +471,7 @@ export class Vault {
     });
   }
 
-  async authorize(sendTransaction: SendTransaction) {}
+  async authorize(_sendTransaction: SendTransaction) {}
 
   async signData(publicKey: string, data: string, signKind: SignKind): Promise<string> {
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
@@ -488,7 +479,7 @@ export class Vault {
       this.vaultKey
     );
     const secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
-    const wasmSecretKey = SecretKey.deserialize(secretKeyBytes);
+    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
 
     const dataAsUint8Array = b64ToU8(data);
 
@@ -509,20 +500,15 @@ export class Vault {
   }
 
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
-    try {
-      const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
-        accAuthSecretKeyStrgKey(publicKey),
-        this.vaultKey
-      );
-      let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
-      const wasmSigningInputs = SigningInputs.deserialize(new Uint8Array(Buffer.from(signingInputs, 'hex')));
-      const wasmSecretKey = SecretKey.deserialize(secretKeyBytes);
-      const signature = wasmSecretKey.signData(wasmSigningInputs);
-      return Buffer.from(signature.serialize()).toString('hex');
-    } catch (e) {
-      console.error('Error signing transaction in vault', e);
-      throw e;
-    }
+    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
+      accAuthSecretKeyStrgKey(publicKey),
+      this.vaultKey
+    );
+    let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
+    const wasmSigningInputs = SigningInputs.deserialize(new Uint8Array(Buffer.from(signingInputs, 'hex')));
+    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+    const signature = wasmSecretKey.signData(wasmSigningInputs);
+    return Buffer.from(signature.serialize()).toString('hex');
   }
 
   async getAuthSecretKey(key: string) {
@@ -530,16 +516,23 @@ export class Vault {
     return secretKey;
   }
 
-  async decrypt(accPublicKey: string, cipherTexts: string[]) {}
+  async decrypt(_accPublicKey: string, _cipherTexts: string[]) {}
 
-  async decryptCipherText(accPublicKey: string, cipherText: string, tpk: string, index: number) {}
+  async decryptCipherText(_accPublicKey: string, _cipherText: string, _tpk: string, _index: number) {}
 
   async decryptCipherTextOrRecord() {}
 
-  async revealViewKey(accPublicKey: string) {}
+  async revealViewKey(_accPublicKey: string) {}
 
-  static async revealMnemonic(password: string | undefined) {
-    const vaultKey = await Vault.getVaultKey(password);
+  static async revealMnemonic(password?: string) {
+    let vaultKey: CryptoKey;
+
+    if (password) {
+      vaultKey = await Vault.unlockWithPassword(password);
+    } else {
+      vaultKey = await Vault.getHardwareVaultKey();
+    }
+
     return withError('Failed to reveal seed phrase', async () => {
       const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
       const mnemonicPattern = /^(\b\w+\b\s?){12}$/;
@@ -558,7 +551,7 @@ export class Vault {
     }
     let currentAccount = allAccounts.find(acc => acc.publicKey === currAccountPubkey);
     if (!currentAccount) {
-      currentAccount = await this.setCurrentAccount(allAccounts[0].publicKey);
+      currentAccount = await this.setCurrentAccount(allAccounts[0]!.publicKey);
     }
     return currentAccount;
   }
@@ -609,7 +602,7 @@ function concatAccount(current: WalletAccount[], newOne: WalletAccount) {
 }
 
 function getNewAccountName(allAccounts: WalletAccount[], templateI18nKey = 'defaultAccountName') {
-  return getMessage(templateI18nKey, String(allAccounts.length + 1));
+  return getMessage(templateI18nKey, { accountNumber: String(allAccounts.length + 1) });
 }
 
 function getMainDerivationPath(walletType: WalletType, accIndex: number) {
@@ -650,6 +643,7 @@ async function withError<T>(errMessage: string, factory: (doThrow: () => void) =
       throw new Error('<stub>');
     });
   } catch (err: any) {
+    console.error(`[Vault.withError] ${errMessage} - original error:`, err?.message, err?.stack?.slice(0, 500));
     throw err instanceof PublicError ? err : new PublicError(errMessage);
   }
 }
@@ -673,7 +667,6 @@ async function isHardwareSecurityAvailableForVault(): Promise<boolean> {
       return await hs.isHardwareSecurityAvailable();
     }
   } catch (error) {
-    console.log('[isHardwareSecurityAvailableForVault] Check failed:', error);
     return false;
   }
   return false;
@@ -720,30 +713,20 @@ async function setupHardwareProtector(vaultKeyBytes: Uint8Array): Promise<boolea
   if (isMobile()) {
     try {
       const hs = await import('lib/biometric');
-      console.log('[setupHardwareProtector] Mobile: Starting...');
       const available = await hs.isHardwareSecurityAvailable();
-      console.log('[setupHardwareProtector] Mobile: Hardware security available:', available);
       if (available) {
         const hasKey = await hs.hasHardwareKey();
-        console.log('[setupHardwareProtector] Mobile: Has existing hardware key:', hasKey);
         if (!hasKey) {
-          console.log('[setupHardwareProtector] Mobile: Generating hardware key...');
           await hs.generateHardwareKey();
-          console.log('[setupHardwareProtector] Mobile: Hardware key generated');
         }
-        console.log('[setupHardwareProtector] Mobile: Encrypting vault key with hardware key...');
         const vaultKeyBase64 = Buffer.from(vaultKeyBytes).toString('base64');
         const hardwareProtectedVaultKey = await hs.encryptWithHardwareKey(vaultKeyBase64);
-        console.log('[setupHardwareProtector] Mobile: Saving hardware-protected vault key...');
         await savePlain(VAULT_KEY_HARDWARE_STORAGE_KEY, hardwareProtectedVaultKey);
-        console.log('[setupHardwareProtector] Mobile: Hardware protection setup complete');
         return true;
       } else {
-        console.log('[setupHardwareProtector] Mobile: Hardware security not available, skipping');
         return false;
       }
     } catch (error) {
-      console.log('[setupHardwareProtector] Mobile: Failed:', error);
       return false;
     }
   }

@@ -9,6 +9,23 @@ import { useWalletStore } from 'lib/store';
 
 import { useAllBalances, getAllBalanceSWRKey } from './balance';
 
+// webextension-polyfill auto-mock causes isExtension() to return true in tests.
+// Override to return false so balance hooks use the WASM polling path.
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: jest.fn(() => false)
+}));
+
+// Tests assume the native asset ID is already known — simulates the post-
+// discovery steady state. Without this, buildDefaultZeroBalance() returns [].
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: jest.fn(() => 'miden-faucet-id'),
+  getNativeAssetId: jest.fn(async () => 'miden-faucet-id'),
+  primeNativeAssetId: jest.fn(),
+  onNativeAssetChanged: jest.fn(() => () => {}),
+  resetNativeAssetCache: jest.fn(async () => {})
+}));
+
 // Track concurrent calls to detect WASM client abuse
 let concurrentCalls = 0;
 let maxConcurrentCalls = 0;
@@ -177,7 +194,8 @@ describe('useAllBalances infinite loop protection', () => {
               tokenSlug: 'test',
               metadata: { name: 'Test', symbol: 'T', decimals: 18 },
               balance: 100,
-              fiatPrice: 1
+              fiatPrice: 1,
+              change24h: 0
             }
           ]
         }
@@ -307,8 +325,9 @@ describe('instant balance loading', () => {
       testRoot!.render(<BalanceConsumer />);
     });
 
-    // Verify: on first render, we get DEFAULT_ZERO_MIDEN_BALANCE immediately
-    // This happens BEFORE fetchBalances is called
+    // Verify: on first render, we get the default zero MIDEN row immediately
+    // (the native-asset mock above pretends discovery is already complete).
+    // This happens BEFORE fetchBalances is called.
     expect(firstRenderData).not.toBeNull();
     expect(firstRenderData.data).toHaveLength(1);
     expect(firstRenderData.data[0].tokenSlug).toBe('MIDEN');
@@ -355,7 +374,8 @@ describe('instant balance loading', () => {
               tokenSlug: 'MIDEN',
               metadata: { name: 'Miden', symbol: 'MIDEN', decimals: 8 },
               fiatPrice: 1,
-              balance: 42
+              balance: 42,
+              change24h: 0
             }
           ]
         },
@@ -383,7 +403,8 @@ describe('instant balance loading', () => {
             tokenSlug: 'MIDEN',
             metadata: { name: 'Miden', symbol: 'MIDEN', decimals: 8 },
             fiatPrice: 1,
-            balance: 999
+            balance: 999,
+            change24h: 0
           }
         ]
       },

@@ -107,19 +107,17 @@ const localeIsDisabled = ({ disabled }: LocaleOption) => !!disabled;
 const getLocaleCode = ({ code }: LocaleOption) => code;
 
 const LocaleSelect: FC<LocaleSelectProps> = ({ className }) => {
-  const { t } = useTranslation();
   const selectedLocale = getCurrentLocale();
   const { trackEvent } = useAnalytics();
 
-  const value = useMemo(
-    () => localeOptions.find(({ code }) => code === selectedLocale) || localeOptions[0],
-    [selectedLocale]
-  );
-
-  const title = useMemo(
-    () => <p className={classNames('mb-4', 'leading-normal', 'text-gray-600 text-sm')}>{t('languageAndCountry')}</p>,
-    [t]
-  );
+  const value = useMemo(() => {
+    // Try exact match first (handles zh_CN, zh_TW)
+    const exact = localeOptions.find(({ code }) => code === selectedLocale);
+    if (exact) return exact;
+    // Fall back to base language match (handles de_DE → de, en-US → en)
+    const base = selectedLocale.split(/[-_]/)[0];
+    return localeOptions.find(({ code }) => code === base) ?? localeOptions[0]!;
+  }, [selectedLocale]);
 
   const handleLocaleChange = useCallback(
     ({ code }: LocaleOption) => {
@@ -140,7 +138,7 @@ const LocaleSelect: FC<LocaleSelectProps> = ({ className }) => {
       options={localeOptions}
       value={value}
       onChange={handleLocaleChange}
-      title={title}
+      title={null}
       className={className}
     />
   );
@@ -177,7 +175,7 @@ const LocaleInMenuContent: FC<IconifiedSelectOptionRenderProps<LocaleOption>> = 
             className={classNames(
               'mr-2 px-1',
               'bg-orange-500 rounded-sm shadow-md',
-              'text-white',
+              'text-pure-white',
               'text-xs font-semibold uppercase'
             )}
           >

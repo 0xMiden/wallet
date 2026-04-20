@@ -15,6 +15,9 @@ export interface ListItemProps extends React.ComponentProps<'div'> {
   iconRight?: React.ReactNode | IconName;
   title?: string;
   subtitle?: string;
+  titleClassName?: string;
+  iconLeftClassName?: string;
+  iconRightClassName?: string;
 }
 
 /**
@@ -29,6 +32,9 @@ export const ListItem: React.FC<ListItemProps> = ({
   iconLeft,
   iconRight,
   onClick,
+  titleClassName,
+  iconLeftClassName,
+  iconRightClassName,
   ...props
 }) => {
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -39,7 +45,7 @@ export const ListItem: React.FC<ListItemProps> = ({
   };
   const ListItemClasses = classNames(
     'flex items-center justify-evenly', // Layout classes
-    'h-[48px] p-2', // Size and padding classes
+    'p-2', // Size and padding classes
     'gap-x-4 bg-white', // Gap and background classes
     'rounded-lg transition', // Shape and transition classes
     'duration-300 ease-in-out', // Transition duration and timing function classes
@@ -50,12 +56,14 @@ export const ListItem: React.FC<ListItemProps> = ({
 
   return (
     <div {...props} className={ListItemClasses} onClick={handleClick}>
-      {iconLeft && <IconOrComponent icon={iconLeft} color="black" />}
+      {iconLeft && <IconOrComponent icon={iconLeft} className={iconLeftClassName} />}
       <div className="flex flex-1 justify-between overflow-hidden">
-        {title && <div className="text-sm text-black truncate text-ellipsis ">{title}</div>}
+        {title && (
+          <div className={classNames('text-sm text-heading-gray truncate text-ellipsis ', titleClassName)}>{title}</div>
+        )}
         {subtitle && <div className="text-sm text-grey-600 truncate text-ellipsis shrink-0">{subtitle}</div>}
       </div>
-      {iconRight && <IconOrComponent icon={iconRight} color="black" />}
+      {iconRight && <IconOrComponent icon={iconRight} className={iconRightClassName} />}
     </div>
   );
 };

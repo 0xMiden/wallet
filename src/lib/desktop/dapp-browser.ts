@@ -8,12 +8,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
-// Log to Rust stdout for debugging (kept for future use)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function jsLog(message: string): void {
-  invoke('js_log', { message }).catch(() => {});
-}
-
 /**
  * Open a dApp in a new browser window
  *
@@ -203,7 +197,9 @@ export function generateDesktopConfirmationOverlay(
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(0, 0, 0, 0.5);
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(20px) saturate(1.5);
+        -webkit-backdrop-filter: blur(20px) saturate(1.5);
         padding: 16px;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       }
@@ -230,7 +226,7 @@ export function generateDesktopConfirmationOverlay(
         display: flex;
         align-items: center;
         justify-content: center;
-        flex-shrink: 0;
+        shrink: 0;
       }
       .miden-modal-icon svg {
         width: 24px;

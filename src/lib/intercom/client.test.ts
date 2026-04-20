@@ -327,3 +327,92 @@ describe('createIntercomClient', () => {
     delete (window as any).__TAURI_INTERNALS__;
   });
 });
+
+// ── Mobile / desktop wrapper coverage ──────────────────────────────
+
+describe('MobileIntercomClientWrapper', () => {
+  const mockMobileAdapter = {
+    request: jest.fn(),
+    subscribe: jest.fn()
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsMobile.mockReturnValue(true);
+    mockIsDesktop.mockReturnValue(false);
+    jest.doMock('./mobile-adapter', () => ({
+      getMobileIntercomAdapter: () => mockMobileAdapter
+    }));
+  });
+
+  afterEach(() => {
+    jest.dontMock('./mobile-adapter');
+  });
+
+  it('request delegates to the mobile adapter', async () => {
+    mockMobileAdapter.request.mockResolvedValueOnce({ ok: true });
+    const client = createIntercomClient();
+    const result = await client.request({ payload: 'p' });
+    expect(mockMobileAdapter.request).toHaveBeenCalledWith({ payload: 'p' });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('subscribe wires the callback through after the adapter resolves', async () => {
+    const innerUnsub = jest.fn();
+    mockMobileAdapter.subscribe.mockReturnValue(innerUnsub);
+    const client = createIntercomClient();
+    const cb = jest.fn();
+    const unsub = client.subscribe(cb);
+    // Wait for the adapter promise to resolve
+    await new Promise(r => setTimeout(r, 0));
+    expect(mockMobileAdapter.subscribe).toHaveBeenCalledWith(cb);
+    unsub();
+    expect(innerUnsub).toHaveBeenCalled();
+  });
+
+  it('unsubscribe is a no-op if called before adapter resolves', () => {
+    const client = createIntercomClient();
+    const unsub = client.subscribe(jest.fn());
+    expect(() => unsub()).not.toThrow();
+  });
+});
+
+describe('DesktopIntercomClientWrapper', () => {
+  const mockDesktopAdapter = {
+    request: jest.fn(),
+    subscribe: jest.fn()
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsMobile.mockReturnValue(false);
+    mockIsDesktop.mockReturnValue(true);
+    jest.doMock('./desktop-adapter', () => ({
+      getDesktopIntercomAdapter: () => mockDesktopAdapter
+    }));
+  });
+
+  afterEach(() => {
+    jest.dontMock('./desktop-adapter');
+  });
+
+  it('request delegates to the desktop adapter', async () => {
+    mockDesktopAdapter.request.mockResolvedValueOnce({ from: 'desktop' });
+    const client = createIntercomClient();
+    const result = await client.request({ x: 1 });
+    expect(mockDesktopAdapter.request).toHaveBeenCalledWith({ x: 1 });
+    expect(result).toEqual({ from: 'desktop' });
+  });
+
+  it('subscribe wires the callback through after the adapter resolves', async () => {
+    const innerUnsub = jest.fn();
+    mockDesktopAdapter.subscribe.mockReturnValue(innerUnsub);
+    const client = createIntercomClient();
+    const cb = jest.fn();
+    const unsub = client.subscribe(cb);
+    await new Promise(r => setTimeout(r, 0));
+    expect(mockDesktopAdapter.subscribe).toHaveBeenCalledWith(cb);
+    unsub();
+    expect(innerUnsub).toHaveBeenCalled();
+  });
+});

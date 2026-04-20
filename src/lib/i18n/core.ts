@@ -83,7 +83,7 @@ export function getMessage(messageName: string, substitutions?: Substitutions) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const browser = require('webextension-polyfill');
-      return browser.i18n.getMessage(messageName, substitutions);
+      return browser.i18n.getMessage(messageName, substitutions ? Object.values(substitutions) : undefined);
     } catch {
       return messageName;
     }
@@ -91,7 +91,7 @@ export function getMessage(messageName: string, substitutions?: Substitutions) {
 
   try {
     if (val.placeholders) {
-      const params = toList(substitutions).reduce((prms, sub, i) => {
+      const params = toList(Object.values(substitutions ?? {})).reduce((prms, sub, i) => {
         const pKey = val.placeholderList?.[i] ?? i;
         return pKey ? { ...prms, [pKey]: sub } : prms;
       }, {});
@@ -181,7 +181,7 @@ export async function fetchLocaleMessages(locale: string) {
 function appendPlaceholderLists(messages: LocaleMessages) {
   for (const name in messages) {
     const val = messages[name];
-    if (val.placeholders) {
+    if (val?.placeholders) {
       val.placeholderList = [];
       for (const pKey in val.placeholders) {
         const placeholder: { content: string } | undefined = val.placeholders[pKey];

@@ -2,8 +2,8 @@
 
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Address, FungibleAsset, NetworkId, SigningInputs, SigningInputsType, Word } from '@demox-labs/miden-sdk';
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { Address, FungibleAsset, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +13,7 @@ import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { CustomRpsContext } from 'lib/analytics';
+import { getNetworkId } from 'lib/miden-chain/constants';
 import { AssetMetadata, MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { MidenDAppPayload } from 'lib/miden/types';
@@ -128,7 +129,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             console.error('Failed to deserialize payload for sign:', e);
           }
           content = (
-            <div className="text-md text-center my-6">{t('signTheFollowingWord', truncateAddress(wordHex))}</div>
+            <div className="text-md text-center my-6">
+              {t('signTheFollowingWord', { word: truncateAddress(wordHex) })}
+            </div>
           );
           break;
         }
@@ -189,7 +192,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <hr className="h-px bg-grey-100 my-4" />
           {payload.transactionMessages.slice(2).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Amount') {
               const microcredits = Number(value);
               const amount = microcredits / 10 ** MIDEN_METADATA.decimals;
@@ -236,7 +239,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <hr className="h-px bg-grey-100 my-4" />
           {payload.transactionMessages.slice(1).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Recipient') {
               value = truncateAddress(value);
             }
@@ -358,7 +361,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
         const ts = signingInputs.transactionSummaryPayload();
         const accountDelta = ts.accountDelta();
         const accountAddress = Address.fromAccountId(accountDelta.id(), 'BasicWallet');
-        const accountAddressAsBech32 = accountAddress.toBech32(NetworkId.Testnet);
+        const accountAddressAsBech32 = accountAddress.toBech32(getNetworkId());
         const vault = accountDelta.vault();
         const storage = accountDelta.storage();
         const inputNotes = ts.inputNotes();
@@ -376,7 +379,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                 }`}
               >
                 <div className="flex flex-row text-md text-center items-center gap-x-3">
-                  <Icon name={IconName.Globe} fill="black" size="md" />
+                  <Icon name={IconName.Globe} fill="currentColor" size="md" />
                   <span className="text-gray-600">{t('account')}</span>
                 </div>
                 <div>{`${truncateAddress(accountAddressAsBech32)}`}</div>
@@ -389,7 +392,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                     removedFungibleAssetsDetails.map(details => (
                       <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
                         <span className="text-black-500 text-lg font-semibold">
-                          {`${formatAmount(details.asset.amount(), 'send', details.metadata.decimals)} ${
+                          {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
@@ -401,7 +404,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                     addedFungibleAssetsDetails.map(details => (
                       <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
                         <span className="text-green-500 text-lg font-semibold">
-                          {`${formatAmount(details.asset.amount(), 'consume', details.metadata.decimals)} ${
+                          {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
@@ -448,7 +451,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
               onClick={() => downloadBytes('transaction_summary.bin', bytes)}
             >
               <span className="flex flex-row items-center justify-center gap-x-2">
-                <Icon name={IconName.Download} fill="black" size="md" />
+                <Icon name={IconName.Download} fill="currentColor" size="md" />
                 <span className="text-lg text-black font-medium">{t('downloadFullSummary')}</span>
               </span>
             </Button>
@@ -495,7 +498,7 @@ const ConfirmDAppForm: FC = () => {
       throw new Error(t('notIdentified'));
     }
     return pageId;
-  }, [loc.search]);
+  }, [loc.search, t]);
 
   const { data } = useRetryableSWR<MidenDAppPayload>([id], getDAppPayload, {
     suspense: true,
@@ -582,7 +585,7 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
   );
 
   const handleConfirmClick = useCallback(async () => {
@@ -624,7 +627,7 @@ const ConfirmDAppForm: FC = () => {
         };
       case 'transaction':
         return {
-          title: t('confirmAction', t('transactionAction')),
+          title: t('confirmAction', { action: t('transactionAction') }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.TransactionAction_RejectButton,
           confirmActionTitle: t('confirm'),
@@ -637,7 +640,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsATransaction')}</span>
@@ -647,7 +650,7 @@ const ConfirmDAppForm: FC = () => {
         };
       case 'consume':
         return {
-          title: t('confirmAction', t('transactionAction')),
+          title: t('confirmAction', { action: t('transactionAction') }),
           declineActionTitle: t('cancel'),
           declineActionTestID: ConfirmPageSelectors.ConsumeAction_RejectButton,
           confirmActionTitle: t('confirm'),
@@ -660,7 +663,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsToConsumeNote')}</span>
@@ -683,7 +686,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsPrivateNotes')}</span>
@@ -706,7 +709,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span className="text-gray-600">{t('requestsYourSignature')}</span>
@@ -729,7 +732,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsAssets')}</span>
@@ -752,7 +755,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('importPrivateNote')}</span>
@@ -775,7 +778,7 @@ const ConfirmDAppForm: FC = () => {
                 'border border-gray-100 rounded-2xl mb-4'
               )}
             >
-              <Icon name={IconName.Globe} fill="black" size="md" />
+              <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
                 <span>{t('requestsConsumableNotes')}</span>
@@ -784,12 +787,12 @@ const ConfirmDAppForm: FC = () => {
           )
         };
     }
-  }, [error, payload, privateDataPermission, isPublicAccount]);
+  }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
   return (
     <CustomRpsContext.Provider value={'TODO'}>
       <div
-        className={classNames('relative bg-white rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
+        className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
         style={{
           width: 380,
           height: 610
@@ -837,7 +840,12 @@ const ConfirmDAppForm: FC = () => {
         <div className="flex-1" />
 
         <div
-          className={classNames('sticky bottom-0 w-full', 'bg-white shadow-md', 'flex items-stretch', 'px-4 pt-2 pb-6')}
+          className={classNames(
+            'sticky bottom-0 w-full',
+            'bg-surface-solid shadow-md',
+            'flex items-stretch',
+            'px-4 pt-2 pb-6'
+          )}
         >
           <div className="w-1/2 pr-2">
             <Button

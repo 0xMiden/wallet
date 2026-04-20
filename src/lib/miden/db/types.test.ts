@@ -28,7 +28,8 @@ describe('transaction models', () => {
       faucetId: 'faucet',
       amount: '1',
       senderAddress: 'sender',
-      isBeingClaimed: false
+      isBeingClaimed: false,
+      type: NoteTypeEnum.Private
     };
     const tx = new ConsumeTransaction('acc', note, true);
     expect(tx.type).toBe('consume');
@@ -54,6 +55,7 @@ describe('transaction models', () => {
       faucetId: 'faucet',
       amount: '',
       senderAddress: 'sender',
+      type: NoteTypeEnum.Private,
       isBeingClaimed: false
     };
     const tx = new ConsumeTransaction('acc', note);

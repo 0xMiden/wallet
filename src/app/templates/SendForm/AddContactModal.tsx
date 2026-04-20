@@ -29,7 +29,7 @@ const AddContactModal: FC<AddContactModalProps> = ({ address, onClose }) => {
   } = useForm<{ name: string }>();
 
   const onAddContactSubmit = useCallback(
-    async ({ name }: { name: string }) => {
+    async (_: { name: string }) => {
       if (isSubmitting) return;
 
       try {
@@ -49,7 +49,7 @@ const AddContactModal: FC<AddContactModalProps> = ({ address, onClose }) => {
       <form onSubmit={handleSubmit(onAddContactSubmit)}>
         <div className="mb-8">
           <div className="mb-4 flex items-stretch border rounded-md p-2">
-            <AnimalIdenticon publicKey={address ?? ''} size={32} className="flex-shrink-0 shadow-xs" />
+            <AnimalIdenticon publicKey={address ?? ''} size={32} className="shrink-0 shadow-xs" />
 
             <div className="ml-3 flex-1 flex items-center">
               <span className={classNames('text-black text-black')}>
@@ -61,7 +61,7 @@ const AddContactModal: FC<AddContactModalProps> = ({ address, onClose }) => {
           <FormField
             {...register('name', {
               required: t('required'),
-              maxLength: { value: 50, message: t('maximalAmount', '50') }
+              maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
             })}
             label={t('name')}
             id="name"

@@ -1,4 +1,4 @@
-import { TransactionResult } from '@demox-labs/miden-sdk';
+import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
 import { ITransaction } from '../db/types';
@@ -121,7 +121,7 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
 
   if (inputFaucetIds.length === 1 && outputFaucetIds.length === 0) {
     type = 'consume';
-    const sender = getBech32AddressFromAccountId(inputNotes[0].note().metadata().sender());
+    const sender = getBech32AddressFromAccountId(inputNotes[0]!.note().metadata().sender());
     const isReclaimed = compareAccountIds(sender, transaction.accountId);
     displayMessage = isReclaimed ? 'Reclaimed' : 'Received';
     if (!isReclaimed) {

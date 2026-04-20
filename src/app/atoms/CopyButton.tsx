@@ -45,13 +45,13 @@ const CopyButton: FC<CopyButtonProps> = ({
         setCopied(false);
       }
     }),
-    [copied, setCopied]
+    [copied, setCopied, t]
   );
 
   const buttonRef = useTippy<HTMLButtonElement>(tippyProps);
 
   const roundedClassName = rounded === 'base' ? 'rounded' : 'rounded-sm';
-  const smallClassName = small ? 'text-xs p-1' : 'text-sm py-1 px-2';
+  const smallClassName = small ? 'text-xs p-1' : 'text-sm py-1';
 
   const handleCopyPress = () => {
     hapticLight();
@@ -72,11 +72,11 @@ const CopyButton: FC<CopyButtonProps> = ({
                 'text-black',
                 roundedClassName,
                 smallClassName,
-                'font-tnum leading-none select-none',
+                'font-tnum leading-none select-none cursor-pointer',
                 'transition ease-in-out duration-300',
                 className
               )
-            : classNames('hover:underline', className)
+            : classNames('hover:underline cursor-pointer', className)
         }
         {...rest}
         onClick={handleCopyPress}

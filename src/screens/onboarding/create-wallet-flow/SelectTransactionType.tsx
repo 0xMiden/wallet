@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import colors from 'utils/tailwind-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 export interface SelectTransactionTypeScreenProps {
   onSubmit?: (selectedType: 'delegate' | 'local') => void;
@@ -92,7 +92,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
   };
 
   return (
-    <div className={classNames('flex-1', 'flex flex-col items-center', 'bg-white gap-8 p-6', className)} {...props}>
+    <div className={classNames('flex-1', 'flex flex-col items-center', 'bg-app-bg gap-8 p-6', className)} {...props}>
       <h1 className="text-2xl font-semibold">{t('selectTheDefaultTransactionType')}</h1>
 
       <div className="flex gap-x-2">
@@ -116,7 +116,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               <div
                 className={classNames(
                   'absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2',
-                  'bg-black text-white text-xs font-medium',
+                  'bg-pure-black text-pure-white text-xs font-medium',
                   'px-2 py-1 rounded-full'
                 )}
               >
@@ -124,7 +124,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               </div>
             )}
 
-            <div className="flex flex-col flex-grow overflow-scroll no-scrollbar">
+            <div className="flex flex-col grow overflow-scroll no-scrollbar">
               <h2 className="font-semibold text-base text-center whitespace-pre">{option.title}</h2>
               <ul className="flex flex-1 flex-col mt-6 px-5 divide-y divide-grey-100">
                 {option.features.map((feature, index) => (
@@ -143,10 +143,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               className={classNames('mt-4', { 'text-primary-500': selectedType === option.id })}
               iconLeft={
                 selectedType === option.id ? (
-                  <Icon
-                    name={IconName.CheckboxCircleFill}
-                    fill={selectedType === option.id ? colors.primary[500] : 'black'}
-                  />
+                  <Icon name={IconName.CheckboxCircleFill} fill={selectedType === option.id ? PRIMARY_HEX : 'black'} />
                 ) : null
               }
             />

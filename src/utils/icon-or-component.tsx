@@ -1,18 +1,22 @@
 import React from 'react';
 
+import clsx from 'clsx';
+
 import { Icon, IconName, IconSize } from 'app/icons/v2';
 
 export const IconOrComponent = ({
   icon,
+  size = 'md',
   color,
-  size = 'md'
+  className
 }: {
+  className?: string;
+  color?: string;
   icon: React.ReactNode | IconName;
-  color: string;
   size?: IconSize;
 }) => {
   if (Object.values(IconName).includes(icon as IconName)) {
-    return <Icon name={icon as IconName} fill={color} className="w-6 h-6" size={size} />;
+    return <Icon name={icon as IconName} className={clsx('w-6 h-6', className)} fill={color} size={size} />;
   }
 
   return <>{icon}</>;

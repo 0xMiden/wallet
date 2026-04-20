@@ -36,11 +36,16 @@ module.exports = {
   BasicFungibleFaucetComponent: jest.fn(),
   TransactionResult: jest.fn(),
   AccountId: jest.fn(),
-  NetworkId: jest.fn(),
+  NetworkId: {
+    custom: jest.fn(prefix => prefix),
+    devnet: jest.fn(() => 'devnet'),
+    mainnet: jest.fn(() => 'mainnet'),
+    testnet: jest.fn(() => 'testnet')
+  },
   NoteFilter: jest.fn(),
   NoteId: jest.fn(),
   Note: jest.fn(),
-  SecretKey: jest.fn(),
+  AuthSecretKey: jest.fn(),
   SigningInputs: jest.fn(),
   Word: jest.fn(),
   AccountInterface: jest.fn()

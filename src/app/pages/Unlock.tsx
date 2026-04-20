@@ -8,13 +8,22 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { openInFullPage, useAppEnv } from 'app/env';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
-import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg';
+// `?url` forces the asset pipeline to produce a plain URL string instead of
+// letting the svg-to-react plugin swallow the default export (the plugin sets
+// default to "" because it only means to emit the named `ReactComponent`).
+// Without the suffix `<img src={WalletLogo}>` renders an empty src and Chrome
+// falls back to showing the alt text.
+import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url';
+import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { useFormAnalytics } from 'lib/analytics';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
+
+const WalletLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? LogoVerticalTitleDevnet : LogoVerticalTitle;
 
 type FormData = {
   password: string;
@@ -42,7 +51,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { t } = useTranslation();
   const { unlock } = useMidenContext();
   const formAnalytics = useFormAnalytics('UnlockWallet');
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
   const [timelock, setTimeLock] = useLocalStorage<number>(MidenSharedStorageKey.TimeLock, 0);
@@ -182,13 +191,13 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     if (openForgotPasswordInFullPage) {
       navigate('/forgot-password-info');
       openInFullPage();
-      if (popup) {
+      if (compact) {
         window.close();
       }
     } else {
       navigate('/forgot-password-info');
     }
-  }, [openForgotPasswordInFullPage, popup]);
+  }, [openForgotPasswordInFullPage, compact]);
 
   // Retry hardware unlock for hardware-only wallets
   const onRetryHardwareUnlock = useCallback(async () => {
@@ -224,7 +233,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       <SimplePageLayout
         icon={
           <>
-            <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+            <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
           </>
         }
       >
@@ -239,7 +248,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       <SimplePageLayout
         icon={
           <>
-            <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+            <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
           </>
         }
       >
@@ -274,7 +283,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     <SimplePageLayout
       icon={
         <>
-          <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+          <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
         </>
       }
     >
@@ -313,7 +322,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         <FormSubmitButton
           disabled={isDisabled}
           loading={isSubmitting}
-          className="w-full justify-center"
+          className="w-full justify-center rounded-[10px]"
           style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
         >
           {t('unlock')}

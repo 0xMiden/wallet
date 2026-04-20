@@ -3,7 +3,7 @@ import { isExtension } from 'lib/platform';
 import { AssetMetadata } from './types';
 
 // Get asset URL that works on extension, mobile, and desktop
-function getAssetUrl(path: string): string {
+export function getAssetUrl(path: string): string {
   if (!isExtension()) {
     // On mobile/desktop, use relative URL from web root
     return `/${path}`;
@@ -13,7 +13,7 @@ function getAssetUrl(path: string): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const browser = require('webextension-polyfill');
     return browser.runtime.getURL(path);
-  } catch {
+  } /* c8 ignore next 3 -- extension-only require() fallback */ catch {
     // Fallback for non-extension contexts
     return `/${path}`;
   }

@@ -16,7 +16,7 @@ const currentVersion = process.env.VERSION;
 
 export const ChangelogOverlay: FC = () => {
   const { t } = useTranslation();
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
   const [lastShownVersion, setLastShownVersion] = useStorage<string | undefined | null>(
     `last_shown_changelog_version`,
     '1.14.8'
@@ -25,7 +25,7 @@ export const ChangelogOverlay: FC = () => {
   const handleContinue = () => {
     setLastShownVersion(currentVersion);
   };
-  const popupClassName = popup ? 'inset-0' : 'top-1/2 left-1/2 transform -translate-y-1/2 -translate-x-1/2 p-12';
+  const compactClassName = compact ? 'inset-0' : 'top-1/2 left-1/2 transform -translate-y-1/2 -translate-x-1/2 p-12';
 
   const isNewerVersion = changelogData.find(e => e.version === currentVersion);
   if (!isNewerVersion) {
@@ -35,28 +35,30 @@ export const ChangelogOverlay: FC = () => {
 
   return lastShownVersion !== currentVersion ? (
     <>
-      <div className={'fixed left-0 right-0 top-0 bottom-0 opacity-20 bg-gray-700 z-50'}></div>
-      <ContentContainer className={classNames('fixed z-50', 'max-h-full', popupClassName)} padding={!popup}>
+      <div
+        className={'fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 z-50'}
+      ></div>
+      <ContentContainer className={classNames('fixed z-50', 'max-h-full', compactClassName)} padding={!compact}>
         <div
           className={classNames(
             'bg-white shadow-lg relative',
             s.overlay_scrollbar,
-            popup ? 'pt-12 px-8' : 'pt-16 rounded-md'
+            compact ? 'pt-12 px-8' : 'pt-16 rounded-md'
           )}
           style={{
             backgroundColor: `#ffe6ff`,
-            minHeight: popup ? '100vh' : 200,
-            maxHeight: popup ? '100vh' : 'calc(100vh - 96px)',
-            paddingBottom: popup ? 104 : 160
+            minHeight: compact ? '100vh' : 200,
+            maxHeight: compact ? '100vh' : 'calc(100vh - 96px)',
+            paddingBottom: compact ? 104 : 160
           }}
         >
           <div className={classNames('flex flex-col max-w-sm mx-auto w-full')}>
-            <p className="text-xl font-inter font-semibold" style={{ fontSize: 23, color: '#9f7aea' }}>
+            <p className="text-xl font-geist font-semibold" style={{ fontSize: 23, color: '#9f7aea' }}>
               {t('changelogTitle')}
             </p>
             {filteredChangelog.map(({ version, data }) => (
               <React.Fragment key={version}>
-                <p className="mb-5 mt-8 font-inter" style={{ fontSize: 16 }}>
+                <p className="mb-5 mt-8 font-geist" style={{ fontSize: 16 }}>
                   {t('update')} {version}
                 </p>
                 <ul>
@@ -71,23 +73,23 @@ export const ChangelogOverlay: FC = () => {
             <div
               className={classNames(s.overlay_ok_container)}
               style={{
-                height: popup ? 104 : 90,
-                bottom: popup ? 0 : 48,
-                left: popup ? 16 : 32,
-                right: popup ? 16 : 32
+                height: compact ? 104 : 90,
+                bottom: compact ? 0 : 48,
+                left: compact ? 16 : 32,
+                right: compact ? 16 : 32
               }}
             >
               <Button
                 className={classNames(
                   'py-2',
-                  'text-white font-inter rounded font-semibold uppercase',
+                  'text-pure-white font-geist rounded font-semibold uppercase',
                   'mx-auto',
                   s.overlay_ok_button
                 )}
                 onClick={handleContinue}
                 testID={ChangelogOverlaySelectors.Continue}
                 style={{
-                  width: popup ? 270 : 384
+                  width: compact ? 270 : 384
                 }}
               >
                 {t('okGotIt')}

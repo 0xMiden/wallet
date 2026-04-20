@@ -1,10 +1,14 @@
-import { NoteType } from '@demox-labs/miden-sdk';
+import { Address, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteTypeEnum, NoteType as NoteTypeString } from './types';
 
-// TODO: implement address checks
 export function isAddressValid(address: string) {
-  return true;
+  try {
+    Address.fromBech32(address);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export const toNoteTypeString = (noteType: NoteType) =>

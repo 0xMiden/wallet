@@ -32,7 +32,15 @@ const TabPickerItem: React.FC<TabPickerItemProps> = ({
   onIconClick,
   ...props
 }) => {
-  const iconColor = useMemo(() => (disabled ? colors.grey[400] : 'black'), [disabled]);
+  // Icon fill is a literal CSS color (SVG fill prop), so Tailwind dark:
+  // variants don't reach it — resolve against the current theme at render
+  // time. `text-black` / `text-white` Tailwind tokens map to CSS variables
+  // that already flip with .dark, but this `fill=` is a direct string.
+  const isDarkMode = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const iconColor = useMemo(
+    () => (disabled ? colors.grey[400] : isDarkMode ? 'white' : 'black'),
+    [disabled, isDarkMode]
+  );
   return (
     <button
       type="button"
@@ -46,10 +54,19 @@ const TabPickerItem: React.FC<TabPickerItemProps> = ({
       )}
     >
       {active ? (
-        <motion.div key={animationId} className="absolute w-full h-full bg-white rounded-full" layoutId={animationId} />
+        <motion.div
+          key={animationId}
+          // bg-white maps to --color-surface (translucent dark in dark mode),
+          // which is too low-contrast against the dark container. In dark mode
+          // use a literal white at 15% for the pill so it actually reads.
+          className="absolute w-full h-full bg-white dark:bg-pure-white/15 rounded-full"
+          layoutId={animationId}
+        />
       ) : null}
       <p
         className={classNames('text-sm font-medium z-10', {
+          // text-black maps to --color-text-primary (white in dark mode) via
+          // the Tailwind config — no explicit dark: variant needed.
           'text-black': !disabled,
           'text-grey-400': disabled
         })}
@@ -79,7 +96,12 @@ export const TabPicker: React.FC<TabPickerProps> = ({ tabs, className, onTabChan
   const skipAnimations = isExtension();
 
   return (
-    <div className={classNames('flex', 'rounded-full overflow-hidden p-1', 'bg-grey-50', className)} {...props}>
+    <div
+      // bg-gray-50 → var(--color-surface-tertiary): #f3f3f3 in light (matches
+      // the previous fixed bg-grey-50), #333333 in dark.
+      className={classNames('flex rounded-full overflow-hidden p-1', 'bg-gray-50', className)}
+      {...props}
+    >
       <MotionConfig transition={skipAnimations ? { duration: 0 } : undefined}>
         {tabs.map((tab, index) => (
           <TabPickerItem key={tab.id} {...tab} onClick={() => handleTabChange(index)} animationId={animationId} />

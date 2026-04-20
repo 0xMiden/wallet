@@ -7,7 +7,6 @@ import { MIN_PASSWORD_LENGTH, STRONG_PASSWORD_LENGTH } from 'app/constants';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
-import { Link } from 'components/Link';
 
 export interface PasswordValidation {
   minChar: boolean;
@@ -153,14 +152,17 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
   );
 
   return (
-    <div className={classNames('flex-1', 'flex flex-col', 'bg-white gap-y-8 p-6', className)} {...props}>
-      <div className="flex flex-col items-center">
-        <header className="text-2xl font-semibold">{t('createPassword')}</header>
-        <p className="text-sm text-center font-normal mt-2 w-[500px]">{t('createPasswordDescription')}</p>
+    <div
+      className={classNames('flex flex-col flex-1', 'bg-app-bg gap-y-6 px-4 pt-6 text-heading-gray', className)}
+      {...props}
+    >
+      <div className="flex flex-col items-center text-heading-gray gap-2">
+        <header className="text-[28px] leading-[100%] font-semibold">{t('createPassword')}</header>
+        <p className="text-[10px] leading-[150%] text-center font-normal">{t('createPasswordDescription')}</p>
       </div>
 
-      <article className="w-full justify-center items-center flex flex-col gap-y-4 px-6">
-        <div className="flex flex-col w-[360px] gap-y-2">
+      <article className="w-full justify-center items-center flex flex-col gap-y-6">
+        <div className="flex flex-col gap-y-2 w-full">
           <Input
             type={isPasswordVisible ? 'text' : 'password'}
             label={t('password')}
@@ -168,7 +170,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
             placeholder={t('enterPassword')}
             icon={
               <button className="flex-1" onClick={onPasswordVisibilityToggle}>
-                <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="black" />
+                <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
               </button>
             }
             onChange={onPasswordChange}
@@ -177,7 +179,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
           <PasswordStrengthIndicator password={password} validation={passwordValidation} />
         </div>
 
-        <div className="flex flex-col w-[360px] gap-y-2">
+        <div className="flex flex-col gap-y-2 w-full">
           <Input
             ref={verifyPasswordRef}
             type={isVerifyPasswordVisible ? 'text' : 'password'}
@@ -186,7 +188,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
             placeholder={t('enterPasswordAgain')}
             icon={
               <button className="flex-1" onClick={onVerifyPasswordVisibilityToggle}>
-                <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="black" />
+                <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
               </button>
             }
             onChange={e => setVerifyPassword(e.target.value)}
@@ -210,20 +212,19 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
           </p>
         </div>
       </article>
-      <div className="w-[360px] flex flex-col gap-2 self-center">
-        <Button title={t('continue')} disabled={!isValidPassword} onClick={onPasswordSubmit} />
-        {/* eslint-disable-next-line i18next/no-literal-string */}
+      <div className="flex flex-col gap-2 self-center w-full mt-auto">
         <p className="text-grey-600 text-xs text-center px-4">
           {t('byProceeding')}{' '}
-          <Link target="_blank" href="https://www.miden.fi/terms">
+          <a target="_blank" href="https://www.miden.fi/terms" className="underline" rel="noreferrer">
             {t('termsOfUsage')}
-          </Link>{' '}
+          </a>{' '}
           {t('andWord')}{' '}
-          <Link target="_blank" href="https://www.miden.fi/privacy">
+          <a target="_blank" href="https://www.miden.fi/privacy" className="underline" rel="noreferrer">
             {t('privacyPolicy')}
-          </Link>
+          </a>
           .
         </p>
+        <Button title={t('continue')} disabled={!isValidPassword} onClick={onPasswordSubmit} />
       </div>
     </div>
   );

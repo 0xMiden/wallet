@@ -1,27 +1,13 @@
-import { BasicFungibleFaucetComponent } from '@demox-labs/miden-sdk';
+import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isMidenAsset } from 'lib/miden/assets';
-import { isExtension } from 'lib/platform';
+import { fetchFromStorage } from 'lib/miden/front/storage';
 
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from './defaults';
+import { DEFAULT_TOKEN_METADATA, getAssetUrl, MIDEN_METADATA } from './defaults';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
 
-// Get asset URL that works on extension, mobile, and desktop
-function getAssetUrl(path: string): string {
-  if (!isExtension()) {
-    // On mobile/desktop, use relative URL from web root
-    return `/${path}`;
-  }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const browser = require('webextension-polyfill');
-    return browser.runtime.getURL(path);
-  } catch {
-    return `/${path}`;
-  }
-}
+const METADATA_STORAGE_KEY = 'tokens_base_metadata';
 
 export async function fetchTokenMetadata(
   assetId: string
@@ -30,32 +16,40 @@ export async function fetchTokenMetadata(
     return { base: MIDEN_METADATA, detailed: MIDEN_METADATA };
   }
 
+  // Check cache before hitting RPC
   try {
-    // Wrap all WASM client operations in a lock to prevent concurrent access
-    const result = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
+    const cached = await fetchFromStorage<Record<string, AssetMetadata>>(METADATA_STORAGE_KEY);
+    if (cached && cached[assetId]) {
+      return { base: cached[assetId], detailed: cached[assetId] };
+    }
+  } /* c8 ignore next 2 -- IndexedDB cache miss, defensive fallback */ catch {
+    // Cache miss — proceed to RPC
+  }
 
-      let account = await midenClient.getAccount(assetId);
-      if (!account) {
-        await midenClient.importAccountById(assetId);
-        account = await midenClient.getAccount(assetId);
-        if (!account) {
-          return null;
-        }
+  try {
+    // Page-side: gate on SDK WASM readiness so the wasm-bindgen `Endpoint`
+    // constructor doesn't fire before the SDK chunk has hydrated. Without
+    // this, the first faucet metadata fetch on a freshly-loaded page reliably
+    // hits "Cannot read properties of undefined (reading '__wbindgen_malloc')",
+    // gets blacklisted via `autoFetchMetadataFails`, and the token displays
+    // with default metadata for the rest of the session.
+    await ensureSdkWasmReady();
+    const endpoint = getRpcEndpoint();
+    const rpcClient = new RpcClient(endpoint);
+    const account = await rpcClient.getAccountDetails(Address.fromBech32(assetId).accountId());
+    const underlyingAccount = account.account();
+    if (!underlyingAccount) {
+      if (account.isPublic()) {
+        // if the account was public and we couldn't fetch metadata it should not happen in first place
+        // but in case it does we are storing it as unknown metadata and warning in console
+        console.warn('Failed to fetch metadata from chain for', assetId, 'Using default metadata');
       }
-      const faucetDetails = BasicFungibleFaucetComponent.fromAccount(account);
-      return {
-        decimals: faucetDetails.decimals(),
-        symbol: faucetDetails.symbol().toString()
-      };
-    });
-
-    if (!result) {
+      // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
       return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
     }
-
-    const { decimals, symbol } = result;
-
+    const faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
+    const decimals = faucetDetails.decimals();
+    const symbol = faucetDetails.symbol().toString();
     const base: AssetMetadata = {
       decimals,
       symbol,
@@ -78,5 +72,5 @@ export async function fetchTokenMetadata(
 
 export class NotFoundTokenMetadata extends Error {
   name = 'NotFoundTokenMetadata';
-  message = "Metadata for token doesn't found";
+  message = 'Metadata for token not found';
 }

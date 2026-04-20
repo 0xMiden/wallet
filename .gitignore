@@ -8,6 +8,7 @@
 
 # testing
 /coverage
+/test-results
 
 # dest
 /dist
@@ -26,6 +27,9 @@
 
 # utility
 /utility/tmp-messages.json
+
+# WIP SDK bridge (depends on unpublished @miden-sdk/react)
+src/lib/miden/sdk-bridge/
 
 npm-debug.log*
 yarn-debug.log*
@@ -63,3 +67,5 @@ android/app/*.jks
 
 # iOS build artifacts
 ios/App/build/
+sdk-debug/
+/test-results-ios

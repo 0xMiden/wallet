@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import { AnalyticsEventCategory, TestIDProps, useAnalytics } from 'lib/analytics';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { checkedHandler } from 'lib/ui/inputHandlers';
+import { ACCENT_HEX } from 'utils/brand-colors';
 
 type ToggleSwitchProps = InputHTMLAttributes<HTMLInputElement> &
   TestIDProps & {
@@ -46,39 +47,37 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
 
     return (
       <div
-        className={classNames('relative inline-flex flex-shrink-0 align-middle select-none', containerClassName)}
-        style={{ width: '48px', height: '24px', minWidth: '48px' }}
+        className={classNames('relative inline-flex shrink-0 align-middle select-none', containerClassName)}
+        style={{ width: '40px', height: '22px', minWidth: '40px' }}
       >
-        {/* Track - visual only, no pointer events */}
+        {/* Track */}
         <div
           className="rounded-full transition-colors duration-200 ease-in-out"
           style={{
-            width: '48px',
-            height: '24px',
-            backgroundColor: localChecked ? '#F97316' : '#FFFFFF',
-            border: localChecked ? 'none' : '2px solid #E5E7EB',
+            width: '40px',
+            height: '22px',
+            backgroundColor: localChecked ? ACCENT_HEX : '#E5E7EB',
             pointerEvents: 'none'
           }}
-        >
-          {/* Dot */}
-          <div
-            className="absolute rounded-full transition-all duration-200 ease-in-out"
-            style={{
-              width: '16px',
-              height: '16px',
-              top: '4px',
-              left: localChecked ? '28px' : '4px',
-              backgroundColor: localChecked ? '#FFFFFF' : '#F97316',
-              pointerEvents: 'none'
-            }}
-          />
-        </div>
+        />
+        {/* Dot */}
+        <div
+          className="absolute rounded-full transition-all duration-200 ease-in-out shadow-sm"
+          style={{
+            width: '18px',
+            height: '18px',
+            top: '2px',
+            left: localChecked ? '20px' : '2px',
+            backgroundColor: '#FFFFFF',
+            pointerEvents: 'none'
+          }}
+        />
         {/* Invisible input on top for click handling */}
         <input
           ref={ref}
           type="checkbox"
           className={classNames('absolute appearance-none cursor-pointer opacity-0', className)}
-          style={{ width: '48px', height: '24px', top: 0, left: 0, zIndex: 10 }}
+          style={{ width: '40px', height: '22px', top: 0, left: 0, zIndex: 10 }}
           checked={localChecked}
           onChange={handleChange}
           {...rest}

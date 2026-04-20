@@ -1,4 +1,3 @@
-import { NoteFilterTypes } from '@demox-labs/miden-sdk';
 import {
   AllowedPrivateData,
   MidenConsumeTransaction,
@@ -8,6 +7,7 @@ import {
   SignKind,
   WalletAdapterNetwork
 } from '@demox-labs/miden-wallet-adapter-base';
+import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -252,8 +252,6 @@ function permissionsAreEqual(aPerm: MidenDAppPermission, bPerm: MidenDAppPermiss
 }
 
 function createError(payload: any) {
-  console.log('Error: ', payload);
-
   const getMessage = (value: any): string | undefined => {
     if (Array.isArray(value)) {
       return typeof value[0] === 'string' ? value[0] : String(value[0]);

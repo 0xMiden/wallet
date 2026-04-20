@@ -8,7 +8,6 @@
  * also subscribes to dappConfirmationStore.
  */
 
-import { invoke } from '@tauri-apps/api/core';
 import { useEffect } from 'react';
 
 import { MidenDAppRequest } from 'lib/adapter/types';
@@ -16,12 +15,6 @@ import { handleWebViewMessage, WebViewMessage } from 'lib/dapp-browser/message-h
 import { isDesktop } from 'lib/platform';
 
 import { onDappWalletRequest, sendDappWalletResponse, DappWalletRequest } from './dapp-browser';
-
-// Log to Rust stdout for debugging (kept for future use)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function jsLog(message: string): void {
-  invoke('js_log', { message }).catch(() => {});
-}
 
 /**
  * Hook that handles dApp wallet requests on desktop

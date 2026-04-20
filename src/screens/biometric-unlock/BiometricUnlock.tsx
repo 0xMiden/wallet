@@ -5,9 +5,14 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
-import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg';
+// `?url` — see Unlock.tsx for why the suffix is load-bearing.
+import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url';
+import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { BiometricAvailability, checkBiometricAvailability, unlockWithBiometric } from 'lib/biometric';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+
+const WalletLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? LogoVerticalTitleDevnet : LogoVerticalTitle;
 
 export interface BiometricUnlockProps {
   onSuccess: (password: string) => void;
@@ -80,11 +85,11 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
     <SimplePageLayout
       icon={
         <>
-          <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+          <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
         </>
       }
     >
-      <div className="flex flex-col items-center justify-center flex-grow px-8 py-8">
+      <div className="flex flex-col items-center justify-center grow px-8 py-8">
         {/* Biometric Icon */}
         <div
           className={classNames(

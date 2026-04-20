@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
+import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
+import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
@@ -60,6 +62,7 @@ export const useWalletStore = create<WalletStore>()(
     selectedFiatCurrency: null,
     fiatRates: null,
     fiatRatesLoading: false,
+    tokenPrices: {},
 
     // Initial sync state
     isInitialized: false,
@@ -71,11 +74,16 @@ export const useWalletStore = create<WalletStore>()(
     isTransactionModalOpen: false,
     isTransactionModalDismissedByUser: false,
     isDappBrowserOpen: false,
+    activeDappSessionId: null,
 
     // Initial note toast state (mobile only)
     seenNoteIds: new Set<string>(),
     isNoteToastVisible: false,
     noteToastShownAt: null,
+
+    // Initial extension sync state
+    extensionClaimableNotes: null,
+    extensionClaimingNoteIds: new Set<string>(),
 
     // Sync action - updates store from backend state
     syncFromBackend: (state: MidenState) => {
@@ -94,9 +102,10 @@ export const useWalletStore = create<WalletStore>()(
       });
 
       // Immediately fetch balances when wallet becomes Ready (before any React effects)
-      if (justBecameReady && state.currentAccount) {
+      // On extension, skip — balances arrive via SyncCompleted broadcast from service worker
+      if (justBecameReady && state.currentAccount && !isExtension()) {
         const address = state.currentAccount.publicKey;
-        fetchBalances(address, get().assetsMetadata)
+        fetchBalances(address, get().assetsMetadata, { tokenPrices: get().tokenPrices })
           .then(balances => {
             set(s => ({
               balances: { ...s.balances, [address]: balances },
@@ -385,7 +394,10 @@ export const useWalletStore = create<WalletStore>()(
       });
 
       try {
-        const balances = await fetchBalances(accountAddress, tokenMetadatas, { setAssetsMetadata });
+        const balances = await fetchBalances(accountAddress, tokenMetadatas, {
+          setAssetsMetadata,
+          tokenPrices: get().tokenPrices
+        });
         set(state => ({
           balances: { ...state.balances, [accountAddress]: balances },
           balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
@@ -447,6 +459,10 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    setTokenPrices: prices => {
+      set({ tokenPrices: prices });
+    },
+
     // Sync actions
     setSyncStatus: isSyncing => {
       // When sync completes (isSyncing becomes false), mark initial sync as done
@@ -475,7 +491,19 @@ export const useWalletStore = create<WalletStore>()(
 
     // DApp browser state (mobile only)
     setDappBrowserOpen: (isOpen: boolean) => {
-      set({ isDappBrowserOpen: isOpen });
+      // Backwards-compat path: clear `activeDappSessionId` if turning off,
+      // leave it alone if turning on (the new code path uses
+      // `setActiveDappSession` which sets both atomically).
+      set(prev => ({
+        isDappBrowserOpen: isOpen,
+        activeDappSessionId: isOpen ? prev.activeDappSessionId : null
+      }));
+    },
+    setActiveDappSession: (sessionId: string | null) => {
+      set({
+        activeDappSessionId: sessionId,
+        isDappBrowserOpen: sessionId !== null
+      });
     },
 
     // Note toast actions (mobile only)
@@ -496,6 +524,11 @@ export const useWalletStore = create<WalletStore>()(
           isNoteToastVisible: true,
           noteToastShownAt: Date.now()
         });
+
+        // Persist to chrome.storage.local so service worker can read them
+        if (isExtension()) {
+          persistSeenNoteIds(updatedSeenNotes).catch(() => {});
+        }
       }
     },
 
@@ -509,6 +542,37 @@ export const useWalletStore = create<WalletStore>()(
         isNoteToastVisible: false,
         noteToastShownAt: null
       });
+
+      if (isExtension()) {
+        clearPersistedSeenNoteIds().catch(() => {});
+      }
+    },
+
+    // Extension sync actions
+    setExtensionClaimableNotes: notes => {
+      set({ extensionClaimableNotes: notes });
+    },
+
+    addExtensionClaimingNoteId: noteId => {
+      set(state => ({
+        extensionClaimingNoteIds: new Set([...state.extensionClaimingNoteIds, noteId])
+      }));
+    },
+
+    removeExtensionClaimingNoteIds: noteIds => {
+      if (noteIds.length === 0) return;
+      set(state => {
+        const next = new Set(state.extensionClaimingNoteIds);
+        let changed = false;
+        for (const id of noteIds) {
+          if (next.delete(id)) changed = true;
+        }
+        return changed ? { extensionClaimingNoteIds: next } : {};
+      });
+    },
+
+    clearExtensionClaimingNoteIds: () => {
+      set({ extensionClaimingNoteIds: new Set<string>() });
     }
   }))
 );
@@ -520,3 +584,11 @@ export { getIntercom };
 export const selectIsReady = (state: WalletStore) => state.status === WalletStatus.Ready;
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
 export const selectIsIdle = (state: WalletStore) => state.status === WalletStatus.Idle;
+
+// Expose store and intercom for E2E test introspection (only in E2E builds).
+// Use globalThis (not window) so this works in both extension pages and the
+// service worker context where window is undefined.
+if (process.env.MIDEN_E2E_TEST === 'true') {
+  (globalThis as any).__TEST_STORE__ = useWalletStore;
+  (globalThis as any).__TEST_INTERCOM__ = getIntercom();
+}

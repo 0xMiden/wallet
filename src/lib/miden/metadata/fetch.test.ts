@@ -1,5 +1,3 @@
-import { BasicFungibleFaucetComponent } from '@demox-labs/miden-sdk';
-
 import { isMidenAsset } from 'lib/miden/assets';
 
 import { MIDEN_METADATA, DEFAULT_TOKEN_METADATA } from './defaults';
@@ -15,32 +13,49 @@ jest.mock('lib/miden/assets', () => ({
   isMidenAsset: jest.fn()
 }));
 
-const mockGetAccount = jest.fn();
-const mockImportAccountById = jest.fn();
-const mockGetMidenClient = jest.fn(() => ({
-  getAccount: mockGetAccount,
-  importAccountById: mockImportAccountById
+jest.mock('lib/platform', () => ({
+  isExtension: jest.fn(() => true)
 }));
 
-jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: () => mockGetMidenClient(),
-  withWasmClientLock: jest.fn(<T>(fn: () => Promise<T>) => fn())
+// Mock @miden-sdk/miden-sdk: RpcClient, Endpoint, Address, BasicFungibleFaucetComponent
+const mockGetAccountDetails = jest.fn();
+const mockRpcClient = jest.fn(() => ({
+  getAccountDetails: mockGetAccountDetails
 }));
+const mockFromBech32 = jest.fn();
+const mockFromAccount = jest.fn();
 
-jest.mock('@demox-labs/miden-sdk', () => ({
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  RpcClient: function (..._args: unknown[]) {
+    return mockRpcClient();
+  },
+  Address: {
+    fromBech32: (...args: unknown[]) => mockFromBech32(...args)
+  },
   BasicFungibleFaucetComponent: {
-    fromAccount: jest.fn()
+    fromAccount: (account: unknown) => mockFromAccount(account)
   }
 }));
 
+jest.mock('lib/miden-chain/constants', () => ({
+  getRpcEndpoint: jest.fn(() => 'mock-endpoint'),
+  ensureSdkWasmReady: jest.fn(() => Promise.resolve())
+}));
+
+const mockFetchFromStorage = jest.fn();
+jest.mock('lib/miden/front/storage', () => ({
+  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
+}));
+
 const mockIsMidenAsset = isMidenAsset as unknown as jest.Mock;
-const mockFromAccount = BasicFungibleFaucetComponent.fromAccount as unknown as jest.Mock;
 
 describe('metadata/fetch', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetAccount.mockReset();
-    mockImportAccountById.mockReset();
+    mockGetAccountDetails.mockReset();
+    mockFromBech32.mockReset();
+    mockFromAccount.mockReset();
+    mockFetchFromStorage.mockResolvedValue(null);
   });
 
   describe('fetchTokenMetadata', () => {
@@ -53,15 +68,33 @@ describe('metadata/fetch', () => {
         base: MIDEN_METADATA,
         detailed: MIDEN_METADATA
       });
-      // Should not call any SDK methods for miden asset
-      expect(mockGetAccount).not.toHaveBeenCalled();
-      expect(mockImportAccountById).not.toHaveBeenCalled();
+      // Should not call any RPC methods for miden asset
+      expect(mockGetAccountDetails).not.toHaveBeenCalled();
     });
 
-    it('fetches metadata from SDK for non-miden assets', async () => {
+    it('returns cached metadata when available in storage', async () => {
       mockIsMidenAsset.mockReturnValue(false);
-      const mockAccount = { id: 'test' };
-      mockGetAccount.mockResolvedValue(mockAccount);
+      const cachedMeta = { decimals: 6, symbol: 'CACHED', name: 'Cached', thumbnailUri: '' };
+      mockFetchFromStorage.mockResolvedValueOnce({ 'cached-asset': cachedMeta });
+
+      const result = await fetchTokenMetadata('cached-asset');
+
+      expect(result).toEqual({ base: cachedMeta, detailed: cachedMeta });
+      expect(mockGetAccountDetails).not.toHaveBeenCalled();
+    });
+
+    it('fetches metadata via RpcClient for non-miden assets', async () => {
+      mockIsMidenAsset.mockReturnValue(false);
+
+      const mockAccountId = 'account-id-123';
+      mockFromBech32.mockReturnValue({ accountId: () => mockAccountId });
+
+      const mockUnderlyingAccount = { id: 'underlying' };
+      mockGetAccountDetails.mockResolvedValue({
+        account: () => mockUnderlyingAccount,
+        isPublic: () => true
+      });
+
       mockFromAccount.mockReturnValue({
         decimals: () => 8,
         symbol: () => ({ toString: () => 'TEST' })
@@ -69,6 +102,8 @@ describe('metadata/fetch', () => {
 
       const result = await fetchTokenMetadata('test-asset-id');
 
+      expect(mockFromBech32).toHaveBeenCalledWith('test-asset-id');
+      expect(mockGetAccountDetails).toHaveBeenCalledWith(mockAccountId);
       expect(result.base).toEqual({
         decimals: 8,
         symbol: 'TEST',
@@ -79,13 +114,15 @@ describe('metadata/fetch', () => {
       expect(result.detailed).toEqual(result.base);
     });
 
-    it('returns DEFAULT_TOKEN_METADATA when account not found after import', async () => {
+    it('returns DEFAULT_TOKEN_METADATA when RPC returns no underlying account (private)', async () => {
       mockIsMidenAsset.mockReturnValue(false);
-      // Both calls return null - not in IndexedDB and import fails to load
-      mockGetAccount.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
-      mockImportAccountById.mockResolvedValue(undefined);
+      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
+      mockGetAccountDetails.mockResolvedValue({
+        account: () => null,
+        isPublic: () => false
+      });
 
-      const result = await fetchTokenMetadata('unknown-asset-id');
+      const result = await fetchTokenMetadata('private-asset-id');
 
       expect(result).toEqual({
         base: DEFAULT_TOKEN_METADATA,
@@ -93,80 +130,49 @@ describe('metadata/fetch', () => {
       });
     });
 
-    it('throws NotFoundTokenMetadata on SDK error', async () => {
+    it('returns DEFAULT_TOKEN_METADATA when RPC returns no underlying account (public, warns)', async () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockIsMidenAsset.mockReturnValue(false);
+      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
+      mockGetAccountDetails.mockResolvedValue({
+        account: () => null,
+        isPublic: () => true
+      });
+
+      const result = await fetchTokenMetadata('public-missing-asset-id');
+
+      expect(result).toEqual({
+        base: DEFAULT_TOKEN_METADATA,
+        detailed: DEFAULT_TOKEN_METADATA
+      });
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'Failed to fetch metadata from chain for',
+        'public-missing-asset-id',
+        'Using default metadata'
+      );
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('throws NotFoundTokenMetadata when RPC call fails', async () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       mockIsMidenAsset.mockReturnValue(false);
-      mockGetAccount.mockRejectedValue(new Error('SDK error'));
+      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
+      mockGetAccountDetails.mockRejectedValue(new Error('RPC error'));
+
+      await expect(fetchTokenMetadata('rpc-fail-asset-id')).rejects.toThrow(NotFoundTokenMetadata);
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('throws NotFoundTokenMetadata on unexpected error', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockIsMidenAsset.mockReturnValue(false);
+      // Simulate an error that bypasses the inner try/catch (e.g. Address.fromBech32 throws)
+      mockFromBech32.mockImplementation(() => {
+        throw new Error('Unexpected error');
+      });
 
       await expect(fetchTokenMetadata('bad-asset-id')).rejects.toThrow(NotFoundTokenMetadata);
       consoleErrorSpy.mockRestore();
-    });
-  });
-
-  describe('IndexedDB-first loading optimization', () => {
-    it('reads from IndexedDB (getAccount) BEFORE any network fetch (importAccountById)', async () => {
-      mockIsMidenAsset.mockReturnValue(false);
-
-      const callOrder: string[] = [];
-      mockGetAccount.mockImplementation(async () => {
-        callOrder.push('getAccount');
-        return { id: 'cached' };
-      });
-      mockImportAccountById.mockImplementation(async () => {
-        callOrder.push('importAccountById');
-      });
-      mockFromAccount.mockReturnValue({
-        decimals: () => 6,
-        symbol: () => ({ toString: () => 'CACHED' })
-      });
-
-      await fetchTokenMetadata('some-asset-id');
-
-      // getAccount (IndexedDB read) must be called FIRST
-      expect(callOrder[0]).toBe('getAccount');
-      // importAccountById should NOT be called at all if account exists
-      expect(callOrder).not.toContain('importAccountById');
-    });
-
-    it('skips network fetch when account exists in IndexedDB', async () => {
-      mockIsMidenAsset.mockReturnValue(false);
-      const mockAccount = { id: 'cached-account' };
-      mockGetAccount.mockResolvedValue(mockAccount);
-      mockFromAccount.mockReturnValue({
-        decimals: () => 8,
-        symbol: () => ({ toString: () => 'FAST' })
-      });
-
-      await fetchTokenMetadata('cached-asset-id');
-
-      // getAccount should be called (reads from IndexedDB)
-      expect(mockGetAccount).toHaveBeenCalledWith('cached-asset-id');
-      // importAccountById should NOT be called (no network fetch needed)
-      expect(mockImportAccountById).not.toHaveBeenCalled();
-    });
-
-    it('only fetches from network when account is NOT in IndexedDB', async () => {
-      mockIsMidenAsset.mockReturnValue(false);
-
-      // First call returns null (not in IndexedDB), second call returns the imported account
-      mockGetAccount.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'imported' });
-      mockImportAccountById.mockResolvedValue(undefined);
-      mockFromAccount.mockReturnValue({
-        decimals: () => 6,
-        symbol: () => ({ toString: () => 'IMPORTED' })
-      });
-
-      const result = await fetchTokenMetadata('new-asset-id');
-
-      // First: try IndexedDB
-      expect(mockGetAccount).toHaveBeenNthCalledWith(1, 'new-asset-id');
-      // Then: network fetch because IndexedDB returned null
-      expect(mockImportAccountById).toHaveBeenCalledWith('new-asset-id');
-      // Finally: read the imported account
-      expect(mockGetAccount).toHaveBeenNthCalledWith(2, 'new-asset-id');
-      // Should return actual metadata from imported account, not default
-      expect(result.base.symbol).toBe('IMPORTED');
-      expect(result.base.decimals).toBe(6);
     });
   });
 
@@ -175,7 +181,7 @@ describe('metadata/fetch', () => {
       const error = new NotFoundTokenMetadata();
 
       expect(error.name).toBe('NotFoundTokenMetadata');
-      expect(error.message).toBe("Metadata for token doesn't found");
+      expect(error.message).toBe('Metadata for token not found');
       expect(error).toBeInstanceOf(Error);
     });
   });

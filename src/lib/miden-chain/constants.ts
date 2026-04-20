@@ -1,3 +1,5 @@
+import { Endpoint, MidenClient, NetworkId } from '@miden-sdk/miden-sdk/lazy';
+
 import { MidenNetwork } from 'lib/miden/types';
 
 export const NETWORK_STORAGE_ID = 'network_id';
@@ -8,6 +10,13 @@ export enum MIDEN_NETWORK_NAME {
   DEVNET = 'devnet',
   LOCALNET = 'localnet'
 }
+
+/**
+ * The default network used throughout the app.
+ * Driven by the MIDEN_NETWORK env variable at build time (default: testnet).
+ * Use `yarn build:devnet` to build for devnet.
+ */
+export const DEFAULT_NETWORK = (process.env.MIDEN_NETWORK as MIDEN_NETWORK_NAME) || MIDEN_NETWORK_NAME.TESTNET;
 
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',
@@ -30,11 +39,12 @@ export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
 export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://faucet.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://faucet.devnet.miden.io'],
-  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:57291']
+  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:8080']
 ]);
 
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
-  [MIDEN_NETWORK_NAME.TESTNET, 'http://transport.miden.io:57292'],
+  [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://127.0.0.1:57292']
 ]);
 
@@ -51,13 +61,47 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
     name: 'Devnet',
     autoSync: true
   },
-  { rpcBaseURL: 'localhost:57291', id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
+  { rpcBaseURL: 'http://localhost:57291', id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
 ];
 
-export enum MidenTokens {
-  Miden
+/**
+ * Returns the SDK NetworkId for the current DEFAULT_NETWORK.
+ */
+export function getNetworkId(): NetworkId {
+  const network: string = DEFAULT_NETWORK;
+  switch (network) {
+    /* c8 ignore start */
+    case MIDEN_NETWORK_NAME.MAINNET:
+      return NetworkId.mainnet();
+    case MIDEN_NETWORK_NAME.DEVNET:
+      return NetworkId.devnet();
+    /* c8 ignore stop */
+    case MIDEN_NETWORK_NAME.TESTNET:
+    case MIDEN_NETWORK_NAME.LOCALNET:
+    default:
+      return NetworkId.testnet();
+  }
 }
 
-export const TOKEN_MAPPING = {
-  [MidenTokens.Miden]: { faucetId: 'mtst1ap2t7nsjausqsgrswk9syfzkcu328yna_qruqqypuyph' }
-};
+/**
+ * Returns the SDK Endpoint for the current DEFAULT_NETWORK.
+ *
+ * NOTE: this constructs a wasm-bindgen-backed `Endpoint` instance and
+ * therefore requires the SDK's WASM module to be loaded on this thread.
+ * Page-side callers should `await ensureSdkWasmReady()` first.
+ */
+export function getRpcEndpoint(): Endpoint {
+  const url = MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
+  return new Endpoint(url);
+}
+
+/**
+ * Resolves once the SDK's WASM module is initialized on the current thread,
+ * so subsequent `new Endpoint(...)` / `new RpcClient(...)` calls are safe.
+ *
+ * Delegates to `MidenClient.ready()` (0.14.4+), which is idempotent and
+ * shared across callers.
+ */
+export function ensureSdkWasmReady(): Promise<void> {
+  return MidenClient.ready();
+}

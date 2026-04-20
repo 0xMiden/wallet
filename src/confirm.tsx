@@ -1,3 +1,8 @@
+import { Buffer } from 'buffer';
+(globalThis as any).Buffer = (globalThis as any).Buffer || Buffer;
+
+/* eslint-disable import/first, import/order -- Buffer polyfill above must run before any module that uses Buffer at import time. */
+
 import './main.css';
 
 import React from 'react';
@@ -8,7 +13,7 @@ import App from 'app/App';
 import { WindowType } from 'app/env';
 
 // Disable animations for extension
-document.documentElement.classList.add('extension-no-animations');
+// Animations enabled for extension
 
 const container = document.getElementById('root');
 const root = createRoot(container!);

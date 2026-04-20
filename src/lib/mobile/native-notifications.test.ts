@@ -1,6 +1,6 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { InAppBrowser } from '@capgo/inappbrowser';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile, isAndroid } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
@@ -24,9 +24,12 @@ jest.mock('@capacitor/local-notifications', () => ({
   }
 }));
 
-jest.mock('@capgo/inappbrowser', () => ({
+jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
-    close: jest.fn()
+    // PR-4 chunk 9: native-notifications now closes ALL active dApp
+    // instances on notification tap, not just the legacy default slot.
+    close: jest.fn(),
+    closeAll: jest.fn()
   }
 }));
 
@@ -175,7 +178,7 @@ describe('native-notifications', () => {
       jest.useFakeTimers();
 
       let capturedCallback: ((action: any) => Promise<void>) | null = null;
-      (LocalNotifications.addListener as jest.Mock).mockImplementation((event, callback) => {
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
         capturedCallback = callback;
         return Promise.resolve();
       });
@@ -198,13 +201,13 @@ describe('native-notifications', () => {
       jest.useRealTimers();
     });
 
-    it('closes InAppBrowser if open when notification tapped', async () => {
+    it('closes all InAppBrowser instances if open when notification tapped', async () => {
       jest.useFakeTimers();
 
       (useWalletStore.getState as jest.Mock).mockReturnValue({ isDappBrowserOpen: true });
 
       let capturedCallback: ((action: any) => Promise<void>) | null = null;
-      (LocalNotifications.addListener as jest.Mock).mockImplementation((event, callback) => {
+      (LocalNotifications.addListener as jest.Mock).mockImplementation((_event, callback) => {
         capturedCallback = callback;
         return Promise.resolve();
       });
@@ -217,7 +220,9 @@ describe('native-notifications', () => {
         }
       });
 
-      expect(InAppBrowser.close).toHaveBeenCalled();
+      // PR-4 chunk 9: must call closeAll() so multi-instance dApps are
+      // also torn down, not just the legacy default slot via close().
+      expect(InAppBrowser.closeAll).toHaveBeenCalled();
 
       jest.useRealTimers();
     });

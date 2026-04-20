@@ -1,20 +1,85 @@
-import React, { FC } from 'react';
+import React, { FC, FunctionComponent, SVGProps } from 'react';
 
-import { IconName } from 'app/icons/v2';
-import { FooterIconWrapper } from 'components/FooterIconWrapper';
+import classNames from 'clsx';
+import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+
+import { ReactComponent as ActivityIcon } from 'app/icons/activity-new.svg';
+import { ReactComponent as GlobeIcon } from 'app/icons/globe-new.svg';
+import { ReactComponent as HomeIcon } from 'app/icons/home-new.svg';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
+import { springs } from 'lib/animation';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { isDesktop, isMobile } from 'lib/platform';
+import { Link, useLocation } from 'lib/woozie';
 
 interface FooterProps {
   historyBadge?: boolean;
 }
 
-const Footer: FC<FooterProps> = ({ historyBadge }) => {
-  const { trackEvent } = useAnalytics();
-  const onSettingsClick = () => {
-    trackEvent('Footer/Settings', AnalyticsEventCategory.ButtonPress, { type: 'settings' });
+interface FooterNavButtonProps {
+  Icon: FunctionComponent<SVGProps<SVGSVGElement>>;
+  linkTo: string;
+  onClick: () => void;
+  name: string;
+  badge?: boolean;
+}
+
+const PILL_LAYOUT_ID = 'footer-pill';
+
+const FooterNavButton: FC<FooterNavButtonProps> = ({ Icon, linkTo, onClick, badge, name }) => {
+  const location = useLocation();
+  const currentPath = location.pathname;
+  const pathSegments = currentPath.split('/');
+  const currentPathSegment = pathSegments[1];
+  const active =
+    currentPathSegment === linkTo.replace('/', '') ||
+    (currentPathSegment === 'activity-details' && linkTo === '/activity') ||
+    (linkTo === '/' && currentPathSegment === '');
+
+  const handleClick = () => {
+    hapticSelection();
+    onClick();
   };
 
+  return (
+    <Link to={linkTo} onClick={handleClick} className="flex-1">
+      <div className="relative flex flex-col items-center gap-2 rounded-[28px] py-2 px-4">
+        {active && (
+          <motion.div
+            layoutId={PILL_LAYOUT_ID}
+            className="absolute inset-0 rounded-full bg-pill-active/18 dark:bg-pill-active/10"
+            transition={springs.pill}
+          />
+        )}
+        <Icon
+          className={classNames('relative z-10 h-[22px] w-[22px]', active ? 'text-pill-active' : 'text-heading-gray')}
+        />
+        <p
+          className={classNames(
+            'relative z-10 text-[10px] font-semibold uppercase',
+            active ? 'text-pill-active' : 'text-heading-gray'
+          )}
+        >
+          {name}
+        </p>
+        {badge && (
+          <div
+            className={classNames(
+              'absolute top-[30%] left-[70%] -translate-x-1/2 -translate-y-1/2 z-10',
+              'flex items-center justify-center',
+              'w-4 h-4 bg-red-500 rounded-full'
+            )}
+          />
+        )}
+      </div>
+    </Link>
+  );
+};
+
+const Footer: FC<FooterProps> = ({ historyBadge }) => {
+  const { trackEvent } = useAnalytics();
+  const { t } = useTranslation();
   const onBrowserClick = () => {
     trackEvent('Footer/Browser', AnalyticsEventCategory.ButtonPress, { type: 'browser' });
   };
@@ -27,39 +92,32 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
     trackEvent('Footer/History', AnalyticsEventCategory.ButtonPress, { type: 'history' });
   };
 
-  // Remove rounded corners on mobile so footer extends edge-to-edge
-  // On mobile, use safe area for bottom padding (replaces py-3 bottom portion)
-  const roundedClass = isMobile() ? '' : 'rounded-b-3xl';
-  const paddingClass = isMobile() ? 'pt-3 md:py-4' : 'py-3 md:py-4';
-  const mobileBottomPadding = isMobile() ? { paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' } : {};
+  // Mobile safe-area-inset-bottom is already applied on the body in
+  // public/mobile.html, so the footer doesn't need to re-apply it —
+  // stacking both pushes the pill ~34pt above where it should sit and
+  // leaves a huge empty band below the toolbar. The 12px gap between
+  // the pill and the safe-area floor comes from the Tailwind `pb-3`
+  // class below.
 
   return (
-    <footer
-      className={`w-full relative bg-white border-t ${roundedClass} h-18 px-8 md:px-16 ${paddingClass}`}
-      style={mobileBottomPadding}
-    >
-      <div className="flex justify-between">
-        <FooterIconWrapper icon={IconName.Home} iconFill={IconName.HomeFill} linkTo={'/'} onClick={onHomeClick} />
-        <FooterIconWrapper
-          icon={IconName.Time}
-          iconFill={IconName.TimeFill}
+    // NOTE: no `style={mobileBottomPadding}` here — on mobile the
+    // safe-area-inset-bottom is already applied to body in
+    // public/mobile.html, and stacking both pushes the pill ~34pt
+    // above where it should sit and leaves a huge empty band below
+    // the toolbar. Extension / desktop don't need the mobile
+    // padding either.
+    <footer className="w-full px-4 pb-3 pt-2 md:px-6">
+      <div className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] bg-pure-white/60 dark:bg-[#1e1e1e] backdrop-blur-md dark:backdrop-blur-none">
+        <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
+        <FooterNavButton
+          Icon={ActivityIcon}
           linkTo={'/history'}
           onClick={onHistoryClick}
           badge={historyBadge}
-        />
-        <FooterIconWrapper
-          icon={IconName.Settings}
-          iconFill={IconName.SettingsFill}
-          linkTo={'/settings'}
-          onClick={onSettingsClick}
+          name={t('activity')}
         />
         {(isMobile() || isDesktop()) && (
-          <FooterIconWrapper
-            icon={IconName.Globe}
-            iconFill={IconName.GlobalFill}
-            linkTo={'/browser'}
-            onClick={onBrowserClick}
-          />
+          <FooterNavButton Icon={GlobeIcon} linkTo={'/browser'} onClick={onBrowserClick} name={t('browser')} />
         )}
       </div>
     </footer>

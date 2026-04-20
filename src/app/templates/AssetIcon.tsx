@@ -11,7 +11,7 @@ interface AssetIconPlaceholderProps {
   size?: number;
 }
 
-const AssetIconPlaceholder: FC<AssetIconPlaceholderProps> = ({ metadata, size }) => {
+const AssetIconPlaceholder: FC<AssetIconPlaceholderProps> = () => {
   return <Icon name={IconName.MidenLogo} size="lg" />;
 };
 
@@ -44,7 +44,7 @@ const getFirstFallback = (
       return strategyItem;
     }
   }
-  return strategy[0];
+  return strategy[0]!;
 };
 
 export const AssetIcon: FC<AssetIconProps> = ({ assetSlug, assetId, className, size }) => {

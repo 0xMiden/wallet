@@ -17,6 +17,18 @@ export enum ITransactionStatus {
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType = 'send' | 'consume' | 'execute';
 
+/**
+ * Sub-phase of a transaction while `status === GeneratingTransaction` (or
+ * still `Queued` during the initial sync). Drives the modal's per-stage
+ * label so users see what the wallet is actually doing during the 3-8s
+ * spinner window. Not all stages apply to all tx types:
+ *   - syncing    : all types, before `syncState()`
+ *   - sending    : all types, during the SDK execute→prove→submit→apply
+ *   - confirming : send-private only, during `waitForTransactionCommit`
+ *   - delivering : send-private only, during `sendPrivateNote`
+ */
+export type ITransactionStage = 'syncing' | 'sending' | 'confirming' | 'delivering';
+
 export interface ITransaction {
   id: string;
   type: ITransactionType;
@@ -40,6 +52,12 @@ export interface ITransaction {
   extraInputs?: any;
   error?: string;
   resultBytes?: Uint8Array;
+  /**
+   * Current sub-phase during active processing. Readers should treat this
+   * as informational only — it is overwritten without coordination with
+   * `status`, and is stale once `status` reaches `Completed`/`Failed`.
+   */
+  stage?: ITransactionStage;
 }
 
 export interface ISuccessTransactionOutput {
@@ -86,7 +104,7 @@ export class Transaction implements ITransaction {
     this.delegateTransaction = delegateTransaction;
     this.secondaryAccountId = recipientAccountId;
     this.status = ITransactionStatus.Queued;
-    this.initiatedAt = Date.now();
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Executing';
   }
@@ -129,7 +147,7 @@ export class SendTransaction implements ITransaction {
     this.faucetId = faucetId;
     this.noteType = noteType;
     this.status = ITransactionStatus.Queued;
-    this.initiatedAt = Date.now();
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'SEND';
     this.displayMessage = 'Sending';
     this.extraInputs.recallBlocks = recallBlocks;
@@ -163,7 +181,7 @@ export class ConsumeTransaction implements ITransaction {
     this.secondaryAccountId = note.senderAddress;
     this.amount = note.amount !== '' ? BigInt(note.amount) : undefined;
     this.status = ITransactionStatus.Queued;
-    this.initiatedAt = Date.now();
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;

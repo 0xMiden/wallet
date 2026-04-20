@@ -1,11 +1,51 @@
 /**
- * Inter UI font
+ * Geist fonts
  */
 
-@import '~inter-ui/inter.css';
+@font-face {
+  font-family: 'Geist';
+  src: url('../fonts/Geist/webfonts/Geist[wght].woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('../fonts/Geist/webfonts/Geist-Italic[wght].woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../fonts/GeistMono/webfonts/GeistMono[wght].woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../fonts/GeistMono/webfonts/GeistMono-Italic[wght].woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
 
 * {
   font-variant-ligatures: none;
+}
+
+button,
+[role='button'] {
+  cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'] {
+  cursor: default;
 }
 
 /**
@@ -21,8 +61,8 @@
  * Tippy JS
  */
 
-@import '~tippy.js/dist/tippy.css';
-@import '~tippy.js/animations/shift-away-subtle.css';
+@import 'tippy.js/dist/tippy.css';
+@import 'tippy.js/animations/shift-away-subtle.css';
 
 .tippy-content {
   white-space: pre-line;
@@ -78,7 +118,18 @@
  * TailwindCSS
  */
 
-@tailwind base;
+@config '../tailwind.config.ts';
+@source "../src/**/*.{js,jsx,ts,tsx}";
+@source "../public/**/*.html";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/**
+ * CSS custom properties for shadcn/ui primitives
+ */
+:root {
+  --radius-md: 0.375rem;
+}
 
 /**
  * Appearance for iOS and Safari
@@ -99,10 +150,6 @@ button,
     -webkit-tap-highlight-color: transparent;
   }
 }
-
-@tailwind components;
-
-@tailwind utilities;
 
 /**
  * Text shadow utils.
@@ -176,21 +223,23 @@ button,
 
 /* total width */
 ::-webkit-scrollbar {
-  background-color: #f9f9f9;
-  width: 10px;
-  z-index: 1000;
+  width: 4px;
+  height: 4px;
 }
 
 /* background of the scrollbar except button or resizer */
 ::-webkit-scrollbar-track {
-  background-color: transparent;
+  background: transparent;
 }
 
 /* scrollbar itself */
 ::-webkit-scrollbar-thumb {
-  background-color: #d7d7d7;
-  border-radius: 16px;
-  border: 4px solid transparent;
+  background: rgba(150, 150, 150, 0.6);
+  border-radius: 100px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150, 150, 150, 0.8);
 }
 
 /* set button(top and bottom of the scrollbar) */
@@ -217,49 +266,113 @@ button,
   animation: mobile-slide-in 0.15s ease-out both;
 }
 
-/**
- * Disable all animations for Chrome extension
- * This class is added to <html> when isExtension() returns true
- */
-.extension-no-animations,
-.extension-no-animations *,
-.extension-no-animations *::before,
-.extension-no-animations *::after {
-  animation-duration: 0s !important;
-  animation-delay: 0s !important;
-  transition-duration: 0s !important;
-  transition-delay: 0s !important;
+/* Native navbar overlay hook (Architecture A — see DappBrowserProvider).
+ * On mobile, the wallet replaces the React Footer with a native
+ * MidenNavbarOverlayWindow at .normal+200 across every wallet page.
+ * The provider sets `data-native-navbar` on body whenever the user is
+ * past onboarding/unlock and the native navbar is up. */
+body[data-native-navbar] [data-tabbar-footer='true'] {
+  /* Hide the React footer — the native pill replaces it. */
+  display: none !important;
+}
+body[data-native-navbar] {
+  /* Reserve the vertical space the native pill occupies so React
+   * content doesn't scroll under it. The pill is 76pt tall and sits
+   * 12pt above the home-indicator safe area (see WKWebViewController
+   * .swift: shadowWrap 76pt tall, bottom = safeArea.bottom - 12), so
+   * the total bottom gutter = existing safe-area padding + 88pt.
+   * Pages using `h-full` inside body automatically shrink to this
+   * smaller inner box, keeping their bottom edge above the pill. */
+  padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 88px);
 }
 
-/* Also disable React Modal transitions */
-.extension-no-animations .ReactModal__Overlay {
-  transition: none !important;
-  opacity: 1 !important;
+body[data-native-navbar][data-dapp-foreground],
+body[data-native-navbar][data-edge-to-edge] {
+  /* Pages that opt in to edge-to-edge layout (dApp browser, Settings
+   * list) extend BEHIND the navbar pill instead of stopping above it.
+   * The navbar's PassThroughView still routes pill-area taps to the
+   * navbar window so the buttons stay live; only the visual layer
+   * overlaps. Pages that opt in are responsible for their own internal
+   * bottom padding so scrollable content can be scrolled above the
+   * pill (otherwise the last item is permanently hidden behind it).
+   *
+   * Reset the gutter back to just the home-indicator safe area so
+   * h-full chains inside the body fill all the way to the screen
+   * bottom. */
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 
-.extension-no-animations .ReactModal__Content {
-  transition: none !important;
-  transform: scale(1) !important;
+/* Parked-dApp bubble host — default transform is identity, and it
+ * rides a ~spring transition so that when the drawer-open rule
+ * below kicks in the bubble slides off the bottom of the screen on
+ * roughly the same curve as the native navbar's morphOut. Opacity
+ * drops alongside so a ghost isn't visible behind a translucent
+ * drawer backdrop. */
+[data-dapp-bubble-host='true'] {
+  transition:
+    transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body[data-drawer-open] [data-dapp-bubble-host='true'] {
+  /* Slide 200px below the screen — comfortably clears the bubble's
+   * ~72pt diameter + its 88pt footer clearance. The bubble's own
+   * z-index and positioning are unchanged, and pointer events on
+   * its children move with the transform so taps no longer hit
+   * the phantom location. */
+  transform: translateY(200px);
+  opacity: 0;
 }
 
-.extension-no-animations #recall-height-modal.ReactModal__Content {
-  transition: none !important;
-  transform: translateY(0) !important;
-}
+@layer base {
+  :root {
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.398 0.07 227.392);
+    --chart-4: oklch(0.828 0.189 84.429);
+    --chart-5: oklch(0.769 0.188 70.08);
 
-/* Disable Tippy animations */
-.extension-no-animations .tippy-box {
-  transition: none !important;
-}
+    /* Theme colors - light */
+    --color-app-bg: #f6f4f2;
+    --color-surface: #ffffff;
+    --color-surface-solid: #ffffff;
+    --color-surface-secondary: #f9f9f9;
+    --color-surface-tertiary: #f3f3f3;
+    --color-text-primary: #000000;
+    --color-text-secondary: #484848;
+    --color-text-tertiary: #737373;
+    --color-border: #00000033;
+    --color-border-secondary: #e9ebef;
+    --color-chip-bg: #eeeff2;
+    --color-input-bg: #f2f2f2;
+    --color-border-light: #e6e6e6;
+    --color-text-muted: #808080;
+    --color-border-subtle: #00000015;
+    --color-hover-bg: #e1dbdb;
+  }
 
-/* Re-enable sync wave animation (override the global disable) */
-.extension-no-animations .animate-gradient-wave {
-  animation-duration: 2s !important;
-  animation-delay: 0s !important;
-}
+  .dark {
+    --chart-1: oklch(0.488 0.243 264.376);
+    --chart-2: oklch(0.696 0.17 162.48);
+    --chart-3: oklch(0.769 0.188 70.08);
+    --chart-4: oklch(0.627 0.265 303.9);
+    --chart-5: oklch(0.645 0.246 16.439);
 
-/* Re-enable spinner animation for transaction progress (override the global disable) */
-.extension-no-animations .animate-spin {
-  animation-duration: 1s !important;
-  animation-delay: 0s !important;
+    /* Theme colors - dark */
+    --color-app-bg: #191919;
+    --color-surface: #3f3f3f99;
+    --color-surface-solid: #191919;
+    --color-surface-secondary: #2a2a2a;
+    --color-surface-tertiary: #333333;
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #ffffff;
+    --color-text-tertiary: #999999;
+    --color-border: #ffffff22;
+    --color-border-secondary: #444444;
+    --color-chip-bg: #3f3f3f;
+    --color-input-bg: #2a2a2a;
+    --color-border-light: #444444;
+    --color-text-muted: #999999;
+    --color-border-subtle: #ffffff15;
+    --color-hover-bg: #ffffff0d;
+  }
 }

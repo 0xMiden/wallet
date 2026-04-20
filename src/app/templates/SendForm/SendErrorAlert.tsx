@@ -13,7 +13,7 @@ type SendErrorAlertProps = {
 
 const SendErrorAlert: FC<SendErrorAlertProps> = ({ type, error }) => {
   const { t } = useTranslation();
-  const symbol = 'ALEO';
+  const symbol = 'MDN';
 
   return (
     <Alert
@@ -39,7 +39,7 @@ const SendErrorAlert: FC<SendErrorAlertProps> = ({ type, error }) => {
             return t('mainAssetBalanceIsZero');
 
           case error instanceof NotEnoughFundsError:
-            return t('minimalFeeGreaterThanBalanceVerbose');
+            return t('minimalFeeGreaterThanBalanceVerbose', { gasTokenSymbol: symbol });
 
           default:
             return (
@@ -48,7 +48,7 @@ const SendErrorAlert: FC<SendErrorAlertProps> = ({ type, error }) => {
                 <br />
                 {t('thisMayHappenBecause')}
                 <ul className="mt-1 ml-2 text-xs list-disc list-inside">
-                  <li>{t('minimalFeeGreaterThanBalanceVerbose', { symbol })}</li>
+                  <li>{t('minimalFeeGreaterThanBalanceVerbose', { gasTokenSymbol: symbol })}</li>
                   <li>{t('networkOrOtherIssue')}</li>
                 </ul>
               </>

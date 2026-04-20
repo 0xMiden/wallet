@@ -2,19 +2,25 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import Modal from 'react-modal';
 
 import {
   hasQueuedTransactions,
+  requestSWTransactionProcessing,
   safeGenerateTransactionsLoop as dbTransactionsLoop,
-  getAllUncompletedTransactions
+  getAllUncompletedTransactions,
+  startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { GeneratingTransaction } from 'screens/generating-transaction/GeneratingTransaction';
 
 export const TransactionProgressModal: FC = () => {
+  const { t } = useTranslation();
   // Use Zustand store for modal state
   const isOpen = useWalletStore(state => state.isTransactionModalOpen);
   const openModal = useWalletStore(state => state.openTransactionModal);
@@ -26,6 +32,32 @@ export const TransactionProgressModal: FC = () => {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   // Track if we're actively processing (started when modal opens, continues even when hidden)
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // If there are uncompleted send transactions on mount (e.g. after a reload
+  // mid-send), resume processing silently. We deliberately do NOT auto-open
+  // the modal — that would reintroduce the "page reload → modal covers
+  // Send/Home → cannot interact with the wallet until the pending tx
+  // confirms" block that the stress suite caught. The user's next explicit
+  // send action still opens the modal via `openTransactionModal()` in
+  // SendManager.
+  //
+  // On extension: nudge the SW, which owns the tx loop.
+  // On mobile/desktop: no SW — drive the loop directly via the shared
+  // background processor (same entry point Explore's auto-consume uses).
+  useEffect(() => {
+    const resumeIfNeeded = async () => {
+      const uncompleted = await getAllUncompletedTransactions();
+      const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
+      if (!hasSendTxs) return;
+      if (isExtension()) {
+        requestSWTransactionProcessing();
+      } else {
+        startBackgroundTransactionProcessing(signTransaction);
+      }
+    };
+
+    resumeIfNeeded();
+  }, [signTransaction]);
 
   // Reset hasLoadedOnce when modal closes
   useEffect(() => {
@@ -43,27 +75,41 @@ export const TransactionProgressModal: FC = () => {
     },
     {
       revalidateOnMount: true,
-      refreshInterval: 5_000,
-      dedupingInterval: 3_000
+      // Poll fast enough to surface per-stage transitions (syncing →
+      // sending → confirming → delivering) — a 5s poll hides them entirely
+      // on public sends that complete in ~3s.
+      refreshInterval: 500,
+      dedupingInterval: 250
     }
   );
 
   const transactions = txs || [];
 
   // Process transactions - continues even when modal is hidden
+  // On extension: SW drives processing, this is a no-op
   const generateTransaction = useCallback(async () => {
+    if (isExtension()) {
+      // On extension, just refresh the list — SW handles processing
+      mutateTx();
+      return;
+    }
+
     try {
       const success = await dbTransactionsLoop(signTransaction);
       if (success === false) {
-        setError(true);
-        // Re-open modal to show error if it was hidden
-        openModal();
+        // A transaction failed, but check if there are more to process
+        const hasMore = await hasQueuedTransactions();
+        if (!hasMore) {
+          // No more transactions — the user's tx was the one that failed
+          setError(true);
+          openModal();
+        }
+        // If there are more queued txs, don't set error — let the loop continue
       }
       mutateTx();
     } catch (e) {
       console.error('[TransactionProgressModal] Error in generateTransaction:', e);
       setError(true);
-      // Re-open modal to show error if it was hidden
       openModal();
     }
   }, [mutateTx, signTransaction, openModal]);
@@ -76,9 +122,23 @@ export const TransactionProgressModal: FC = () => {
   }, [isOpen, isProcessing]);
 
   // Processing loop - runs while processing, regardless of modal visibility
+  // On extension: only polls for status (no local WASM calls)
   useEffect(() => {
     if (!isProcessing || error) {
       return;
+    }
+
+    if (isExtension()) {
+      // On extension, just poll for status — SW handles processing
+      const intervalId = setInterval(async () => {
+        const remaining = await getAllUncompletedTransactions();
+        mutateTx();
+        if (remaining.length === 0) {
+          setIsProcessing(false);
+        }
+      }, 5_000);
+
+      return () => clearInterval(intervalId);
     }
 
     // Check if we still have transactions to process
@@ -101,7 +161,7 @@ export const TransactionProgressModal: FC = () => {
     return () => {
       clearInterval(intervalId);
     };
-  }, [isProcessing, generateTransaction, error]);
+  }, [isProcessing, generateTransaction, error, mutateTx]);
 
   // Auto-close when all transactions are done
   // Only auto-close AFTER we've done initial fetch (hasLoadedOnce) to prevent race condition
@@ -129,6 +189,14 @@ export const TransactionProgressModal: FC = () => {
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
 
+  // Active-stage pickup: prefer the tx currently executing, else head of
+  // queue so "Syncing" shows up instantly when the SW hasn't started on
+  // the new tx yet. Matches the picker used by GeneratingTransactionPage.
+  const activeTx = transactions.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? transactions[0];
+  const activeStage = activeTx?.stage;
+  const activeType = activeTx?.type;
+  const remainingCount = transactions.length;
+
   if (!isOpen) {
     return null;
   }
@@ -147,22 +215,33 @@ export const TransactionProgressModal: FC = () => {
       isOpen={isOpen}
       onRequestClose={handleClose}
       shouldCloseOnOverlayClick={transactionComplete || error}
-      className={classNames('bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 outline-none overflow-hidden')}
-      overlayClassName="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-6"
+      className={classNames('w-full max-w-lg outline-none flex flex-col items-stretch gap-6')}
+      overlayClassName="fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4"
       style={{
         overlay: { zIndex: 9999 },
-        content: { zIndex: 9999 }
+        content: { position: 'relative', inset: 'unset', zIndex: 9999 }
       }}
       appElement={modalRoot}
       parentSelector={() => modalRoot!}
       ariaHideApp={false}
     >
-      <GeneratingTransaction
-        progress={progress}
-        onDoneClick={handleClose}
-        transactionComplete={transactionComplete}
-        hasErrors={error}
-      />
+      <div className="bg-surface-solid rounded-3xl overflow-hidden">
+        <GeneratingTransaction
+          progress={progress}
+          onDoneClick={handleClose}
+          transactionComplete={transactionComplete}
+          hasErrors={error}
+          activeStage={activeStage}
+          activeType={activeType}
+          remainingCount={remainingCount}
+        />
+      </div>
+      <button
+        className="w-full rounded-2xl bg-primary-500 text-pure-white font-semibold text-base h-12"
+        onClick={handleClose}
+      >
+        {transactionComplete ? t('done') : t('hide')}
+      </button>
     </Modal>,
     modalRoot
   );
