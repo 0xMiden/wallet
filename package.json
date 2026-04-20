@@ -197,7 +197,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.0.1",
     "@chromatic-com/storybook": "^1.5.0",
-    "@miden-sdk/vite-plugin": "0.14.3",
+    "@miden-sdk/vite-plugin": "0.14.4",
     "@playwright/test": "^1.48.2",
     "@resvg/resvg-js": "^2.6.2",
     "@serh11p/jest-webextension-mock": "4.0.0",
