@@ -12,7 +12,13 @@ export class NotEnoughFundsError extends ArtificialError {}
 export class ZeroBalanceError extends NotEnoughFundsError {}
 export class ZeroTEZBalanceError extends NotEnoughFundsError {}
 
-export const ACCOUNT_NAME_PATTERN = /[^\s-].{0,16}$/;
+// Account name must be 1–16 characters and not start with whitespace or
+// hyphen. The earlier form of this regex was unanchored at the start
+// (`/[^\s-].{0,16}$/`), which silently accepted names of ANY length
+// because the regex engine was free to start matching at any suffix of
+// the input. Anchoring both ends fixes that — 17-char names are now
+// rejected as the UX intended.
+export const ACCOUNT_NAME_PATTERN = /^[^\s-].{0,15}$/;
 
 export const PASSWORD_PATTERN = new RegExp(
   [

@@ -1,5 +1,6 @@
 import PQueue from 'p-queue';
 
+import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import {
   toFront,
@@ -37,8 +38,6 @@ import {
   requestConsumableNotes,
   waitForTransaction
 } from './dapp';
-
-const ACCOUNT_NAME_PATTERN = /^.{0,16}$/;
 
 // Lazy queue initialization: in the Vite SW build, module-scope init (init_actions)
 // may not complete because it transitively depends on dapp.ts which imports frontend
@@ -175,7 +174,7 @@ export function createHDAccount(walletType: WalletType, name?: string) {
     if (name) {
       name = name.trim();
       if (!ACCOUNT_NAME_PATTERN.test(name)) {
-        throw new Error('Invalid name. It should be: 1-16 characters, without special');
+        throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
       }
     }
 
@@ -208,7 +207,7 @@ export function editAccount(accPublicKey: string, name: string) {
   return withUnlocked(async ({ vault }) => {
     name = name.trim();
     if (!ACCOUNT_NAME_PATTERN.test(name)) {
-      throw new Error('Invalid name. It should be: 1-16 characters, without special');
+      throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
     }
 
     const updatedAccounts = await vault.editAccountName(accPublicKey, name);
@@ -218,18 +217,24 @@ export function editAccount(accPublicKey: string, name: string) {
 }
 
 export function importAccount(privateKey: string, name?: string) {
-  return withUnlocked(async ({ vault }) => {
-    if (name !== undefined) {
-      name = name.trim();
-      if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
-        throw new Error('Invalid name. It should be: 1-16 characters, without special');
+  // Serialize on the unlock queue: `importAccountFromPrivateKey` reads
+  // the accounts list, calls into WASM, then writes the updated list.
+  // Two concurrent imports would otherwise both read the stale list and
+  // the second write would drop the first account.
+  return withUnlocked(({ vault }) =>
+    getUnlockQueue().add(async () => {
+      if (name !== undefined) {
+        name = name.trim();
+        if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
+          throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+        }
       }
-    }
 
-    const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
-    accountsUpdated({ accounts });
-    return accounts[accounts.length - 1]!.publicKey;
-  });
+      const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+      accountsUpdated({ accounts });
+      return accounts[accounts.length - 1]!.publicKey;
+    })
+  );
 }
 
 export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}

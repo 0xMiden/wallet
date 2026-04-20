@@ -396,7 +396,6 @@ export interface ImportAccountRequest extends WalletMessageBase {
   type: WalletMessageType.ImportAccountRequest;
   privateKey: string;
   name?: string;
-  encPassword?: string;
 }
 
 export interface ImportAccountResponse extends WalletMessageBase {

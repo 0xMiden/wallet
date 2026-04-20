@@ -2,11 +2,19 @@
 
 ## 1.14.4 (TBD)
 
+### Features
+
+* [FEATURE][all] **Private key export & import.** Settings → Reveal Private Key now shows the hex-encoded auth secret for the current account (guarded by the existing password / biometric unlock). Import Account → Private Key accepts a hex secret plus optional name and rebuilds the account deterministically via `AccountBuilder` + `AccountComponent.createAuthComponentFromSecretKey`; the secret is persisted through the existing `keystore.insert` → `insertKeyCallback` path, so the reveal/sign pipeline treats imported accounts identically to HD-derived ones. Imported accounts are tagged `hdIndex: -1`. (#195)
+
 ### Fixes
 
 * [FIX][all] Encrypted-wallet-file import now restores secret keys for every imported account, not just the first. The decrypted wallet payload carries the full `WalletAccount[]` (with `hdIndex` and `type` per account), and `Vault.spawnFromMidenClient` re-derives each auth key from the mnemonic and inserts it into the new keystore via `client.keystore.insert`. Previously the imported miden-client DB came over without keystore entries, so signing broke for any non-default account.
 * [FIX][all] Encrypted wallet file export now includes wallet account metadata alongside the miden-client/wallet DB dumps, so import can preserve account names and HD indices instead of falling back to generic "Miden Account N" labels.
 * [FIX][all] Encrypted-file password screen consolidates the hardware-vs-password branching around a single `hasHardwareProtector` check — hardware-only vaults skip password entry entirely, password-protected vaults keep the attempt/lockout flow.
+* [FIX][all] Encrypted-wallet-file flow now filters imported accounts out of the exported payload and adds a red inline notice naming the count of omitted accounts, because the file format does not carry raw private keys. Restore (`Vault.spawnFromMidenClient`) silently skips miden-client accounts with no matching `WalletAccount` entry and any entry with `hdIndex < 0`, so a stray orphan no longer either aborts the restore or overwrites an imported account's real secret with a mnemonic-derived one under `m/44'/0'/0'/-1'`. (#195)
+* [FIX][all] `ACCOUNT_NAME_PATTERN` in `app/defaults.tsx` is now anchored at both ends (`/^[^\s-].{0,15}$/`); the prior `/[^\s-].{0,16}$/` was missing the start anchor, which silently accepted names of ANY length because the regex engine could match any suffix. `EditAccountName` / `CreateAccount` / Import Account now all enforce the same 16-character ceiling. (#195)
+* [FIX][all] `importAccount` now serializes through the unlock queue and re-reads the accounts list inside the serialized section, so two quick successive imports can't both pass the name-uniqueness check against stale data and lose one of the writes. Auto-generated default names (`Account N`) also walk forward past collisions instead of throwing when the user has manually renamed an earlier account to match the template. (#195)
+* [FIX][all] Hex validation on private-key import rejects odd-length input and caps the input at 32 KiB before allocation, so a malformed or pathologically large paste fails fast with a clean `PublicError` instead of throwing inside `AuthSecretKey.deserialize` under the WASM lock. (#195)
 
 ---
 

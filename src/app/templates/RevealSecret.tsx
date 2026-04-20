@@ -20,7 +20,7 @@ type FormData = {
 };
 
 type RevealSecretProps = {
-  reveal: 'view-key' | 'private-key' | 'seed-phrase';
+  reveal: 'private-key' | 'seed-phrase';
 };
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
@@ -112,23 +112,6 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   const texts = useMemo(() => {
     switch (reveal) {
-      case 'view-key':
-        return {
-          name: t('viewKey'),
-          accountBanner: (
-            <AccountBanner labelDescription={t('ifYouWantToRevealViewKeyFromOtherAccount')} className="mb-6" />
-          ),
-          attention: (
-            <div className="flex flex-col text-left text-black">
-              <span className="font-medium" style={{ fontSize: '14px', lineHeight: '20px', marginBottom: '4px' }}>
-                {t('doNotShareViewKey1')} <br />
-              </span>
-              <span className="text-xs">{t('doNotShareViewKey2')}</span>
-            </div>
-          ),
-          fieldDesc: t('viewKeyFieldDescription')
-        };
-
       case 'private-key':
         return {
           name: t('privateKey'),
@@ -232,6 +215,15 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   return (
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
       {texts.accountBanner}
+
+      {reveal === 'private-key' && !secret && (
+        <Alert
+          type="warn"
+          title={t('privateKeyRevealWarningTitle')}
+          description={<p>{t('privateKeyRevealWarningBody')}</p>}
+          className="mb-4 rounded-lg"
+        />
+      )}
 
       {mainContent}
 

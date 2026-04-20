@@ -352,7 +352,21 @@ export class Vault {
             compareAccountIds(wa.publicKey, getBech32AddressFromAccountId(account.id()))
           );
           if (!walletAccount) {
-            throw new PublicError('Account from Miden Client not found in provided wallet accounts');
+            // Account exists in the restored miden-client DB but has no
+            // matching `WalletAccount` entry — either orphan data or (by
+            // design) an imported account the exporter filtered out
+            // because the encrypted-file format can't carry its raw
+            // secret. Skip silently; the account stays invisible in the
+            // wallet UI (which reads from `walletAccounts`).
+            continue;
+          }
+          if (walletAccount.hdIndex < 0) {
+            // Belt-and-suspenders: an imported account's key is NOT
+            // derivable from the mnemonic. Writing `rpoFalconWithRNG`
+            // output into the keystore under its account id would
+            // overwrite any preserved real secret with a garbage key
+            // the vault can never sign with. Skip.
+            continue;
           }
           const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
           const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
@@ -457,19 +471,25 @@ export class Vault {
    * (which routes through `insertKeyCallbackWrapper`). Imported
    * accounts are tagged with `hdIndex: -1` since they are not derived
    * from the wallet mnemonic.
+   *
+   * Callers must serialize concurrent invocations (e.g. via the unlock
+   * queue). The name-uniqueness check and accounts-list write are
+   * separated by a WASM client call, so two parallel imports could
+   * otherwise both pass the check and race the final save.
    */
   async importAccountFromPrivateKey(privateKeyHex: string, name?: string): Promise<WalletAccount[]> {
     return withError('Failed to import account from private key', async () => {
       const trimmed = privateKeyHex.trim();
-      if (!/^[0-9a-fA-F]+$/.test(trimmed) || trimmed.length === 0) {
-        throw new PublicError('Private key must be a non-empty hex string');
+      if (!isValidHex(trimmed) || trimmed.length > MAX_PRIVATE_KEY_HEX_LEN) {
+        throw new PublicError('Private key must be valid even-length hex');
       }
 
-      const allAccounts = await this.fetchAccounts();
-      const accName = name?.trim() || getNewAccountName(allAccounts);
-
-      if (allAccounts.some(a => a.name === accName)) {
-        throw new PublicError('Account with same name already exist');
+      const userSuppliedName = name?.trim();
+      if (userSuppliedName) {
+        const existingAccounts = await this.fetchAccounts();
+        if (existingAccounts.some(a => a.name === userSuppliedName)) {
+          throw new PublicError('Account with same name already exists');
+        }
       }
 
       const secretKeyBytes = new Uint8Array(Buffer.from(trimmed, 'hex'));
@@ -499,6 +519,15 @@ export class Vault {
 
         return getBech32AddressFromAccountId(account.id());
       });
+
+      // Re-read the accounts list AFTER the WASM lock released. The
+      // pre-read above was only to validate a user-supplied name early;
+      // re-reading here defends against any other writer (e.g. another
+      // account-creating path) that slipped in while we were in WASM.
+      // `concatAccount` below throws on duplicate bech32 id, so
+      // re-importing the same key still fails cleanly.
+      const allAccounts = await this.fetchAccounts();
+      const accName = userSuppliedName || pickFreshAccountName(allAccounts);
 
       const newAccount: WalletAccount = {
         publicKey,
@@ -714,6 +743,30 @@ function concatAccount(current: WalletAccount[], newOne: WalletAccount) {
 
 function getNewAccountName(allAccounts: WalletAccount[], templateI18nKey = 'defaultAccountName') {
   return getMessage(templateI18nKey, { accountNumber: String(allAccounts.length + 1) });
+}
+
+// When auto-naming a new account we can't blindly use
+// `allAccounts.length + 1` as the suffix: a user who manually renamed one
+// of their earlier accounts to match the template ("Account 3" etc.)
+// would then collide on the next auto-insert. Walk forward until we find
+// a name nobody else is holding.
+function pickFreshAccountName(allAccounts: WalletAccount[]): string {
+  const existing = new Set(allAccounts.map(a => a.name));
+  for (let i = allAccounts.length + 1; i < allAccounts.length + 100; i++) {
+    const candidate = getMessage('defaultAccountName', { accountNumber: String(i) });
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+  // Pathological: 100 contiguous collisions. Fall back to a UUID-ish suffix.
+  return getMessage('defaultAccountName', { accountNumber: String(Date.now()) });
+}
+
+const MAX_PRIVATE_KEY_HEX_LEN = 32 * 1024;
+
+function isValidHex(s: string): boolean {
+  if (s.length === 0 || s.length % 2 !== 0) return false;
+  return /^[0-9a-fA-F]+$/.test(s);
 }
 
 function getMainDerivationPath(walletType: WalletType, accIndex: number) {

@@ -19,6 +19,8 @@ import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/languag
 import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
 import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
 import { ReactComponent as PrivacyPolicyIconOrange } from 'app/icons/settings/privacy-policy.svg';
+import { ReactComponent as SecretKeyIconDevnet } from 'app/icons/settings/secret-key-devnet.svg';
+import { ReactComponent as SecretKeyIconOrange } from 'app/icons/settings/secret-key.svg';
 import { ReactComponent as SeedPhraseIconDevnet } from 'app/icons/settings/seed-phrase-devnet.svg';
 import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-phrase.svg';
 import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
@@ -56,6 +58,7 @@ const EncryptedWalletIcon = isDevnet ? EncryptedWalletIconDevnet : EncryptedWall
 const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
 const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
 const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
+const SecretKeyIcon = isDevnet ? SecretKeyIconDevnet : SecretKeyIconOrange;
 const SeedPhraseIcon = isDevnet ? SeedPhraseIconDevnet : SeedPhraseIconOrange;
 const TosIcon = isDevnet ? TosIconDevnet : TosIconOrange;
 
@@ -146,7 +149,7 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'reveal-private-key',
         titleI18nKey: 'revealPrivateKey',
-        Icon: SeedPhraseIcon,
+        Icon: SecretKeyIcon,
         Component: RevealPrivateKey,
         testID: SettingsSelectors.RevealPrivateKeyButton
       },
