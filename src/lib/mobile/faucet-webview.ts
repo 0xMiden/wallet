@@ -1,7 +1,7 @@
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 
+import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';

@@ -252,7 +252,7 @@
     "dotenv": "^16.0.0",
     "eslint": "^8.48.0",
     "eslint-config-react-app": "6.0.0",
-    "eslint-import-resolver-typescript": "2.4.0",
+    "eslint-import-resolver-typescript": "^3.9.1",
     "eslint-plugin-autofix": "^1.1.0",
     "eslint-plugin-flowtype": "^8.0.3",
     "eslint-plugin-i18next": "^6.1.3",

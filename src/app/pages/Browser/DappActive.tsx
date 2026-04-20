@@ -15,9 +15,9 @@
 
 import React, { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { InAppBrowser } from '@miden/dapp-browser';
 import { useTranslation } from 'react-i18next';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
