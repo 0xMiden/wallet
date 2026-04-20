@@ -1,6 +1,14 @@
 import { derivePath } from '@demox-labs/aleo-hd-key';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
-import { AuthSecretKey, SigningInputs, Word } from '@miden-sdk/miden-sdk/lazy';
+import {
+  AccountBuilder,
+  AccountComponent,
+  AccountStorageMode,
+  AccountType,
+  AuthSecretKey,
+  SigningInputs,
+  Word
+} from '@miden-sdk/miden-sdk/lazy';
 import * as Bip39 from 'bip39';
 
 import { getMessage } from 'lib/i18n';
@@ -439,6 +447,81 @@ export class Vault {
     });
   }
 
+  /**
+   * Import an account from a raw hex-encoded auth secret key.
+   *
+   * Rebuilds a public wallet account deterministically from the secret
+   * key (same auth component + `AccountBuilder` seed → same account id
+   * across wallets), registers it with the miden client, and persists
+   * the secret into the vault via the standard `keystore.insert` path
+   * (which routes through `insertKeyCallbackWrapper`). Imported
+   * accounts are tagged with `hdIndex: -1` since they are not derived
+   * from the wallet mnemonic.
+   */
+  async importAccountFromPrivateKey(privateKeyHex: string, name?: string): Promise<WalletAccount[]> {
+    return withError('Failed to import account from private key', async () => {
+      const trimmed = privateKeyHex.trim();
+      if (!/^[0-9a-fA-F]+$/.test(trimmed) || trimmed.length === 0) {
+        throw new PublicError('Private key must be a non-empty hex string');
+      }
+
+      const allAccounts = await this.fetchAccounts();
+      const accName = name?.trim() || getNewAccountName(allAccounts);
+
+      if (allAccounts.some(a => a.name === accName)) {
+        throw new PublicError('Account with same name already exist');
+      }
+
+      const secretKeyBytes = new Uint8Array(Buffer.from(trimmed, 'hex'));
+
+      const options: MidenClientCreateOptions = {
+        insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
+      };
+
+      const publicKey = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient(options);
+        let secretKey: AuthSecretKey;
+        try {
+          secretKey = AuthSecretKey.deserialize(secretKeyBytes);
+        } catch {
+          throw new PublicError('Invalid private key');
+        }
+
+        const builder = new AccountBuilder(new Uint8Array(32).fill(0))
+          .accountType(AccountType.RegularAccountImmutableCode)
+          .storageMode(AccountStorageMode.public())
+          .withAuthComponent(AccountComponent.createAuthComponentFromSecretKey(secretKey))
+          .withBasicWalletComponent();
+
+        const account = builder.build().account;
+        await midenClient.client.accounts.insert({ account });
+        await midenClient.client.keystore.insert(account.id(), secretKey);
+
+        return getBech32AddressFromAccountId(account.id());
+      });
+
+      const newAccount: WalletAccount = {
+        publicKey,
+        name: accName,
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: -1
+      };
+
+      const newAllAccounts = concatAccount(allAccounts, newAccount);
+
+      await encryptAndSaveMany(
+        [
+          [accPubKeyStrgKey(publicKey), publicKey],
+          [accountsStrgKey, newAllAccounts]
+        ],
+        this.vaultKey
+      );
+
+      return newAllAccounts;
+    });
+  }
+
   async importMnemonicAccount(_chainId: string, _mnemonic: string, _password?: string, _derivationPath?: string) {}
 
   async importFundraiserAccount(_chainId: string, _email: string, _password: string, _mnemonic: string) {}
@@ -540,6 +623,34 @@ export class Vault {
         throw new PublicError('Mnemonic does not match the expected pattern');
       }
       return mnemonic;
+    });
+  }
+
+  /**
+   * Reveal the raw hex-encoded auth secret key for a given account.
+   * The key here is the account's public-key commitment hex (no `0x`) —
+   * the same key used by `insertKeyCallbackWrapper` when storing the
+   * secret. The caller is responsible for deriving it from the account
+   * (see `getAccountPublicKeyCommitment` in `RevealSecret.tsx`).
+   */
+  static async revealPrivateKey(accountPubKeyCommitment: string, password?: string) {
+    let vaultKey: CryptoKey;
+
+    if (password) {
+      vaultKey = await Vault.unlockWithPassword(password);
+    } else {
+      vaultKey = await Vault.getHardwareVaultKey();
+    }
+
+    return withError('Failed to reveal private key', async () => {
+      const secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+        accAuthSecretKeyStrgKey(accountPubKeyCommitment),
+        vaultKey
+      );
+      if (!secretKeyHex) {
+        throw new PublicError('Private key not found for this account');
+      }
+      return secretKeyHex;
     });
   }
 

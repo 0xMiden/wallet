@@ -195,7 +195,9 @@ export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
-export function revealPrivateKey(_accPublicKey: string, _password: string) {}
+export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
+  return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+}
 
 export function revealPublicKey(_accPublicKey: string) {}
 
@@ -215,7 +217,20 @@ export function editAccount(accPublicKey: string, name: string) {
   });
 }
 
-export function importAccount(_privateKey: string, _encPassword?: string) {}
+export function importAccount(privateKey: string, name?: string) {
+  return withUnlocked(async ({ vault }) => {
+    if (name !== undefined) {
+      name = name.trim();
+      if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
+        throw new Error('Invalid name. It should be: 1-16 characters, without special');
+      }
+    }
+
+    const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+    accountsUpdated({ accounts });
+    return accounts[accounts.length - 1]!.publicKey;
+  });
+}
 
 export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}
 

@@ -71,6 +71,8 @@
   "youCannotGetPrivateKeyFromThisAccountType": "You cannot get private key from $accountType$ accounts.",
   "maximalAmount": "Maximal: $amount$",
   "accountName": "Account name",
+  "accountNameInputPlaceholder": "e.g. Savings",
+  "accountNameInputInvalid": "Up to 16 characters",
   "editAccountName": "Edit Account Name",
   "accountNameInputDescription": "What will be the name of the new account?",
   "delegate": "Delegate",

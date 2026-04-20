@@ -86,8 +86,10 @@ export default ImportAccount;
 
 interface ByPrivateKeyFormData {
   privateKey: string;
-  encPassword?: string;
+  name?: string;
 }
+
+const ACCOUNT_NAME_PATTERN = /^.{0,16}$/;
 
 const ByPrivateKeyForm: FC = () => {
   const { t } = useTranslation();
@@ -101,12 +103,12 @@ const ByPrivateKeyForm: FC = () => {
   const [error, setError] = useState<ReactNode>(null);
 
   const onSubmit = useCallback(
-    async ({ privateKey, encPassword }: ByPrivateKeyFormData) => {
+    async ({ privateKey, name }: ByPrivateKeyFormData) => {
       if (isSubmitting) return;
 
       setError(null);
       try {
-        await importAccount(privateKey.replace(/\s/g, ''), encPassword);
+        await importAccount(privateKey.replace(/\s/g, ''), name?.trim() || undefined);
       } catch (err: any) {
         console.error(err);
 
@@ -148,6 +150,21 @@ const ByPrivateKeyForm: FC = () => {
       <div className="mb-6 text-gray-200" style={{ fontSize: '12px', lineHeight: '16px' }}>
         {t('privateKeyInputDescription')}
       </div>
+      <FormField
+        {...register('name', {
+          pattern: { value: ACCOUNT_NAME_PATTERN, message: t('accountNameInputInvalid') }
+        })}
+        name="name"
+        id="importacc-name"
+        label={
+          <div className="font-medium -mb-2" style={{ fontSize: '14px', lineHeight: '20px' }}>
+            {t('accountName')}
+          </div>
+        }
+        placeholder={t('accountNameInputPlaceholder')}
+        errorCaption={errors.name?.message}
+        containerClassName="mb-6"
+      />
       {!isMobile() && (
         <FormSubmitButton
           className="capitalize w-full justify-center"

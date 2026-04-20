@@ -354,7 +354,7 @@ export interface RevealViewKeyResponse extends WalletMessageBase {
 export interface RevealPrivateKeyRequest extends WalletMessageBase {
   type: WalletMessageType.RevealPrivateKeyRequest;
   accountPublicKey: string;
-  password: string;
+  password?: string;
 }
 
 export interface RevealPrivateKeyResponse extends WalletMessageBase {
@@ -395,11 +395,13 @@ export interface EditAccountResponse extends WalletMessageBase {
 export interface ImportAccountRequest extends WalletMessageBase {
   type: WalletMessageType.ImportAccountRequest;
   privateKey: string;
+  name?: string;
   encPassword?: string;
 }
 
 export interface ImportAccountResponse extends WalletMessageBase {
   type: WalletMessageType.ImportAccountResponse;
+  accountPublicKey: string;
 }
 
 export interface ImportWatchOnlyAccountRequest extends WalletMessageBase {

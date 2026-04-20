@@ -43,7 +43,8 @@ const mockVault = {
   editAccountName: jest.fn(),
   updateSettings: jest.fn(),
   signTransaction: jest.fn(),
-  getAuthSecretKey: jest.fn()
+  getAuthSecretKey: jest.fn(),
+  importAccountFromPrivateKey: jest.fn()
 };
 
 // Mock store callbacks
@@ -70,6 +71,7 @@ jest.mock('lib/miden/back/vault', () => ({
     spawn: jest.fn(),
     setup: jest.fn(),
     revealMnemonic: jest.fn(),
+    revealPrivateKey: jest.fn(),
     spawnFromMidenClient: jest.fn(),
     getCurrentAccountPublicKey: jest.fn()
   }
@@ -615,20 +617,12 @@ describe('actions', () => {
       expect(() => revealViewKey('pk', 'pw')).not.toThrow();
     });
 
-    it('revealPrivateKey is a no-op stub', () => {
-      expect(() => revealPrivateKey('pk', 'pw')).not.toThrow();
-    });
-
     it('revealPublicKey is a no-op stub', () => {
       expect(() => revealPublicKey('pk')).not.toThrow();
     });
 
     it('removeAccount is a no-op stub', () => {
       expect(() => removeAccount('pk', 'pw')).not.toThrow();
-    });
-
-    it('importAccount is a no-op stub', () => {
-      expect(() => importAccount('pk')).not.toThrow();
     });
 
     it('importMnemonicAccount is a no-op stub', () => {
@@ -641,6 +635,45 @@ describe('actions', () => {
 
     it('importWatchOnlyAccount is a no-op stub', () => {
       expect(() => importWatchOnlyAccount('vk')).not.toThrow();
+    });
+  });
+
+  describe('revealPrivateKey', () => {
+    it('delegates to Vault.revealPrivateKey', async () => {
+      const { Vault } = require('lib/miden/back/vault');
+      (Vault.revealPrivateKey as jest.Mock).mockResolvedValueOnce('deadbeef');
+
+      const result = await revealPrivateKey('pk-commitment-hex', 'password');
+
+      expect(Vault.revealPrivateKey).toHaveBeenCalledWith('pk-commitment-hex', 'password');
+      expect(result).toBe('deadbeef');
+    });
+
+    it('forwards undefined password for hardware-unlock path', async () => {
+      const { Vault } = require('lib/miden/back/vault');
+      (Vault.revealPrivateKey as jest.Mock).mockResolvedValueOnce('abc123');
+
+      await revealPrivateKey('pk-commitment-hex');
+
+      expect(Vault.revealPrivateKey).toHaveBeenCalledWith('pk-commitment-hex', undefined);
+    });
+  });
+
+  describe('importAccount', () => {
+    it('imports via vault, broadcasts accountsUpdated, returns new public key', async () => {
+      const newAccounts = [{ publicKey: 'mtst1newly-imported', name: 'Imported', isPublic: true, hdIndex: -1 }];
+      mockVault.importAccountFromPrivateKey.mockResolvedValueOnce(newAccounts);
+
+      const result = await importAccount('deadbeef', 'My Import');
+
+      expect(mockVault.importAccountFromPrivateKey).toHaveBeenCalledWith('deadbeef', 'My Import');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts: newAccounts });
+      expect(result).toBe('mtst1newly-imported');
+    });
+
+    it('rejects names that exceed 16 characters', async () => {
+      await expect(importAccount('deadbeef', 'a'.repeat(17))).rejects.toThrow(/Invalid name/);
+      expect(mockVault.importAccountFromPrivateKey).not.toHaveBeenCalled();
     });
   });
 });
