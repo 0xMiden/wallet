@@ -4,7 +4,6 @@ import classNames from 'clsx';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import Header from 'app/layouts/PageLayout/Header';
-import { ChainInstabilityBanner } from 'components/ChainInstabilityBanner';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { ActionButtons } from 'components/explore/ActionButtons';
 import { PriceChangeBadge } from 'components/explore/PriceChangeBadge';
@@ -138,7 +137,6 @@ const Explore: FC = () => {
     <div className="flex flex-col h-full overflow-hidden text-heading-gray font-geist">
       <div className="flex-shrink-0">
         <ConnectivityIssueBanner />
-        <ChainInstabilityBanner />
         <Header />
         <div className={classNames('flex flex-col justify-start', 'pt-4 px-4')}>
           <div className="flex flex-col justify-center items-center pb-4">
