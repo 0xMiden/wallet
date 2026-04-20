@@ -70,15 +70,12 @@ yarn format           # Prettier
 
 ## Version Bumping
 
-**CRITICAL:** The extension manifest version is controlled by `package.json`'s `version` field, NOT by `public/manifest.json`. The webpack build (`webpack.public.config.js:69-70`) overrides the manifest version with `pkg.version` from `package.json` during the copy transform.
+The extension manifest version is controlled by `package.json`'s `version` field — `vite.extension.config.ts`'s `copyPublicAssets` plugin overrides the copied `manifest.json` with `pkg.version` at build time.
 
-When bumping the version:
-1. Update **both** `package.json` (`"version": "X.Y.Z"`) and `public/manifest.json` (`"version": "X.Y.Z"`) to keep them in sync
-2. Clear webpack cache: `rm -rf node_modules/.cache/webpack`
-3. Build: `yarn build:devnet` (or whichever build target)
-4. **Verify** the output manifest has the correct version: `grep '"version"' dist/chrome_unpacked/manifest.json`
-
-If the output still shows the old version, the webpack filesystem cache is stale — delete `node_modules/.cache/webpack` and `dist/` and rebuild.
+When bumping:
+1. Update **both** `package.json` (`"version": "X.Y.Z"`) and `public/manifest.json` to keep the source of truth aligned.
+2. Build, e.g. `yarn build:chrome`.
+3. Verify: `grep '"version"' dist/chrome_unpacked/manifest.json`.
 
 ## Mobile Development
 
@@ -209,17 +206,7 @@ import { hapticLight, hapticMedium, hapticSelection } from 'lib/mobile/haptics';
 // Use hapticSelection() for tab changes, footer navigation
 ```
 
-The haptic functions automatically check `isMobile()` and the user's haptic feedback setting - no need to wrap in conditionals.
-
-Components that already have haptics (for reference):
-- `components/Button.tsx`, `app/atoms/Button.tsx` - buttons
-- `lib/woozie/Link.tsx` - navigation links
-- `components/Toggle.tsx`, `app/atoms/ToggleSwitch.tsx` - toggles
-- `components/TabBar.tsx`, `app/atoms/TabSwitcher.tsx` - tabs
-- `components/FooterIconWrapper.tsx` - footer navigation
-- `components/CardItem.tsx`, `components/ListItem.tsx` - tappable items
-- `components/Chip.tsx`, `components/CircleButton.tsx` - misc buttons
-- `app/atoms/Checkbox.tsx`, `components/RadioButton.tsx` - form controls
+The haptic functions automatically check `isMobile()` and the user's haptic feedback setting — no need to wrap in conditionals. For existing patterns, `grep -l 'hapticLight\|hapticMedium\|hapticSelection' src/`.
 
 ### Known iOS-Specific Issues
 
@@ -337,56 +324,11 @@ xcrun simctl spawn booted log stream --predicate 'process == "App"' > ios_logs.t
 
 ### CDP Bridge for iOS WebView Debugging
 
-Use the `inspect` CLI (`@inspectdotdev/cli`) + a persistent-connection daemon to evaluate JavaScript in the Capacitor WKWebView from Claude Code. This gives you access to DOM, computed styles, console output, and error state — much more powerful than screenshots alone.
+Use `@inspectdotdev/cli` + a persistent-connection daemon (`/tmp/cdp-daemon.mjs` + `/tmp/cdp-eval`) to evaluate JS in the Capacitor WKWebView. Needed because the inspect bridge has a single-use bug — the daemon holds one WebSocket and routes all evals through it.
 
-**Known issue:** The inspect bridge has a single-use bug — after a WebSocket client disconnects, subsequent connections get no responses. The workaround is a persistent-connection daemon that holds ONE WebSocket open and routes all requests through it.
+Once set up: `node /tmp/cdp-eval 'document.title'`.
 
-**Bringup recipe (run once per session):**
-
-```bash
-# 1. Kill old bridges and free ports
-pkill -9 -f "inspect" 2>/dev/null
-pkill -9 -f "cdp-daemon" 2>/dev/null
-lsof -ti:9221,9222,9333 | xargs kill -9 2>/dev/null
-
-# 2. Reset webinspectord
-xcrun simctl spawn booted launchctl kill 9 user/501/com.apple.webinspectord
-
-# 3. Relaunch the app (re-registers WebView with fresh webinspectord)
-xcrun simctl terminate booted com.miden.wallet
-xcrun simctl launch booted com.miden.wallet
-sleep 2
-
-# 4. Start inspect bridge (wait ~5s for it to discover devices)
-source ~/.nvm/nvm.sh && nvm use 22
-nohup inspect --no-telemetry > /tmp/inspect.log 2>&1 &
-sleep 5
-
-# 5. Start CDP daemon (holds persistent WS, routes evals through it)
-nohup node /tmp/cdp-daemon.mjs > /tmp/cdp-daemon.log 2>&1 &
-sleep 3
-
-# 6. Smoke test — should print "2"
-node /tmp/cdp-eval '1+1'
-```
-
-**Usage after bringup:**
-```bash
-# Evaluate any JS in the WebView
-node /tmp/cdp-eval 'document.title'
-node /tmp/cdp-eval 'JSON.stringify(window.__cdp_errors)'
-
-# Set up an error trap to catch async failures
-node /tmp/cdp-eval 'window.__cdp_errors = []; window.addEventListener("error", e => window.__cdp_errors.push(e.message)); window.addEventListener("unhandledrejection", e => window.__cdp_errors.push("REJECTION: " + (e.reason?.message || e.reason))); "trap set"'
-```
-
-**Recovery when it stops working:**
-- Smoke test fails → restart from step 2 (webinspectord reset)
-- Bridge sees `[]` on `/json` → restart from step 3 (app crashed)
-- After `yarn mobile:ios:run` rebuild → restart from step 4 (PID changed)
-- Nothing works → quit Simulator.app entirely (`osascript -e 'tell application "Simulator" to quit'`), cold-boot, restart from step 1
-
-**Files:** `/tmp/cdp-daemon.mjs` (persistent WS daemon), `/tmp/cdp-eval` (one-shot client). If missing, recreate from the memory file at `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md`.
+Full bringup recipe, recovery steps, and both daemon/eval scripts live in the memory file `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md` — read it before debugging.
 
 ### Verifying Mobile UI Fixes
 
@@ -1139,9 +1081,9 @@ Same artifact tree as Chrome, output to `test-results-ios/run-<timestamp>/tests/
 - The CDP bridge picks the first WebKit page on the inspector. The wallet uses one WebView, so this is fine; if a future build adds a dApp browser WebView, `CdpBridge.connect` needs a target-disambiguation parameter.
 - `simctl` does NOT support keyboard input from outside the simulator. The iOS POM dispatches React-compatible `input`/`change` events directly via DOM rather than typing into native fields. For native iOS sheets / system dialogs this won't work — only WebView content is reachable.
 
-### Empirical Status (2026-04-14)
+### Empirical Status (2026-04-14, pre-/lazy-SDK baseline)
 
-**7/7 iOS specs pass on devnet in ~9 min wall clock.** Per-spec timing:
+**7/7 iOS specs pass on devnet in ~9 min wall clock.** Per-spec timings below are from SDK 0.14.2 on the eager entry. The `wiktor/use-lazy-sdk` branch migrates to `@miden-sdk/miden-sdk/lazy`; rerun to refresh baseline after that lands on main.
 
 | Spec | Duration |
 |---|---|
