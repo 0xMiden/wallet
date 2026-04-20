@@ -2281,10 +2281,19 @@
     dexie "^4.0.1"
     glob "^11.0.0"
 
-"@miden-sdk/react@0.14.2":
-  version "0.14.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.2.tgz#8adfc5ea4d56d69245efb6c43eca35d75f0430f8"
-  integrity sha512-b1rUMtKEw3KtZA5F6P0x3R4w1+GR6djolWPHlxhieZShC3djGeO1T1gRe8OugzOh/B63+So884LI0WW+k55PzA==
+"@miden-sdk/miden-sdk@0.14.4":
+  version "0.14.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.4.tgz#be7496e6d2622b7f478768972f9896536db154cb"
+  integrity sha512-Qt+3NfGRCyHP5zcD+m9bBqQz01zuAwZRUBkls09mi+tOPVT17sFWKLglQEtKdr3gPAFHLwz2Ja4Hp4adUKfLuA==
+  dependencies:
+    "@rollup/plugin-typescript" "^12.3.0"
+    dexie "^4.0.1"
+    glob "^11.0.0"
+
+"@miden-sdk/react@0.14.4":
+  version "0.14.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.4.tgz#6bb6e05572f6a4a63806e580bffc6156658e52f4"
+  integrity sha512-ASTcH1nge7hgH9OcV22nb1nrB9ccdkTsgVIioY+6y2wt0NcnTwu9RGrq8heJu4VyPcnl0g0LVFPcubvkmzXyjw==
   dependencies:
     zustand "^5.0.0"
 
