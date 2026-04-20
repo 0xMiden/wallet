@@ -2,9 +2,16 @@ import { InputNoteState, Note, TransactionProver, TransactionResult } from '@mid
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
-import { getOrCreateMultisigService, isPsmAccount, type PsmAccountProvider } from 'lib/miden/front/psm-manager';
+import {
+  clearPsmServiceFor,
+  getOrCreateMultisigService,
+  isPsmAccount,
+  type PsmAccountProvider
+} from 'lib/miden/front/psm-manager';
+import { MultisigService } from 'lib/miden/psm';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
+import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -16,9 +23,11 @@ import {
   ITransactionStage,
   ITransactionStatus,
   SendTransaction,
+  SwitchGuardianTransaction,
   Transaction,
   TransactionOutput
 } from '../db/types';
+import { putToStorage } from '../front';
 import { toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -272,6 +281,61 @@ export const initiateSendTransaction = async (
   await Repo.transactions.add(dbTransaction);
 
   return dbTransaction.id;
+};
+
+/**
+ * Queue a switch-guardian transaction for a PSM account. The local
+ * `PSM_URL_STORAGE_KEY` is NOT updated here — it's written only after
+ * the on-chain proposal lands, in `completeSwitchGuardianTransaction`.
+ */
+export const initiateSwitchGuardianTransaction = async (
+  accountId: string,
+  newGuardianEndpoint: string,
+  delegateTransaction?: boolean,
+  psmProvider?: PsmAccountProvider
+): Promise<string> => {
+  if (!(await isPsmAccount(accountId, psmProvider))) {
+    throw new Error('Switch guardian is only supported for PSM accounts');
+  }
+  const dbTransaction = new SwitchGuardianTransaction(accountId, newGuardianEndpoint, delegateTransaction);
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+export const completeSwitchGuardianTransaction = async (
+  tx: SwitchGuardianTransaction,
+  result: TransactionResult,
+  multisigService: MultisigService
+) => {
+  try {
+    const executedTx = result.executedTransaction();
+    const { newGuardianEndpoint } = tx.extraInputs;
+
+    // Mirror upstream `multisig.executeProposal`'s post-submit block for
+    // switch_guardian proposals: register on the new guardian with the
+    // updated account state before anything else touches the local cache
+    // or storage. If this throws, storage + status stay untouched so the
+    // user can retry.
+    await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
+
+    await putToStorage(PSM_URL_STORAGE_KEY, newGuardianEndpoint);
+    clearPsmServiceFor(tx.accountId);
+
+    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      displayMessage: 'Guardian switched',
+      transactionId: executedTx.id().toHex(),
+      completedAt: Math.floor(Date.now() / 1000), // seconds
+      resultBytes: result.serialize()
+    });
+  } catch (error) {
+    console.error('Error completing switch guardian transaction:', error);
+    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
+      displayMessage: 'Failed to switch guardian',
+      completedAt: Math.floor(Date.now() / 1000), // seconds
+      resultBytes: result.serialize(),
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 };
 
 const extractFullNote = (result: TransactionResult): Note | undefined => {
@@ -707,6 +771,12 @@ const generatePsmTransaction = async (
       proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
       break;
     }
+    case 'switch-guardian': {
+      const sgTx = transaction as SwitchGuardianTransaction;
+      const { proposal } = await multisigService.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
+      proposalResult = proposal;
+      break;
+    }
     // case 'execute':
     // default: {
     // // For custom transactions, get TransactionSummary and create a custom proposal
@@ -727,7 +797,7 @@ const generatePsmTransaction = async (
 
   // Sign and execute the proposal
   const tr = await multisigService.signAndCreateTransactionRequest(proposalResult.id);
-
+  console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       const keyString = Buffer.from(publicKey).toString('hex');
@@ -738,11 +808,24 @@ const generatePsmTransaction = async (
 
   const transactionResult = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient(options);
+    console.log('Submitting transaction request to Miden client');
     const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
       prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
     });
+    console.log('Transaction request submitted, waiting for result');
     return result;
   });
+
+  // For switch-guardian, the new guardian must be seeded with the POST-switch
+  // account state. submit() returns after submission, not after inclusion, so
+  // without this wait finalizeGuardianSwitch would serialize the pre-switch
+  // account and register that stale state with the new guardian.
+  if (transaction.type === 'switch-guardian') {
+    await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      await midenClient.waitForTransactionCommit(transactionResult.executedTransaction().id().toHex());
+    });
+  }
 
   switch (transaction.type) {
     case 'send':
@@ -751,12 +834,20 @@ const generatePsmTransaction = async (
     case 'consume':
       await completeConsumeTransaction(transaction.id, transactionResult);
       break;
+    case 'switch-guardian':
+      console.log('Completing switch guardian transaction');
+      await completeSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        transactionResult,
+        multisigService
+      );
+      break;
     // case 'execute':
     // default:
     //   await completeCustomTransaction(transaction, transactionResult);
     //   break;
   }
-
+  console.log('Transaction generation complete, syncing multisig service');
   await multisigService.sync();
 };
 

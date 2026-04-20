@@ -1,10 +1,13 @@
+import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { MultisigService } from 'lib/miden/psm';
+import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { getSignerDetailsFromAccount } from '../psm/account';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { fetchFromStorage } from './storage';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle
 const psmServiceCache = new Map<string, MultisigService>();
@@ -37,10 +40,16 @@ export async function getOrCreateMultisigService(
   provider: PsmAccountProvider = zustandProvider
 ): Promise<MultisigService> {
   console.log(`[PSM Manager] Getting/creating MultisigService for account: ${accountPublicKey}`);
-  // Return cached instance if available
+  // Return cached instance if its endpoint still matches storage. In the
+  // extension build, `clearPsmServiceFor` from the SW realm doesn't reach
+  // the frontend's own copy of this Map, so a guardian switch would leave
+  // the popup syncing against the old guardian indefinitely. Re-check
+  // PSM_URL_STORAGE_KEY here and evict on drift.
   const cached = psmServiceCache.get(accountPublicKey);
   if (cached) {
-    return cached;
+    const currentEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
+    if (cached.guardianEndpoint === currentEndpoint) return cached;
+    psmServiceCache.delete(accountPublicKey);
   }
 
   // Verify this is a PSM account
@@ -111,4 +120,13 @@ export async function syncPsmAccounts(): Promise<void> {
  */
 export function clearPsmCache(): void {
   psmServiceCache.clear();
+}
+
+/**
+ * Drop a single account's cached MultisigService so the next access
+ * reinitializes it — used after a guardian switch where the cached
+ * instance still points at the old endpoint.
+ */
+export function clearPsmServiceFor(accountPublicKey: string): void {
+  psmServiceCache.delete(accountPublicKey);
 }

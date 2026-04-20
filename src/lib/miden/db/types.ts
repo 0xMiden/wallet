@@ -15,7 +15,7 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-export type ITransactionType = 'send' | 'consume' | 'execute';
+export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian';
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -184,6 +184,33 @@ export class ConsumeTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
+    this.delegateTransaction = delegateTransaction;
+  }
+}
+
+export class SwitchGuardianTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  transactionId?: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: { newGuardianEndpoint: string };
+  delegateTransaction?: boolean | undefined;
+
+  constructor(accountId: string, newGuardianEndpoint: string, delegateTransaction?: boolean) {
+    this.id = uuid();
+    this.type = 'switch-guardian';
+    this.accountId = accountId;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Switching guardian';
+    this.extraInputs = { newGuardianEndpoint };
     this.delegateTransaction = delegateTransaction;
   }
 }

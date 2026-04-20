@@ -29,6 +29,7 @@ import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
 import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
+import GuardianSettings from 'app/templates/GuardianSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
@@ -38,9 +39,11 @@ import { getCurrentLocale } from 'lib/i18n/core';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
+import { WalletType } from 'screens/onboarding/types';
 
 import pkg from '../../../package.json';
 import AdvancedSettings from './AdvancedSettings';
@@ -92,6 +95,7 @@ type Tab = {
   linksOutsideOfWallet?: boolean;
   isDrawer?: boolean;
   onClick?: () => void;
+  psmOnly?: boolean;
 };
 
 type TabGroup = {
@@ -147,6 +151,14 @@ const TAB_GROUPS: TabGroup[] = [
         Component: EncryptedFileFlow,
         testID: SettingsSelectors.EncryptedWalletFile,
         hasOwnLayout: true
+      },
+      {
+        slug: 'guardian-settings',
+        titleI18nKey: 'guardianSettings',
+        Icon: SettingsIcon,
+        Component: GuardianSettings,
+        isDrawer: true,
+        psmOnly: true
       }
     ]
   },
@@ -216,15 +228,30 @@ const HIDDEN_TABS: Tab[] = [
   }
 ];
 
-// Flat list of all tabs for route lookup
-const ALL_TABS: Tab[] = [...TAB_GROUPS.flatMap(g => g.tabs), ...HIDDEN_TABS];
-
-// Collect all drawer tabs for rendering
-const DRAWER_TABS = TAB_GROUPS.flatMap(g => g.tabs).filter(t => t.isDrawer);
-
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
-  const activeTab = useMemo(() => ALL_TABS.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null, [tabSlug]);
+  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
+  const isPsmAccount = currentAccountType === WalletType.Psm;
+
+  // Filter tabs that are gated to PSM accounts. Non-PSM users don't see
+  // the Guardian Settings entry at all (menu, drawer, or routable page).
+  const tabGroups = useMemo(
+    () =>
+      TAB_GROUPS.map(group => ({
+        ...group,
+        tabs: group.tabs.filter(tab => !tab.psmOnly || isPsmAccount)
+      })).filter(group => group.tabs.length > 0),
+    [isPsmAccount]
+  );
+
+  const allTabs = useMemo(
+    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tab => !tab.psmOnly || isPsmAccount)],
+    [tabGroups, isPsmAccount]
+  );
+
+  const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);
+
+  const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null, [allTabs, tabSlug]);
   const languageLabel = getCurrentLanguageLabel();
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
@@ -314,7 +341,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           // this, opting out of the body gutter via data-edge-to-edge
           // would leave the bottom row permanently hidden behind the pill.
           <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
-            {TAB_GROUPS.map(group => (
+            {tabGroups.map(group => (
               <div key={group.titleI18nKey}>
                 <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>
                 <div className="overflow-hidden flex flex-col gap-6">
@@ -356,7 +383,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
         )}
       </div>
 
-      {DRAWER_TABS.map(tab => (
+      {drawerTabs.map(tab => (
         <Drawer key={tab.slug} open={openDrawer === tab.slug} onOpenChange={open => !open && setOpenDrawer(null)}>
           <DrawerContent>
             <DrawerHeader>

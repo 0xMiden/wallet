@@ -12,7 +12,7 @@ import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 
-import { fetchFromStorage, putToStorage } from '../front';
+import { fetchFromStorage } from '../front';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientInterface } from '../sdk/miden-client-interface';
@@ -28,11 +28,13 @@ const MAX_SYNC_RETRIES = 20;
 export class MultisigService {
   multisig: Multisig;
   client: MultisigClient;
+  guardianEndpoint: string;
   syncRetryCount: number = 0;
 
-  constructor(multisig: Multisig, client: MultisigClient) {
+  constructor(multisig: Multisig, client: MultisigClient, guardianEndpoint: string) {
     this.multisig = multisig;
     this.client = client;
+    this.guardianEndpoint = guardianEndpoint;
   }
 
   /**
@@ -53,7 +55,7 @@ export class MultisigService {
       const client = new MultisigClient(webClient, { guardianEndpoint });
       const multisig = await client.load(account.id().toString(), signer);
 
-      return new MultisigService(multisig, client);
+      return new MultisigService(multisig, client, guardianEndpoint);
     } catch (error) {
       console.log('Error initializing MultisigService:', error);
       throw error;
@@ -150,23 +152,7 @@ export class MultisigService {
 
   async sync(): Promise<void> {
     try {
-      const { accountId, commitment } = await this.multisig.syncState();
-      console.log('Successfully synced multisig state for account', accountId);
-      console.log('Current commitment:', commitment);
-      const account = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client) throw new Error('WASM client not available');
-        const acc = await client.getAccount(accountId);
-        console.log(
-          acc
-            ?.vault()
-            .fungibleAssets()
-            .map((a: any) => a.amount().toString())
-        );
-        if (!acc) throw new Error('Account not found in WASM client after sync');
-        return acc;
-      });
-      console.log('Account commitment from WASM client:', account.to_commitment().toHex());
+      await this.multisig.syncState();
       this.syncRetryCount = 0; // Reset retry count on successful sync
     } catch (error) {
       console.log('[PSM] sync error ', error);
@@ -193,10 +179,61 @@ export class MultisigService {
     return this.multisig.getConsumableNotes();
   }
 
-  // async switchGuardian(newGuardianEndpoint: string) {
-  //   await putToStorage(PSM_URL_STORAGE_KEY, newGuardianEndpoint);
-  //   await this.multisig.createSwitchGuardianProposal()
-  // }
+  /**
+   * Build a switch-guardian proposal pointing at `newGuardianEndpoint`.
+   * Caller is responsible for signing/submitting the proposal AND for
+   * calling `finalizeGuardianSwitch` + persisting the endpoint only
+   * after the on-chain switch commits.
+   */
+  async createSwitchGuardianProposal(
+    newGuardianEndpoint: string
+  ): Promise<{ proposal: Proposal; newEndpoint: string }> {
+    try {
+      const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
+      const { commitment } = await newGuardian.getPubkey();
+      const proposal = await this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment);
+      await this.multisig.createProposal(proposal.nonce, proposal.txSummary, proposal.metadata);
+      console.log('Created switch-guardian proposal with new endpoint:', newGuardianEndpoint);
+      return { proposal, newEndpoint: newGuardianEndpoint };
+    } catch (error) {
+      console.log('Error creating switch-guardian proposal:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Post-submit finalization for a switch-guardian proposal. Mirrors the
+   * block that upstream's `multisig.executeProposal` runs when it detects
+   * a `switch_guardian` metadata type. Must be called AFTER the on-chain
+   * switch lands — `client.load(...)` against the new guardian will fail
+   * until `registerOnGuardian` succeeds.
+   */
+  async finalizeGuardianSwitch(newGuardianEndpoint: string): Promise<void> {
+    try {
+      console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
+      const updatedStateBase64 = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        await client.syncState();
+        const account = await client.getAccount(this.accountId);
+        if (!account) {
+          throw new Error(`Updated account ${this.accountId} is missing from local client`);
+        }
+        return u8ToB64(account.serialize());
+      });
+
+      const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);
+      const { commitment } = await nextGuardian.getPubkey();
+
+      this.multisig.setGuardianClient(nextGuardian);
+      this.multisig.guardianPublicKey = commitment;
+      this.guardianEndpoint = newGuardianEndpoint;
+
+      await this.multisig.registerOnGuardian(updatedStateBase64);
+    } catch (error) {
+      console.log('Error finalizing guardian switch:', error);
+      throw error;
+    }
+  }
 }
 
 // Re-export types that may be needed by consumers
