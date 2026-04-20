@@ -398,6 +398,55 @@
     "message": "Ağ trafiğinin seviyesine bağlı olarak bu işlem biraz zaman alabilir",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "Hesap senkronize ediliyor",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "En son hesap durumunuz getiriliyor.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "İşlem gönderiliyor",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "İşleminizi oluşturmak ve kanıtlamak.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "note için hak talebinde bulunuluyor",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "İşlem yürütülüyor",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "Zincirde onaylanıyor",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "Ağ onayı bekleniyor.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "note teslim ediliyor",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "note alıcıya güvenli bir şekilde gönderiliyor.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ işlemler devam ediyor",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "Durum",
     "englishSource": "Status"
@@ -743,8 +792,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "İşlem bulunamadı",
-    "englishSource": "No operations found"
+    "message": "Şu anda herhangi bir işleminiz bulunmamaktadır.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Kaldırılacak hesap.",
@@ -2610,8 +2659,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Şu anda talep edebileceğiniz notes yok, ancak aldığınızda burada görünecekler.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Şu anda talep edebileceğiniz notes hakkınız yok.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Bir note aldınız",

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.14.3 (TBD)
+
+### Features
+
+* [FEATURE][all] Per-stage label in the transaction progress modal. Each observable phase boundary (`syncing`, `sending`, `confirming`, `delivering`) writes a stage marker during tx processing, and the modal renders a stage-specific title + description instead of a single opaque "Generating Transaction" for the whole 3-8s spinner window. Send-type sub-label varies by tx type (claim / execute / send), and the batch subtitle surfaces a remaining-count when more than one tx is in flight.
+
+---
+
 ## 1.14.2 (TBD)
 
 ### Fixes

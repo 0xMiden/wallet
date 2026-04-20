@@ -17,6 +17,7 @@ type HistoryViewProps = {
   hasMore: boolean;
   scrollParentRef?: RefObject<HTMLDivElement>;
   fullHistory?: boolean;
+  centerEmptyState?: boolean;
   className?: string;
 };
 
@@ -49,7 +50,7 @@ const DateSeparator: React.FC<{ date: string; isFirst?: boolean }> = ({ date }) 
 };
 
 const HistoryView = memo<HistoryViewProps>(
-  ({ entries, initialLoading, loadMore, hasMore, scrollParentRef, fullHistory, className }) => {
+  ({ entries, initialLoading, loadMore, hasMore, scrollParentRef, fullHistory, centerEmptyState, className }) => {
     const { t } = useTranslation();
     const noEntries = entries.length === 0;
     const noOperationsClass = fullHistory
@@ -58,9 +59,18 @@ const HistoryView = memo<HistoryViewProps>(
     // Group entries by date
     const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
     if (noEntries) {
-      return initialLoading ? (
-        <ActivitySpinner />
-      ) : (
+      if (initialLoading) {
+        return <ActivitySpinner />;
+      }
+      if (centerEmptyState) {
+        return (
+          <div className="flex flex-col items-center justify-center flex-1">
+            <Icon name={IconName.ArrowUpDown} size="xl" fill="currentColor" className="mb-4 text-grey-400" />
+            <p className="text-sm text-center text-heading-gray">{t('noOperationsFound')}</p>
+          </div>
+        );
+      }
+      return (
         <div className={classNames('mb-12', 'flex flex-col justify-left', noOperationsClass)}>
           <h3 className="text-sm text-left" style={{ maxWidth: '20rem' }}>
             {t('noOperationsFound')}

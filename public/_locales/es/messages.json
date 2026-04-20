@@ -382,6 +382,55 @@
     "message": "Esto puede tardar un momento dependiendo del nivel de tráfico de la red.",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "Sincronizando cuenta",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "Obteniendo el último estado de su cuenta.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "Transaccion de envio",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "Construyendo y probando su transacción.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "Reclamando note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "Ejecutando transacción",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "Confirmando en cadena",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "Esperando confirmación de red.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "Entregando note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "Envío seguro del note al destinatario.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ transacciones en curso",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "Estado",
     "englishSource": "Status"
@@ -727,8 +776,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "No se encontraron operaciones",
-    "englishSource": "No operations found"
+    "message": "Actualmente no tienes ninguna transacción.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Cuenta que se eliminará.",
@@ -2547,8 +2596,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Actualmente no tienes notes para reclamar, pero cuando los tengas, aparecerán aquí.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Actualmente no tienes notes para reclamar.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Has recibido un note",

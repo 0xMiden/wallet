@@ -398,6 +398,55 @@
     "message": "这可能需要一些时间，具体取决于网络流量水平",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "正在同步帐户",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "正在获取您最新的帐户状态。",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "发送交易",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "构建并证明您的交易。",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "声明note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "执行交易",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "链上确认",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "等待网络确认。",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "正在传送note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "将 note 安全地发送给收件人。",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "正在进行中的 $count$ 笔交易",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "地位",
     "englishSource": "Status"
@@ -743,8 +792,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "找不到操作",
-    "englishSource": "No operations found"
+    "message": "您当前没有任何交易。",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "帳戶將移除。",
@@ -2622,8 +2671,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "您目前没有 notes 可以领取，但当您领取时，它们会出现在此处。",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "您目前没有notes 可以领取。",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "您已收到note",

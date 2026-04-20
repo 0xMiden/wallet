@@ -398,6 +398,55 @@
     "message": "Cela peut prendre un moment en fonction du niveau de trafic réseau",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "Compte de synchronisation",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "Récupération de votre dernier état de compte.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "Envoi de transaction",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "Construire et prouver votre transaction.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "Réclamer note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "Exécution de la transaction",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "Confirmation en chaîne",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "En attente de confirmation du réseau.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "Livraison de note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "Envoi sécurisé du note au destinataire.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ transactions en cours",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "Statut",
     "englishSource": "Status"
@@ -743,8 +792,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "Aucune opération trouvée",
-    "englishSource": "No operations found"
+    "message": "Vous n'avez actuellement aucune transaction.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Compte à retirer.",
@@ -2609,8 +2658,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Vous n'avez actuellement pas de notes à réclamer, mais lorsque vous le ferez, ils apparaîtront ici.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Vous n'avez actuellement pas notes à réclamer.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Vous avez reçu un note",

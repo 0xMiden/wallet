@@ -9,8 +9,10 @@ import {
   hasQueuedTransactions,
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop as dbTransactionsLoop,
-  getAllUncompletedTransactions
+  getAllUncompletedTransactions,
+  startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
@@ -31,22 +33,31 @@ export const TransactionProgressModal: FC = () => {
   // Track if we're actively processing (started when modal opens, continues even when hidden)
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // On extension: check for uncompleted send transactions on mount and auto-open modal
+  // If there are uncompleted send transactions on mount (e.g. after a reload
+  // mid-send), resume processing silently. We deliberately do NOT auto-open
+  // the modal — that would reintroduce the "page reload → modal covers
+  // Send/Home → cannot interact with the wallet until the pending tx
+  // confirms" block that the stress suite caught. The user's next explicit
+  // send action still opens the modal via `openTransactionModal()` in
+  // SendManager.
+  //
+  // On extension: nudge the SW, which owns the tx loop.
+  // On mobile/desktop: no SW — drive the loop directly via the shared
+  // background processor (same entry point Explore's auto-consume uses).
   useEffect(() => {
-    if (!isExtension()) return;
-
-    const checkForSendTxs = async () => {
+    const resumeIfNeeded = async () => {
       const uncompleted = await getAllUncompletedTransactions();
       const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
-      if (hasSendTxs) {
-        openModal();
-        // Ensure SW is processing (deduplicates via isProcessing flag)
+      if (!hasSendTxs) return;
+      if (isExtension()) {
         requestSWTransactionProcessing();
+      } else {
+        startBackgroundTransactionProcessing(signTransaction);
       }
     };
 
-    checkForSendTxs();
-  }, [openModal]);
+    resumeIfNeeded();
+  }, [signTransaction]);
 
   // Reset hasLoadedOnce when modal closes
   useEffect(() => {
@@ -64,8 +75,11 @@ export const TransactionProgressModal: FC = () => {
     },
     {
       revalidateOnMount: true,
-      refreshInterval: 5_000,
-      dedupingInterval: 3_000
+      // Poll fast enough to surface per-stage transitions (syncing →
+      // sending → confirming → delivering) — a 5s poll hides them entirely
+      // on public sends that complete in ~3s.
+      refreshInterval: 500,
+      dedupingInterval: 250
     }
   );
 
@@ -175,6 +189,14 @@ export const TransactionProgressModal: FC = () => {
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
 
+  // Active-stage pickup: prefer the tx currently executing, else head of
+  // queue so "Syncing" shows up instantly when the SW hasn't started on
+  // the new tx yet. Matches the picker used by GeneratingTransactionPage.
+  const activeTx = transactions.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? transactions[0];
+  const activeStage = activeTx?.stage;
+  const activeType = activeTx?.type;
+  const remainingCount = transactions.length;
+
   if (!isOpen) {
     return null;
   }
@@ -209,6 +231,9 @@ export const TransactionProgressModal: FC = () => {
           onDoneClick={handleClose}
           transactionComplete={transactionComplete}
           hasErrors={error}
+          activeStage={activeStage}
+          activeType={activeType}
+          remainingCount={remainingCount}
         />
       </div>
       <button

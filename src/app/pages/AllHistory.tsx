@@ -25,7 +25,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         className={classNames('flex-1 min-h-0 overflow-y-auto pb-20', 'bg-app-bg z-30 relative')}
         ref={scrollParentRef}
       >
-        <div className="px-3">
+        <div className="px-3 flex flex-col min-h-full">
           <input
             type="text"
             placeholder={t('searchByNameOrSymbol')}
@@ -37,6 +37,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             address={account.publicKey}
             programId={programId}
             fullHistory={true}
+            centerEmptyState={true}
             scrollParentRef={scrollParentRef}
             searchQuery={search}
           />

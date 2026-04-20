@@ -398,6 +398,55 @@
     "message": "ネットワークトラフィックのレベルに応じて、これには少し時間がかかる場合があります",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "アカウントを同期しています",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "最新のアカウント状態を取得しています。",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "送信トランザクション",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "トランザクションを構築して証明します。",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "note を主張しています",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "トランザクションの実行中",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "チェーンで確認中",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "ネットワークの確認を待っています。",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "note を配信中",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "note を受信者に安全に送信します。",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ 件のトランザクションが進行中です",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "スターテス",
     "englishSource": "Status"
@@ -743,8 +792,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "オペレーションが見つかりませんでした",
-    "englishSource": "No operations found"
+    "message": "現在取引はありません。",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "削除するアカウント。",
@@ -2622,8 +2671,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "現在、申請できる notes はありませんが、申請するとここに表示されます。",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "現在、申請できる notes はありません。",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "note を受け取りました",

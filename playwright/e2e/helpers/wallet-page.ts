@@ -25,7 +25,7 @@ export interface WalletPage {
   getBalance(tokenSymbol?: string): Promise<number>;
   triggerSync(): Promise<void>;
   claimAllNotes(timeoutMs?: number): Promise<void>;
-  sendTokens(params: { recipientAddress: string; amount: string; isPrivate: boolean }): Promise<void>;
+  sendTokens(params: { recipientAddress: string; amount: string; isPrivate: boolean; tokenSymbol?: string }): Promise<void>;
   waitForBalanceAbove(
     minBalance: number,
     timeoutMs: number,
@@ -337,33 +337,57 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   // ── Address ───────────────────────────────────────────────────────────────
 
   /**
-   * Extract the wallet account address from the Receive page.
+   * Extract the wallet account address.
+   *
+   * Primary path: read from the Zustand `__TEST_STORE__` (which holds the
+   * canonical bech32 string for the current network — `mdev1…` on devnet,
+   * `mtst1…` on testnet, etc.), polling briefly because right after the
+   * onboarding flow the store update is asynchronous.
+   *
+   * DOM fallback: if the store is still empty after the poll (something went
+   * wrong with the sync path), scan the Receive page for any bech32-shaped
+   * string. We used to do this DOM scan first with a `getByText(/your address/i)`
+   * anchor, but no such label exists in the current UI, so the scan always
+   * fell through to the text-match fallback — which was hardcoded to `mtst`.
+   * Hence `getAccountAddress` silently failed on devnet and the caller's own
+   * outer fallback returned the literal string `"unknown"`, poisoning downstream
+   * CLI calls with `mint --target unknown`.
    */
   async getAccountAddress(): Promise<string> {
+    const bechRe = /m[a-z]{1,4}1[a-z0-9]+/i;
+
+    // Poll the store for up to 10s — covers the slow case where the post-
+    // onboarding StateUpdated broadcast hasn't landed in Zustand yet.
+    const storeAddress = await this.page
+      .waitForFunction(
+        () => {
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } })
+            .__TEST_STORE__;
+          const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+          return /^m[a-z]{1,4}1[a-z0-9]+/i.test(pk) ? pk : false;
+        },
+        { timeout: 10_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>)
+      .catch(() => '');
+    if (storeAddress) {
+      return storeAddress.trim();
+    }
+
+    // DOM fallback. Navigate to receive and scan for a bech32-shaped string.
     await this.navigateTo('/receive');
     const receiveContainer = this.page.getByTestId('receive-page');
     await receiveContainer.waitFor({ timeout: 15_000 });
-
-    // The address is displayed as text on the receive page
-    const addressEl = this.page.getByText(/your address/i).locator('..').locator('text=mtst');
-    let address: string;
-    try {
-      address = (await addressEl.textContent({ timeout: 10_000 })) ?? '';
-    } catch {
-      // Fallback: try to find any bech32-like address text
-      const allText = await receiveContainer.textContent();
-      const match = allText?.match(/mtst\S+/);
-      address = match?.[0] ?? '';
+    const allText = (await receiveContainer.textContent()) ?? '';
+    const match = allText.match(bechRe);
+    if (!match) {
+      throw new Error(
+        `Could not extract wallet address. Store had no currentAccount.publicKey, ` +
+          `and no bech32 address found on Receive page. Receive text: ${allText.slice(0, 200)}`
+      );
     }
-
-    if (!address) {
-      throw new Error('Could not extract wallet address from Receive page');
-    }
-
-    // Navigate back to home
     await this.navigateHome();
-
-    return address.trim();
+    return match[0].trim();
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────
@@ -593,17 +617,31 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     recipientAddress: string;
     amount: string;
     isPrivate: boolean;
+    /**
+     * Optional token symbol (e.g. "TST"). When set, picks that token's row
+     * from the SelectToken list. Default: first row — fine when only one
+     * fundable token exists, but not when MIDEN sits at 0 balance above the
+     * real balance row.
+     */
+    tokenSymbol?: string;
   }): Promise<void> {
     // 1. Navigate to send
     await this.navigateTo('/send');
     const sendFlow = this.page.getByTestId('send-flow');
     await sendFlow.waitFor({ timeout: 15_000 });
 
-    // 2. SelectToken: click first available token
-    // CardItem renders as a <div> with cursor-pointer. Match the token row by its
-    // title text structure (token name + balance) inside the send flow container.
-    const tokenItem = sendFlow.locator('div.cursor-pointer').first();
-    await tokenItem.click({ timeout: 10_000 });
+    // 2. SelectToken: click target token row
+    if (params.tokenSymbol) {
+      const tokenRow = sendFlow.locator('div.cursor-pointer', {
+        has: this.page.getByText(params.tokenSymbol, { exact: true }),
+      }).first();
+      await tokenRow.click({ timeout: 10_000 });
+    } else {
+      // CardItem renders as a <div> with cursor-pointer. Match the token row by its
+      // title text structure (token name + balance) inside the send flow container.
+      const tokenItem = sendFlow.locator('div.cursor-pointer').first();
+      await tokenItem.click({ timeout: 10_000 });
+    }
 
     // 3. SendDetails: fill address, amount, toggle private
     // Wait for SendDetails page to appear
