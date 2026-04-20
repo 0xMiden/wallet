@@ -5,7 +5,9 @@ _g.__nativeAssetTest = {
   storage: {} as Record<string, any>,
   rpcHeader: null as any,
   rpcCalls: 0,
-  fetchTokenMetadata: jest.fn()
+  fetchTokenMetadata: jest.fn(),
+  fetchFromStorage: jest.fn(),
+  putToStorage: jest.fn()
 };
 
 jest.mock('@miden-sdk/miden-sdk', () => ({
@@ -24,10 +26,8 @@ jest.mock('lib/miden-chain/constants', () => ({
 }));
 
 jest.mock('lib/miden/front/storage', () => ({
-  fetchFromStorage: async (key: string) => (globalThis as any).__nativeAssetTest.storage[key] ?? null,
-  putToStorage: async (key: string, value: any) => {
-    (globalThis as any).__nativeAssetTest.storage[key] = value;
-  }
+  fetchFromStorage: (key: string) => (globalThis as any).__nativeAssetTest.fetchFromStorage(key),
+  putToStorage: (key: string, value: any) => (globalThis as any).__nativeAssetTest.putToStorage(key, value)
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -54,7 +54,19 @@ beforeEach(async () => {
   _g.__nativeAssetTest.rpcCalls = 0;
   _g.__nativeAssetTest.rpcHeader = null;
   _g.__nativeAssetTest.fetchTokenMetadata.mockReset();
+  _g.__nativeAssetTest.fetchFromStorage.mockReset();
+  _g.__nativeAssetTest.putToStorage.mockReset();
+  // Default storage implementations read/write the in-memory map
+  _g.__nativeAssetTest.fetchFromStorage.mockImplementation(
+    async (key: string) => _g.__nativeAssetTest.storage[key] ?? null
+  );
+  _g.__nativeAssetTest.putToStorage.mockImplementation(async (key: string, value: any) => {
+    _g.__nativeAssetTest.storage[key] = value;
+  });
   await resetNativeAssetCache();
+  // Clear the reset() mock bookkeeping so per-test assertions see a clean slate
+  _g.__nativeAssetTest.putToStorage.mockClear();
+  _g.__nativeAssetTest.fetchFromStorage.mockClear();
 });
 
 describe('native-asset module', () => {
@@ -75,6 +87,19 @@ describe('native-asset module', () => {
 
     expect(id).toBe('pre-cached-id');
     expect(_g.__nativeAssetTest.rpcCalls).toBe(0);
+  });
+
+  it('returns cached ID from memory on repeat call (no storage hit, no RPC)', async () => {
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'warm' }) };
+
+    const first = await getNativeAssetId();
+    _g.__nativeAssetTest.fetchFromStorage.mockClear();
+    const second = await getNativeAssetId();
+
+    expect(first).toBe('bech32-warm');
+    expect(second).toBe('bech32-warm');
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    expect(_g.__nativeAssetTest.fetchFromStorage).not.toHaveBeenCalled();
   });
 
   it('single-flights concurrent callers into one RPC round-trip', async () => {
@@ -130,6 +155,44 @@ describe('native-asset module', () => {
     expect(_g.__nativeAssetTest.storage['native_asset_meta:testnet']).toEqual({ symbol: 'MIDEN', decimals: 6 });
   });
 
+  it('hydrates metadata from storage without RPC or metadata fetch', async () => {
+    _g.__nativeAssetTest.storage['native_asset_id:testnet'] = 'cached-id';
+    _g.__nativeAssetTest.storage['native_asset_meta:testnet'] = { symbol: 'CACHED', decimals: 8 };
+
+    const meta = await getNativeAssetMetadata();
+
+    expect(meta).toEqual({ symbol: 'CACHED', decimals: 8 });
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(0);
+    expect(_g.__nativeAssetTest.fetchTokenMetadata).not.toHaveBeenCalled();
+  });
+
+  it('returns metadata from memory on repeat call', async () => {
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'm1' }) };
+    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+      base: { symbol: 'A', decimals: 2, name: 'A' }
+    });
+
+    await getNativeAssetMetadata();
+    _g.__nativeAssetTest.fetchTokenMetadata.mockClear();
+    const second = await getNativeAssetMetadata();
+
+    expect(second).toEqual({ symbol: 'A', decimals: 2 });
+    expect(_g.__nativeAssetTest.fetchTokenMetadata).not.toHaveBeenCalled();
+  });
+
+  it('single-flights concurrent metadata callers', async () => {
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'mc' }) };
+    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+      base: { symbol: 'C', decimals: 1, name: 'C' }
+    });
+
+    const [a, b] = await Promise.all([getNativeAssetMetadata(), getNativeAssetMetadata()]);
+
+    expect(a).toEqual({ symbol: 'C', decimals: 1 });
+    expect(b).toEqual({ symbol: 'C', decimals: 1 });
+    expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledTimes(1);
+  });
+
   it('getNativeAssetMetadataSync returns null before discovery, value after', async () => {
     expect(getNativeAssetMetadataSync()).toBeNull();
     _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'a' }) };
@@ -167,6 +230,80 @@ describe('native-asset module', () => {
     expect(_g.__nativeAssetTest.storage['native_asset_meta:testnet']).toBeNull();
   });
 
+  it('swallows listener exceptions when emitting', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'L' }) };
+    const bad = jest.fn(() => {
+      throw new Error('boom');
+    });
+    const good = jest.fn();
+    const unsubBad = onNativeAssetChanged(bad);
+    const unsubGood = onNativeAssetChanged(good);
+
+    await getNativeAssetId();
+
+    expect(bad).toHaveBeenCalledWith('bech32-L');
+    expect(good).toHaveBeenCalledWith('bech32-L');
+    expect(warn).toHaveBeenCalledWith('native-asset listener error', expect.any(Error));
+
+    unsubBad();
+    unsubGood();
+    warn.mockRestore();
+  });
+
+  it('falls through to RPC when storage read throws', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    _g.__nativeAssetTest.fetchFromStorage.mockRejectedValue(new Error('storage read fail'));
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'R' }) };
+
+    const id = await getNativeAssetId();
+
+    expect(id).toBe('bech32-R');
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+    expect(warn).toHaveBeenCalledWith('native-asset storage read failed', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it('still returns discovered ID when storage write throws', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    _g.__nativeAssetTest.putToStorage.mockRejectedValue(new Error('storage write fail'));
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'W' }) };
+
+    const id = await getNativeAssetId();
+
+    expect(id).toBe('bech32-W');
+    expect(warn).toHaveBeenCalledWith('native-asset storage write failed', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it('still returns metadata when metadata storage write throws', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'M' }) };
+    _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
+      base: { symbol: 'M', decimals: 1, name: 'M' }
+    });
+    // Only fail writes to the metadata key — let the ID write succeed
+    _g.__nativeAssetTest.putToStorage.mockImplementation(async (key: string, value: any) => {
+      if (key === 'native_asset_meta:testnet') throw new Error('meta write fail');
+      _g.__nativeAssetTest.storage[key] = value;
+    });
+
+    const meta = await getNativeAssetMetadata();
+
+    expect(meta).toEqual({ symbol: 'M', decimals: 1 });
+    expect(warn).toHaveBeenCalledWith('native-asset meta storage write failed', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it('resetNativeAssetCache swallows storage write errors', async () => {
+    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'X' }) };
+    await getNativeAssetId();
+    _g.__nativeAssetTest.putToStorage.mockRejectedValue(new Error('reset write fail'));
+
+    await expect(resetNativeAssetCache()).resolves.toBeUndefined();
+    expect(getNativeAssetIdSync()).toBeNull();
+  });
+
   it('primeNativeAssetId kicks off both ID and metadata discovery', async () => {
     _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'p' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
@@ -180,5 +317,26 @@ describe('native-asset module', () => {
 
     expect(getNativeAssetIdSync()).toBe('bech32-p');
     expect(getNativeAssetMetadataSync()).toEqual({ symbol: 'P', decimals: 2 });
+  });
+
+  it('primeNativeAssetId swallows discovery errors', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // Force both ID and metadata discovery to fail: storage read throws AND
+    // RPC throws, so getNativeAssetId rejects; getNativeAssetMetadata in turn
+    // rejects because it awaits getNativeAssetId.
+    _g.__nativeAssetTest.fetchFromStorage.mockRejectedValue(new Error('read fail'));
+    _g.__nativeAssetTest.rpcHeader = {
+      nativeAssetId: () => {
+        throw new Error('rpc fail');
+      }
+    };
+
+    primeNativeAssetId();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(warn).toHaveBeenCalledWith('primeNativeAssetId (id) failed', expect.any(Error));
+    expect(warn).toHaveBeenCalledWith('primeNativeAssetId (metadata) failed', expect.any(Error));
+    warn.mockRestore();
   });
 });

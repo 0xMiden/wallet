@@ -438,5 +438,28 @@ describe('MidenClientInterface', () => {
       const { addConnectivityIssue } = await runDelegateFailureCase(new Error('The operation was aborted'));
       expect(addConnectivityIssue).toHaveBeenCalled();
     });
+
+    it.each([
+      ['NetworkError when attempting to fetch resource'],
+      ['grpc network error occurred'],
+      ['Load failed'],
+      ['request was abort'],
+      ['request timed out after 30s'],
+      ['timeout waiting for response'],
+      ['connection refused'],
+      ['transport error: closed stream'],
+      ['rpc error: deadline exceeded']
+    ])('DOES mark connectivity issue for %p', async message => {
+      const { addConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+      expect(addConnectivityIssue).toHaveBeenCalled();
+    });
+
+    it.each([['note has already been consumed'], ['some unrecognized wasm error']])(
+      'does NOT mark connectivity issue for %p',
+      async message => {
+        const { addConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+        expect(addConnectivityIssue).not.toHaveBeenCalled();
+      }
+    );
   });
 });
