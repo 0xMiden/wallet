@@ -610,7 +610,7 @@ describe('Vault.spawnFromMidenClient', () => {
     mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
     // getBech32AddressFromAccountId may throw on the string-y input;
     // spawnFromMidenClient should wrap it in a PublicError either way.
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 
   it('handles multiple accounts from the WASM client', async () => {
@@ -618,19 +618,19 @@ describe('Vault.spawnFromMidenClient', () => {
     const acc2 = { id: () => 'pk-2' as any, isPublic: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
     mockMidenClient.getAccount.mockResolvedValueOnce(acc1).mockResolvedValueOnce(acc2);
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 
   it('skips null accounts returned by getAccount', async () => {
     const fakeAcc = { id: () => 'pk-1' as any, isPublic: () => true };
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(null);
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 
   it('wraps errors from the WASM client in a PublicError', async () => {
     mockMidenClient.getAccounts.mockRejectedValueOnce(new Error('wasm failed'));
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 });
 

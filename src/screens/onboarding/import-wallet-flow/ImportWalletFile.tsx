@@ -10,6 +10,7 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { Icon, IconName } from 'app/icons/v2';
 import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/passworder';
 import { importDb } from 'lib/miden/repo';
+import type { WalletAccount } from 'lib/shared/types';
 import { DecryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
 interface FormData {
@@ -18,7 +19,7 @@ interface FormData {
 
 export interface ImportWalletFileScreenProps {
   className?: string;
-  onSubmit?: (seedPhrase: string) => void;
+  onSubmit?: (seedPhrase: string, walletAccounts: WalletAccount[]) => void;
 }
 
 type WalletFile = EncryptedWalletFile & {
@@ -77,11 +78,12 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       const midenClientDbContent = decryptedWallet.midenClientDbContent;
       const walletDbContent = decryptedWallet.walletDbContent;
       const seedPhrase = decryptedWallet.seedPhrase;
+      const walletAccounts = decryptedWallet.accounts;
 
       await importStore(midenClientDbContent, 'miden-wallet');
       await importDb(walletDbContent);
 
-      onSubmit(seedPhrase);
+      onSubmit(seedPhrase, walletAccounts);
     } catch (error) {
       console.error('Decryption failed:', error);
       setIsWrongPassword(true); // Ensure error appears in case of failure

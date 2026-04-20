@@ -631,6 +631,7 @@ export interface ImportFromClientRequest extends WalletMessageBase {
   type: WalletMessageType.ImportFromClientRequest;
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic: string;
+  walletAccounts: WalletAccount[];
 }
 
 export interface ImportFromClientResponse extends WalletMessageBase {

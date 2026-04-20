@@ -245,9 +245,10 @@ describe('processRequest', () => {
     const res = await dispatch({
       type: WalletMessageType.ImportFromClientRequest,
       password: 'pw',
-      mnemonic: 'm'
+      mnemonic: 'm',
+      walletAccounts: []
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm');
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', []);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 

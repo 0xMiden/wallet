@@ -16,7 +16,7 @@ import {
 import { Vault } from 'lib/miden/back/vault';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { WalletSettings, WalletState } from 'lib/shared/types';
+import { WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
@@ -116,11 +116,11 @@ export function registerNewWallet(password?: string, mnemonic?: string, ownMnemo
   });
 }
 
-export function registerImportedWallet(password?: string, mnemonic?: string) {
+export function registerImportedWallet(password?: string, mnemonic?: string, walletAccounts: WalletAccount[] = []) {
   return withInited(async () => {
     // Password may be undefined for hardware-only wallets
     // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-    const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '');
+    const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts);
     const accounts = await vault.fetchAccounts();
     const settings = await vault.fetchSettings();
     const currentAccount = await vault.getCurrentAccount();

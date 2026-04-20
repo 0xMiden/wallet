@@ -71,7 +71,7 @@ export class MobileIntercomAdapter {
         return { type: WalletMessageType.NewWalletResponse };
 
       case WalletMessageType.ImportFromClientRequest:
-        await Actions.registerImportedWallet((req as any).password, (req as any).mnemonic);
+        await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
         return { type: WalletMessageType.ImportFromClientResponse };
 
       case WalletMessageType.UnlockRequest:

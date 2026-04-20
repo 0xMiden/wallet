@@ -8,7 +8,7 @@ import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { useMidenContext } from 'lib/miden/front';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
-import { WalletStatus } from 'lib/shared/types';
+import { WalletStatus, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { navigate, useLocation } from 'lib/woozie';
@@ -77,6 +77,7 @@ const Welcome: FC = () => {
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
+  const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
   const { registerWallet, importWalletFromClient } = useMidenContext();
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
@@ -125,12 +126,25 @@ const Welcome: FC = () => {
       if (!importedWithFile) {
         await registerWallet(actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
       } else {
-        await importWalletFromClient(actualPassword, seedPhraseFormatted);
+        try {
+          console.log('importing wallet from client');
+          await importWalletFromClient(actualPassword, seedPhraseFormatted, importedWalletAccounts);
+        } catch (e) {
+          console.error(e);
+        }
       }
     } else {
       throw new Error('Missing password or seed phrase');
     }
-  }, [password, seedPhrase, importedWithFile, registerWallet, onboardingType, importWalletFromClient]);
+  }, [
+    password,
+    seedPhrase,
+    importedWithFile,
+    registerWallet,
+    onboardingType,
+    importWalletFromClient,
+    importedWalletAccounts
+  ]);
 
   const onAction = async (action: OnboardingAction) => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;
@@ -153,6 +167,7 @@ const Welcome: FC = () => {
       case 'import-wallet-file-submit':
         const seedPhrase = action.payload.split(' ');
         setSeedPhrase(seedPhrase);
+        setImportedWalletAccounts(action.walletAccounts);
         setImportedWithFile(true);
         // Check if hardware security is available - if so, skip password step
         {

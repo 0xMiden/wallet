@@ -55,6 +55,7 @@
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				7BF04FDF2F1F799A005E306E /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -83,6 +84,14 @@
 				873F0344C8952CB5585102E0 /* App.entitlements */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		7BF04FDF2F1F799A005E306E /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				BFB20C26958B0AB36D108D0E /* Pods-App.release.xcconfig */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
