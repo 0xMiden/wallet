@@ -330,6 +330,27 @@
     "message": "Hasta 16 caracteres",
     "englishSource": "Up to 16 characters"
   },
+  "accountAlreadyExists": {
+    "message": "Ya existe una cuenta con el mismo nombre",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Antes de continuar",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Su clave privada otorga control total de esta cuenta a quien la posea. Las cuentas de Miden no pueden rotar claves, por lo que una clave filtrada compromete la cuenta de forma permanente.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Cuentas importadas ( $importedCount$ ) no se incluirán en este archivo. Para hacer una copia de seguridad de ellas, exporte cada clave privada individualmente desde Configuración → Revelar clave privada.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
   "editAccountName": {
     "message": "Editar nombre de cuenta",
     "englishSource": "Edit Account Name"

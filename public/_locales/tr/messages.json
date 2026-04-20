@@ -346,6 +346,27 @@
     "message": "16 karaktere kadar",
     "englishSource": "Up to 16 characters"
   },
+  "accountAlreadyExists": {
+    "message": "Aynı ada sahip hesap zaten mevcut",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Devam etmeden önce",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Özel anahtarınız bu hesabın tam kontrolünü, onu elinde bulunduran kişiye verir. Miden hesapları anahtarları değiştiremez, bu nedenle sızdırılan bir anahtar hesabın güvenliğini kalıcı olarak tehlikeye atar.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "İçe aktarılan hesaplar ( $importedCount$ ) bu dosyaya dahil edilmeyecektir. Bunları yedeklemek için, her özel anahtarı ayrı ayrı Ayarlar → Özel Anahtarı Göster bölümünden dışa aktarın.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
   "editAccountName": {
     "message": "Hesap Adını Düzenle",
     "englishSource": "Edit Account Name"

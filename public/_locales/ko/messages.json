@@ -346,6 +346,27 @@
     "message": "최대 16자",
     "englishSource": "Up to 16 characters"
   },
+  "accountAlreadyExists": {
+    "message": "같은 이름의 계정이 이미 존재합니다.",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "계속하기 전에",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "귀하의 개인 키는 이 계정을 보유한 사람에게 이 계정에 대한 모든 권한을 부여합니다. Miden 계정은 키를 순환할 수 없으므로 유출된 키로 인해 계정이 영구적으로 손상됩니다.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "가져온 계정( $importedCount$ )은 이 파일에 포함되지 않습니다. 백업하려면 설정 → 개인 키 공개에서 각 개인 키를 개별적으로 내보내세요.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
   "editAccountName": {
     "message": "계정 이름 수정",
     "englishSource": "Edit Account Name"

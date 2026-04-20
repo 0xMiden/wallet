@@ -346,6 +346,27 @@
     "message": "До 16 символів",
     "englishSource": "Up to 16 characters"
   },
+  "accountAlreadyExists": {
+    "message": "Обліковий запис із такою назвою вже існує",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Перш ніж продовжити",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Ваш особистий ключ надає повний контроль над цим обліковим записом тому, хто ним володіє. Облікові записи Miden не можуть змінювати ключі, тому витік ключа постійно компрометує обліковий запис.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Імпортовані облікові записи ( $importedCount$ ) не буде включено в цей файл. Щоб створити їх резервну копію, експортуйте кожен закритий ключ окремо в меню «Параметри» → «Відкрити закритий ключ».",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
   "editAccountName": {
     "message": "Редагувати назву облікового запису",
     "englishSource": "Edit Account Name"

@@ -346,6 +346,27 @@
     "message": "Up to 16 characters",
     "englishSource": "Up to 16 characters"
   },
+  "accountAlreadyExists": {
+    "message": "Account with same name already exists",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Before you continue",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Imported accounts ( $importedCount$ ) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
   "editAccountName": {
     "message": "Edit Account Name",
     "englishSource": "Edit Account Name"

@@ -346,6 +346,27 @@
     "message": "До 16 символов",
     "englishSource": "Up to 16 characters"
   },
+  "accountAlreadyExists": {
+    "message": "Аккаунт с таким именем уже существует",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Прежде чем продолжить",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Ваш закрытый ключ дает полный контроль над этой учетной записью тому, кто ею владеет. Учетные записи Miden не могут менять ключи, поэтому утечка ключа навсегда ставит учетную запись под угрозу.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Импортированные аккаунты ( $importedCount$ ) не будет включен в этот файл. Чтобы создать их резервную копию, экспортируйте каждый закрытый ключ отдельно в меню «Настройки» → «Показать закрытый ключ».",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
   "editAccountName": {
     "message": "Изменить имя учетной записи",
     "englishSource": "Edit Account Name"

@@ -346,6 +346,27 @@
     "message": "最大16文字まで",
     "englishSource": "Up to 16 characters"
   },
+  "accountAlreadyExists": {
+    "message": "同じ名前のアカウントがすでに存在します",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "続行する前に",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "秘密キーを保持している人は誰でも、このアカウントを完全に制御できます。 Miden アカウントはキーをローテーションできないため、キーが漏洩するとアカウントが永久に侵害されます。",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "インポートされたアカウント ( $importedCount$ ) はこのファイルには含まれません。バックアップするには、[設定] → [秘密キーの公開] から各秘密キーを個別にエクスポートします。",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
   "editAccountName": {
     "message": "アカウント名の編集",
     "englishSource": "Edit Account Name"
