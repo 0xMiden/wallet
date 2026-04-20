@@ -338,6 +338,14 @@
     "message": "Nome da conta",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "por exemplo Poupança",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Até 16 caracteres",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "Editar nome da conta",
     "englishSource": "Edit Account Name"

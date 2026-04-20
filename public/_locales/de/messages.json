@@ -338,6 +338,14 @@
     "message": "Kontoname",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "z.B. Ersparnisse",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Bis zu 16 Zeichen",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "Kontonamen bearbeiten",
     "englishSource": "Edit Account Name"

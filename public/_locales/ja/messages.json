@@ -338,6 +338,14 @@
     "message": "アカウント名",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "例えば貯蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "最大16文字まで",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "アカウント名の編集",
     "englishSource": "Edit Account Name"

@@ -338,6 +338,14 @@
     "message": "Название аккаунта",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "например Экономия",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "До 16 символов",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "Изменить имя учетной записи",
     "englishSource": "Edit Account Name"

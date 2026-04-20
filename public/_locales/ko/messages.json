@@ -338,6 +338,14 @@
     "message": "계정 이름",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "예를 들어 저금",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "최대 16자",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "계정 이름 수정",
     "englishSource": "Edit Account Name"

@@ -338,6 +338,14 @@
     "message": "账户名称",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "例如储蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "最多 16 个字符",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "编辑账户名称",
     "englishSource": "Edit Account Name"

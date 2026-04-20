@@ -322,6 +322,14 @@
     "message": "Nombre de cuenta",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "p.ej. Ahorros",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Hasta 16 caracteres",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "Editar nombre de cuenta",
     "englishSource": "Edit Account Name"

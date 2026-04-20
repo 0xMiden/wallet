@@ -338,6 +338,14 @@
     "message": "Hesap adı",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "örneğin Tasarruf",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "16 karaktere kadar",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "Hesap Adını Düzenle",
     "englishSource": "Edit Account Name"

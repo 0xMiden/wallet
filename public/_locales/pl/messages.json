@@ -322,6 +322,14 @@
     "message": "Nazwa konta",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "np. Oszczędności",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Do 16 znaków",
+    "englishSource": "Up to 16 characters"
+  },
   "editAccountName": {
     "message": "Edytuj nazwę konta",
     "englishSource": "Edit Account Name"
