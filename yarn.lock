@@ -2272,10 +2272,10 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.14.2":
-  version "0.14.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.2.tgz#181b4997ee70020d5a91600f74fcd23116ec050d"
-  integrity sha512-GpdsywPJJs1+p3O3h6gqW5se/c3dicYhOqudkDWdC5XTg+oIafD+sx76zf/FCDRZvHfFZWmgov4oRHervwV01Q==
+"@miden-sdk/miden-sdk@0.14.3":
+  version "0.14.3"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.3.tgz#9b3e1466309b92a957eb92628e28141d0b773696"
+  integrity sha512-b/dY0qn9/crxjkotpkPjf+Mm5Gl04+8EYgm0c4M2Iz4A+IQWDDka9lWUt/pV7fLx+UeZCfeFMuphkHP9vqLzUg==
   dependencies:
     "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
@@ -2297,10 +2297,10 @@
   dependencies:
     zustand "^5.0.0"
 
-"@miden-sdk/vite-plugin@0.14.2":
-  version "0.14.2"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/vite-plugin/-/vite-plugin-0.14.2.tgz#d8e210a94430b2dc79295d57d452085b97a9bc0a"
-  integrity sha512-KU01Wp00c9QRICe0D84jG68CEXf2mA1KAbyBbLghZbwOOKTrbBj25emp3rn9QjiMo7i/7Nanp8YwUNEQD/DSGg==
+"@miden-sdk/vite-plugin@0.14.3":
+  version "0.14.3"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/vite-plugin/-/vite-plugin-0.14.3.tgz#7e00f89c3708da2105e037f30f37c92a13b669e2"
+  integrity sha512-ydv+5x5xmH8RJsGDbWZ5wyaIbBymGaN3XdYkEsdlhaipLst1okNSF7wRNVwRKJxyd5M+KH6xQ4i5munVkL+uFw==
 
 "@miden/dapp-browser@link:./packages/dapp-browser":
   version "0.0.0"

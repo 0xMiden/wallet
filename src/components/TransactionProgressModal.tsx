@@ -12,6 +12,7 @@ import {
   getAllUncompletedTransactions,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
@@ -74,8 +75,11 @@ export const TransactionProgressModal: FC = () => {
     },
     {
       revalidateOnMount: true,
-      refreshInterval: 5_000,
-      dedupingInterval: 3_000
+      // Poll fast enough to surface per-stage transitions (syncing →
+      // sending → confirming → delivering) — a 5s poll hides them entirely
+      // on public sends that complete in ~3s.
+      refreshInterval: 500,
+      dedupingInterval: 250
     }
   );
 
@@ -185,6 +189,14 @@ export const TransactionProgressModal: FC = () => {
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
 
+  // Active-stage pickup: prefer the tx currently executing, else head of
+  // queue so "Syncing" shows up instantly when the SW hasn't started on
+  // the new tx yet. Matches the picker used by GeneratingTransactionPage.
+  const activeTx = transactions.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? transactions[0];
+  const activeStage = activeTx?.stage;
+  const activeType = activeTx?.type;
+  const remainingCount = transactions.length;
+
   if (!isOpen) {
     return null;
   }
@@ -219,6 +231,9 @@ export const TransactionProgressModal: FC = () => {
           onDoneClick={handleClose}
           transactionComplete={transactionComplete}
           hasErrors={error}
+          activeStage={activeStage}
+          activeType={activeType}
+          remainingCount={remainingCount}
         />
       </div>
       <button
