@@ -1,9 +1,9 @@
-import { NoteType } from '@miden-sdk/miden-sdk';
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { isAddressValid, toNoteType, toNoteTypeString } from './helpers';
 import { NoteTypeEnum } from './types';
 
-jest.mock('@miden-sdk/miden-sdk', () => ({
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NoteType: { Public: 'public', Private: 'private' },
   Address: {
     fromBech32: jest.fn((addr: string) => {

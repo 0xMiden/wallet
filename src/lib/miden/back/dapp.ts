@@ -7,7 +7,7 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk';
+import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 

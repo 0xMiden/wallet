@@ -1,4 +1,4 @@
-import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk';
+import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
 import * as Repo from 'lib/miden/repo';

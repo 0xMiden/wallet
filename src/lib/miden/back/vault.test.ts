@@ -97,7 +97,7 @@ jest.mock('lib/i18n', () => ({
 // ---------------------------------------------------------------------------
 // Extend the existing wasmMock with the signing types vault.ts uses directly.
 // ---------------------------------------------------------------------------
-jest.mock('@miden-sdk/miden-sdk', () => {
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   const serialize = jest.fn(() => new Uint8Array([9, 9, 9]));
   return {

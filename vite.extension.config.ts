@@ -365,14 +365,6 @@ export default defineConfig({
       buffer: 'buffer',
       stream: 'stream-browserify',
       assert: 'assert',
-      // The SDK's package.json exports field only lists "."; alias a
-      // virtual specifier through to the wasm-loader file directly so
-      // `ensureSdkWasmReady` can call it without tripping Rolldown's
-      // exports-map enforcement. See lib/miden-chain/constants.ts.
-      'sdk-wasm-loader': resolve(
-        __dirname,
-        'node_modules/@miden-sdk/miden-sdk/dist/wasm.js'
-      ),
     },
   },
 
