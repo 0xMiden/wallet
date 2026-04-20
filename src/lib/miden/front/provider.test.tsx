@@ -55,6 +55,10 @@ jest.mock('./useSyncTrigger', () => ({
   useSyncTrigger: jest.fn()
 }));
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  primeNativeAssetId: jest.fn()
+}));
+
 import { MidenProvider } from './provider';
 
 beforeEach(() => {

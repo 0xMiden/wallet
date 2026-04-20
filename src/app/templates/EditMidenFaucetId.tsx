@@ -66,7 +66,7 @@ const EditMidenFaucetId: FC = () => {
           id="set-faucet-id"
           type="text"
           name="faucetId"
-          placeholder={faucetId}
+          placeholder={faucetId ?? ''}
           errorCaption={errors.faucetId?.message}
           containerClassName="mb-4"
           onChange={() => {

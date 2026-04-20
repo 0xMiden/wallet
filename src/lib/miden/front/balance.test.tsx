@@ -16,6 +16,16 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 
+// Tests assume the native asset ID is already known — simulates the post-
+// discovery steady state. Without this, buildDefaultZeroBalance() returns [].
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: jest.fn(() => 'miden-faucet-id'),
+  getNativeAssetId: jest.fn(async () => 'miden-faucet-id'),
+  primeNativeAssetId: jest.fn(),
+  onNativeAssetChanged: jest.fn(() => () => {}),
+  resetNativeAssetCache: jest.fn(async () => {})
+}));
+
 // Track concurrent calls to detect WASM client abuse
 let concurrentCalls = 0;
 let maxConcurrentCalls = 0;
@@ -315,8 +325,9 @@ describe('instant balance loading', () => {
       testRoot!.render(<BalanceConsumer />);
     });
 
-    // Verify: on first render, we get DEFAULT_ZERO_MIDEN_BALANCE immediately
-    // This happens BEFORE fetchBalances is called
+    // Verify: on first render, we get the default zero MIDEN row immediately
+    // (the native-asset mock above pretends discovery is already complete).
+    // This happens BEFORE fetchBalances is called.
     expect(firstRenderData).not.toBeNull();
     expect(firstRenderData.data).toHaveLength(1);
     expect(firstRenderData.data[0].tokenSlug).toBe('MIDEN');

@@ -1,5 +1,6 @@
 import { Runtime } from 'webextension-polyfill';
 
+import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
 import { store, toFront } from 'lib/miden/back/store';
@@ -24,6 +25,12 @@ export async function start() {
   // (between intercom registration and Actions.init)
 
   await Actions.init();
+
+  // Native asset ID is network-wide on-chain state — prime discovery here so
+  // the first balance / metadata consumer after SW start already has it cached.
+  // Cheap (one RPC round-trip on cache miss, no-op on hit).
+  primeNativeAssetId();
+
   frontStore = store.map(toFront);
   frontStore.watch(() => {
     intercom.broadcast({ type: WalletMessageType.StateUpdated });

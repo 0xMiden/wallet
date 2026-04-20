@@ -63,6 +63,10 @@ jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub')
 }));
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  primeNativeAssetId: jest.fn()
+}));
+
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn(),
   getFrontState: jest.fn(),

@@ -29,6 +29,15 @@ const mockTransactionsAdd = jest.fn();
 jest.mock('lib/miden/repo', () => {
   // These will be assigned after module initialization
   return {
+    get db() {
+      return {
+        // Run the body inline so the existing mockTransactionsWhere / mockTransactionsAdd
+        // wiring the tests already set up still drives behavior. In prod, Dexie serializes
+        // concurrent rw transactions at the DB level — this mock preserves the "body runs
+        // with atomic check+add" contract without the real atomicity machinery.
+        transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
+      };
+    },
     get transactions() {
       return {
         filter: mockTransactionsFilter,

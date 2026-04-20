@@ -372,4 +372,94 @@ describe('MidenClientInterface', () => {
     expect(result).toBe(fakeTransactionResult);
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
   });
+
+  describe('withProverFallback connectivity-issue classification', () => {
+    // Build a client that fails the first (delegate) call with a provided error and
+    // succeeds the second (local-prover) call. Returns the addConnectivityIssue spy so
+    // the caller can assert whether it fired.
+    async function runDelegateFailureCase(err: Error) {
+      const addConnectivityIssue = jest.fn();
+      const consume = jest
+        .fn()
+        .mockImplementationOnce(async () => {
+          throw err;
+        })
+        .mockImplementationOnce(async () => ({ txId: 'tx-id', result: fakeTransactionResult }));
+
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
+
+      expect(result).toBe(fakeTransactionResult);
+      expect(consume).toHaveBeenCalledTimes(2); // delegate attempt + local retry
+      return { addConnectivityIssue };
+    }
+
+    it('does NOT mark connectivity issue for "note has already been consumed"', async () => {
+      const { addConnectivityIssue } = await runDelegateFailureCase(
+        new Error('failed to execute transaction: invalid transaction request: note 0xdead has already been consumed')
+      );
+      expect(addConnectivityIssue).not.toHaveBeenCalled();
+    });
+
+    it('does NOT mark connectivity issue for "invalid transaction request"', async () => {
+      const { addConnectivityIssue } = await runDelegateFailureCase(
+        new Error('invalid transaction request: something else went wrong')
+      );
+      expect(addConnectivityIssue).not.toHaveBeenCalled();
+    });
+
+    it('DOES mark connectivity issue on "Failed to fetch"', async () => {
+      const { addConnectivityIssue } = await runDelegateFailureCase(new Error('Failed to fetch'));
+      expect(addConnectivityIssue).toHaveBeenCalled();
+    });
+
+    it('DOES mark connectivity issue on 502 Bad Gateway', async () => {
+      const { addConnectivityIssue } = await runDelegateFailureCase(
+        new Error('prover responded with status code 502: Bad Gateway')
+      );
+      expect(addConnectivityIssue).toHaveBeenCalled();
+    });
+
+    it('DOES mark connectivity issue on abort / timeout', async () => {
+      const { addConnectivityIssue } = await runDelegateFailureCase(new Error('The operation was aborted'));
+      expect(addConnectivityIssue).toHaveBeenCalled();
+    });
+
+    it.each([
+      ['NetworkError when attempting to fetch resource'],
+      ['grpc network error occurred'],
+      ['Load failed'],
+      ['request was abort'],
+      ['request timed out after 30s'],
+      ['timeout waiting for response'],
+      ['connection refused'],
+      ['transport error: closed stream'],
+      ['rpc error: deadline exceeded']
+    ])('DOES mark connectivity issue for %p', async message => {
+      const { addConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+      expect(addConnectivityIssue).toHaveBeenCalled();
+    });
+
+    it.each([['note has already been consumed'], ['some unrecognized wasm error']])(
+      'does NOT mark connectivity issue for %p',
+      async message => {
+        const { addConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+        expect(addConnectivityIssue).not.toHaveBeenCalled();
+      }
+    );
+  });
 });
