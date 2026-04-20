@@ -231,7 +231,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       initiatedAt: 100
     });
     // Use the wasmMock InputNoteState — ConsumedAuthenticatedLocal is in the array
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedAuthenticatedLocal }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
@@ -246,7 +246,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 100
     });
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Invalid }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
@@ -263,7 +263,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       initiatedAt: 100,
       processingStartedAt: longAgo
     });
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Committed }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
@@ -279,7 +279,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       initiatedAt: 100,
       processingStartedAt: Math.floor(Date.now() / 1000)
     });
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Committed }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(0);

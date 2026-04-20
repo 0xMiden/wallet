@@ -149,12 +149,6 @@ export default defineConfig({
       stories: resolve(__dirname, 'src/stories'),
       // Mock webextension-polyfill for mobile
       'webextension-polyfill': resolve(__dirname, 'src/lib/webextension-polyfill-mock.js'),
-      // See lib/miden-chain/constants.ts — virtual specifier resolved here to
-      // reach the SDK's wasm-loader file that isn't listed in its exports map.
-      'sdk-wasm-loader': resolve(
-        __dirname,
-        'node_modules/@miden-sdk/miden-sdk/dist/wasm.js'
-      ),
     },
   },
 

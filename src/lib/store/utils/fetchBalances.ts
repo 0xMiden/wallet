@@ -1,4 +1,4 @@
-import { FungibleAsset } from '@miden-sdk/miden-sdk';
+import { FungibleAsset } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';

@@ -85,7 +85,7 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
     const createMock = jest.fn(async () => fakeMidenClient);
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       MidenClient: { create: createMock, createMock: jest.fn() },
       NoteFile: { deserialize: jest.fn(() => ({})) },
       AccountFile: { deserialize: jest.fn(() => ({})) },
@@ -218,7 +218,7 @@ describe('MidenClientInterface', () => {
   it('imports wallet from bytes', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       AccountFile: { deserialize: jest.fn(() => ({})) }
     }));
     jest.doMock('./helpers', () => ({
@@ -258,7 +258,7 @@ describe('MidenClientInterface', () => {
   it('executes new transaction and returns TransactionResult', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       TransactionRequest: { deserialize: jest.fn(() => ({})) },
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
@@ -323,7 +323,7 @@ describe('MidenClientInterface', () => {
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id)
     }));
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       }
@@ -351,7 +351,7 @@ describe('MidenClientInterface', () => {
   it('consumeNoteId returns TransactionResult', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       }

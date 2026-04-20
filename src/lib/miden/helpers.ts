@@ -1,4 +1,4 @@
-import { Address, NoteType } from '@miden-sdk/miden-sdk';
+import { Address, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteTypeEnum, NoteType as NoteTypeString } from './types';
 

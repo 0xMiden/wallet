@@ -1,4 +1,4 @@
-import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk';
+import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isMidenAsset } from 'lib/miden/assets';

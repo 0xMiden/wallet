@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 
-import { useImportStore } from '@miden-sdk/react';
+import { useImportStore } from '@miden-sdk/react/lazy';
 import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';

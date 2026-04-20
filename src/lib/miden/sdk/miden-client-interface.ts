@@ -14,7 +14,7 @@ import {
   TransactionProver,
   TransactionRequest,
   TransactionResult
-} from '@miden-sdk/miden-sdk';
+} from '@miden-sdk/miden-sdk/lazy';
 
 import {
   DEFAULT_NETWORK,
@@ -65,7 +65,7 @@ export class MidenClientInterface {
     const network = DEFAULT_NETWORK;
 
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
-      const sdk = await import('@miden-sdk/miden-sdk');
+      const sdk = await import('@miden-sdk/miden-sdk/lazy');
       const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
       return new MidenClientInterface(mockClient, 'mock');
     }
