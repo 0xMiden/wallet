@@ -1,13 +1,14 @@
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { ITransactionType } from 'lib/miden/db/types';
 
 import { IHistoryEntry } from './IHistoryEntry';
 
 export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
-  const midenFaucetId = TOKEN_MAPPING[MidenTokens.Miden]?.faucetId;
+  const midenFaucetId = getNativeAssetIdSync();
+  if (!midenFaucetId) return false;
   return (
     entry.transactionIcon === 'RECEIVE' && entry.faucetId === midenFaucetId && entry.secondaryAddress === midenFaucetId
   );

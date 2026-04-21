@@ -96,6 +96,10 @@ function copyPublicAssets(outDir: string): Plugin {
       // (shown in the browser toolbar pin/pop-out row). Swap is done at
       // manifest-write time so the source manifest stays canonical and we
       // don't have to duplicate the vendor-key machinery.
+      //
+      // Also suffix the display name with "(Devnet)" so the extension is
+      // labeled as such in chrome://extensions/, the toolbar tooltip, and
+      // the app launcher. The source manifest stays canonical.
       if (MIDEN_NETWORK === 'devnet') {
         const swap = (path: string) =>
           path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) =>
@@ -115,6 +119,9 @@ function copyPublicAssets(outDir: string): Plugin {
           transformed.browser_action.default_icon = swapIconDict(
             transformed.browser_action.default_icon
           );
+        }
+        if (typeof transformed.name === 'string' && !transformed.name.includes('Devnet')) {
+          transformed.name = `${transformed.name} (Devnet)`;
         }
       }
 
@@ -336,9 +343,8 @@ export default defineConfig({
         chunkFileNames: 'chunks/[name].[hash].js',
         manualChunks(id) {
           // Force the wasm-bindgen glue into a single shared chunk so static
-          // and dynamic imports (via `sdk-wasm-loader`) resolve to the same
-          // `class Account` / `class WebClient` — otherwise Rolldown duplicates
-          // the module per chunk and `_assertClass` fails across them.
+          // and dynamic imports resolve to the same `class Account` / `class WebClient` —
+          // otherwise Rolldown duplicates the module per chunk and `_assertClass` fails across them.
           if (id.includes('@miden-sdk/miden-sdk/dist/Cargo-')) return 'miden-sdk-wasm';
         },
         assetFileNames: assetInfo => {
@@ -368,12 +374,7 @@ export default defineConfig({
       buffer: 'buffer',
       stream: 'stream-browserify',
       assert: 'assert',
-      // The SDK's package.json exports field only lists "."; alias a
-      // virtual specifier through to the wasm-loader file directly so
-      // `ensureSdkWasmReady` can call it without tripping Rolldown's
-      // exports-map enforcement. See lib/miden-chain/constants.ts.
-      'sdk-wasm-loader': resolve(__dirname, 'node_modules/@miden-sdk/miden-sdk/dist/wasm.js')
-    }
+    },
   },
 
   define: {

@@ -7,9 +7,10 @@ import { formatMnemonic } from 'app/defaults';
 import { useMidenContext } from 'lib/miden/front';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import type { WalletAccount } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { OnboardingAction, OnboardingStep, OnboardingType } from 'screens/onboarding/types';
+import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 const ForgotPassword: FC = () => {
   const [step, setStep] = useState(OnboardingStep.Welcome);
@@ -18,6 +19,7 @@ const ForgotPassword: FC = () => {
   const [password, setPassword] = useState<string | null>(null);
   const [importedWithFile, setImportedWithFile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
 
   const { registerWallet, importWalletFromClient } = useMidenContext();
 
@@ -29,6 +31,7 @@ const ForgotPassword: FC = () => {
       if (!importedWithFile) {
         try {
           await registerWallet(
+            WalletType.Psm,
             password,
             seedPhraseFormatted,
             onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general
@@ -38,13 +41,21 @@ const ForgotPassword: FC = () => {
         }
       } else {
         try {
-          await importWalletFromClient(password, seedPhraseFormatted);
+          await importWalletFromClient(password, seedPhraseFormatted, importedWalletAccounts);
         } catch (e) {
           console.error(e);
         }
       }
     }
-  }, [password, seedPhrase, importedWithFile, registerWallet, onboardingType, importWalletFromClient]);
+  }, [
+    password,
+    seedPhrase,
+    importedWithFile,
+    registerWallet,
+    onboardingType,
+    importWalletFromClient,
+    importedWalletAccounts
+  ]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
@@ -64,6 +75,7 @@ const ForgotPassword: FC = () => {
         case 'import-wallet-file-submit':
           const seedPhrase = action.payload.split(' ');
           setSeedPhrase(seedPhrase);
+          setImportedWalletAccounts(action.walletAccounts);
           setImportedWithFile(true);
           setStep(OnboardingStep.CreatePassword);
           break;

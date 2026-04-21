@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { InputNoteState } from '@miden-sdk/miden-sdk';
+import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';

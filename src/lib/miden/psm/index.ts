@@ -1,4 +1,4 @@
-import { Account, MidenClient, TransactionRequest, WebClient } from '@miden-sdk/miden-sdk';
+import { Account, MidenClient, TransactionRequest } from '@miden-sdk/miden-sdk';
 import {
   Multisig,
   MultisigClient,

@@ -1,3 +1,5 @@
+import type { WalletAccount } from 'lib/shared/types';
+
 export enum OnboardingType {
   Create = 'create',
   Import = 'import'
@@ -100,6 +102,7 @@ export type BiometricSetupSubmitAction = {
 export type ImportWalletFileSubmitAction = {
   id: 'import-wallet-file-submit';
   payload: string;
+  walletAccounts: WalletAccount[];
 };
 
 export type ImportSeedPhraseSubmitAction = {

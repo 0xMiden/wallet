@@ -76,8 +76,9 @@ export async function updateBalancesFromSyncData(
     store.setAssetsMetadata(newMetadatas);
   }
 
-  // Always include MIDEN token (even if 0 balance)
-  if (!hasMiden) {
+  // Always include MIDEN token (even if 0 balance) — pre-discovery we omit
+  // the placeholder row so the UI doesn't render MIDEN under a stale ID.
+  if (!hasMiden && midenFaucetId) {
     const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,

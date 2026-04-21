@@ -1,4 +1,4 @@
-import { TransactionResult } from '@miden-sdk/miden-sdk';
+import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
 import { ITransaction } from '../db/types';

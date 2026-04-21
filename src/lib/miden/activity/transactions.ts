@@ -1,4 +1,4 @@
-import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk';
+import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
@@ -161,26 +161,34 @@ export const initiateConsumeTransaction = async (
   // Reason: getConsumableNotes() can still return a note for a short window after a local
   // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
   // tx every 5s until the sync catches up. Failed txs are excluded so retries still work.
-  const existingByNote = await Repo.transactions
-    .where('noteId')
-    .equals(note.id)
-    .filter(tx => tx.type === 'consume' && tx.status !== ITransactionStatus.Failed)
-    .toArray();
-  const existingTransaction = existingByNote.find(tx => compareAccountIds(tx.accountId, accountId));
-  if (existingTransaction) {
-    return existingTransaction.id;
-  }
+  //
+  // The check-and-add is wrapped in a Dexie `rw` transaction so concurrent callers for the
+  // same noteId are serialized at the DB layer. Without this, two callers that slip past
+  // the isBeingClaimed gate (e.g. two Explore re-renders racing the NoteClaimStarted
+  // intercom round-trip) both see `[]` from the check and both `.add()`, producing two
+  // queued consume rows — the second of which fails on-chain with "note has already been
+  // consumed" and spuriously trips the connectivity-issue banner.
+  const committedId = await Repo.db.transaction('rw', Repo.transactions, async () => {
+    const existingByNote = await Repo.transactions
+      .where('noteId')
+      .equals(note.id)
+      .filter(tx => tx.type === 'consume' && tx.status !== ITransactionStatus.Failed)
+      .toArray();
+    const existingTransaction = existingByNote.find(tx => compareAccountIds(tx.accountId, accountId));
+    if (existingTransaction) return existingTransaction.id;
+    await Repo.transactions.add(dbTransaction);
+    return dbTransaction.id;
+  });
 
-  await Repo.transactions.add(dbTransaction);
-
-  // Notify other tabs that a claim is in progress (cross-tab coordination)
-  if (isExtension()) {
+  // Only broadcast NoteClaimStarted if WE were the caller that actually queued the row —
+  // duplicate broadcasts for the same note are a no-op but wasteful.
+  if (committedId === dbTransaction.id && isExtension()) {
     getIntercom()
       .request({ type: WalletMessageType.NoteClaimStarted, noteId: note.id })
       .catch(() => {});
   }
 
-  return dbTransaction.id;
+  return committedId;
 };
 
 // Timeout for waiting on consume transactions (5 minutes)
@@ -669,7 +677,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  useWorker: boolean = true,
+  _useWorker: boolean = true,
   psmProvider?: PsmAccountProvider
 ) => {
   // Sync state first to ensure we have latest account state

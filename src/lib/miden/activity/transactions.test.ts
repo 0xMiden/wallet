@@ -29,6 +29,15 @@ const mockTransactionsAdd = jest.fn();
 jest.mock('lib/miden/repo', () => {
   // These will be assigned after module initialization
   return {
+    get db() {
+      return {
+        // Run the body inline so the existing mockTransactionsWhere / mockTransactionsAdd
+        // wiring the tests already set up still drives behavior. In prod, Dexie serializes
+        // concurrent rw transactions at the DB level — this mock preserves the "body runs
+        // with atomic check+add" contract without the real atomicity machinery.
+        transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
+      };
+    },
     get transactions() {
       return {
         filter: mockTransactionsFilter,
@@ -677,7 +686,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       withWasmClientLock: jest.fn((cb: () => any) => cb())
     }));
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       InputNoteState: {
         ConsumedAuthenticatedLocal: 0,
         ConsumedUnauthenticatedLocal: 1,
@@ -833,7 +842,7 @@ describe('completeCustomTransaction (isolated)', () => {
       queueNoteImport: jest.fn()
     }));
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       InputNoteState: {
         ConsumedAuthenticatedLocal: 'ConsumedAuthenticatedLocal',
         ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',

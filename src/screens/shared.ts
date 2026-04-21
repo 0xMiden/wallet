@@ -1,9 +1,11 @@
 import { EncryptedPayload } from 'lib/miden/passworder';
+import type { WalletAccount } from 'lib/shared/types';
 
 export type DecryptedWalletFile = {
   seedPhrase: string;
   midenClientDbContent: string;
   walletDbContent: string;
+  accounts: WalletAccount[];
 };
 
 export type EncryptedWalletFile = {

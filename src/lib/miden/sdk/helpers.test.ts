@@ -1,8 +1,8 @@
-import { Address } from '@miden-sdk/miden-sdk';
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 
 import { getBech32AddressFromAccountId } from './helpers';
 
-jest.mock('@miden-sdk/miden-sdk', () => ({
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Address: {
     fromAccountId: jest.fn((id: any) => ({
       toBech32: () => `bech32-${id}`

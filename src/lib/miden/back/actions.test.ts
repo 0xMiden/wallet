@@ -259,9 +259,9 @@ describe('actions', () => {
       };
       Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerNewWallet('password123', 'mnemonic words', true);
+      await registerNewWallet(WalletType.Psm, 'password123', 'mnemonic words', true);
 
-      expect(Vault.spawn).toHaveBeenCalledWith('password123', 'mnemonic words', true);
+      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Psm, 'password123', 'mnemonic words', true);
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
     });
@@ -278,9 +278,9 @@ describe('actions', () => {
       };
       Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerNewWallet(undefined, 'mnemonic words', true);
+      await registerNewWallet(WalletType.Psm, undefined, 'mnemonic words', true);
 
-      expect(Vault.spawn).toHaveBeenCalledWith('', 'mnemonic words', true);
+      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Psm, '', 'mnemonic words', true);
     });
   });
 
@@ -295,11 +295,12 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerImportedWallet('password123', 'mnemonic words');
+      await registerImportedWallet('password123', 'mnemonic words', []);
 
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words');
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words', []);
+      expect(Vault.setup).toHaveBeenCalledWith('password123');
     });
   });
 
@@ -316,7 +317,7 @@ describe('actions', () => {
 
       await registerImportedWallet(undefined, undefined);
 
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '');
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', []);
     });
   });
 

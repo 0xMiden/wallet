@@ -27,6 +27,9 @@ _g.__txBrTest = {
 const txStore: any[] = _g.__txBrTest.rows;
 
 jest.mock('lib/miden/repo', () => ({
+  db: {
+    transaction: (_mode: string, _table: unknown, cb: () => Promise<unknown>) => cb()
+  },
   transactions: {
     add: jest.fn(async (tx: any) => {
       txStore.push({ ...tx });

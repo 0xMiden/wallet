@@ -1,4 +1,4 @@
-import { FungibleAsset } from '@miden-sdk/miden-sdk';
+import { FungibleAsset } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
@@ -81,6 +81,9 @@ export async function fetchBalances(
   // Handle case where account doesn't exist (outside the lock)
   if (!account) {
     console.warn(`Account not found: ${address}`);
+    // Can only fabricate a "0 MIDEN" row once discovery has learned the
+    // native asset ID. Until then return [] and let the UI render a skeleton.
+    if (!midenFaucetId) return [];
     const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     return [
       {
@@ -130,8 +133,11 @@ export async function fetchBalances(
     });
   }
 
-  // Always include MIDEN token (even if balance is 0)
-  if (!hasMiden) {
+  // Always include MIDEN token (even if balance is 0) — but only if we
+  // actually know what ID the native asset is. Pre-discovery we omit the
+  // placeholder row; the UI shows a skeleton until discovery resolves and a
+  // re-fetch adds the correct row.
+  if (!hasMiden && midenFaucetId) {
     const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,

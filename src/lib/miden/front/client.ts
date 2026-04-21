@@ -4,7 +4,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
+import { WalletAccount, WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -96,8 +96,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const importWalletFromClient = useCallback(
-    async (password: string | undefined, mnemonic: string) => {
-      await storeImportWalletFromClient(password, mnemonic);
+    async (password: string | undefined, mnemonic: string, walletAccounts: WalletAccount[]) => {
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts);
     },
     [storeImportWalletFromClient]
   );

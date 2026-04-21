@@ -19,14 +19,14 @@ export interface ExportFileCompleteProps {
   onDone: () => void;
   filePassword: string;
   fileName: string;
-  walletPassword: string;
+  walletPassword?: string;
 }
 
 const EXTENSION = '.json';
 
 const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
   const { t } = useTranslation();
-  const { revealMnemonic } = useMidenContext();
+  const { revealMnemonic, accounts } = useMidenContext();
 
   const getExportFile = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
@@ -41,7 +41,8 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     const filePayload: DecryptedWalletFile = {
       seedPhrase,
       midenClientDbContent: midenClientDbDump as string,
-      walletDbContent: walletDbDump
+      walletDbContent: walletDbDump,
+      accounts
     };
 
     const salt = generateSalt();
@@ -93,7 +94,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
-  }, [walletPassword, filePassword, fileName, revealMnemonic, t]);
+  }, [walletPassword, filePassword, fileName, revealMnemonic, t, accounts]);
 
   useEffect(() => {
     getExportFile();

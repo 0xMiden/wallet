@@ -97,7 +97,7 @@ jest.mock('lib/i18n', () => ({
 // ---------------------------------------------------------------------------
 // Extend the existing wasmMock with the signing types vault.ts uses directly.
 // ---------------------------------------------------------------------------
-jest.mock('@miden-sdk/miden-sdk', () => {
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   const serialize = jest.fn(() => new Uint8Array([9, 9, 9]));
   return {
@@ -545,7 +545,7 @@ describe('Vault.createHDAccount', () => {
 
 describe('Vault.spawn', () => {
   it('creates a fresh wallet with a generated mnemonic and password protection', async () => {
-    const vault = await Vault.spawn('pw');
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw');
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.isExist()).toBe(true);
     expect(await Vault.hasPasswordProtector()).toBe(true);
@@ -555,13 +555,13 @@ describe('Vault.spawn', () => {
   });
 
   it('accepts a caller-provided mnemonic and round-trips it via revealMnemonic', async () => {
-    await Vault.spawn('pw', VALID_MNEMONIC);
+    await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC);
     expect(await Vault.revealMnemonic('pw')).toBe(VALID_MNEMONIC);
   });
 
   it('persists ownMnemonic = true when requested and calls importPublicMidenWalletFromSeed on devnet', async () => {
     mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('imported-pk');
-    const vault = await Vault.spawn('pw', VALID_MNEMONIC, true);
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(await vault.isOwnMnemonic()).toBe(true);
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalled();
   });
@@ -569,7 +569,7 @@ describe('Vault.spawn', () => {
   it('falls back to createMidenWallet when importPublicMidenWalletFromSeed throws during spawn', async () => {
     mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error('boom'));
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fallback-pk');
-    const vault = await Vault.spawn('pw', VALID_MNEMONIC, true);
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fallback-pk');
   });
@@ -582,13 +582,13 @@ describe('Vault.spawn', () => {
     // handle doesn't reach through to the factory-level stub). Verify that
     // the default devnet path flows through importPublicMidenWalletFromSeed.
     mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('imported-pk');
-    await Vault.spawn('pw', VALID_MNEMONIC, true);
+    await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalled();
   });
 
   it('wraps WASM errors in a PublicError with "Failed to create wallet"', async () => {
     mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
-    await expect(Vault.spawn('pw')).rejects.toThrow(PublicError);
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow(PublicError);
   });
 });
 
@@ -610,7 +610,7 @@ describe('Vault.spawnFromMidenClient', () => {
     mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
     // getBech32AddressFromAccountId may throw on the string-y input;
     // spawnFromMidenClient should wrap it in a PublicError either way.
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 
   it('handles multiple accounts from the WASM client', async () => {
@@ -618,19 +618,19 @@ describe('Vault.spawnFromMidenClient', () => {
     const acc2 = { id: () => 'pk-2' as any, isPublic: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
     mockMidenClient.getAccount.mockResolvedValueOnce(acc1).mockResolvedValueOnce(acc2);
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 
   it('skips null accounts returned by getAccount', async () => {
     const fakeAcc = { id: () => 'pk-1' as any, isPublic: () => true };
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(null);
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 
   it('wraps errors from the WASM client in a PublicError', async () => {
     mockMidenClient.getAccounts.mockRejectedValueOnce(new Error('wasm failed'));
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
 });
 
@@ -684,7 +684,7 @@ describe('Vault.legacyPasswordUnlock + insertKeyCallback', () => {
         network: 'devnet'
       } as any;
     });
-    const vault = await Vault.spawn('cb-pw');
+    const vault = await Vault.spawn(WalletType.OnChain, 'cb-pw');
     expect(vault).toBeInstanceOf(Vault);
     // Verify the callback wrote to storage by checking the auth secret key slot
     const sk = await vault.getAuthSecretKey('010203');
@@ -713,7 +713,7 @@ describe('Vault.spawn hardware-only mode', () => {
   it('spawn() without password and with mobile hardware available stores hardware-protected key', async () => {
     (isMobile as jest.Mock).mockReturnValue(true);
     (isDesktop as jest.Mock).mockReturnValue(false);
-    const vault = await Vault.spawn(undefined as any);
+    const vault = await Vault.spawn(WalletType.OnChain, undefined as any);
     expect(vault).toBeInstanceOf(Vault);
     // Hardware key slot should be set
     const fetchUtil = await import('./safe-storage');
@@ -722,7 +722,7 @@ describe('Vault.spawn hardware-only mode', () => {
 
   it('hasHardwareProtector returns true after hardware setup', async () => {
     (isMobile as jest.Mock).mockReturnValue(true);
-    await Vault.spawn(undefined as any);
+    await Vault.spawn(WalletType.OnChain, undefined as any);
     expect(await Vault.hasHardwareProtector()).toBe(true);
   });
 });
@@ -784,7 +784,7 @@ describe('Vault hardware branches', () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     // Spawn with no password — should use password protection because hardware is unavailable
-    const vault = await Vault.spawn('password123');
+    const vault = await Vault.spawn(WalletType.OnChain, 'password123');
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.hasPasswordProtector()).toBe(true);
   });
@@ -794,7 +794,7 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockRejectedValueOnce(new Error('no module'));
     // Spawn with empty password should fall back to password protection
-    const vault = await Vault.spawn('fallback-pw');
+    const vault = await Vault.spawn(WalletType.OnChain, 'fallback-pw');
     expect(vault).toBeInstanceOf(Vault);
   });
 
@@ -803,7 +803,7 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
     mockDesktopSecureStorage.hasHardwareKey.mockResolvedValue(false);
-    const vault = await Vault.spawn(undefined as any);
+    const vault = await Vault.spawn(WalletType.OnChain, undefined as any);
     expect(vault).toBeInstanceOf(Vault);
     expect(mockDesktopSecureStorage.generateHardwareKey).toHaveBeenCalled();
     expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
@@ -814,7 +814,7 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
     mockDesktopSecureStorage.hasHardwareKey.mockResolvedValue(true);
-    await Vault.spawn(undefined as any);
+    await Vault.spawn(WalletType.OnChain, undefined as any);
     expect(mockDesktopSecureStorage.generateHardwareKey).not.toHaveBeenCalled();
     expect(mockDesktopSecureStorage.encryptWithHardwareKey).toHaveBeenCalled();
   });
@@ -824,7 +824,7 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
     mockDesktopSecureStorage.encryptWithHardwareKey.mockRejectedValueOnce(new Error('hw-fail'));
-    await expect(Vault.spawn(undefined as any)).rejects.toThrow(PublicError);
+    await expect(Vault.spawn(WalletType.OnChain, undefined as any)).rejects.toThrow(PublicError);
   });
 
   it('getMainDerivationPath throws for invalid wallet type', async () => {
@@ -832,7 +832,7 @@ describe('Vault hardware branches', () => {
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
     // Trying to create an HD account with an invalid wallet type
-    const vlt = await Vault.spawn('pw-test');
+    const vlt = await Vault.spawn(WalletType.OnChain, 'pw-test');
     await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
@@ -846,7 +846,7 @@ describe('Vault hardware branches', () => {
     const vaultKeyB64 = Buffer.from(vaultKeyBytes).toString('base64');
     mockDesktopSecureStorage.encryptWithHardwareKey.mockResolvedValue('enc-data');
     mockDesktopSecureStorage.decryptWithHardwareKey.mockResolvedValue(vaultKeyB64);
-    await Vault.spawn(undefined as any);
+    await Vault.spawn(WalletType.OnChain, undefined as any);
     // Now try hardware unlock
     const vault = await Vault.tryHardwareUnlock();
     expect(vault).not.toBeNull();
@@ -861,7 +861,7 @@ describe('Vault hardware branches', () => {
     const vaultKeyB64 = Buffer.from(vaultKeyBytes).toString('base64');
     mockDesktopSecureStorage.encryptWithHardwareKey.mockResolvedValue('enc-data');
     mockDesktopSecureStorage.decryptWithHardwareKey.mockResolvedValue(vaultKeyB64);
-    await Vault.spawn(undefined as any);
+    await Vault.spawn(WalletType.OnChain, undefined as any);
     // revealMnemonic without password should use hardware key
     try {
       await Vault.revealMnemonic();

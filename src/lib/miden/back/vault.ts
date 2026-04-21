@@ -1,6 +1,6 @@
 import { derivePath } from '@demox-labs/aleo-hd-key';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
-import { AuthSecretKey, SigningInputs, Word } from '@miden-sdk/miden-sdk';
+import { AuthSecretKey, SigningInputs, Word } from '@miden-sdk/miden-sdk/lazy';
 import * as Bip39 from 'bip39';
 
 import { getMessage } from 'lib/i18n';
@@ -19,6 +19,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { compareAccountIds } from '../activity/utils';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -55,6 +56,19 @@ const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
 
+const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
+  return async (key: Uint8Array, secretKey: Uint8Array) => {
+    const pubKeyHex = Buffer.from(key).toString('hex');
+    const secretKeyHex = Buffer.from(secretKey).toString('hex');
+    await encryptAndSaveMany(
+      [
+        [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
+        [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+      ],
+      passKey
+    );
+  };
+};
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
 
@@ -228,19 +242,8 @@ export class Vault {
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
-      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
-        const pubKeyHex = Buffer.from(key).toString('hex');
-        const secretKeyHex = Buffer.from(secretKey).toString('hex');
-        await encryptAndSaveMany(
-          [
-            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
-            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
-          ],
-          vaultKey
-        );
-      };
       const options: MidenClientCreateOptions = {
-        insertKeyCallback
+        insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
       };
       const hdAccIndex = 0;
       const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
@@ -310,35 +313,12 @@ export class Vault {
     });
   }
 
-  static async spawnFromMidenClient(password: string, mnemonic: string): Promise<Vault> {
+  static async spawnFromMidenClient(
+    password: string,
+    mnemonic: string,
+    walletAccounts: WalletAccount[]
+  ): Promise<Vault> {
     return withError('Failed to spawn from miden client', async (): Promise<Vault> => {
-      // Wrap WASM client operations in a lock to prevent concurrent access
-      const accounts = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        const accountHeaders = await midenClient.getAccounts();
-        const accts = [];
-
-        // Have to do this sequentially else the wasm fails
-        for (const accountHeader of accountHeaders) {
-          const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
-          accts.push(account);
-        }
-        return accts;
-      });
-
-      const newAccounts = [];
-      for (let i = 0; i < accounts.length; i++) {
-        const acc = accounts[i];
-        if (acc) {
-          newAccounts.push({
-            publicKey: getBech32AddressFromAccountId(acc.id()),
-            name: 'Miden Account ' + (i + 1),
-            isPublic: acc.isPublic(),
-            type: WalletType.OnChain
-          });
-        }
-      }
-
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
@@ -359,20 +339,51 @@ export class Vault {
           throw new PublicError('Hardware security setup failed. Please try again.');
         }
       } else {
+        if (!password) {
+          throw new PublicError('Password is required for password-based vault protection');
+        }
         // Password-based protection (user opted out of biometrics or hardware not available)
         const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
+      // insert keys
+      const options: MidenClientCreateOptions = {
+        insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
+      };
+
+      // Wrap WASM client operations in a lock to prevent concurrent access
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient(options);
+        const accountHeaders = await midenClient.getAccounts();
+
+        // Have to do this sequentially else the wasm fails
+        for (const accountHeader of accountHeaders) {
+          const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
+          if (!account || account.isFaucet() || account.isNetwork()) {
+            continue;
+          }
+          const walletAccount = walletAccounts.find(wa =>
+            compareAccountIds(wa.publicKey, getBech32AddressFromAccountId(account.id()))
+          );
+          if (!walletAccount) {
+            throw new PublicError('Account from Miden Client not found in provided wallet accounts');
+          }
+          const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
+          const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
+          await midenClient.client.keystore.insert(account.id(), secretKey);
+        }
+      });
+
       await encryptAndSaveMany(
         [
           [checkStrgKey, generateCheck()],
           [mnemonicStrgKey, mnemonic ?? ''],
-          [accountsStrgKey, newAccounts]
+          [accountsStrgKey, walletAccounts]
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, newAccounts[0]!.publicKey);
+      await savePlain(currentAccPubKeyStrgKey, walletAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       // Return the vault instance so caller doesn't need to call unlock() separately
@@ -407,20 +418,8 @@ export class Vault {
       hdAccIndex = accounts.length;
 
       const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
-
-      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
-        const pubKeyHex = Buffer.from(key).toString('hex');
-        const secretKeyHex = Buffer.from(secretKey).toString('hex');
-        await encryptAndSaveMany(
-          [
-            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
-            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
-          ],
-          this.vaultKey
-        );
-      };
       const options: MidenClientCreateOptions = {
-        insertKeyCallback
+        insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
 
       // Wrap WASM client operations in a lock to prevent concurrent access
