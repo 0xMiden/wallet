@@ -161,7 +161,9 @@ test.describe('Stress: random send/claim', () => {
       // ── Write artifacts ────────────────────────────────────────────────
       const outDir = timeline.getOutputDir();
       const csvPath = path.join(outDir, 'stress-operations.csv');
-      const header = 'idx,sender,receiver,isPrivate,amount,sendMs,status,concurrent,perturbation,error\n';
+      const header =
+        'idx,sender,receiver,isPrivate,amount,sendMs,status,concurrent,perturbation,error,' +
+        'secondaryAmount,secondaryIsPrivate,secondaryStatus,secondarySendMs,secondaryErr\n';
       const rows = result.perOp
         .map(o =>
           [
@@ -174,7 +176,12 @@ test.describe('Stress: random send/claim', () => {
             o.status,
             o.concurrent ?? false,
             o.perturbation ?? '',
-            (o.err ?? '').replace(/[,\n]/g, ' ')
+            (o.err ?? '').replace(/[,\n]/g, ' '),
+            o.secondaryAmount ?? '',
+            o.secondaryIsPrivate ?? '',
+            o.secondaryStatus ?? '',
+            o.secondarySendMs ?? '',
+            (o.secondaryErr ?? '').replace(/[,\n]/g, ' ')
           ].join(',')
         )
         .join('\n');

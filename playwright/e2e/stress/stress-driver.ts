@@ -41,6 +41,15 @@ export interface StressOpRecord {
   err?: string;
   perturbation?: string;
   concurrent?: boolean;
+  // When concurrent=true, a secondary send fires in the reverse direction. The
+  // driver awaits it (allSettled) so it doesn't fail the primary, but the
+  // result matters for balance conservation — a silently-failed secondary is
+  // prime suspect for "tokens lost" reports. Track amount + outcome.
+  secondaryAmount?: number;
+  secondaryIsPrivate?: boolean;
+  secondaryStatus?: 'ok' | 'fail';
+  secondaryErr?: string;
+  secondarySendMs?: number;
 }
 
 export interface StressResult {
@@ -48,7 +57,13 @@ export interface StressResult {
   requested: number;
   completed: number;
   failed: number;
-  perturbations: { locks: number; reloads: number; concurrent: number; idles: number };
+  perturbations: {
+    locks: number;
+    reloads: number;
+    concurrent: number;
+    concurrentSecondaryFailed: number;
+    idles: number;
+  };
   perOp: StressOpRecord[];
 }
 
@@ -102,7 +117,7 @@ export async function runStressDriver(
   const wallets: Record<'A' | 'B', ChromeWalletPageApi> = { A: walletA, B: walletB };
   const addrs: Record<'A' | 'B', string> = { A: addressA, B: addressB };
   const perOp: StressOpRecord[] = [];
-  const perturbations = { locks: 0, reloads: 0, concurrent: 0, idles: 0 };
+  const perturbations = { locks: 0, reloads: 0, concurrent: 0, concurrentSecondaryFailed: 0, idles: 0 };
   let completed = 0;
   let failed = 0;
   let idx = 0;
@@ -131,6 +146,15 @@ export async function runStressDriver(
     let err: string | undefined;
     let perturbation: string | undefined;
 
+    // Secondary (concurrent) send, captured only when concurrent=true.
+    // Previously unobserved — a silently-failed secondary is the leading
+    // hypothesis for persistent balance-conservation gaps.
+    let secondaryAmount: number | undefined;
+    let secondaryIsPrivate: boolean | undefined;
+    let secondaryStatus: 'ok' | 'fail' | undefined;
+    let secondaryErr: string | undefined;
+    let secondarySendMs: number | undefined;
+
     timeline.emit({
       category: 'stress_op',
       severity: 'info',
@@ -144,12 +168,13 @@ export async function runStressDriver(
       if (concurrent) {
         // Both wallets fire a send at (roughly) the same time — stress the
         // client-side lock discipline. The secondary send is in the OTHER
-        // direction and won't count toward the note budget (we only track the
-        // primary); if it succeeds the receiver sees two incoming notes.
+        // direction and doesn't count toward the note budget (only the primary
+        // does); its outcome is recorded for balance-conservation forensics.
         perturbations.concurrent++;
-        const secondaryAmount = intInRange(opts.sendAmountMin, opts.sendAmountMax, rng);
-        const secondaryIsPrivate = rng() < opts.privateRatio;
-        const [primary] = await Promise.allSettled([
+        secondaryAmount = intInRange(opts.sendAmountMin, opts.sendAmountMax, rng);
+        secondaryIsPrivate = rng() < opts.privateRatio;
+        const secondaryStart = Date.now();
+        const [primary, secondary] = await Promise.allSettled([
           withTimeout(
             sender.sendTokens({ recipientAddress: receiverAddress, amount: String(amount), isPrivate, tokenSymbol }),
             opts.perTurnSendTimeoutMs,
@@ -166,6 +191,30 @@ export async function runStressDriver(
             `op#${idx} concurrent secondary (${receiverLabel}->${senderLabel})`
           )
         ]);
+        secondarySendMs = Date.now() - secondaryStart;
+        if (secondary.status === 'rejected') {
+          secondaryStatus = 'fail';
+          secondaryErr = secondary.reason instanceof Error ? secondary.reason.message : String(secondary.reason);
+          perturbations.concurrentSecondaryFailed++;
+          timeline.emit({
+            category: 'stress_op',
+            severity: 'warn',
+            message:
+              `[stress] op#${idx} concurrent secondary ${receiverLabel}->${senderLabel} ` +
+              `${secondaryIsPrivate ? 'priv' : 'pub'} amt=${secondaryAmount} FAILED: ${secondaryErr.slice(0, 200)}`,
+            data: {
+              idx,
+              sender: receiverLabel,
+              receiver: senderLabel,
+              isPrivate: secondaryIsPrivate,
+              amount: secondaryAmount,
+              sendMs: secondarySendMs,
+              phase: 'secondary_failed'
+            }
+          });
+        } else {
+          secondaryStatus = 'ok';
+        }
         if (primary.status === 'rejected') throw primary.reason;
       } else {
         await withTimeout(
@@ -196,7 +245,12 @@ export async function runStressDriver(
       sendMs,
       status,
       err,
-      concurrent
+      concurrent,
+      secondaryAmount,
+      secondaryIsPrivate,
+      secondaryStatus,
+      secondaryErr,
+      secondarySendMs
     });
 
     // Slow ops aren't failures — log them as warn so they're visible in the
