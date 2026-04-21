@@ -210,7 +210,7 @@ describe('doSync', () => {
     expect(mockClient.syncState).toHaveBeenCalledTimes(2);
   });
 
-  it('concurrent doSync calls skip the second invocation (re-entrancy guard)', async () => {
+  it('concurrent doSync calls coalesce onto one syncState invocation', async () => {
     let syncResolve: () => void;
     const syncPromise = new Promise<void>(resolve => {
       syncResolve = resolve;
@@ -218,7 +218,7 @@ describe('doSync', () => {
     mockClient.syncState.mockImplementationOnce(() => syncPromise);
 
     const first = doSync();
-    const second = doSync(); // should hit isSyncing guard
+    const second = doSync(); // should join the in-flight promise
 
     syncResolve!();
     await first;
