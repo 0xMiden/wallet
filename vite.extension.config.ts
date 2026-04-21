@@ -323,17 +323,15 @@ export default defineConfig({
         confirm: resolve(__dirname, 'confirm.html'),
         options: resolve(__dirname, 'options.html'),
         sidepanel: resolve(__dirname, 'sidepanel.html'),
-        // Content scripts (need to be standalone JS files)
-        contentScript: resolve(__dirname, 'src/contentScript.ts'),
-        addToWindow: resolve(__dirname, 'src/addToWindow.ts'),
         // NOTE: background is built separately via vite.background.config.ts
-        // because it needs inlineDynamicImports (import() is banned in SWs)
+        // because it needs inlineDynamicImports (import() is banned in SWs).
+        // Content scripts (contentScript, addToWindow) are built separately
+        // via vite.contentScripts.config.ts because Chrome MV3 content scripts
+        // run as classic scripts and cannot use ES-module `import` statements.
       },
       output: {
         entryFileNames: (chunkInfo) => {
-          // Content scripts and background need fixed names
-          if (chunkInfo.name === 'contentScript') return 'contentScript.js';
-          if (chunkInfo.name === 'addToWindow') return 'addToWindow.js';
+          // background is emitted here by its own config; keep the fixed name
           if (chunkInfo.name === 'background') return 'background.js';
           return '[name].js';
         },
