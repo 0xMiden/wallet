@@ -374,6 +374,16 @@ export class Vault {
         }
       });
 
+      if (walletAccounts.length === 0) {
+        // The encrypted file had no HD accounts to restore — every
+        // entry was filtered out on export (e.g. a wallet whose only
+        // account was imported). Without at least one owned account
+        // the wallet has no current-account pointer and sign paths
+        // break. Fail clearly rather than crash on the
+        // `walletAccounts[0]!.publicKey` dereference below.
+        throw new PublicError('Encrypted file contains no restorable accounts');
+      }
+
       await encryptAndSaveMany(
         [
           [checkStrgKey, generateCheck()],
@@ -748,21 +758,30 @@ function getNewAccountName(allAccounts: WalletAccount[], templateI18nKey = 'defa
 // When auto-naming a new account we can't blindly use
 // `allAccounts.length + 1` as the suffix: a user who manually renamed one
 // of their earlier accounts to match the template ("Account 3" etc.)
-// would then collide on the next auto-insert. Walk forward until we find
-// a name nobody else is holding.
+// would then collide on the next auto-insert. Walk forward from 1 until
+// we find a name nobody else is holding. Starting from 1 (not length+1)
+// handles the pathological case where a user renamed every earlier
+// account to a non-template name and the expected slot is now free.
 function pickFreshAccountName(allAccounts: WalletAccount[]): string {
   const existing = new Set(allAccounts.map(a => a.name));
-  for (let i = allAccounts.length + 1; i < allAccounts.length + 100; i++) {
+  const scanLimit = allAccounts.length + 100;
+  for (let i = 1; i <= scanLimit; i++) {
     const candidate = getMessage('defaultAccountName', { accountNumber: String(i) });
     if (!existing.has(candidate)) {
       return candidate;
     }
   }
-  // Pathological: 100 contiguous collisions. Fall back to a UUID-ish suffix.
-  return getMessage('defaultAccountName', { accountNumber: String(Date.now()) });
+  // Pathological: every candidate up to scanLimit was taken. Fall back to
+  // a short wall-clock-derived suffix. Kept intentionally short (6 digits)
+  // so the resulting name still fits `ACCOUNT_NAME_PATTERN`'s 16-char cap.
+  return getMessage('defaultAccountName', { accountNumber: String(Date.now() % 1_000_000) });
 }
 
-const MAX_PRIVATE_KEY_HEX_LEN = 32 * 1024;
+// Falcon-512 serialized auth-secret keys are ~1281 bytes → ~2562 hex chars.
+// The 4 KiB cap is comfortably above that but tight enough to catch
+// accidentally-pasted seed phrases or encrypted-file JSON bodies before
+// allocating under the WASM lock.
+const MAX_PRIVATE_KEY_HEX_LEN = 4 * 1024;
 
 function isValidHex(s: string): boolean {
   if (s.length === 0 || s.length % 2 !== 0) return false;

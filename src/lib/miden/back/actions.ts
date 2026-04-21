@@ -43,6 +43,12 @@ import {
 // may not complete because it transitively depends on dapp.ts which imports frontend
 // modules that hang in SW context. Making queues lazy ensures they're available on
 // first use regardless of whether init_actions completed.
+//
+// Note: despite the name, `_unlockQueue` doubles as a general
+// single-writer serializer for any mutation that reads the accounts
+// list and writes it back after a WASM round-trip (import, unlock).
+// Keeping both on the same queue means they implicitly serialize
+// against each other too, which is the safer default.
 let _dappQueue: PQueue | undefined;
 let _unlockQueue: PQueue | undefined;
 function getDappQueue() {

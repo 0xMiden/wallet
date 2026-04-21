@@ -41,6 +41,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  // Private-key reveals require the user to tick an "I understand"
+  // checkbox before the Continue button enables. The warning banner
+  // alone is passive; this gate forces one deliberate interaction
+  // before handing out a key the user can never rotate.
+  const [privateKeyAcknowledged, setPrivateKeyAcknowledged] = useState(false);
 
   useEffect(() => {
     Vault.hasHardwareProtector().then(setHasHardwareProtector);
@@ -217,12 +222,23 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       {texts.accountBanner}
 
       {reveal === 'private-key' && !secret && (
-        <Alert
-          type="warn"
-          title={t('privateKeyRevealWarningTitle')}
-          description={<p>{t('privateKeyRevealWarningBody')}</p>}
-          className="mb-4 rounded-lg"
-        />
+        <>
+          <Alert
+            type="warn"
+            title={t('privateKeyRevealWarningTitle')}
+            description={<p>{t('privateKeyRevealWarningBody')}</p>}
+            className="mb-4 rounded-lg"
+          />
+          <label className="mb-4 flex items-start gap-2 text-sm text-black cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={privateKeyAcknowledged}
+              onChange={e => setPrivateKeyAcknowledged(e.target.checked)}
+            />
+            <span>{t('privateKeyRevealAcknowledge')}</span>
+          </label>
+        </>
       )}
 
       {mainContent}
@@ -233,7 +249,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             className="w-full justify-center"
             variant={ButtonVariant.Primary}
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-            disabled={isSubmitting || (hasHardwareProtector ? false : !passwordValue)}
+            disabled={
+              isSubmitting ||
+              (reveal === 'private-key' && !privateKeyAcknowledged) ||
+              (hasHardwareProtector ? false : !passwordValue)
+            }
             isLoading={isSubmitting}
             onClick={hasHardwareProtector ? () => onSubmit({ password: '' }) : handleSubmit(onSubmit)}
           />

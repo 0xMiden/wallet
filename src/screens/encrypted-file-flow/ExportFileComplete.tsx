@@ -54,7 +54,8 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       seedPhrase,
       midenClientDbContent: midenClientDbDump as string,
       walletDbContent: walletDbDump,
-      accounts: exportableAccounts
+      accounts: exportableAccounts,
+      omittedImportedAccountCount: omittedImportedCount
     };
 
     const salt = generateSalt();
@@ -106,7 +107,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
-  }, [walletPassword, filePassword, fileName, revealMnemonic, t, exportableAccounts]);
+  }, [walletPassword, filePassword, fileName, revealMnemonic, t, exportableAccounts, omittedImportedCount]);
 
   useEffect(() => {
     getExportFile();

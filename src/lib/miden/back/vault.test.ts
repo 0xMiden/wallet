@@ -752,9 +752,24 @@ describe('Vault.importAccountFromPrivateKey', () => {
       accounts: [{ publicKey: 'acc-a', name: 'Account 2', isPublic: true, type: WalletType.OnChain } as any]
     });
     const accounts = await vault.importAccountFromPrivateKey(VALID_HEX);
-    // `Account 2` was already taken by the renamed existing account, so the
-    // import should skip to `Account 3` rather than throwing on collision.
-    expect(accounts[1]!.name).toBe('Account 3');
+    // The existing account is named `Account 2` (not `Account 1`), so
+    // the lowest still-free slot is `Account 1`. Under the prior loop
+    // that started at `allAccounts.length + 1 = 2` and walked forward
+    // we would have returned `Account 3`, leaving the free `Account 1`
+    // slot unused. The `let i = 1` fix surfaces that slot instead.
+    expect(accounts[1]!.name).toBe('Account 1');
+  });
+
+  it('skips past collisions and returns the next free template slot', async () => {
+    const vault = await seedVault('pw', {
+      accounts: [
+        { publicKey: 'acc-a', name: 'Account 1', isPublic: true, type: WalletType.OnChain } as any,
+        { publicKey: 'acc-b', name: 'Account 2', isPublic: true, type: WalletType.OnChain } as any
+      ]
+    });
+    const accounts = await vault.importAccountFromPrivateKey(VALID_HEX);
+    // All of `Account 1` and `Account 2` are taken; walk forward.
+    expect(accounts[2]!.name).toBe('Account 3');
   });
 
   it('rejects a hex string with odd length', async () => {

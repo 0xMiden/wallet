@@ -675,5 +675,39 @@ describe('actions', () => {
       await expect(importAccount('deadbeef', 'a'.repeat(17))).rejects.toThrow(/Invalid name/);
       expect(mockVault.importAccountFromPrivateKey).not.toHaveBeenCalled();
     });
+
+    it('serializes concurrent imports through the unlock queue', async () => {
+      // Two importAccount calls fired simultaneously must not run their
+      // vault-level work in parallel — otherwise both can read the same
+      // stale accounts list pre-WASM and the later write clobbers the
+      // earlier one. PQueue concurrency: 1 inside `getUnlockQueue`
+      // enforces this; prove it by watching whether the second call's
+      // vault method observes the first still in-flight.
+      let firstCallInFlight = false;
+      let secondStartedWhileFirstInFlight = false;
+
+      mockVault.importAccountFromPrivateKey
+        .mockImplementationOnce(async () => {
+          firstCallInFlight = true;
+          await new Promise(r => setTimeout(r, 20));
+          firstCallInFlight = false;
+          return [{ publicKey: 'pk1', name: 'A', isPublic: true, hdIndex: -1 }];
+        })
+        .mockImplementationOnce(async () => {
+          if (firstCallInFlight) {
+            secondStartedWhileFirstInFlight = true;
+          }
+          return [
+            { publicKey: 'pk1', name: 'A', isPublic: true, hdIndex: -1 },
+            { publicKey: 'pk2', name: 'B', isPublic: true, hdIndex: -1 }
+          ];
+        });
+
+      const [pk1, pk2] = await Promise.all([importAccount('deadbeef', 'A'), importAccount('cafebabe', 'B')]);
+
+      expect(secondStartedWhileFirstInFlight).toBe(false);
+      expect(pk1).toBe('pk1');
+      expect(pk2).toBe('pk2');
+    });
   });
 });
