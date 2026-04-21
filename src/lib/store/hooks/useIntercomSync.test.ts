@@ -38,21 +38,18 @@ describe('fetchStateFromBackend', () => {
       type: WalletMessageType.GetStateResponse,
       state: { status: 'Ready', accounts: [] }
     });
-    const state = await fetchStateFromBackend(0);
+    const state = await fetchStateFromBackend();
     expect(state).toEqual({ status: 'Ready', accounts: [] });
   });
 
   it('throws when the response type is wrong', async () => {
     intercom.request.mockResolvedValue({ type: 'WrongType' });
-    await expect(fetchStateFromBackend(0)).rejects.toThrow('Invalid response type');
+    await expect(fetchStateFromBackend()).rejects.toThrow('Invalid response type');
   });
 
-  it('retries when configured and eventually succeeds', async () => {
-    intercom.request.mockResolvedValueOnce({ type: 'WrongType' }).mockResolvedValueOnce({
-      type: WalletMessageType.GetStateResponse,
-      state: { status: 'Locked' }
-    });
-    const state = await fetchStateFromBackend(2);
-    expect(state).toEqual({ status: 'Locked' });
+  it('is a single attempt — the caller owns any retry loop', async () => {
+    intercom.request.mockResolvedValueOnce({ type: 'WrongType' });
+    await expect(fetchStateFromBackend()).rejects.toThrow('Invalid response type');
+    expect(intercom.request).toHaveBeenCalledTimes(1);
   });
 });

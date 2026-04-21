@@ -1,6 +1,4 @@
-import { useEffect, useRef } from 'react';
-
-import retry from 'async-retry';
+import { useEffect } from 'react';
 
 import { MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -16,6 +14,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
   return Promise.race([promise, timeoutPromise]);
 }
+
+/**
+ * Unbounded exponential backoff, capped at `maxDelayMs`.
+ * The MV3 service worker's cold-start (WASM init + initial chain sync) can take
+ * tens of seconds on slow machines; keeping the UI bound to a fixed retry
+ * budget was the cause of #113 (popup white-screens with no recovery).
+ */
+const INITIAL_BACKOFF_MS = 250;
+const MAX_BACKOFF_MS = 3_000;
 
 /**
  * Read the SW's last-broadcast sync snapshot from chrome.storage.local and
@@ -60,36 +67,50 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<v
 export function useIntercomSync() {
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
   const isInitialized = useWalletStore(s => s.isInitialized);
-  const initialFetchDone = useRef(false);
 
   useEffect(() => {
-    // Fetch initial state
+    let cancelled = false;
+
+    // Retry the initial GetStateRequest indefinitely with exponential backoff.
+    // The backend broadcasts `StateUpdated` once SW init completes (see
+    // main.ts:start), which is caught by the subscriber below — either path
+    // hydrates the store. Using an unbounded loop here is a belt-and-braces
+    // guarantee that a missed broadcast or slow port setup never leaves the
+    // popup permanently stuck (the failure mode in #113).
     const fetchInitialState = async () => {
-      /* c8 ignore next -- ref guard for double-mount in StrictMode */
-      if (initialFetchDone.current) return;
-      initialFetchDone.current = true;
+      let backoffMs = INITIAL_BACKOFF_MS;
+      while (!cancelled) {
+        try {
+          const state = await fetchStateFromBackend();
+          if (cancelled) return;
+          syncFromBackend(state);
 
-      try {
-        const state = await fetchStateFromBackend(5);
-        syncFromBackend(state);
-
-        // Rehydrate balances from the last SW sync snapshot BEFORE the app
-        // renders. Without this, any non-MIDEN token (e.g. a custom faucet)
-        // is missing from `useAllBalances` until the 3s poll ticks below,
-        // so Send's token list shows only the MIDEN fallback for the first
-        // few seconds after any page (re)load. Surfaced by the E2E stress
-        // suite — receivers that claim mid-run would render Send as
-        // MIDEN-only until the next poll cycle.
-        if (isExtension() && state.currentAccount) {
-          await rehydrateBalancesFromStorage(state.currentAccount.publicKey);
+          // Rehydrate balances from the last SW sync snapshot BEFORE the app
+          // renders. Without this, any non-MIDEN token (e.g. a custom faucet)
+          // is missing from `useAllBalances` until the 3s poll ticks below,
+          // so Send's token list shows only the MIDEN fallback for the first
+          // few seconds after any page (re)load. Surfaced by the E2E stress
+          // suite — receivers that claim mid-run would render Send as
+          // MIDEN-only until the next poll cycle.
+          if (isExtension() && state.currentAccount) {
+            await rehydrateBalancesFromStorage(state.currentAccount.publicKey);
+          }
+          return;
+        } /* c8 ignore next 8 -- retry path, requires backend error simulation */ catch (error) {
+          if (cancelled) return;
+          console.warn('[useIntercomSync] initial fetch failed, retrying:', error);
+          const wait = backoffMs;
+          await new Promise(resolve => setTimeout(resolve, wait));
+          backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
         }
-      } /* c8 ignore next 3 -- retry path, requires backend error simulation */ catch (error) {
-        console.error('Failed to fetch initial state:', error);
-        initialFetchDone.current = false; // Allow retry
       }
     };
 
     fetchInitialState();
+
+    return () => {
+      cancelled = true;
+    };
   }, [syncFromBackend]);
 
   useEffect(() => {
@@ -103,7 +124,7 @@ export function useIntercomSync() {
     const unsubscribe = intercom.subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
         // Refetch state when backend notifies of changes
-        fetchStateFromBackend(0)
+        fetchStateFromBackend()
           .then(syncFromBackend)
           .catch(error => console.error('Failed to sync state:', error));
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
@@ -177,25 +198,24 @@ export function useIntercomSync() {
 }
 
 /**
- * Fetch state from backend with retry logic
+ * Fetch state from backend (single attempt, 3s timeout).
+ *
+ * Callers that want to keep trying until the SW is ready should wrap this in
+ * a retry loop (see `fetchInitialState` above). The 3s per-attempt timeout
+ * guards against the intercom port hanging indefinitely on cold-start.
  */
-async function fetchStateFromBackend(maxRetries: number = 0): Promise<MidenState> {
+async function fetchStateFromBackend(): Promise<MidenState> {
   const intercom = getIntercom();
 
-  const res = await retry(
-    async () => {
-      return withTimeout(
-        (async () => {
-          const res = await intercom.request({ type: WalletMessageType.GetStateRequest });
-          if (res?.type !== WalletMessageType.GetStateResponse) {
-            throw new Error('Invalid response type');
-          }
-          return res;
-        })(),
-        3_000
-      );
-    },
-    { retries: maxRetries, minTimeout: 0, maxTimeout: 0 } as Parameters<typeof retry>[1]
+  const res = await withTimeout(
+    (async () => {
+      const res = await intercom.request({ type: WalletMessageType.GetStateRequest });
+      if (res?.type !== WalletMessageType.GetStateResponse) {
+        throw new Error('Invalid response type');
+      }
+      return res;
+    })(),
+    3_000
   );
 
   return res.state;
