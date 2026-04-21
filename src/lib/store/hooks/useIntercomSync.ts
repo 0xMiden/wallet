@@ -7,22 +7,44 @@ import { NoteClaimStarted, SyncData, WalletMessageType, WalletNotification } fro
 import { getIntercom, useWalletStore } from '../index';
 import { updateBalancesFromSyncData } from '../utils/updateBalancesFromSyncData';
 
-/** Wraps a promise with a timeout */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('Timeout')), ms);
-  });
-  return Promise.race([promise, timeoutPromise]);
-}
-
 /**
- * Unbounded exponential backoff, capped at `maxDelayMs`.
- * The MV3 service worker's cold-start (WASM init + initial chain sync) can take
- * tens of seconds on slow machines; keeping the UI bound to a fixed retry
- * budget was the cause of #113 (popup white-screens with no recovery).
+ * Retry config for GetStateRequest. The MV3 service worker's cold-start
+ * (WASM init + initial chain sync) can take tens of seconds on slow machines;
+ * a fixed budget was the cause of #113 (popup white-screens with no recovery).
  */
 const INITIAL_BACKOFF_MS = 250;
-const MAX_BACKOFF_MS = 3_000;
+const MAX_BACKOFF_MS = 3_000; // cap of the exponential growth
+const PER_ATTEMPT_TIMEOUT_MS = 3_000;
+const WARN_AFTER_ATTEMPTS = 20; // ~1 min of failed retries — indicates a wedged SW
+
+/**
+ * Keep trying `fetchStateFromBackend` until it succeeds or `isCancelled`
+ * returns true. Emits a single `console.warn` once `WARN_AFTER_ATTEMPTS` is
+ * crossed so a permanently-wedged SW surfaces in logs / analytics instead of
+ * spinning invisibly.
+ */
+async function retryFetchState(isCancelled: () => boolean): Promise<MidenState | null> {
+  let backoffMs = INITIAL_BACKOFF_MS;
+  let attempt = 0;
+  while (!isCancelled()) {
+    try {
+      return await fetchStateFromBackend();
+    } /* c8 ignore next 10 -- retry path exercised by fake-timers test */ catch (error) {
+      if (isCancelled()) return null;
+      attempt += 1;
+      if (attempt === WARN_AFTER_ATTEMPTS) {
+        console.warn(
+          `[useIntercomSync] backend unresponsive after ${WARN_AFTER_ATTEMPTS} attempts; still retrying:`,
+          error
+        );
+      }
+      const wait = backoffMs;
+      await new Promise(resolve => setTimeout(resolve, wait));
+      backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+    }
+  }
+  return null;
+}
 
 /**
  * Read the SW's last-broadcast sync snapshot from chrome.storage.local and
@@ -66,47 +88,31 @@ async function rehydrateBalancesFromStorage(accountPublicKey: string): Promise<v
  */
 export function useIntercomSync() {
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
-  const isInitialized = useWalletStore(s => s.isInitialized);
 
   useEffect(() => {
-    let cancelled = false;
-
-    // Retry the initial GetStateRequest indefinitely with exponential backoff.
     // The backend broadcasts `StateUpdated` once SW init completes (see
     // main.ts:start), which is caught by the subscriber below — either path
-    // hydrates the store. Using an unbounded loop here is a belt-and-braces
-    // guarantee that a missed broadcast or slow port setup never leaves the
-    // popup permanently stuck (the failure mode in #113).
-    const fetchInitialState = async () => {
-      let backoffMs = INITIAL_BACKOFF_MS;
-      while (!cancelled) {
-        try {
-          const state = await fetchStateFromBackend();
-          if (cancelled) return;
-          syncFromBackend(state);
+    // hydrates the store. Unbounded retry here is a belt-and-braces guarantee
+    // that a missed broadcast or slow port setup never leaves the popup
+    // permanently stuck (the failure mode in #113).
+    let cancelled = false;
 
-          // Rehydrate balances from the last SW sync snapshot BEFORE the app
-          // renders. Without this, any non-MIDEN token (e.g. a custom faucet)
-          // is missing from `useAllBalances` until the 3s poll ticks below,
-          // so Send's token list shows only the MIDEN fallback for the first
-          // few seconds after any page (re)load. Surfaced by the E2E stress
-          // suite — receivers that claim mid-run would render Send as
-          // MIDEN-only until the next poll cycle.
-          if (isExtension() && state.currentAccount) {
-            await rehydrateBalancesFromStorage(state.currentAccount.publicKey);
-          }
-          return;
-        } /* c8 ignore next 8 -- retry path, requires backend error simulation */ catch (error) {
-          if (cancelled) return;
-          console.warn('[useIntercomSync] initial fetch failed, retrying:', error);
-          const wait = backoffMs;
-          await new Promise(resolve => setTimeout(resolve, wait));
-          backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
-        }
+    (async () => {
+      const state = await retryFetchState(() => cancelled);
+      if (cancelled || !state) return;
+      syncFromBackend(state);
+
+      // Rehydrate balances from the last SW sync snapshot BEFORE the app
+      // renders. Without this, any non-MIDEN token (e.g. a custom faucet)
+      // is missing from `useAllBalances` until the 3s poll ticks below,
+      // so Send's token list shows only the MIDEN fallback for the first
+      // few seconds after any page (re)load. Surfaced by the E2E stress
+      // suite — receivers that claim mid-run would render Send as
+      // MIDEN-only until the next poll cycle.
+      if (isExtension() && state.currentAccount) {
+        await rehydrateBalancesFromStorage(state.currentAccount.publicKey);
       }
-    };
-
-    fetchInitialState();
+    })();
 
     return () => {
       cancelled = true;
@@ -121,12 +127,16 @@ export function useIntercomSync() {
 
     const store = useWalletStore.getState;
 
+    // Track in-flight refetches so we can cancel them on unmount — the
+    // subscriber is also retry-wrapped (prev bug was a missed refetch on a
+    // racy port reconnect during a StateUpdated broadcast).
+    let refetchCancelled = false;
+
     const unsubscribe = intercom.subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
-        // Refetch state when backend notifies of changes
-        fetchStateFromBackend()
-          .then(syncFromBackend)
-          .catch(error => console.error('Failed to sync state:', error));
+        retryFetchState(() => refetchCancelled).then(state => {
+          if (state) syncFromBackend(state);
+        });
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
         // Service worker finished a sync cycle — update sync status
         setSyncStatus(false);
@@ -137,7 +147,10 @@ export function useIntercomSync() {
       }
     });
 
-    return unsubscribe;
+    return () => {
+      refetchCancelled = true;
+      unsubscribe();
+    };
   }, [syncFromBackend]);
 
   // Poll balance data from chrome.storage.local (vault assets).
@@ -193,32 +206,31 @@ export function useIntercomSync() {
     return () => clearInterval(timer);
   }, [currentAccount]);
   /* c8 ignore stop */
-
-  return isInitialized;
 }
 
 /**
- * Fetch state from backend (single attempt, 3s timeout).
+ * Fetch state from backend — single attempt, bounded by
+ * `PER_ATTEMPT_TIMEOUT_MS`. On timeout the underlying intercom request is
+ * aborted via AbortController so the port listener is removed (otherwise the
+ * extension port would accumulate dead listeners across retries — the intercom
+ * port is long-lived and only recycled on disconnect).
  *
  * Callers that want to keep trying until the SW is ready should wrap this in
- * a retry loop (see `fetchInitialState` above). The 3s per-attempt timeout
- * guards against the intercom port hanging indefinitely on cold-start.
+ * `retryFetchState` (see above).
  */
 async function fetchStateFromBackend(): Promise<MidenState> {
   const intercom = getIntercom();
-
-  const res = await withTimeout(
-    (async () => {
-      const res = await intercom.request({ type: WalletMessageType.GetStateRequest });
-      if (res?.type !== WalletMessageType.GetStateResponse) {
-        throw new Error('Invalid response type');
-      }
-      return res;
-    })(),
-    3_000
-  );
-
-  return res.state;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PER_ATTEMPT_TIMEOUT_MS);
+  try {
+    const res = await intercom.request({ type: WalletMessageType.GetStateRequest }, { signal: controller.signal });
+    if (res?.type !== WalletMessageType.GetStateResponse) {
+      throw new Error('Invalid response type');
+    }
+    return res.state;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-export { fetchStateFromBackend };
+export { fetchStateFromBackend, retryFetchState };
