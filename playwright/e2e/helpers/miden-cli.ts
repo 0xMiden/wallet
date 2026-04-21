@@ -182,21 +182,30 @@ export class MidenCli {
       mintArgs += ' --delegate-proving';
     }
 
-    const result = await this.run(mintArgs, { timeoutMs: this.env.txTimeoutMs });
-    if (result.exitCode !== 0) {
-      throw new Error(`Mint failed: ${result.stderr}`);
+    const maxAttempts = 5;
+    let lastErr = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const result = await this.run(mintArgs, { timeoutMs: this.env.txTimeoutMs });
+      if (result.exitCode === 0) {
+        const txId = result.parsed?.transactionId;
+        const noteId = result.parsed?.noteId;
+        if (!txId || !noteId) {
+          throw new Error(`Could not parse mint result from output:\n${result.stdout}`);
+        }
+        return { txId, noteId };
+      }
+      lastErr = result.stderr;
+      const transient =
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+          lastErr
+        );
+      if (!transient || attempt === maxAttempts) break;
+      const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+      // eslint-disable-next-line no-console
+      console.log(`[miden-cli] mint attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      await new Promise(r => setTimeout(r, backoffMs));
     }
-
-    const txId = result.parsed?.transactionId;
-    const noteId = result.parsed?.noteId;
-
-    if (!txId || !noteId) {
-      throw new Error(
-        `Could not parse mint result from output:\n${result.stdout}`
-      );
-    }
-
-    return { txId, noteId };
+    throw new Error(`Mint failed after retries: ${lastErr}`);
   }
 
   /**

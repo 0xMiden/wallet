@@ -52,8 +52,12 @@ function parseOptions(): StressOptions {
     lockEvery: intEnv('STRESS_LOCK_EVERY', 15),
     reloadEvery: intEnv('STRESS_RELOAD_EVERY', 20),
     concurrentProb: floatEnv('STRESS_CONCURRENT_PROB', 0.15),
-    perTurnSendTimeoutMs: intEnv('STRESS_SEND_TIMEOUT_MS', 90_000),
-    seed: intEnv('STRESS_SEED', Date.now() >>> 0),
+    // Generous ceiling: this is a correctness test, not a perf test. A send
+    // that takes 60s and succeeds is fine — we log it and move on. Real
+    // "broken" is >5 min. Tighter budgets produced false-positive failures
+    // from testnet flake + SW suspension pileups.
+    perTurnSendTimeoutMs: intEnv('STRESS_SEND_TIMEOUT_MS', 300_000),
+    seed: intEnv('STRESS_SEED', Date.now() >>> 0)
   };
 }
 
@@ -63,13 +67,7 @@ test.describe('Stress: random send/claim', () => {
   // No per-test timeout — the driver's `numNotes` is the stop condition.
   test.setTimeout(0);
 
-  test('random send/claim between two wallets', async ({
-    walletA,
-    walletB,
-    midenCli,
-    steps,
-    timeline,
-  }) => {
+  test('random send/claim between two wallets', async ({ walletA, walletB, midenCli, steps, timeline }) => {
     const opts = parseOptions();
     const initialMintsPerWallet = intEnv('STRESS_INITIAL_MINTS', 3);
     const conservationStrict = (process.env.STRESS_CONSERVATION_STRICT ?? 'true') === 'true';
@@ -101,7 +99,7 @@ test.describe('Stress: random send/claim', () => {
     await steps.step('initial_claim', async () => {
       await Promise.all([
         walletA.waitForBalanceAbove(0, 180_000, timeline),
-        walletB.waitForBalanceAbove(0, 180_000, timeline),
+        walletB.waitForBalanceAbove(0, 180_000, timeline)
       ]);
       await walletA.claimAllNotes(180_000);
       await walletB.claimAllNotes(180_000);
@@ -116,18 +114,47 @@ test.describe('Stress: random send/claim', () => {
     let result: Awaited<ReturnType<typeof runStressDriver>> | undefined;
 
     await steps.step('stress_loop', async () => {
-      result = await runStressDriver(
-        { walletA, walletB, addressA, addressB },
-        timeline,
-        opts
-      );
+      result = await runStressDriver({ walletA, walletB, addressA, addressB }, timeline, opts);
     });
 
     await steps.step('verify_and_report', async () => {
       if (!result) throw new Error('stress driver did not return a result');
 
-      const finalA = await walletA.getBalance();
-      const finalB = await walletB.getBalance();
+      // Settle loop: wait for conservation before measuring.
+      //
+      // `sendTokens` returns when the UI shows "transaction initiated" — that
+      // is BEFORE on-chain commit. For a send fired near the end of the stress
+      // loop, the sender's vault has optimistically decremented but the
+      // receiver's sync may not yet have seen the note; total (A+B) transiently
+      // reads low until the commit propagates. The drain phase drains
+      // CLAIMABLE notes but can't force a pending OUTGOING tx to move from
+      // "submitted" to "committed." Wait up to 5 min for A+B to reach the
+      // initial total. If we never converge, that's a true loss and the
+      // assertion below will surface it.
+      const SETTLE_DEADLINE_MS = 5 * 60 * 1000;
+      const SETTLE_POLL_MS = 5_000;
+      let finalA = 0;
+      let finalB = 0;
+      const settleStart = Date.now();
+      while (Date.now() - settleStart < SETTLE_DEADLINE_MS) {
+        await Promise.all([walletA.triggerSync(), walletB.triggerSync()]);
+        finalA = await walletA.getBalance();
+        finalB = await walletB.getBalance();
+        if (finalA + finalB === initialTotal) {
+          timeline.emit({
+            category: 'test_lifecycle',
+            severity: 'info',
+            message: `[stress] settle: A+B converged to ${initialTotal} in ${Math.round((Date.now() - settleStart) / 1000)}s`
+          });
+          break;
+        }
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'info',
+          message: `[stress] settle: waiting — A=${finalA} B=${finalB} total=${finalA + finalB} target=${initialTotal}`
+        });
+        await new Promise(r => setTimeout(r, SETTLE_POLL_MS));
+      }
       const finalTotal = finalA + finalB;
       const delta = finalTotal - initialTotal;
 
@@ -147,7 +174,7 @@ test.describe('Stress: random send/claim', () => {
             o.status,
             o.concurrent ?? false,
             o.perturbation ?? '',
-            (o.err ?? '').replace(/[,\n]/g, ' '),
+            (o.err ?? '').replace(/[,\n]/g, ' ')
           ].join(',')
         )
         .join('\n');
@@ -174,15 +201,15 @@ test.describe('Stress: random send/claim', () => {
           requested: result.requested,
           completed: result.completed,
           failed: result.failed,
-          perturbations: result.perturbations,
+          perturbations: result.perturbations
         },
         sendLatencyMs: {
           min: latencies[0] ?? 0,
           p50: pct(0.5),
           p95: pct(0.95),
           max: latencies[latencies.length - 1] ?? 0,
-          successful: latencies.length,
-        },
+          successful: latencies.length
+        }
       };
       fs.writeFileSync(path.join(outDir, 'stress-summary.json'), JSON.stringify(summary, null, 2));
 
