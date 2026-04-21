@@ -48,6 +48,13 @@ export const AccountsList: React.FC<AccountsListProps> = ({
               subtitle={`${t(c.contactType)} · ${truncateAddress(c.id)}`}
               iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
               iconRight={c.id === recipientAccountId ? IconName.CheckboxCircleFill : undefined}
+              titleRight={
+                c.isGuardian ? (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full text-[#CC5200] bg-[#FFF3EB]">
+                    {t('guardianBadge')}
+                  </span>
+                ) : undefined
+              }
               onClick={() => onSelectContact(c)}
               hoverable={true}
             />

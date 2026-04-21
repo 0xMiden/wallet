@@ -366,6 +366,7 @@
   "importWithEncryptedWalletFileDescription": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain",
   "twitter": "X (Twitter)",
   "encryptedWalletFile": "Encrypted Wallet File",
+  "guardianBadge": "Guardian",
   "guardianSettings": "Guardian Settings",
   "currentGuardianEndpoint": "Current Guardian",
   "newGuardianEndpoint": "New Guardian Endpoint",

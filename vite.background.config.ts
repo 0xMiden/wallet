@@ -1,7 +1,7 @@
 import { resolve } from 'path';
+import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
-import { defineConfig, type Plugin } from 'vite';
 
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
@@ -19,7 +19,7 @@ export default defineConfig({
         if (id.endsWith('.css') || id.endsWith('.scss')) {
           return 'export default {};';
         }
-      },
+      }
     } satisfies Plugin,
     // Stub React and frontend-only modules to prevent DOM/browser API access
     // in the service worker. The backend code transitively imports these
@@ -37,7 +37,7 @@ export default defineConfig({
           'react-day-picker',
           'react-qr-code',
           'qr-scanner',
-          '@nicolo-ribaudo/chokidar-2',
+          '@nicolo-ribaudo/chokidar-2'
         ];
         if (stubModules.some(m => source === m || source.startsWith(m + '/'))) {
           return '\0stub:' + source;
@@ -47,7 +47,7 @@ export default defineConfig({
         if (id.startsWith('\0stub:')) {
           return 'export default {}; export const useTranslation = () => ({ t: (k) => k, i18n: {} });';
         }
-      },
+      }
     } satisfies Plugin,
     // Patch the output for service worker compatibility:
     // 1. Replace document/window refs in Vite's preload helper with SW-safe versions
@@ -94,17 +94,14 @@ export default defineConfig({
             /var init_transactions = __esmMin\(\(async \(\) => \{([\s\S]*?)\}\)\);/,
             (match, body) => {
               let counter = 0;
-              const instrumented = body.replace(
-                /(?:await )?(init_\w+\(\))/g,
-                (m, call) => {
-                  counter++;
-                  const hasAwait = m.startsWith('await ');
-                  if (hasAwait) {
-                    return `console.log("[init_transactions] ${counter}: await ${call}..."); await ${call}; console.log("[init_transactions] ${counter}: ${call} done")`;
-                  }
-                  return `console.log("[init_transactions] ${counter}: ${call}"); ${call}`;
+              const instrumented = body.replace(/(?:await )?(init_\w+\(\))/g, (m, call) => {
+                counter++;
+                const hasAwait = m.startsWith('await ');
+                if (hasAwait) {
+                  return `console.log("[init_transactions] ${counter}: await ${call}..."); await ${call}; console.log("[init_transactions] ${counter}: ${call} done")`;
                 }
-              );
+                return `console.log("[init_transactions] ${counter}: ${call}"); ${call}`;
+              });
               return `var init_transactions = __esmMin((async () => {${instrumented}}));`;
             }
           );
@@ -142,7 +139,7 @@ export default defineConfig({
             '  event.notification.close();',
             '  event.waitUntil(self.clients.openWindow(chrome.runtime.getURL("fullpage.html#/receive")));',
             '});',
-            '',
+            ''
           ].join('\n');
           chunk.code = swListeners + 'var __vitePreload = function(fn) { return fn(); };\n' + chunk.code;
 
@@ -158,40 +155,45 @@ export default defineConfig({
           // init_activity imports the frontend Zustand store which has a deep
           // dependency chain that hangs in SW context. Similarly init_transaction_processor
           // depends on init_activity. We run these fire-and-forget after core inits.
-          const coreInits = uniqueInits.filter(c =>
-            !c.includes('init_actions') && !c.includes('init_transaction_processor')
+          const coreInits = uniqueInits.filter(
+            c => !c.includes('init_actions') && !c.includes('init_transaction_processor')
           );
-          const extendedInits = uniqueInits.filter(c =>
-            c.includes('init_actions') || c.includes('init_transaction_processor')
+          const extendedInits = uniqueInits.filter(
+            c => c.includes('init_actions') || c.includes('init_transaction_processor')
           );
           if (coreInits.length > 0) {
             // Create a Promise that resolves when core inits are done.
             // Define __initsReady at MODULE SCOPE so processRequest can access it.
             const coreInitBlock = coreInits.map(c => `  await ${c};`).join('\n');
-            const extendedInitBlock = extendedInits.map(c =>
-              `    ${c}.catch(function(e) { console.warn("[SW-init] ${c.replace('()', '')} error:", e?.message || e); })`
-            ).join(',\n');
+            const extendedInitBlock = extendedInits
+              .map(
+                c =>
+                  `    ${c}.catch(function(e) { console.warn("[SW-init] ${c.replace('()', '')} error:", e?.message || e); })`
+              )
+              .join(',\n');
             chunk.code = chunk.code.replace(
               /async function processRequest/,
               [
                 '// Phase 1: Core module inits (must complete for wallet operations)',
                 'var __initsReady = (async function() {',
                 coreInitBlock,
-                '  await init();',  // Actions.init() - sets state.inited
+                '  await init();', // Actions.init() - sets state.inited
                 '  // Phase 2: Extended inits (may hang due to frontend module deps)',
                 '  // Run fire-and-forget with a 30s timeout',
-                extendedInitBlock.length > 0 ? [
-                  '  Promise.race([',
-                  '    Promise.all([',
-                  extendedInitBlock,
-                  '    ]),',
-                  '    new Promise(function(r) { setTimeout(r, 30000); })',
-                  '  ]).then(function() { console.log("[SW-init] Extended inits completed"); })',
-                  '   .catch(function() {});',
-                ].join('\n') : '',
+                extendedInitBlock.length > 0
+                  ? [
+                      '  Promise.race([',
+                      '    Promise.all([',
+                      extendedInitBlock,
+                      '    ]),',
+                      '    new Promise(function(r) { setTimeout(r, 30000); })',
+                      '  ]).then(function() { console.log("[SW-init] Extended inits completed"); })',
+                      '   .catch(function() {});'
+                    ].join('\n')
+                  : '',
                 '})();',
                 '',
-                'async function processRequest',
+                'async function processRequest'
               ].join('\n')
             );
             // processRequest awaits inits for any request except GetStateRequest/SyncRequest
@@ -202,13 +204,13 @@ export default defineConfig({
             );
           }
         }
-      },
+      }
     } satisfies Plugin,
     wasm(),
     nodePolyfills({
       include: ['buffer', 'stream', 'assert', 'process', 'util'],
-      globals: { Buffer: true, process: true },
-    }),
+      globals: { Buffer: true, process: true }
+    })
   ],
 
   build: {
@@ -223,17 +225,17 @@ export default defineConfig({
         // reliably in all environments (Playwright's Chrome for Testing).
         inlineDynamicImports: true,
         assetFileNames: 'static/wasm/[name].[hash][extname]',
-        format: 'es',
-      },
+        format: 'es'
+      }
     },
     sourcemap: process.env.MODE_ENV !== 'production',
     target: 'es2022',
     minify: process.env.MODE_ENV === 'production',
-    modulePreload: { polyfill: false }, // No polyfill -- service workers don't have `document`
+    modulePreload: { polyfill: false } // No polyfill -- service workers don't have `document`
   },
 
   worker: {
-    format: 'es', // Workers need ESM for top-level await support
+    format: 'es' // Workers need ESM for top-level await support
   },
 
   resolve: {
@@ -243,8 +245,8 @@ export default defineConfig({
       shared: resolve(__dirname, 'src/shared'),
       components: resolve(__dirname, 'src/components'),
       screens: resolve(__dirname, 'src/screens'),
-      utils: resolve(__dirname, 'src/utils'),
-    },
+      utils: resolve(__dirname, 'src/utils')
+    }
   },
 
   define: {
@@ -254,6 +256,6 @@ export default defineConfig({
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
-    'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
-  },
+    'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
+  }
 });
