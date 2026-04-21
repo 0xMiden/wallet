@@ -7,7 +7,12 @@ import { getEnvironmentConfig } from '../config/environments';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
-import { SW_FETCH_LOG_PREFIX, attachNetworkCapture, attachServiceWorkerFetchCapture } from '../harness/network-capture';
+import {
+  SW_FETCH_LOG_PREFIX,
+  attachNetworkCapture,
+  attachPageWorkersCapture,
+  attachServiceWorkerFetchCapture
+} from '../harness/network-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
@@ -208,6 +213,10 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
   }
 
   attachNetworkCapture(context, label, timeline);
+  // SDK spawns a web worker (web-client-methods-worker.js) that runs the WASM
+  // prove/sync/submit RPCs; its fetches are invisible to page- and SW-scoped
+  // capture. Instrument every current + future worker this page spawns.
+  attachPageWorkersCapture(page, label, timeline);
 
   const earlyErrors: string[] = [];
   page.on('console', msg => {

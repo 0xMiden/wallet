@@ -1,4 +1,4 @@
-import type { BrowserContext, Request, Response as PwResponse, Worker } from '@playwright/test';
+import type { BrowserContext, Page, Request, Response as PwResponse, Worker } from '@playwright/test';
 
 import type { TimelineRecorder } from './timeline-recorder';
 import type { NetworkCategory } from './types';
@@ -201,4 +201,28 @@ export async function attachServiceWorkerFetchCapture(
       message: `[SW-NET] fetch wrapper install failed: ${err instanceof Error ? err.message : String(err)}`
     });
   }
+}
+
+/**
+ * Page-spawned worker capture. The Miden SDK spawns a dedicated web worker
+ * (`web-client-methods-worker.js`) where the compiled-Rust client runs the
+ * bulk of its RPCs — prover, sync, submit, etc. Those fetches happen in the
+ * worker's own context and are NOT visible to:
+ *   - the SW-scoped wrapper (different global)
+ *   - context.on('requestfinished') page-scoped events
+ *   - context.on('requestfinished') SW-scoped events (we dedupe those via
+ *     request.serviceWorker())
+ *
+ * Solution: the same fetch-wrapper pattern, but installed via the worker's
+ * own evaluate(). A console listener on the worker target demuxes the
+ * sentinel lines into network_request events. Applied to every worker
+ * spawned by the page (current + future).
+ */
+export function attachPageWorkersCapture(page: Page, walletLabel: 'A' | 'B', timeline: TimelineRecorder): void {
+  for (const worker of page.workers()) {
+    void attachServiceWorkerFetchCapture(worker, walletLabel, timeline);
+  }
+  page.on('worker', worker => {
+    void attachServiceWorkerFetchCapture(worker, walletLabel, timeline);
+  });
 }
