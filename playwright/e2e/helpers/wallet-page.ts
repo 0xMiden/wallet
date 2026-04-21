@@ -50,6 +50,18 @@ export interface ChromeWalletPageApi extends WalletPage {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
+  quickBalanceSnapshot(): Promise<{
+    balance: number;
+    pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
+    pendingSum: number;
+    totalReportable: number;
+    pendingTxCount: number;
+    latestTxId?: string;
+    error?: string;
+  }>;
+  /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
+  dumpChromeStorage(): Promise<Record<string, unknown>>;
 }
 
 /**
@@ -413,6 +425,117 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────
+
+  /**
+   * Non-invasive snapshot of the wallet's balance-related state. Unlike
+   * getBalance() it:
+   *   - does NOT navigate
+   *   - does NOT call state.fetchBalances (which triggers an RPC)
+   *   - does not require the Explore page to be visible
+   *
+   * Reads straight from the Zustand store + `chrome.storage.local`:
+   *   - `balance` = consumed vault assets (matches getBalance's first source)
+   *   - `pendingNotes` = full list of claimable notes (id + amount)
+   *   - `totalReportable` = balance + Σ pendingNotes — matches getBalance()
+   *   - `pendingTxCount` / `lastTxId` = wallet's recent outgoing transactions
+   *
+   * Safe to call every op: measured at ~50 ms per wallet.
+   */
+  async quickBalanceSnapshot(): Promise<{
+    balance: number;
+    pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
+    pendingSum: number;
+    totalReportable: number;
+    pendingTxCount: number;
+    latestTxId?: string;
+    error?: string;
+  }> {
+    try {
+      return await this.page.evaluate(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const store = (window as any).__TEST_STORE__;
+        const state = store?.getState?.();
+        let balance = 0;
+        for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
+          if (!Array.isArray(tokenList)) continue;
+          for (const token of tokenList) {
+            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+            if (amount > 0) balance += amount;
+          }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const storage = await new Promise<any>(resolve => {
+          chrome.storage.local.get(['miden_sync_data'], resolve);
+        });
+        const notes = storage?.miden_sync_data?.notes ?? [];
+        const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
+        let pendingSum = 0;
+        for (const note of notes) {
+          const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
+          const decimals = note.metadata?.decimals ?? 8;
+          const amount = baseUnits / Math.pow(10, decimals);
+          pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
+          pendingSum += amount;
+        }
+
+        // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
+        let pendingTxCount = 0;
+        let latestTxId: string | undefined;
+        const txs = state?.transactions;
+        if (txs && typeof txs === 'object') {
+          const list = Array.isArray(txs) ? txs : Object.values(txs);
+          pendingTxCount = list.length;
+          // Pick the most recent by timestamp if available
+          let mostRecent: { id?: string; timestamp?: number } | null = null;
+          for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
+            const id = t.id ?? t.transactionId;
+            const ts = t.timestamp ?? 0;
+            if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
+              mostRecent = { id, timestamp: ts };
+            }
+          }
+          latestTxId = mostRecent?.id;
+        }
+
+        return {
+          balance,
+          pendingNotes,
+          pendingSum,
+          totalReportable: balance + pendingSum,
+          pendingTxCount,
+          latestTxId
+        };
+      });
+    } catch (e) {
+      return {
+        balance: 0,
+        pendingNotes: [],
+        pendingSum: 0,
+        totalReportable: 0,
+        pendingTxCount: 0,
+        error: e instanceof Error ? e.message : String(e)
+      };
+    }
+  }
+
+  /**
+   * Dump every key in chrome.storage.local — used at end-of-run for forensic
+   * analysis. Includes miden_sync_data (notes + vaultAssets), connectivity-
+   * issue flag, cached metadata, etc.
+   */
+  async dumpChromeStorage(): Promise<Record<string, unknown>> {
+    try {
+      return await this.page.evaluate(
+        () =>
+          new Promise<Record<string, unknown>>(resolve => {
+            chrome.storage.local.get(null, items => resolve(items || {}));
+          })
+      );
+    } catch (e) {
+      return { __error: e instanceof Error ? e.message : String(e) };
+    }
+  }
 
   /**
    * Get the balance for a specific token from the Explore page.

@@ -138,8 +138,10 @@ test.describe('Stress: random send/claim', () => {
       const settleStart = Date.now();
       while (Date.now() - settleStart < SETTLE_DEADLINE_MS) {
         await Promise.all([walletA.triggerSync(), walletB.triggerSync()]);
-        finalA = await walletA.getBalance();
-        finalB = await walletB.getBalance();
+        // Read full snapshot so we can log *what's* pending if settle gets stuck.
+        const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
+        finalA = snapA.totalReportable;
+        finalB = snapB.totalReportable;
         if (finalA + finalB === initialTotal) {
           timeline.emit({
             category: 'test_lifecycle',
@@ -148,10 +150,34 @@ test.describe('Stress: random send/claim', () => {
           });
           break;
         }
+        const pendingSample = (
+          s: Awaited<ReturnType<typeof walletA.quickBalanceSnapshot>>,
+          label: 'A' | 'B'
+        ): string =>
+          s.pendingNotes.length === 0
+            ? `${label}.pending=[]`
+            : `${label}.pending=[${s.pendingNotes
+                .slice(0, 6)
+                .map(n => `${n.id.slice(0, 10)}=${n.amount}`)
+                .join(',')}${s.pendingNotes.length > 6 ? `,…+${s.pendingNotes.length - 6}` : ''}]`;
         timeline.emit({
           category: 'test_lifecycle',
           severity: 'info',
-          message: `[stress] settle: waiting — A=${finalA} B=${finalB} total=${finalA + finalB} target=${initialTotal}`
+          message:
+            `[stress] settle: waiting — A=${finalA} B=${finalB} total=${finalA + finalB} target=${initialTotal} ` +
+            `| ${pendingSample(snapA, 'A')} ${pendingSample(snapB, 'B')} ` +
+            `pendingTx A=${snapA.pendingTxCount} B=${snapB.pendingTxCount}`,
+          data: {
+            finalA,
+            finalB,
+            target: initialTotal,
+            pendingA: snapA.pendingNotes,
+            pendingB: snapB.pendingNotes,
+            pendingTxA: snapA.pendingTxCount,
+            pendingTxB: snapB.pendingTxCount,
+            latestTxA: snapA.latestTxId,
+            latestTxB: snapB.latestTxId
+          }
         });
         await new Promise(r => setTimeout(r, SETTLE_POLL_MS));
       }
@@ -208,7 +234,10 @@ test.describe('Stress: random send/claim', () => {
           requested: result.requested,
           completed: result.completed,
           failed: result.failed,
-          perturbations: result.perturbations
+          perturbations: result.perturbations,
+          firstDivergenceOp: result.firstDivergenceOp,
+          expectedDeltaA: result.expectedDeltaA,
+          expectedDeltaB: result.expectedDeltaB
         },
         sendLatencyMs: {
           min: latencies[0] ?? 0,
@@ -219,6 +248,48 @@ test.describe('Stress: random send/claim', () => {
         }
       };
       fs.writeFileSync(path.join(outDir, 'stress-summary.json'), JSON.stringify(summary, null, 2));
+
+      // ── Forensic dumps ─────────────────────────────────────────────────
+      // Full chrome.storage.local from both wallets — includes miden_sync_data
+      // (pending notes + vault assets), connectivity-issue flag, cached
+      // metadata, and anything else the wallet persists. Snapshot of the
+      // wallet's exact view-of-world at the moment the assertion runs.
+      try {
+        const [storageA, storageB] = await Promise.all([walletA.dumpChromeStorage(), walletB.dumpChromeStorage()]);
+        fs.writeFileSync(
+          path.join(outDir, 'chrome-storage-final.json'),
+          JSON.stringify({ A: storageA, B: storageB }, null, 2)
+        );
+      } catch (e) {
+        console.log(`[stress] chrome.storage dump failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      // Extract pending-tx time series from existing GeneratingTransaction
+      // browser_console events — zero-cost post-processing of data the
+      // wallet already logs. Output: CSV with one row per state change.
+      try {
+        const timelinePath = path.join(outDir, 'timeline.ndjson');
+        if (fs.existsSync(timelinePath)) {
+          const txQueueRows: string[] = ['elapsedMs,wallet,txCount,hasStartedProcessing,failedCount'];
+          const pattern =
+            /\[GeneratingTransaction\] State: \{txCount: (\d+), hasStartedProcessing: (true|false), failedCount: (\d+)/;
+          const contents = fs.readFileSync(timelinePath, 'utf-8');
+          for (const line of contents.split('\n')) {
+            if (!line) continue;
+            try {
+              const d = JSON.parse(line);
+              const m = pattern.exec(String(d.message ?? ''));
+              if (!m) continue;
+              txQueueRows.push(`${d.elapsedMs},${d.wallet ?? ''},${m[1]},${m[2]},${m[3]}`);
+            } catch {
+              // malformed line, skip
+            }
+          }
+          fs.writeFileSync(path.join(outDir, 'tx-queue-timeseries.csv'), txQueueRows.join('\n') + '\n');
+        }
+      } catch (e) {
+        console.log(`[stress] tx-queue extraction failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
 
       console.log('\n=== STRESS SUMMARY ===');
       console.log(JSON.stringify(summary, null, 2));
