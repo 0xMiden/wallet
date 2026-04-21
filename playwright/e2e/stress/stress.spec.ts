@@ -264,6 +264,18 @@ test.describe('Stress: random send/claim', () => {
         console.log(`[stress] chrome.storage dump failed: ${e instanceof Error ? e.message : String(e)}`);
       }
 
+      // IndexedDB — where the Miden SDK keeps its authoritative state
+      // (transactions, notes, accounts, chain MMR). For "did this tx actually
+      // commit?" forensics, the SDK's transactions table is the ground truth.
+      // Result is a JSON string (with binary→hex wrappers); wrap per-wallet
+      // keys so both fit in one readable file.
+      try {
+        const [idbA, idbB] = await Promise.all([walletA.dumpIndexedDB(), walletB.dumpIndexedDB()]);
+        fs.writeFileSync(path.join(outDir, 'indexeddb-final.json'), `{"A":${idbA},"B":${idbB}}`);
+      } catch (e) {
+        console.log(`[stress] indexeddb dump failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
       // Extract pending-tx time series from existing GeneratingTransaction
       // browser_console events — zero-cost post-processing of data the
       // wallet already logs. Output: CSV with one row per state change.

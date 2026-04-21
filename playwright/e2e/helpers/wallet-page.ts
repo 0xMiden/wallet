@@ -62,6 +62,12 @@ export interface ChromeWalletPageApi extends WalletPage {
   }>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
+  /**
+   * Full IndexedDB dump (all databases × all object stores). Returns a JSON
+   * string with binary/BigInt wrappers. This is where the Miden SDK keeps
+   * per-tx commit status — the ground truth for "did this tx land?".
+   */
+  dumpIndexedDB(): Promise<string>;
 }
 
 /**
@@ -534,6 +540,96 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       );
     } catch (e) {
       return { __error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Dump every IndexedDB database on the extension origin. This is where the
+   * Miden SDK persists its authoritative state — accounts, transactions,
+   * notes, chain MMR, block headers. For "did this tx actually commit?"
+   * forensics, the SDK's `transactions` table is the ground truth.
+   *
+   * Output shape: `{ [dbName]: { version, stores: { [storeName]: entries[] } } }`.
+   * Binary fields (Uint8Array / ArrayBuffer / BigInt) are converted to
+   * `{ __type, hex | value, length }` wrappers so the result round-trips
+   * through JSON and through Playwright's postMessage serialization.
+   *
+   * Not exposed on WalletPage interface — Chrome-only (IndexedDB-per-origin).
+   */
+  async dumpIndexedDB(): Promise<string> {
+    try {
+      return await this.page.evaluate(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const idb = (globalThis as any).indexedDB as IDBFactory;
+        const dbList = await idb.databases();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result: Record<string, any> = {};
+
+        const openDb = (name: string): Promise<IDBDatabase> =>
+          new Promise((resolve, reject) => {
+            const req = idb.open(name);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            req.onblocked = () => reject(new Error('blocked'));
+          });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const getAll = (store: IDBObjectStore): Promise<any[]> =>
+          new Promise((resolve, reject) => {
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+
+        for (const info of dbList) {
+          if (!info.name) continue;
+          try {
+            const db = await openDb(info.name);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stores: Record<string, any> = {};
+            for (const storeName of db.objectStoreNames) {
+              try {
+                const tx = db.transaction(storeName, 'readonly');
+                const store = tx.objectStore(storeName);
+                stores[storeName] = await getAll(store);
+              } catch (e) {
+                stores[storeName] = { __error: String(e) };
+              }
+            }
+            db.close();
+            result[info.name] = { version: info.version, stores };
+          } catch (e) {
+            result[info.name] = { __error: String(e) };
+          }
+        }
+
+        // JSON-serialize with binary/BigInt wrappers so the payload round-trips
+        // cleanly. Returning a string (vs the object) also avoids Playwright's
+        // structuredClone choking on Uint8Array in some Chromium revisions.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const replacer = (_k: string, v: any): unknown => {
+          if (v instanceof Uint8Array || v instanceof Uint8ClampedArray) {
+            const hex = Array.from(v)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            return { __type: 'Uint8Array', hex, length: v.length };
+          }
+          if (v instanceof ArrayBuffer) {
+            const arr = new Uint8Array(v);
+            const hex = Array.from(arr)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            return { __type: 'ArrayBuffer', hex, length: arr.length };
+          }
+          if (typeof v === 'bigint') {
+            return { __type: 'BigInt', value: v.toString() };
+          }
+          return v;
+        };
+        return JSON.stringify(result, replacer);
+      });
+    } catch (e) {
+      return JSON.stringify({ __error: e instanceof Error ? e.message : String(e) });
     }
   }
 
