@@ -111,7 +111,7 @@ export async function runStressDriver(
     category: 'test_lifecycle',
     severity: 'info',
     message: `[stress] starting driver: numNotes=${opts.numNotes} seed=${opts.seed}`,
-    data: { ...opts },
+    data: { ...opts }
   });
 
   while (completed < opts.numNotes) {
@@ -137,7 +137,7 @@ export async function runStressDriver(
       message:
         `[stress] op#${idx} starting: ${senderLabel}->${receiverLabel} ` +
         `${isPrivate ? 'priv' : 'pub'} amt=${amount}${concurrent ? ' concurrent' : ''}`,
-      data: { idx, sender: senderLabel, receiver: receiverLabel, isPrivate, amount, concurrent, phase: 'pre_send' },
+      data: { idx, sender: senderLabel, receiver: receiverLabel, isPrivate, amount, concurrent, phase: 'pre_send' }
     });
 
     try {
@@ -160,11 +160,11 @@ export async function runStressDriver(
               recipientAddress: addrs[senderLabel],
               amount: String(secondaryAmount),
               isPrivate: secondaryIsPrivate,
-              tokenSymbol,
+              tokenSymbol
             }),
             opts.perTurnSendTimeoutMs,
             `op#${idx} concurrent secondary (${receiverLabel}->${senderLabel})`
-          ),
+          )
         ]);
         if (primary.status === 'rejected') throw primary.reason;
       } else {
@@ -173,7 +173,7 @@ export async function runStressDriver(
             recipientAddress: receiverAddress,
             amount: String(amount),
             isPrivate,
-            tokenSymbol,
+            tokenSymbol
           }),
           opts.perTurnSendTimeoutMs,
           `op#${idx} sendTokens (${senderLabel}->${receiverLabel})`
@@ -196,29 +196,37 @@ export async function runStressDriver(
       sendMs,
       status,
       err,
-      concurrent,
+      concurrent
     });
 
+    // Slow ops aren't failures — log them as warn so they're visible in the
+    // timeline but still count as ok. Threshold picked to sit well above the
+    // clean-run p95 (~14s) but below anything that would count as truly stuck.
+    const SLOW_SEND_MS = 60_000;
+    const slow = status === 'ok' && sendMs >= SLOW_SEND_MS;
     timeline.emit({
       category: 'stress_op',
-      severity: status === 'ok' ? 'info' : 'error',
+      severity: status === 'ok' ? (slow ? 'warn' : 'info') : 'error',
       message:
         `[stress] op#${idx} ${senderLabel}->${receiverLabel} ` +
         `${isPrivate ? 'priv' : 'pub'} amt=${amount} ${sendMs}ms ${status}` +
+        (slow ? ' SLOW' : '') +
         (concurrent ? ' concurrent' : '') +
         (err ? ` err=${err.slice(0, 120)}` : ''),
-      data: { idx, sender: senderLabel, receiver: receiverLabel, isPrivate, amount, sendMs, status, concurrent },
+      data: { idx, sender: senderLabel, receiver: receiverLabel, isPrivate, amount, sendMs, status, concurrent, slow }
     });
 
     // Optional immediate claim on the receiver — mimics an attentive user.
+    // Budget is generous because this is a correctness test: the new drain
+    // loop iterates ~6s per cycle, so 240s = ~40 iterations.
     if (status === 'ok' && rng() < opts.claimAfterSendProb) {
       try {
-        await receiver.claimAllNotes(45_000);
+        await receiver.claimAllNotes(240_000);
       } catch (e) {
         timeline.emit({
           category: 'stress_op',
           severity: 'warn',
-          message: `[stress] op#${idx} receiver ${receiverLabel} claim after send failed: ${e}`,
+          message: `[stress] op#${idx} receiver ${receiverLabel} claim after send failed: ${e}`
         });
       }
     }
@@ -234,7 +242,7 @@ export async function runStressDriver(
       timeline.emit({
         category: 'stress_op',
         severity: 'info',
-        message: `[stress] perturbation: lock/unlock wallet ${victimLabel} (after op#${idx})`,
+        message: `[stress] perturbation: lock/unlock wallet ${victimLabel} (after op#${idx})`
       });
       try {
         await victim.lockWallet();
@@ -244,7 +252,7 @@ export async function runStressDriver(
         timeline.emit({
           category: 'stress_op',
           severity: 'warn',
-          message: `[stress] lock/unlock ${victimLabel} failed: ${e}`,
+          message: `[stress] lock/unlock ${victimLabel} failed: ${e}`
         });
       }
     }
@@ -258,7 +266,7 @@ export async function runStressDriver(
       timeline.emit({
         category: 'stress_op',
         severity: 'info',
-        message: `[stress] perturbation: reload wallet ${victimLabel} page (after op#${idx})`,
+        message: `[stress] perturbation: reload wallet ${victimLabel} page (after op#${idx})`
       });
       try {
         await victim.page.reload({ waitUntil: 'domcontentloaded' });
@@ -274,7 +282,7 @@ export async function runStressDriver(
         timeline.emit({
           category: 'stress_op',
           severity: 'warn',
-          message: `[stress] reload ${victimLabel} failed: ${e}`,
+          message: `[stress] reload ${victimLabel} failed: ${e}`
         });
       }
     }
@@ -291,7 +299,7 @@ export async function runStressDriver(
       timeline.emit({
         category: 'stress_op',
         severity: 'info',
-        message: `[stress] idle ${idleMs}ms (after op#${idx})`,
+        message: `[stress] idle ${idleMs}ms (after op#${idx})`
       });
       await sleep(idleMs);
     } else {
@@ -300,16 +308,17 @@ export async function runStressDriver(
   }
 
   // ── Drain: multiple claim cycles so no note is left in the queue ────────
+  // `claimAllNotes` now loops until the consumable-notes cache is empty for
+  // two consecutive syncs, so in the steady state each cycle is a fast no-op.
+  // The 5-min per-cycle cap only matters when something is genuinely stuck —
+  // which is exactly the signal we want surfaced rather than silently clipped.
   timeline.emit({
     category: 'test_lifecycle',
     severity: 'info',
-    message: '[stress] driver loop done; starting drain',
+    message: '[stress] driver loop done; starting drain'
   });
   for (let cycle = 0; cycle < 5; cycle++) {
-    await Promise.allSettled([
-      walletA.claimAllNotes(90_000),
-      walletB.claimAllNotes(90_000),
-    ]);
+    await Promise.allSettled([walletA.claimAllNotes(300_000), walletB.claimAllNotes(300_000)]);
     await sleep(5_000);
   }
 
