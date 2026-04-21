@@ -120,8 +120,41 @@ test.describe('Stress: random send/claim', () => {
     await steps.step('verify_and_report', async () => {
       if (!result) throw new Error('stress driver did not return a result');
 
-      const finalA = await walletA.getBalance();
-      const finalB = await walletB.getBalance();
+      // Settle loop: wait for conservation before measuring.
+      //
+      // `sendTokens` returns when the UI shows "transaction initiated" — that
+      // is BEFORE on-chain commit. For a send fired near the end of the stress
+      // loop, the sender's vault has optimistically decremented but the
+      // receiver's sync may not yet have seen the note; total (A+B) transiently
+      // reads low until the commit propagates. The drain phase drains
+      // CLAIMABLE notes but can't force a pending OUTGOING tx to move from
+      // "submitted" to "committed." Wait up to 5 min for A+B to reach the
+      // initial total. If we never converge, that's a true loss and the
+      // assertion below will surface it.
+      const SETTLE_DEADLINE_MS = 5 * 60 * 1000;
+      const SETTLE_POLL_MS = 5_000;
+      let finalA = 0;
+      let finalB = 0;
+      const settleStart = Date.now();
+      while (Date.now() - settleStart < SETTLE_DEADLINE_MS) {
+        await Promise.all([walletA.triggerSync(), walletB.triggerSync()]);
+        finalA = await walletA.getBalance();
+        finalB = await walletB.getBalance();
+        if (finalA + finalB === initialTotal) {
+          timeline.emit({
+            category: 'test_lifecycle',
+            severity: 'info',
+            message: `[stress] settle: A+B converged to ${initialTotal} in ${Math.round((Date.now() - settleStart) / 1000)}s`
+          });
+          break;
+        }
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'info',
+          message: `[stress] settle: waiting — A=${finalA} B=${finalB} total=${finalA + finalB} target=${initialTotal}`
+        });
+        await new Promise(r => setTimeout(r, SETTLE_POLL_MS));
+      }
       const finalTotal = finalA + finalB;
       const delta = finalTotal - initialTotal;
 
