@@ -343,8 +343,8 @@
     "englishSource": "e.g. Savings"
   },
   "accountNameInputInvalid": {
-    "message": "До 16 символів",
-    "englishSource": "Up to 16 characters"
+    "message": "1–16 символів, не може починатися з пробілів або дефіса",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
   },
   "accountAlreadyExists": {
     "message": "Обліковий запис із такою назвою вже існує",
@@ -358,6 +358,10 @@
     "message": "Ваш особистий ключ надає повний контроль над цим обліковим записом тому, хто ним володіє. Облікові записи Miden не можуть змінювати ключі, тому витік ключа постійно компрометує обліковий запис.",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
+  "privateKeyRevealAcknowledge": {
+    "message": "Я розумію, що цей ключ не можна змінити або відкликати.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
   "encryptedFileImportedAccountsOmitted": {
     "message": "Імпортовані облікові записи ( $importedCount$ ) не буде включено в цей файл. Щоб створити їх резервну копію, експортуйте кожен закритий ключ окремо в меню «Параметри» → «Відкрити закритий ключ».",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
@@ -366,6 +370,19 @@
         "content": "$1"
       }
     }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Цей зашифрований файл було експортовано за допомогою $importedCount$ імпортовані облікові записи, які не є частиною резервної копії. Ці облікові записи не відображатимуться у вашому відновленому гаманці — вам знадобляться їхні оригінальні закриті ключі, щоб повторно додати їх. Натисніть «Продовжити імпорт», щоб продовжити.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Продовжити імпорт",
+    "englishSource": "Continue Import"
   },
   "editAccountName": {
     "message": "Редагувати назву облікового запису",

@@ -343,8 +343,8 @@
     "englishSource": "e.g. Savings"
   },
   "accountNameInputInvalid": {
-    "message": "Jusqu'à 16 caractères",
-    "englishSource": "Up to 16 characters"
+    "message": "1 à 16 caractères, ne peut pas commencer par des espaces ou un trait d'union",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
   },
   "accountAlreadyExists": {
     "message": "Un compte du même nom existe déjà",
@@ -358,6 +358,10 @@
     "message": "Votre clé privée donne le contrôle total de ce compte à celui qui le détient. Les comptes Miden ne peuvent pas alterner les clés, donc une clé divulguée compromet le compte de manière permanente.",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
+  "privateKeyRevealAcknowledge": {
+    "message": "Je comprends que cette clé ne peut pas être modifiée ou révoquée.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
   "encryptedFileImportedAccountsOmitted": {
     "message": "Comptes importés ( $importedCount$ ) ne sera pas inclus dans ce fichier. Pour les sauvegarder, exportez chaque clé privée individuellement depuis Paramètres → Révéler la clé privée.",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
@@ -366,6 +370,19 @@
         "content": "$1"
       }
     }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Ce fichier crypté a été exporté avec $importedCount$ compte(s) importé(s) qui ne font pas partie de la sauvegarde. Ces comptes n'apparaîtront pas dans votre portefeuille restauré : vous aurez besoin de leurs clés privées d'origine pour les rajouter. Cliquez sur Continuer l'importation pour continuer.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Continuer l'importation",
+    "englishSource": "Continue Import"
   },
   "editAccountName": {
     "message": "Modifier le nom du compte",

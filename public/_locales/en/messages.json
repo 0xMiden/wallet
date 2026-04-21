@@ -327,8 +327,8 @@
     "englishSource": "e.g. Savings"
   },
   "accountNameInputInvalid": {
-    "message": "Up to 16 characters",
-    "englishSource": "Up to 16 characters"
+    "message": "1–16 characters, cannot start with whitespace or hyphen",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
   },
   "accountAlreadyExists": {
     "message": "Account with same name already exists",
@@ -342,6 +342,10 @@
     "message": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently.",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
+  "privateKeyRevealAcknowledge": {
+    "message": "I understand this key cannot be rotated or revoked.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
   "encryptedFileImportedAccountsOmitted": {
     "message": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
@@ -350,6 +354,19 @@
         "content": "$1"
       }
     }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Continue Import",
+    "englishSource": "Continue Import"
   },
   "editAccountName": {
     "message": "Edit Account Name",

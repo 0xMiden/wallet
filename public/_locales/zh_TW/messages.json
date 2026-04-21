@@ -343,8 +343,8 @@
     "englishSource": "e.g. Savings"
   },
   "accountNameInputInvalid": {
-    "message": "最多 16 个字符",
-    "englishSource": "Up to 16 characters"
+    "message": "1–16 个字符，不能以空格或连字符开头",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
   },
   "accountAlreadyExists": {
     "message": "同名帐户已存在",
@@ -358,6 +358,10 @@
     "message": "您的私钥可以让持有该账户的人完全控制该账户。 Miden 帐户无法轮换密钥，因此泄露的密钥会永久危害该帐户。",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
+  "privateKeyRevealAcknowledge": {
+    "message": "我了解此密钥无法轮换或撤销。",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
   "encryptedFileImportedAccountsOmitted": {
     "message": "导入账户（ $importedCount$ ) 不会包含在此文件中。要备份它们，请从“设置”→“显示私钥”单独导出每个私钥。",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
@@ -366,6 +370,19 @@
         "content": "$1"
       }
     }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "该加密文件的导出方式为 $importedCount$ 导入的帐户不属于备份的一部分。这些帐户不会出现在您恢复的钱包中 - 您需要它们的原始私钥才能重新添加它们。单击继续导入以继续。",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "继续导入",
+    "englishSource": "Continue Import"
   },
   "editAccountName": {
     "message": "编辑账户名称",
