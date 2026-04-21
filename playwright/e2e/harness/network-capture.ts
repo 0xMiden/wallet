@@ -40,9 +40,13 @@ async function safeResponseText(response: PwResponse): Promise<string | undefine
 
 /**
  * Attach network request/response capture at the BrowserContext level.
- * Captures every page-initiated request in the context. SW-initiated
- * requests are handled separately (see attachServiceWorkerFetchCapture)
- * because Playwright 1.48's context events are scoped to pages.
+ *
+ * Captures every PAGE-initiated request in the context. Service-worker
+ * requests are filtered out (Playwright 1.48's context events DO include
+ * them, but attachServiceWorkerFetchCapture instruments those separately
+ * with a cleaner durationMs shape) — keeping the two sources distinct
+ * prevents duplicate events in the timeline while preserving Playwright's
+ * full request.timing() breakdown (DNS/TLS/ttfb/receive) for page traffic.
  */
 export function attachNetworkCapture(
   context: BrowserContext,
@@ -50,6 +54,7 @@ export function attachNetworkCapture(
   timeline: TimelineRecorder
 ): void {
   context.on('requestfinished', async (request: Request) => {
+    if (request.serviceWorker()) return; // handled by attachServiceWorkerFetchCapture
     const url = request.url();
     if (!isMidenRelated(url)) return;
 
@@ -76,6 +81,7 @@ export function attachNetworkCapture(
   });
 
   context.on('requestfailed', (request: Request) => {
+    if (request.serviceWorker()) return;
     const url = request.url();
     if (!isMidenRelated(url)) return;
 
