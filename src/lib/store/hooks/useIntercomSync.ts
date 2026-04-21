@@ -26,13 +26,15 @@ const WARN_AFTER_ATTEMPTS = 20; // ~1 min of failed retries — indicates a wedg
 async function retryFetchState(isCancelled: () => boolean): Promise<MidenState | null> {
   let backoffMs = INITIAL_BACKOFF_MS;
   let attempt = 0;
+  let warned = false;
   while (!isCancelled()) {
     try {
       return await fetchStateFromBackend();
-    } /* c8 ignore next 10 -- retry path exercised by fake-timers test */ catch (error) {
+    } /* c8 ignore next 11 -- retry path exercised by fake-timers test */ catch (error) {
       if (isCancelled()) return null;
       attempt += 1;
-      if (attempt === WARN_AFTER_ATTEMPTS) {
+      if (!warned && attempt >= WARN_AFTER_ATTEMPTS) {
+        warned = true;
         console.warn(
           `[useIntercomSync] backend unresponsive after ${WARN_AFTER_ATTEMPTS} attempts; still retrying:`,
           error
@@ -127,15 +129,18 @@ export function useIntercomSync() {
 
     const store = useWalletStore.getState;
 
-    // Track in-flight refetches so we can cancel them on unmount — the
-    // subscriber is also retry-wrapped (prev bug was a missed refetch on a
-    // racy port reconnect during a StateUpdated broadcast).
-    let refetchCancelled = false;
+    // Each StateUpdated broadcast launches a retry-wrapped refetch. A slow
+    // retry from an earlier broadcast must not clobber the newer state, so we
+    // cancel the previous loop's token on every new broadcast (and on unmount).
+    let currentRefetchToken = { cancelled: false };
 
     const unsubscribe = intercom.subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
-        retryFetchState(() => refetchCancelled).then(state => {
-          if (state) syncFromBackend(state);
+        currentRefetchToken.cancelled = true;
+        const token = { cancelled: false };
+        currentRefetchToken = token;
+        retryFetchState(() => token.cancelled).then(state => {
+          if (state && !token.cancelled) syncFromBackend(state);
         });
       } else if (msg?.type === WalletMessageType.SyncCompleted) {
         // Service worker finished a sync cycle — update sync status
@@ -148,7 +153,7 @@ export function useIntercomSync() {
     });
 
     return () => {
-      refetchCancelled = true;
+      currentRefetchToken.cancelled = true;
       unsubscribe();
     };
   }, [syncFromBackend]);

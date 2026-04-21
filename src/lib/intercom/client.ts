@@ -160,8 +160,17 @@ export class IntercomClient implements IIntercomClient {
     this.send({ type: MessageType.Req, data: payload, reqId });
 
     return new Promise((resolve, reject) => {
+      let done = false;
       const cleanup = () => {
-        port.onMessage.removeListener(listener);
+        if (done) return;
+        done = true;
+        // port may already be disconnected & replaced by onDisconnect — don't
+        // let its onMessage throw through cleanup.
+        try {
+          port.onMessage.removeListener(listener);
+        } catch {
+          /* noop */
+        }
         if (options?.signal) options.signal.removeEventListener('abort', onAbort);
       };
       const listener = (msg: any) => {
