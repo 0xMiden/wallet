@@ -7,6 +7,7 @@
 * [FIX][all] Encrypted-wallet-file import now restores secret keys for every imported account, not just the first. The decrypted wallet payload carries the full `WalletAccount[]` (with `hdIndex` and `type` per account), and `Vault.spawnFromMidenClient` re-derives each auth key from the mnemonic and inserts it into the new keystore via `client.keystore.insert`. Previously the imported miden-client DB came over without keystore entries, so signing broke for any non-default account.
 * [FIX][all] Encrypted wallet file export now includes wallet account metadata alongside the miden-client/wallet DB dumps, so import can preserve account names and HD indices instead of falling back to generic "Miden Account N" labels.
 * [FIX][all] Encrypted-file password screen consolidates the hardware-vs-password branching around a single `hasHardwareProtector` check — hardware-only vaults skip password entry entirely, password-protected vaults keep the attempt/lockout flow.
+* [FIX][extension] Popup no longer white-screens after an MV3 service-worker cold-start. `WalletStoreProvider` stopped gating the app tree on a racy single `GetStateRequest`, and `useIntercomSync` replaced its fixed 15 s retry budget + one-shot latch with a cancellable unbounded retry loop (250 ms → 3 s exponential backoff). The backend's existing post-init `StateUpdated` broadcast still hydrates the store as soon as the SW is ready; the popup now self-heals from a missed broadcast or slow port setup instead of staying blank until fully reopened. (#196, closes #113)
 
 ---
 
