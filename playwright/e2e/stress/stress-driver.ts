@@ -41,6 +41,15 @@ export interface StressOpRecord {
   err?: string;
   perturbation?: string;
   concurrent?: boolean;
+  // When concurrent=true, a secondary send fires in the reverse direction. The
+  // driver awaits it (allSettled) so it doesn't fail the primary, but the
+  // result matters for balance conservation — a silently-failed secondary is
+  // prime suspect for "tokens lost" reports. Track amount + outcome.
+  secondaryAmount?: number;
+  secondaryIsPrivate?: boolean;
+  secondaryStatus?: 'ok' | 'fail';
+  secondaryErr?: string;
+  secondarySendMs?: number;
 }
 
 export interface StressResult {
@@ -48,7 +57,18 @@ export interface StressResult {
   requested: number;
   completed: number;
   failed: number;
-  perturbations: { locks: number; reloads: number; concurrent: number; idles: number };
+  perturbations: {
+    locks: number;
+    reloads: number;
+    concurrent: number;
+    concurrentSecondaryFailed: number;
+    idles: number;
+  };
+  /** First op index where observed balance diverged from expected, or null if none. */
+  firstDivergenceOp: number | null;
+  /** Final expected deltas vs initial (useful for verifying driver bookkeeping). */
+  expectedDeltaA: number;
+  expectedDeltaB: number;
   perOp: StressOpRecord[];
 }
 
@@ -102,10 +122,29 @@ export async function runStressDriver(
   const wallets: Record<'A' | 'B', ChromeWalletPageApi> = { A: walletA, B: walletB };
   const addrs: Record<'A' | 'B', string> = { A: addressA, B: addressB };
   const perOp: StressOpRecord[] = [];
-  const perturbations = { locks: 0, reloads: 0, concurrent: 0, idles: 0 };
+  const perturbations = { locks: 0, reloads: 0, concurrent: 0, concurrentSecondaryFailed: 0, idles: 0 };
   let completed = 0;
   let failed = 0;
   let idx = 0;
+
+  // Per-op balance tracking: the driver knows each op's intended transfer,
+  // so it can maintain expected deltas and compare against the wallet's
+  // actual reported state (consumed + pending). First divergent op pinpoints
+  // where tokens started going missing.
+  const initA = await walletA.quickBalanceSnapshot();
+  const initB = await walletB.quickBalanceSnapshot();
+  const initialA = initA.totalReportable;
+  const initialB = initB.totalReportable;
+  let expectedDeltaA = 0;
+  let expectedDeltaB = 0;
+  let firstDivergenceOp: number | null = null;
+
+  timeline.emit({
+    category: 'blockchain_state',
+    severity: 'info',
+    message: `[bal] driver start initialA=${initialA} initialB=${initialB}`,
+    data: { initialA, initialB, phase: 'driver_start' }
+  });
 
   timeline.emit({
     category: 'test_lifecycle',
@@ -131,6 +170,15 @@ export async function runStressDriver(
     let err: string | undefined;
     let perturbation: string | undefined;
 
+    // Secondary (concurrent) send, captured only when concurrent=true.
+    // Previously unobserved — a silently-failed secondary is the leading
+    // hypothesis for persistent balance-conservation gaps.
+    let secondaryAmount: number | undefined;
+    let secondaryIsPrivate: boolean | undefined;
+    let secondaryStatus: 'ok' | 'fail' | undefined;
+    let secondaryErr: string | undefined;
+    let secondarySendMs: number | undefined;
+
     timeline.emit({
       category: 'stress_op',
       severity: 'info',
@@ -144,12 +192,13 @@ export async function runStressDriver(
       if (concurrent) {
         // Both wallets fire a send at (roughly) the same time — stress the
         // client-side lock discipline. The secondary send is in the OTHER
-        // direction and won't count toward the note budget (we only track the
-        // primary); if it succeeds the receiver sees two incoming notes.
+        // direction and doesn't count toward the note budget (only the primary
+        // does); its outcome is recorded for balance-conservation forensics.
         perturbations.concurrent++;
-        const secondaryAmount = intInRange(opts.sendAmountMin, opts.sendAmountMax, rng);
-        const secondaryIsPrivate = rng() < opts.privateRatio;
-        const [primary] = await Promise.allSettled([
+        secondaryAmount = intInRange(opts.sendAmountMin, opts.sendAmountMax, rng);
+        secondaryIsPrivate = rng() < opts.privateRatio;
+        const secondaryStart = Date.now();
+        const [primary, secondary] = await Promise.allSettled([
           withTimeout(
             sender.sendTokens({ recipientAddress: receiverAddress, amount: String(amount), isPrivate, tokenSymbol }),
             opts.perTurnSendTimeoutMs,
@@ -166,6 +215,30 @@ export async function runStressDriver(
             `op#${idx} concurrent secondary (${receiverLabel}->${senderLabel})`
           )
         ]);
+        secondarySendMs = Date.now() - secondaryStart;
+        if (secondary.status === 'rejected') {
+          secondaryStatus = 'fail';
+          secondaryErr = secondary.reason instanceof Error ? secondary.reason.message : String(secondary.reason);
+          perturbations.concurrentSecondaryFailed++;
+          timeline.emit({
+            category: 'stress_op',
+            severity: 'warn',
+            message:
+              `[stress] op#${idx} concurrent secondary ${receiverLabel}->${senderLabel} ` +
+              `${secondaryIsPrivate ? 'priv' : 'pub'} amt=${secondaryAmount} FAILED: ${secondaryErr.slice(0, 200)}`,
+            data: {
+              idx,
+              sender: receiverLabel,
+              receiver: senderLabel,
+              isPrivate: secondaryIsPrivate,
+              amount: secondaryAmount,
+              sendMs: secondarySendMs,
+              phase: 'secondary_failed'
+            }
+          });
+        } else {
+          secondaryStatus = 'ok';
+        }
         if (primary.status === 'rejected') throw primary.reason;
       } else {
         await withTimeout(
@@ -196,7 +269,12 @@ export async function runStressDriver(
       sendMs,
       status,
       err,
-      concurrent
+      concurrent,
+      secondaryAmount,
+      secondaryIsPrivate,
+      secondaryStatus,
+      secondaryErr,
+      secondarySendMs
     });
 
     // Slow ops aren't failures — log them as warn so they're visible in the
@@ -214,6 +292,62 @@ export async function runStressDriver(
         (concurrent ? ' concurrent' : '') +
         (err ? ` err=${err.slice(0, 120)}` : ''),
       data: { idx, sender: senderLabel, receiver: receiverLabel, isPrivate, amount, sendMs, status, concurrent, slow }
+    });
+
+    // ── Balance bookkeeping ─────────────────────────────────────────────────
+    // Update expected deltas from this op's primary + (if applicable) secondary.
+    if (status === 'ok') {
+      if (senderLabel === 'A') expectedDeltaA -= amount;
+      else expectedDeltaB -= amount;
+      if (receiverLabel === 'A') expectedDeltaA += amount;
+      else expectedDeltaB += amount;
+    }
+    if (concurrent && secondaryStatus === 'ok' && secondaryAmount !== undefined) {
+      // secondary direction is reversed: sender=receiverLabel, receiver=senderLabel
+      if (receiverLabel === 'A') expectedDeltaA -= secondaryAmount;
+      else expectedDeltaB -= secondaryAmount;
+      if (senderLabel === 'A') expectedDeltaA += secondaryAmount;
+      else expectedDeltaB += secondaryAmount;
+    }
+
+    // Read actual — parallel, ~100ms total
+    const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
+    const observedDeltaA = snapA.totalReportable - initialA;
+    const observedDeltaB = snapB.totalReportable - initialB;
+    const divergenceA = observedDeltaA - expectedDeltaA;
+    const divergenceB = observedDeltaB - expectedDeltaB;
+    const diverged = divergenceA !== 0 || divergenceB !== 0;
+    if (diverged && firstDivergenceOp === null) {
+      firstDivergenceOp = idx;
+    }
+    timeline.emit({
+      category: 'blockchain_state',
+      severity: diverged ? 'warn' : 'info',
+      message:
+        `[bal] op#${idx} ` +
+        `expΔA=${expectedDeltaA} expΔB=${expectedDeltaB} | ` +
+        `obsΔA=${observedDeltaA} obsΔB=${observedDeltaB} | ` +
+        `divA=${divergenceA} divB=${divergenceB}` +
+        (diverged ? ' DIVERGED' : ''),
+      data: {
+        idx,
+        expectedDeltaA,
+        expectedDeltaB,
+        observedDeltaA,
+        observedDeltaB,
+        divergenceA,
+        divergenceB,
+        diverged,
+        actualA: snapA.totalReportable,
+        actualB: snapB.totalReportable,
+        pendingNotesA: snapA.pendingNotes.length,
+        pendingNotesB: snapB.pendingNotes.length,
+        pendingTxA: snapA.pendingTxCount,
+        pendingTxB: snapB.pendingTxCount,
+        latestTxA: snapA.latestTxId,
+        latestTxB: snapB.latestTxId,
+        firstDivergenceOp
+      }
     });
 
     // Optional immediate claim on the receiver — mimics an attentive user.
@@ -322,5 +456,15 @@ export async function runStressDriver(
     await sleep(5_000);
   }
 
-  return { seed: opts.seed, requested: opts.numNotes, completed, failed, perturbations, perOp };
+  return {
+    seed: opts.seed,
+    requested: opts.numNotes,
+    completed,
+    failed,
+    perturbations,
+    firstDivergenceOp,
+    expectedDeltaA,
+    expectedDeltaB,
+    perOp
+  };
 }

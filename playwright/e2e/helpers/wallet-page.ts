@@ -50,6 +50,24 @@ export interface ChromeWalletPageApi extends WalletPage {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
+  quickBalanceSnapshot(): Promise<{
+    balance: number;
+    pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
+    pendingSum: number;
+    totalReportable: number;
+    pendingTxCount: number;
+    latestTxId?: string;
+    error?: string;
+  }>;
+  /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
+  dumpChromeStorage(): Promise<Record<string, unknown>>;
+  /**
+   * Full IndexedDB dump (all databases × all object stores). Returns a JSON
+   * string with binary/BigInt wrappers. This is where the Miden SDK keeps
+   * per-tx commit status — the ground truth for "did this tx land?".
+   */
+  dumpIndexedDB(): Promise<string>;
 }
 
 /**
@@ -413,6 +431,207 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────
+
+  /**
+   * Non-invasive snapshot of the wallet's balance-related state. Unlike
+   * getBalance() it:
+   *   - does NOT navigate
+   *   - does NOT call state.fetchBalances (which triggers an RPC)
+   *   - does not require the Explore page to be visible
+   *
+   * Reads straight from the Zustand store + `chrome.storage.local`:
+   *   - `balance` = consumed vault assets (matches getBalance's first source)
+   *   - `pendingNotes` = full list of claimable notes (id + amount)
+   *   - `totalReportable` = balance + Σ pendingNotes — matches getBalance()
+   *   - `pendingTxCount` / `lastTxId` = wallet's recent outgoing transactions
+   *
+   * Safe to call every op: measured at ~50 ms per wallet.
+   */
+  async quickBalanceSnapshot(): Promise<{
+    balance: number;
+    pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
+    pendingSum: number;
+    totalReportable: number;
+    pendingTxCount: number;
+    latestTxId?: string;
+    error?: string;
+  }> {
+    try {
+      return await this.page.evaluate(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const store = (window as any).__TEST_STORE__;
+        const state = store?.getState?.();
+        let balance = 0;
+        for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
+          if (!Array.isArray(tokenList)) continue;
+          for (const token of tokenList) {
+            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+            if (amount > 0) balance += amount;
+          }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const storage = await new Promise<any>(resolve => {
+          chrome.storage.local.get(['miden_sync_data'], resolve);
+        });
+        const notes = storage?.miden_sync_data?.notes ?? [];
+        const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
+        let pendingSum = 0;
+        for (const note of notes) {
+          const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
+          const decimals = note.metadata?.decimals ?? 8;
+          const amount = baseUnits / Math.pow(10, decimals);
+          pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
+          pendingSum += amount;
+        }
+
+        // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
+        let pendingTxCount = 0;
+        let latestTxId: string | undefined;
+        const txs = state?.transactions;
+        if (txs && typeof txs === 'object') {
+          const list = Array.isArray(txs) ? txs : Object.values(txs);
+          pendingTxCount = list.length;
+          // Pick the most recent by timestamp if available
+          let mostRecent: { id?: string; timestamp?: number } | null = null;
+          for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
+            const id = t.id ?? t.transactionId;
+            const ts = t.timestamp ?? 0;
+            if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
+              mostRecent = { id, timestamp: ts };
+            }
+          }
+          latestTxId = mostRecent?.id;
+        }
+
+        return {
+          balance,
+          pendingNotes,
+          pendingSum,
+          totalReportable: balance + pendingSum,
+          pendingTxCount,
+          latestTxId
+        };
+      });
+    } catch (e) {
+      return {
+        balance: 0,
+        pendingNotes: [],
+        pendingSum: 0,
+        totalReportable: 0,
+        pendingTxCount: 0,
+        error: e instanceof Error ? e.message : String(e)
+      };
+    }
+  }
+
+  /**
+   * Dump every key in chrome.storage.local — used at end-of-run for forensic
+   * analysis. Includes miden_sync_data (notes + vaultAssets), connectivity-
+   * issue flag, cached metadata, etc.
+   */
+  async dumpChromeStorage(): Promise<Record<string, unknown>> {
+    try {
+      return await this.page.evaluate(
+        () =>
+          new Promise<Record<string, unknown>>(resolve => {
+            chrome.storage.local.get(null, items => resolve(items || {}));
+          })
+      );
+    } catch (e) {
+      return { __error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Dump every IndexedDB database on the extension origin. This is where the
+   * Miden SDK persists its authoritative state — accounts, transactions,
+   * notes, chain MMR, block headers. For "did this tx actually commit?"
+   * forensics, the SDK's `transactions` table is the ground truth.
+   *
+   * Output shape: `{ [dbName]: { version, stores: { [storeName]: entries[] } } }`.
+   * Binary fields (Uint8Array / ArrayBuffer / BigInt) are converted to
+   * `{ __type, hex | value, length }` wrappers so the result round-trips
+   * through JSON and through Playwright's postMessage serialization.
+   *
+   * Not exposed on WalletPage interface — Chrome-only (IndexedDB-per-origin).
+   */
+  async dumpIndexedDB(): Promise<string> {
+    try {
+      return await this.page.evaluate(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const idb = (globalThis as any).indexedDB as IDBFactory;
+        const dbList = await idb.databases();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result: Record<string, any> = {};
+
+        const openDb = (name: string): Promise<IDBDatabase> =>
+          new Promise((resolve, reject) => {
+            const req = idb.open(name);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            req.onblocked = () => reject(new Error('blocked'));
+          });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const getAll = (store: IDBObjectStore): Promise<any[]> =>
+          new Promise((resolve, reject) => {
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+
+        for (const info of dbList) {
+          if (!info.name) continue;
+          try {
+            const db = await openDb(info.name);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stores: Record<string, any> = {};
+            for (const storeName of db.objectStoreNames) {
+              try {
+                const tx = db.transaction(storeName, 'readonly');
+                const store = tx.objectStore(storeName);
+                stores[storeName] = await getAll(store);
+              } catch (e) {
+                stores[storeName] = { __error: String(e) };
+              }
+            }
+            db.close();
+            result[info.name] = { version: info.version, stores };
+          } catch (e) {
+            result[info.name] = { __error: String(e) };
+          }
+        }
+
+        // JSON-serialize with binary/BigInt wrappers so the payload round-trips
+        // cleanly. Returning a string (vs the object) also avoids Playwright's
+        // structuredClone choking on Uint8Array in some Chromium revisions.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const replacer = (_k: string, v: any): unknown => {
+          if (v instanceof Uint8Array || v instanceof Uint8ClampedArray) {
+            const hex = Array.from(v)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            return { __type: 'Uint8Array', hex, length: v.length };
+          }
+          if (v instanceof ArrayBuffer) {
+            const arr = new Uint8Array(v);
+            const hex = Array.from(arr)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            return { __type: 'ArrayBuffer', hex, length: arr.length };
+          }
+          if (typeof v === 'bigint') {
+            return { __type: 'BigInt', value: v.toString() };
+          }
+          return v;
+        };
+        return JSON.stringify(result, replacer);
+      });
+    } catch (e) {
+      return JSON.stringify({ __error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   /**
    * Get the balance for a specific token from the Explore page.
