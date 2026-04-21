@@ -22,12 +22,24 @@ export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian
  * still `Queued` during the initial sync). Drives the modal's per-stage
  * label so users see what the wallet is actually doing during the 3-8s
  * spinner window. Not all stages apply to all tx types:
- *   - syncing    : all types, before `syncState()`
- *   - sending    : all types, during the SDK execute→prove→submit→apply
- *   - confirming : send-private only, during `waitForTransactionCommit`
- *   - delivering : send-private only, during `sendPrivateNote`
+ *   - syncing              : all types, before `syncState()`
+ *   - sending              : non-PSM types, during the SDK execute→prove→submit→apply
+ *   - creating-proposal    : PSM only, while building the multisig proposal
+ *   - signing-proposal     : PSM only, while the guardian signs the proposal
+ *   - submitting           : PSM only, while the signed tx is submitted to the network
+ *   - confirming           : send-private + switch-guardian, during `waitForTransactionCommit`
+ *   - registering-guardian : switch-guardian only, during post-commit guardian re-registration
+ *   - delivering           : send-private only, during `sendPrivateNote`
  */
-export type ITransactionStage = 'syncing' | 'sending' | 'confirming' | 'delivering';
+export type ITransactionStage =
+  | 'syncing'
+  | 'sending'
+  | 'creating-proposal'
+  | 'signing-proposal'
+  | 'submitting'
+  | 'confirming'
+  | 'registering-guardian'
+  | 'delivering';
 
 export interface ITransaction {
   id: string;

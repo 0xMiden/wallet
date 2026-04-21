@@ -316,6 +316,7 @@ export const completeSwitchGuardianTransaction = async (
     // updated account state before anything else touches the local cache
     // or storage. If this throws, storage + status stay untouched so the
     // user can retry.
+    await setTransactionStage(tx.id, 'registering-guardian');
     await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
 
     await putToStorage(PSM_URL_STORAGE_KEY, newGuardianEndpoint);
@@ -752,6 +753,11 @@ const generatePsmTransaction = async (
   psmProvider?: PsmAccountProvider
 ): Promise<void> => {
   console.log('Generating PSM transaction');
+  // Set the stage eagerly — `getOrCreateMultisigService` and the subsequent
+  // `createXxxProposal` call can both hit the guardian over the network,
+  // so surfacing "Creating proposal" immediately is more honest than
+  // leaving the label stuck on "Sending transaction".
+  await setTransactionStage(transaction.id, 'creating-proposal');
   const multisigService = await getOrCreateMultisigService(transaction.accountId, psmProvider);
 
   let proposalResult: Proposal;
@@ -796,6 +802,7 @@ const generatePsmTransaction = async (
   }
 
   // Sign and execute the proposal
+  await setTransactionStage(transaction.id, 'signing-proposal');
   const tr = await multisigService.signAndCreateTransactionRequest(proposalResult.id);
   console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
@@ -806,6 +813,7 @@ const generatePsmTransaction = async (
     }
   };
 
+  await setTransactionStage(transaction.id, 'submitting');
   const transactionResult = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient(options);
     console.log('Submitting transaction request to Miden client');
@@ -821,6 +829,7 @@ const generatePsmTransaction = async (
   // without this wait finalizeGuardianSwitch would serialize the pre-switch
   // account and register that stale state with the new guardian.
   if (transaction.type === 'switch-guardian') {
+    await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
       await midenClient.waitForTransactionCommit(transactionResult.executedTransaction().id().toHex());

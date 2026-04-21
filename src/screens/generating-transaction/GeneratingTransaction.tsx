@@ -272,26 +272,37 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   /**
    * Stage label picks up the tx type so a claim flow reads "Claiming
-   * note" instead of "Sending transaction" during the SDK call. All other
-   * stages (syncing / confirming / delivering) are type-neutral — they
-   * either describe network state (syncing, confirming) or only apply to
-   * one type (delivering → private send only).
+   * note" instead of "Sending transaction" during the SDK call. Other
+   * stages are type-neutral — they either describe network state
+   * (syncing, confirming), only apply to one type (delivering → private
+   * send only; registering-guardian → switch-guardian only), or describe
+   * PSM-specific phases that are the same action regardless of what the
+   * proposal does (creating-proposal / signing-proposal / submitting).
    */
   const stageTitleKey = useCallback((stage?: ITransactionStage, type?: ITransactionType): string => {
     if (!stage) return 'generatingTransaction';
     if (stage === 'syncing') return 'transactionStageSyncing';
+    if (stage === 'creating-proposal') return 'transactionStageCreatingProposal';
+    if (stage === 'signing-proposal') return 'transactionStageSigningProposal';
+    if (stage === 'submitting') return 'transactionStageSubmitting';
     if (stage === 'confirming') return 'transactionStageConfirming';
+    if (stage === 'registering-guardian') return 'transactionStageRegisteringGuardian';
     if (stage === 'delivering') return 'transactionStageDelivering';
     // stage === 'sending' — only this one varies by type
     if (type === 'consume') return 'transactionStageClaiming';
     if (type === 'execute') return 'transactionStageExecuting';
+    if (type === 'switch-guardian') return 'transactionStageSwitching';
     return 'transactionStageSending';
   }, []);
 
   const stageDescriptionKey = useCallback((stage?: ITransactionStage): string => {
     if (!stage) return 'generatingTransactionDescription';
     if (stage === 'syncing') return 'transactionStageSyncingDescription';
+    if (stage === 'creating-proposal') return 'transactionStageCreatingProposalDescription';
+    if (stage === 'signing-proposal') return 'transactionStageSigningProposalDescription';
+    if (stage === 'submitting') return 'transactionStageSubmittingDescription';
     if (stage === 'confirming') return 'transactionStageConfirmingDescription';
+    if (stage === 'registering-guardian') return 'transactionStageRegisteringGuardianDescription';
     if (stage === 'delivering') return 'transactionStageDeliveringDescription';
     return 'transactionStageSendingDescription';
   }, []);

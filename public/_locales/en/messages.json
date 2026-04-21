@@ -406,6 +406,34 @@
     "message": "Executing transaction",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "Switching guardian",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Creating proposal",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Building the transaction proposal for your guardian.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Signing with guardian",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Your guardian is signing the proposal.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Submitting transaction",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Sending your signed transaction to the network.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "Confirming on chain",
     "englishSource": "Confirming on chain"
@@ -413,6 +441,14 @@
   "transactionStageConfirmingDescription": {
     "message": "Waiting for network confirmation.",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Registering with guardian",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Registering your account state with the new guardian.",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Delivering note",

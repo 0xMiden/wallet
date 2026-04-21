@@ -168,7 +168,17 @@ describe('GeneratingTransaction stage + state rendering', () => {
     ['sending', 'send', 'transactionStageSending', 'transactionStageSendingDescription'],
     ['sending', 'consume', 'transactionStageClaiming', 'transactionStageSendingDescription'],
     ['sending', 'execute', 'transactionStageExecuting', 'transactionStageSendingDescription'],
+    ['sending', 'switch-guardian', 'transactionStageSwitching', 'transactionStageSendingDescription'],
+    ['creating-proposal', 'send', 'transactionStageCreatingProposal', 'transactionStageCreatingProposalDescription'],
+    ['signing-proposal', 'send', 'transactionStageSigningProposal', 'transactionStageSigningProposalDescription'],
+    ['submitting', 'send', 'transactionStageSubmitting', 'transactionStageSubmittingDescription'],
     ['confirming', undefined, 'transactionStageConfirming', 'transactionStageConfirmingDescription'],
+    [
+      'registering-guardian',
+      'switch-guardian',
+      'transactionStageRegisteringGuardian',
+      'transactionStageRegisteringGuardianDescription'
+    ],
     ['delivering', undefined, 'transactionStageDelivering', 'transactionStageDeliveringDescription']
   ])('renders stage %s (type=%s) with correct labels', async (stage, type, titleKey, descKey) => {
     const { container, root } = await renderInto(
