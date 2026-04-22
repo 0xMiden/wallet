@@ -1,0 +1,87 @@
+name: Release Notes
+
+on:
+  # Fill in the release body when a release is created (draft or published).
+  release:
+    types: [created]
+
+  # Manual backfill: re-run for an existing release if you edited CHANGELOG.md
+  # after the release was created, or to populate releases that predate this
+  # workflow.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to update (e.g. v1.14.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  update-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "No tag resolved; nothing to do"
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repo at tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Extract changelog section
+        id: extract
+        shell: bash
+        run: |
+          VERSION='${{ steps.tag.outputs.version }}'
+
+          if [ ! -f CHANGELOG.md ]; then
+            echo "No CHANGELOG.md at this ref; skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BODY=$(awk -v ver="$VERSION" '
+            $1 == "##" {
+              if (found) exit
+              if ($2 == ver) { found=1; next }
+            }
+            /^---$/ { if (found) exit }
+            found { print }
+          ' CHANGELOG.md)
+
+          # Trim leading + trailing blank lines
+          BODY=$(printf '%s\n' "$BODY" | sed -e '/./,$!d' -e ':a' -e '/^$/{$d;N;ba' -e '}')
+
+          if [ -z "$BODY" ]; then
+            echo "No changelog section found for version $VERSION; skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$BODY" > release-notes.md
+          echo "Extracted changelog section:"
+          echo "---"
+          cat release-notes.md
+          echo "---"
+
+      - name: Update release body
+        if: steps.extract.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.tag.outputs.tag }}" --notes-file release-notes.md
