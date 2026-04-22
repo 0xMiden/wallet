@@ -20,9 +20,7 @@ const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 const ENTRY = process.env.CS_ENTRY;
 
 if (ENTRY !== 'contentScript' && ENTRY !== 'addToWindow') {
-  throw new Error(
-    `CS_ENTRY must be 'contentScript' or 'addToWindow', got: ${ENTRY ?? '(unset)'}`
-  );
+  throw new Error(`CS_ENTRY must be 'contentScript' or 'addToWindow', got: ${ENTRY ?? '(unset)'}`);
 }
 
 // Content scripts run in extension pages only — never in mobile or desktop
@@ -34,8 +32,7 @@ if (ENTRY !== 'contentScript' && ENTRY !== 'addToWindow') {
 // build. Match both relative specifiers (`./mobile-adapter`) and resolved
 // absolute paths.
 function stubIntercomPlatformAdapters(): Plugin {
-  const isTarget = (id: string) =>
-    /(?:^|[\\/])(?:mobile|desktop)-adapter(?:\.[tj]sx?)?$/.test(id);
+  const isTarget = (id: string) => /(?:^|[\\/])(?:mobile|desktop)-adapter(?:\.[tj]sx?)?$/.test(id);
   const stubSource = 'export default {};';
   return {
     name: 'stub-intercom-platform-adapters',
@@ -45,7 +42,7 @@ function stubIntercomPlatformAdapters(): Plugin {
     },
     load(id) {
       if (id.startsWith('\0cs-stub:')) return stubSource;
-    },
+    }
   };
 }
 
@@ -54,8 +51,8 @@ export default defineConfig({
     stubIntercomPlatformAdapters(),
     nodePolyfills({
       include: ['buffer', 'util', 'stream', 'assert', 'process'],
-      globals: { Buffer: true, process: true },
-    }),
+      globals: { Buffer: true, process: true }
+    })
   ],
 
   build: {
@@ -70,9 +67,9 @@ export default defineConfig({
       output: {
         entryFileNames: `${ENTRY}.js`,
         format: 'iife',
-        inlineDynamicImports: true,
-      },
-    },
+        inlineDynamicImports: true
+      }
+    }
   },
 
   resolve: {
@@ -85,21 +82,20 @@ export default defineConfig({
       utils: resolve(__dirname, 'src/utils'),
       buffer: 'buffer',
       stream: 'stream-browserify',
-      assert: 'assert',
-    },
+      assert: 'assert'
+    }
   },
 
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
-    'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(
-      process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'
-    ),
+    'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
+    'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',
-    global: 'globalThis',
-  },
+    global: 'globalThis'
+  }
 });

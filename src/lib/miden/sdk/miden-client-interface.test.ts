@@ -108,6 +108,7 @@ describe('MidenClientInterface', () => {
         ['testnet', undefined],
         ['localnet', undefined]
       ]),
+      getNoteTransportUrl: (_network: string) => undefined,
       MIDEN_PROVING_ENDPOINTS: new Map([
         ['testnet', 'prover'],
         ['localnet', undefined]

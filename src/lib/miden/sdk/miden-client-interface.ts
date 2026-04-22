@@ -19,8 +19,8 @@ import {
 import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
-  MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
-  MIDEN_PROVING_ENDPOINTS
+  MIDEN_PROVING_ENDPOINTS,
+  getNoteTransportUrl
 } from 'lib/miden-chain/constants';
 import { addConnectivityIssue } from 'lib/miden/activity/connectivity-issues';
 import { isMobile } from 'lib/platform';
@@ -74,7 +74,7 @@ export class MidenClientInterface {
 
     const midenClient = await MidenClient.create({
       rpcUrl: MIDEN_NETWORK_ENDPOINTS.get(network)!,
-      noteTransportUrl: MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network),
+      noteTransportUrl: getNoteTransportUrl(network),
       seed: options.seed,
       keystore: hasKeystore
         ? {
