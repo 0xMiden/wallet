@@ -1867,6 +1867,10 @@
     "message": "Afficher sur l'Explorateur",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Vue sur Midenscan",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "En cours",
     "englishSource": "In Progress"

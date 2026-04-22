@@ -6,6 +6,7 @@ import Modal from 'react-modal';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
 export interface RecallBlocksModalProps extends Modal.Props {
@@ -22,6 +23,7 @@ export const RecallBlocksModal: FC<RecallBlocksModalProps> = ({
   onSubmit,
   ...restProps
 }) => {
+  useHideNavbarWhileOpen(!!restProps.isOpen);
   return (
     <Modal
       id={'recall-height-modal'}
