@@ -5,11 +5,11 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const ALARM_NAME = 'miden-sync';
 const SYNC_TIMEOUT_MS = 25_000;
