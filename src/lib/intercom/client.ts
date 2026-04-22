@@ -9,7 +9,7 @@ import { MessageType, RequestMessage } from './types';
  * Interface for intercom clients (extension, mobile, and desktop)
  */
 export interface IIntercomClient {
-  request(payload: any): Promise<any>;
+  request(payload: any, options?: { signal?: AbortSignal }): Promise<any>;
   subscribe(callback: (data: any) => void): () => void;
 }
 
@@ -77,9 +77,9 @@ class MobileIntercomClientWrapper implements IIntercomClient {
     return this.adapterPromise;
   }
 
-  async request(payload: any): Promise<any> {
+  async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
     const adapter = await this.getAdapter();
-    return adapter.request(payload);
+    return adapter.request(payload, options);
   }
 
   subscribe(callback: (data: any) => void): () => void {
@@ -108,9 +108,9 @@ class DesktopIntercomClientWrapper implements IIntercomClient {
     return this.adapterPromise;
   }
 
-  async request(payload: any): Promise<any> {
+  async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
     const adapter = await this.getAdapter();
-    return adapter.request(payload);
+    return adapter.request(payload, options);
   }
 
   subscribe(callback: (data: any) => void): () => void {
@@ -152,31 +152,46 @@ export class IntercomClient implements IIntercomClient {
   /**
    * Makes a request to background process and returns a response promise
    */
-  async request(payload: any): Promise<any> {
+  async request(payload: any, options?: { signal?: AbortSignal }): Promise<any> {
     await this.portReady;
     const reqId = this.reqId++;
+    const port = this.port;
 
     this.send({ type: MessageType.Req, data: payload, reqId });
 
     return new Promise((resolve, reject) => {
-      const listener = (msg: any) => {
-        switch (true) {
-          case msg?.reqId !== reqId:
-            return;
-
-          case msg?.type === MessageType.Res:
-            resolve(msg.data);
-            break;
-
-          case msg?.type === MessageType.Err:
-            reject(deserializeError(msg.data));
-            break;
+      let done = false;
+      const cleanup = () => {
+        if (done) return;
+        done = true;
+        // port may already be disconnected & replaced by onDisconnect — don't
+        // let its onMessage throw through cleanup.
+        try {
+          port.onMessage.removeListener(listener);
+        } catch {
+          /* noop */
         }
-
-        this.port.onMessage.removeListener(listener);
+        if (options?.signal) options.signal.removeEventListener('abort', onAbort);
+      };
+      const listener = (msg: any) => {
+        if (msg?.reqId !== reqId) return;
+        if (msg?.type === MessageType.Res) resolve(msg.data);
+        else if (msg?.type === MessageType.Err) reject(deserializeError(msg.data));
+        cleanup();
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(new Error('Aborted'));
       };
 
-      this.port.onMessage.addListener(listener);
+      port.onMessage.addListener(listener);
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          onAbort();
+          return;
+        }
+        options.signal.addEventListener('abort', onAbort);
+      }
     });
   }
 

@@ -43,7 +43,7 @@ export class DesktopIntercomAdapter {
   /**
    * Makes a request directly to the backend handlers
    */
-  async request(payload: WalletRequest): Promise<WalletResponse | void> {
+  async request(payload: WalletRequest, _options?: { signal?: AbortSignal }): Promise<WalletResponse | void> {
     // Ensure backend is initialized
     if (!this.initialized) {
       await this.init();
