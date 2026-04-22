@@ -33,21 +33,34 @@ Fix split over three commits:
 
 ### Empirical verification
 
-40-op 100 % private stress runs on testnet with `STRESS_DELAY_MIN_MS=0 STRESS_DELAY_MAX_MS=0 STRESS_IDLE_EVERY=0 STRESS_CLAIM_AFTER_SEND_PROB=0`, transport running locally via `MIDEN_NOTE_TRANSPORT_URL` override:
+40-op stress runs on testnet, transport running locally via `MIDEN_NOTE_TRANSPORT_URL` override. Quiet config = `STRESS_DELAY_MIN_MS=0 STRESS_DELAY_MAX_MS=0 STRESS_IDLE_EVERY=0 STRESS_CLAIM_AFTER_SEND_PROB=0`. Noisy config = harness defaults (`STRESS_CLAIM_AFTER_SEND_PROB=0.5 STRESS_IDLE_EVERY=10 STRESS_LOCK_EVERY=15 STRESS_RELOAD_EVERY=20 STRESS_CONCURRENT_PROB=0.15`).
 
-| run | fix set | delta | conservationHeld |
-|---|---|---|---|
-| perf-run9  | seq cursor only (pool-isolation bug still present) | −116 TST | false |
-| perf-run10 | + pool-size=1 | 0 TST | **true** |
-| perf-run12 | + pool-size=1 (reproducibility) | 0 TST | **true** |
-| perf-run13 | + pool-size=1 (third confirmation) | pending | pending |
-| perf-run14 | + pool-size=1 + multi-tag single-query | pending | pending |
+| run | fix set | private ratio | perturbations | delta | conservationHeld |
+|---|---|---|---|---|---|
+| perf-run9  | seq cursor only (pool-isolation bug still present) | 1.0 | quiet | −116 TST | false |
+| perf-run10 | + pool-size=1 | 1.0 | quiet | 0 TST | **true** |
+| perf-run12 | + pool-size=1 (reproducibility) | 1.0 | quiet | 0 TST | **true** |
+| perf-run13 | + pool-size=1 (third confirmation) | 1.0 | quiet | 0 TST | **true** |
+| perf-run14 | + pool-size=1 + multi-tag single-query | 1.0 | quiet | 0 TST | **true** |
+| perf-run15 | + pool-size=1 + multi-tag single-query | 0.5 | quiet | 0 TST | **true** |
+| perf-run16 | + pool-size=1 + multi-tag single-query (2nd confirmation) | 1.0 | quiet | 0 TST | **true** |
+| perf-run17 | + pool-size=1 + multi-tag single-query | 1.0 | **noisy** | 0 TST | **true** |
+
+Seven consecutive zero-loss runs across pool=1-only (×3), pool=1+multi-tag (×4 across two ratios and two perturbation profiles), 280 total private + mixed sends with no losses.
 
 Unit tests: 7/7 pass on branch tip, including a new `test_concurrent_store_fetch_sees_all_rows` that spawns 40 concurrent writers (>old `max_size=16`) and asserts all rows are visible.
 
 ### Harness robustness
 
 Added transient-RPC retry loop (5 attempts, exp backoff, covers HTTP 5xx / `grpc request failed` / `grpc-status header missing` / `connection reset` / `timed out` / `Temporary failure`) to `miden-cli.ts::createFaucet` and `::sync`, matching the pattern already in `::mint`. Testnet flakes during harness setup no longer fail the whole run (observed in perf-run11 which failed setup unrelated to the fix). See miden-wallet commit `a3f408211`.
+
+### Remaining open silent-loss path (separate from the stress-test bug)
+
+`completeCustomTransaction` in `src/lib/miden/activity/transactions.ts:57-115` (the `'execute'` branch from the dApp `requestCustomTransaction` flow) catches `sendPrivateNote` rejections via `console.error` and unconditionally marks the transaction `Completed`. This is **not** the cause of the stress-test loss — the stress harness sends `'send'`-type transactions which go through `completeSendTransaction` and correctly mark `Failed` on transport error.
+
+But for any dApp that asks the wallet to execute a custom transaction with private output notes (the path real users actually hit when, e.g., a swap dApp sends them a private payout note), a transient transport hiccup will cause the same silent loss the stress test originally surfaced. The on-chain commit is durable, but the recipient never sees the note and the user has no UI signal that anything went wrong.
+
+The fix is non-trivial because `completeCustomTransaction` can have multiple output notes — partial failure semantics need a product call (mark whole tx `Failed`? track per-note delivery? offer a retry?). The existing test (`transactions.extended.test.ts:513`) explicitly asserts the current behavior, so any fix needs the test re-justified. **Flagging here for a follow-up; not in scope for the stress-test bug fix.**
 
 ---
 
