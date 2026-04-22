@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Modal from 'react-modal';
 
+import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import {
   hasQueuedTransactions,
   requestSWTransactionProcessing,
@@ -14,6 +15,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
+import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -25,6 +27,7 @@ export const TransactionProgressModal: FC = () => {
   const isOpen = useWalletStore(state => state.isTransactionModalOpen);
   const openModal = useWalletStore(state => state.openTransactionModal);
   const closeModal = useWalletStore(state => state.closeTransactionModal);
+  const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
 
   const { signTransaction } = useMidenContext();
   const [error, setError] = useState(false);
@@ -189,6 +192,12 @@ export const TransactionProgressModal: FC = () => {
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
 
+  const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
+  const onViewExplorer = useCallback(() => {
+    if (!explorerUrl) return;
+    openExternalUrl({ url: explorerUrl, title: 'Midenscan' });
+  }, [explorerUrl]);
+
   // Active-stage pickup: prefer the tx currently executing, else head of
   // queue so "Syncing" shows up instantly when the SW hasn't started on
   // the new tx yet. Matches the picker used by GeneratingTransactionPage.
@@ -234,6 +243,7 @@ export const TransactionProgressModal: FC = () => {
           activeStage={activeStage}
           activeType={activeType}
           remainingCount={remainingCount}
+          onViewExplorer={explorerUrl ? onViewExplorer : undefined}
         />
       </div>
       <button
