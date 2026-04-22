@@ -1868,6 +1868,10 @@
     "message": "Im Explorer anzeigen",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Ansicht auf Midenscan",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "Im Gange",
     "englishSource": "In Progress"

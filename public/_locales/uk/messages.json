@@ -1869,6 +1869,10 @@
     "message": "Переглянути в Провіднику",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Переглянути на Midenscan",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "В роботі",
     "englishSource": "In Progress"
