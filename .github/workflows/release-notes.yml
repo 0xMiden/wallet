@@ -1,9 +1,15 @@
 name: Release Notes
 
 on:
-  # Fill in the release body when a release is created (draft or published).
+  # Fill in the release body when a release is first created (draft, prerelease,
+  # or direct publish), and also when an existing prerelease is promoted to a
+  # full release — the `released` event fires on that promotion but `created`
+  # does not, so we need both.
+  #
+  # Deliberately NOT listening to `edited` — this workflow edits the release
+  # body itself via `gh release edit`, which would fire `edited` again and loop.
   release:
-    types: [created]
+    types: [created, released]
 
   # Manual backfill: re-run for an existing release if you edited CHANGELOG.md
   # after the release was created, or to populate releases that predate this
