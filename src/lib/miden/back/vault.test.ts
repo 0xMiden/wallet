@@ -37,6 +37,11 @@ const mockImportPublicMidenWalletFromSeed = jest.fn(async (_seed: Uint8Array) =>
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
+// `.client.accounts.insert` / `.client.keystore.insert` are the raw WASM
+// surface; `importAccountFromPrivateKey` calls these directly on the
+// `MidenClientInterface.client` field.
+const mockAccountsInsert = jest.fn(async (_options: any) => {});
+const mockKeystoreInsert = jest.fn(async (_id: any, _secretKey: any) => {});
 const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   createMidenWallet: (...args: unknown[]) => mockCreateMidenWallet(...(args as [any, Uint8Array])),
   importPublicMidenWalletFromSeed: (...args: unknown[]) =>
@@ -44,7 +49,11 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
-  network: 'devnet'
+  network: 'devnet',
+  client: {
+    accounts: { insert: mockAccountsInsert },
+    keystore: { insert: mockKeystoreInsert }
+  }
 }));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
@@ -61,6 +70,18 @@ const mockMidenClient = {
   syncState: mockSyncState,
   network: 'devnet'
 };
+
+// getBech32AddressFromAccountId uses the real WASM `Address.fromAccountId`;
+// stub it so tests can assert on returned ids without a real WASM binary.
+jest.mock('../sdk/helpers', () => ({
+  getBech32AddressFromAccountId: jest.fn((id: any) => {
+    if (id && typeof id === 'object' && '__marker' in id) {
+      return `bech32:${id.__marker}`;
+    }
+    if (typeof id === 'string') return id;
+    return 'bech32:unknown';
+  })
+}));
 
 // ---------------------------------------------------------------------------
 // clearStorage stub — wipes in-memory store.
@@ -97,19 +118,51 @@ jest.mock('lib/i18n', () => ({
 // ---------------------------------------------------------------------------
 // Extend the existing wasmMock with the signing types vault.ts uses directly.
 // ---------------------------------------------------------------------------
+// Exposed so `importAccountFromPrivateKey` tests can stub per-test
+// behaviour (e.g. force `deserialize` to throw for the invalid-hex path).
+const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
+  sign: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) })),
+  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) }))
+}));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
-  const serialize = jest.fn(() => new Uint8Array([9, 9, 9]));
   return {
     ...base,
     AuthSecretKey: {
-      deserialize: jest.fn(() => ({
-        sign: jest.fn(() => ({ serialize })),
-        signData: jest.fn(() => ({ serialize }))
-      }))
+      deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
+      rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' }))
     },
     SigningInputs: { deserialize: jest.fn(() => ({})) },
-    Word: { deserialize: jest.fn(() => ({})) }
+    Word: { deserialize: jest.fn(() => ({})) },
+    // AccountBuilder records the fluent chain so assertions can verify
+    // correct args — auth component type, storage mode, etc.
+    AccountBuilder: jest.fn().mockImplementation((_seed: Uint8Array) => {
+      const built = {
+        account: {
+          id: () => ({ __marker: 'imported-account-id' }),
+          isFaucet: () => false,
+          isNetwork: () => false
+        }
+      };
+      const builder: any = {
+        accountType: jest.fn(() => builder),
+        storageMode: jest.fn(() => builder),
+        withAuthComponent: jest.fn(() => builder),
+        withBasicWalletComponent: jest.fn(() => builder),
+        build: jest.fn(() => built)
+      };
+      return builder;
+    }),
+    AccountComponent: {
+      createAuthComponentFromSecretKey: jest.fn(() => ({ __marker: 'auth-component' }))
+    },
+    AccountStorageMode: {
+      public: jest.fn(() => 'public-mode'),
+      private: jest.fn(() => 'private-mode')
+    },
+    AccountType: {
+      RegularAccountImmutableCode: 2
+    }
   };
 });
 
@@ -594,43 +647,182 @@ describe('Vault.spawn', () => {
 
 describe('Vault.spawnFromMidenClient', () => {
   beforeEach(() => {
-    // Provide a fake account header that returns an id with a stable toString
-    const fakeId = { toString: () => 'bech32-id' };
-    const fakeAcc = { id: () => fakeId, isPublic: () => true };
+    // Default: miden client has one account whose id bech32s to 'pk-1'.
+    const fakeAcc = {
+      id: () => 'pk-1' as any,
+      isFaucet: () => false,
+      isNetwork: () => false
+    };
     mockMidenClient.getAccounts.mockResolvedValue([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValue(fakeAcc);
   });
 
-  it('imports existing accounts from the WASM client state (wraps errors cleanly)', async () => {
-    const fakeAcc = {
-      id: () => 'bech32-account-id' as any,
-      isPublic: () => true
-    };
-    mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
-    mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
-    // getBech32AddressFromAccountId may throw on the string-y input;
-    // spawnFromMidenClient should wrap it in a PublicError either way.
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
+  it('silently skips miden-client accounts not present in walletAccounts (post-fix behaviour: no throw)', async () => {
+    // The miden-client DB has account `pk-1` (from `beforeEach`); the
+    // caller only gave us metadata for a DIFFERENT account `pk-owned`.
+    // The old code would throw `'Account from Miden Client not found'`;
+    // the new code silently `continue`s past the orphan so the restore
+    // completes. No keystore insert for the orphan.
+    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      { publicKey: 'pk-owned', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+    ]);
+    expect(vault).toBeInstanceOf(Vault);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
-  it('handles multiple accounts from the WASM client', async () => {
-    const acc1 = { id: () => 'pk-1' as any, isPublic: () => true };
-    const acc2 = { id: () => 'pk-2' as any, isPublic: () => false };
+  it('skips walletAccount entries with hdIndex < 0 (imported accounts) instead of deriving garbage keys', async () => {
+    // Caller passes an imported-account entry matching the miden-client's
+    // `pk-1`. Without the `hdIndex < 0` skip, spawnFromMidenClient would
+    // call `deriveClientSeed(type, mnemonic, -1)` → `m/44'/0'/0'/-1'`
+    // and write a mnemonic-derived key over the imported account's
+    // real secret. With the skip, keystore.insert is never called for
+    // that account.
+    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      { publicKey: 'pk-1', name: 'Imported', isPublic: true, type: WalletType.OnChain, hdIndex: -1 }
+    ]);
+    expect(vault).toBeInstanceOf(Vault);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('derives + inserts a key for each HD account', async () => {
+    const acc1 = { id: () => 'pk-1' as any, isFaucet: () => false, isNetwork: () => false };
+    const acc2 = { id: () => 'pk-2' as any, isFaucet: () => false, isNetwork: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
     mockMidenClient.getAccount.mockResolvedValueOnce(acc1).mockResolvedValueOnce(acc2);
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
+
+    await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+      { publicKey: 'pk-2', name: 'B', isPublic: false, type: WalletType.OffChain, hdIndex: 0 }
+    ]);
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(2);
   });
 
   it('skips null accounts returned by getAccount', async () => {
-    const fakeAcc = { id: () => 'pk-1' as any, isPublic: () => true };
+    const fakeAcc = { id: () => 'pk-1' as any, isFaucet: () => false, isNetwork: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(null);
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
+    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+    ]);
+    expect(vault).toBeInstanceOf(Vault);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
   it('wraps errors from the WASM client in a PublicError', async () => {
     mockMidenClient.getAccounts.mockRejectedValueOnce(new Error('wasm failed'));
     await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.importAccountFromPrivateKey', () => {
+  const VALID_HEX = 'deadbeefcafebabe1234567890abcdefdeadbeefcafebabe1234567890abcdef';
+
+  beforeEach(() => {
+    mockAuthSecretKeyDeserialize.mockReturnValue({
+      sign: jest.fn(),
+      signData: jest.fn()
+    } as any);
+  });
+
+  it('builds a deterministic public account, inserts via keystore, persists the WalletAccount', async () => {
+    const vault = await seedVault('pw');
+    const accounts = await vault.importAccountFromPrivateKey(VALID_HEX, 'My Imported');
+
+    expect(accounts).toHaveLength(2);
+    const imported = accounts[1]!;
+    expect(imported).toMatchObject({
+      publicKey: 'bech32:imported-account-id',
+      name: 'My Imported',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: -1
+    });
+    expect(mockAccountsInsert).toHaveBeenCalledWith({ account: expect.any(Object) });
+    expect(mockKeystoreInsert).toHaveBeenCalled();
+  });
+
+  it('auto-generates a fresh name when the user does not supply one', async () => {
+    const vault = await seedVault('pw');
+    const accounts = await vault.importAccountFromPrivateKey(VALID_HEX);
+    expect(accounts[1]!.name).toMatch(/^Account /);
+  });
+
+  it('picks a non-colliding auto-generated name even when the caller has manually renamed accounts', async () => {
+    const vault = await seedVault('pw', {
+      accounts: [{ publicKey: 'acc-a', name: 'Account 2', isPublic: true, type: WalletType.OnChain } as any]
+    });
+    const accounts = await vault.importAccountFromPrivateKey(VALID_HEX);
+    // The existing account is named `Account 2` (not `Account 1`), so
+    // the lowest still-free slot is `Account 1`. Under the prior loop
+    // that started at `allAccounts.length + 1 = 2` and walked forward
+    // we would have returned `Account 3`, leaving the free `Account 1`
+    // slot unused. The `let i = 1` fix surfaces that slot instead.
+    expect(accounts[1]!.name).toBe('Account 1');
+  });
+
+  it('skips past collisions and returns the next free template slot', async () => {
+    const vault = await seedVault('pw', {
+      accounts: [
+        { publicKey: 'acc-a', name: 'Account 1', isPublic: true, type: WalletType.OnChain } as any,
+        { publicKey: 'acc-b', name: 'Account 2', isPublic: true, type: WalletType.OnChain } as any
+      ]
+    });
+    const accounts = await vault.importAccountFromPrivateKey(VALID_HEX);
+    // All of `Account 1` and `Account 2` are taken; walk forward.
+    expect(accounts[2]!.name).toBe('Account 3');
+  });
+
+  it('rejects a hex string with odd length', async () => {
+    const vault = await seedVault('pw');
+    await expect(vault.importAccountFromPrivateKey('abc')).rejects.toThrow(PublicError);
+    expect(mockAccountsInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-hex private key', async () => {
+    const vault = await seedVault('pw');
+    await expect(vault.importAccountFromPrivateKey('not-hex-at-all!!')).rejects.toThrow(PublicError);
+    expect(mockAccountsInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a pathologically long hex string before touching the WASM client', async () => {
+    const vault = await seedVault('pw');
+    const huge = 'ab'.repeat(20_000); // 40k hex chars, > 32k cap
+    await expect(vault.importAccountFromPrivateKey(huge)).rejects.toThrow(PublicError);
+    expect(mockAccountsInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a user-supplied name that duplicates an existing account', async () => {
+    const vault = await seedVault('pw', {
+      accounts: [{ publicKey: 'acc-a', name: 'Dupe', isPublic: true, type: WalletType.OnChain } as any]
+    });
+    await expect(vault.importAccountFromPrivateKey(VALID_HEX, 'Dupe')).rejects.toThrow(PublicError);
+    expect(mockAccountsInsert).not.toHaveBeenCalled();
+  });
+
+  it('wraps `AuthSecretKey.deserialize` failures in a PublicError with a user-facing message', async () => {
+    const vault = await seedVault('pw');
+    mockAuthSecretKeyDeserialize.mockImplementationOnce(() => {
+      throw new Error('bad bytes');
+    });
+    await expect(vault.importAccountFromPrivateKey(VALID_HEX)).rejects.toThrow(PublicError);
+  });
+
+  it('persists the imported secret via the insertKeyCallback under the pubkey-commitment hex slot', async () => {
+    // Wire the mock client to invoke the callback synchronously when
+    // `keystore.insert` is called — mirrors the real WASM behaviour.
+    mockKeystoreInsert.mockImplementationOnce(async (_id: any, _secretKey: any) => {
+      const options = mockGetMidenClient.mock.calls[mockGetMidenClient.mock.calls.length - 1]![0];
+      await options.insertKeyCallback(new Uint8Array([0xab, 0xcd]), new Uint8Array([0x11, 0x22, 0x33]));
+    });
+
+    const vault = await seedVault('pw');
+    await vault.importAccountFromPrivateKey(VALID_HEX, 'My Import');
+
+    // The reveal path looks up the secret by pubkey-commitment hex — the
+    // whole feature depends on this invariant. Use the same lookup
+    // `vault.getAuthSecretKey` performs.
+    const sk = await vault.getAuthSecretKey('abcd');
+    expect(sk).toBe('112233');
   });
 });
 

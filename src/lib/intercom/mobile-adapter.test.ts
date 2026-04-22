@@ -16,9 +16,10 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn().mockResolvedValue(undefined),
   updateCurrentAccount: jest.fn().mockResolvedValue(undefined),
   revealMnemonic: jest.fn().mockResolvedValue('test mnemonic'),
+  revealPrivateKey: jest.fn().mockResolvedValue('deadbeef'),
   removeAccount: jest.fn().mockResolvedValue(undefined),
   editAccount: jest.fn().mockResolvedValue(undefined),
-  importAccount: jest.fn().mockResolvedValue(undefined),
+  importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
@@ -179,11 +180,28 @@ describe('MobileIntercomAdapter', () => {
       const response = await adapter.request({
         type: WalletMessageType.ImportAccountRequest,
         privateKey: 'private-key-123',
-        encPassword: 'enc-pass'
+        name: 'Imported'
       } as any);
 
-      expect(Actions.importAccount).toHaveBeenCalledWith('private-key-123', 'enc-pass');
-      expect(response).toEqual({ type: WalletMessageType.ImportAccountResponse });
+      expect(Actions.importAccount).toHaveBeenCalledWith('private-key-123', 'Imported');
+      expect(response).toEqual({
+        type: WalletMessageType.ImportAccountResponse,
+        accountPublicKey: 'mtst1imported-pk'
+      });
+    });
+
+    it('handles RevealPrivateKeyRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.RevealPrivateKeyRequest,
+        accountPublicKey: 'pk-commitment',
+        password: 'pw'
+      } as any);
+
+      expect(Actions.revealPrivateKey).toHaveBeenCalledWith('pk-commitment', 'pw');
+      expect(response).toEqual({
+        type: WalletMessageType.RevealPrivateKeyResponse,
+        privateKey: 'deadbeef'
+      });
     });
 
     it('handles UpdateSettingsRequest', async () => {

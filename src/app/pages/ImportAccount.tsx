@@ -8,6 +8,7 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import NoSpaceField from 'app/atoms/NoSpaceField';
 import TabSwitcher from 'app/atoms/TabSwitcher';
+import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import PageLayout from 'app/layouts/PageLayout';
 import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext, useAllAccounts } from 'lib/miden/front';
@@ -31,6 +32,11 @@ const ImportAccount: FC<ImportAccountProps> = ({ tabSlug }) => {
   const allAccounts = useAllAccounts();
   const { updateCurrentAccount } = useMidenContext();
 
+  // Fallback auto-switch: if anything adds an account while this page is
+  // mounted (e.g. a legacy code path that doesn't return its id),
+  // still select the newcomer. The private-key form below uses the
+  // returned id directly for a tighter flow; this effect covers the
+  // watch-only form and any future additions.
   const prevAccLengthRef = useRef(allAccounts.length);
   useEffect(() => {
     const accLength = allAccounts.length;
@@ -86,12 +92,12 @@ export default ImportAccount;
 
 interface ByPrivateKeyFormData {
   privateKey: string;
-  encPassword?: string;
+  name?: string;
 }
 
 const ByPrivateKeyForm: FC = () => {
   const { t } = useTranslation();
-  const { importAccount } = useMidenContext();
+  const { importAccount, updateCurrentAccount } = useMidenContext();
 
   const {
     register,
@@ -101,12 +107,22 @@ const ByPrivateKeyForm: FC = () => {
   const [error, setError] = useState<ReactNode>(null);
 
   const onSubmit = useCallback(
-    async ({ privateKey, encPassword }: ByPrivateKeyFormData) => {
+    async ({ privateKey, name }: ByPrivateKeyFormData) => {
       if (isSubmitting) return;
 
       setError(null);
       try {
-        await importAccount(privateKey.replace(/\s/g, ''), encPassword);
+        const newAccountPublicKey = await importAccount(privateKey.replace(/\s/g, ''), name?.trim() || undefined);
+        // Switch directly to the returned account id rather than
+        // waiting on the parent page's length-change effect — the
+        // effect works, but fires one render later because it depends
+        // on the `StateUpdated` broadcast landing first. Using the
+        // return value makes the navigation independent of broadcast
+        // ordering.
+        if (newAccountPublicKey) {
+          await updateCurrentAccount(newAccountPublicKey);
+          navigate('/');
+        }
       } catch (err: any) {
         console.error(err);
 
@@ -115,7 +131,7 @@ const ByPrivateKeyForm: FC = () => {
         setError(err.message);
       }
     },
-    [importAccount, isSubmitting, setError]
+    [importAccount, updateCurrentAccount, isSubmitting, setError]
   );
 
   useNativeNavbarAction({
@@ -148,6 +164,21 @@ const ByPrivateKeyForm: FC = () => {
       <div className="mb-6 text-gray-200" style={{ fontSize: '12px', lineHeight: '16px' }}>
         {t('privateKeyInputDescription')}
       </div>
+      <FormField
+        {...register('name', {
+          pattern: { value: ACCOUNT_NAME_PATTERN, message: t('accountNameInputInvalid') }
+        })}
+        name="name"
+        id="importacc-name"
+        label={
+          <div className="font-medium -mb-2" style={{ fontSize: '14px', lineHeight: '20px' }}>
+            {t('accountName')}
+          </div>
+        }
+        placeholder={t('accountNameInputPlaceholder')}
+        errorCaption={errors.name?.message}
+        containerClassName="mb-6"
+      />
       {!isMobile() && (
         <FormSubmitButton
           className="capitalize w-full justify-center"
