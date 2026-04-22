@@ -1,18 +1,27 @@
 name: Build Mobile Apps
 
 on:
-  # Build on version tags (e.g., v1.0.0, v1.2.3)
-  push:
-    tags:
-      - 'v*'
+  # Build when a GitHub Release is published
+  release:
+    types: [published]
 
-  # Also allow manual trigger from Actions tab
+  # Also allow manual trigger from Actions tab (on any branch)
   workflow_dispatch:
+    inputs:
+      network:
+        description: 'Network to build for'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - testnet
+          - devnet
 
 # Minimal permissions for security
 permissions:
-  contents: read
-  actions: write  # Required for artifact cleanup
+  contents: write   # needed to attach assets to a GitHub Release
+  actions: write    # needed for artifact cleanup
 
 # Cancel in-progress runs for the same branch
 concurrency:
@@ -20,9 +29,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-android:
+  setup:
     runs-on: ubuntu-latest
-    name: Build (Android)
+    outputs:
+      networks: ${{ steps.set.outputs.networks }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.network }}" != "both" ]]; then
+            echo 'networks=["${{ inputs.network }}"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  build-android:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        network: ${{ fromJSON(needs.setup.outputs.networks) }}
+
+    runs-on: ubuntu-latest
+    name: Build Android (${{ matrix.network }})
 
     steps:
       - name: Checkout
@@ -44,6 +73,8 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Build web app for mobile
+        env:
+          MIDEN_NETWORK: ${{ matrix.network }}
         run: yarn build:mobile
 
       - name: Sync Capacitor
@@ -53,17 +84,47 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug
 
+      - name: Compute artifact name
+        id: name
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NETWORK="${{ matrix.network }}"
+          ENV_CAP="${NETWORK^}"
+          FILE="MidenWallet-Android-${VERSION}-${ENV_CAP}.apk"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "env_cap=${ENV_CAP}" >> "$GITHUB_OUTPUT"
+          echo "file=${FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK
+        shell: bash
+        run: |
+          mkdir -p release-output
+          cp android/app/build/outputs/apk/debug/app-debug.apk "release-output/${{ steps.name.outputs.file }}"
+
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
-          name: miden-wallet-android-${{ github.ref_name }}
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: MidenWallet-${{ steps.name.outputs.version }}-${{ steps.name.outputs.env_cap }}-Android
+          path: release-output/${{ steps.name.outputs.file }}
           retention-days: 30
           if-no-files-found: error
 
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "release-output/${{ steps.name.outputs.file }}" --clobber
+
   build-ios:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        network: ${{ fromJSON(needs.setup.outputs.networks) }}
+
     runs-on: macos-latest
-    name: Build (iOS Simulator)
+    name: Build iOS Simulator (${{ matrix.network }})
 
     steps:
       - name: Checkout
@@ -79,6 +140,8 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Build web app for mobile
+        env:
+          MIDEN_NETWORK: ${{ matrix.network }}
         run: yarn build:mobile
 
       - name: Sync Capacitor
@@ -95,23 +158,44 @@ jobs:
             -derivedDataPath ios/DerivedData \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Prepare iOS artifact
+      - name: Compute artifact name
+        id: name
+        shell: bash
         run: |
-          # Find the .app bundle in DerivedData
-          APP_PATH=$(find ios/DerivedData -name "*.app" -type d | head -1)
-          echo "Found app at: $APP_PATH"
+          VERSION=$(node -p "require('./package.json').version")
+          NETWORK="${{ matrix.network }}"
+          ENV_CAP="${NETWORK^}"
+          FILE="MidenWallet-iOS-${VERSION}-${ENV_CAP}.zip"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "env_cap=${ENV_CAP}" >> "$GITHUB_OUTPUT"
+          echo "file=${FILE}" >> "$GITHUB_OUTPUT"
 
-          # Create a directory for the artifact and copy the app
-          mkdir -p ios/artifact
-          cp -R "$APP_PATH" ios/artifact/
+      - name: Package iOS .app into zip
+        shell: bash
+        run: |
+          APP_PATH=$(find ios/DerivedData -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle found under ios/DerivedData"
+            exit 1
+          fi
+          echo "Found app at: $APP_PATH"
+          mkdir -p release-output
+          APP_BASENAME="$(basename "$APP_PATH")"
+          (cd "$(dirname "$APP_PATH")" && zip -ry "$GITHUB_WORKSPACE/release-output/${{ steps.name.outputs.file }}" "$APP_BASENAME")
 
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: miden-wallet-ios-simulator-${{ github.ref_name }}
-          path: ios/artifact/*.app
+          name: MidenWallet-${{ steps.name.outputs.version }}-${{ steps.name.outputs.env_cap }}-iOS
+          path: release-output/${{ steps.name.outputs.file }}
           retention-days: 30
           if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "release-output/${{ steps.name.outputs.file }}" --clobber
 
   # Cleanup old artifacts, keep only last 10 builds per platform
   cleanup:
@@ -128,24 +212,18 @@ jobs:
               per_page: 100
             });
 
-            // Group by prefix (android or ios-simulator)
             const groups = {};
             for (const artifact of artifacts.artifacts) {
-              const prefix = artifact.name.startsWith('miden-wallet-android') ? 'android'
-                           : artifact.name.startsWith('miden-wallet-ios-simulator') ? 'ios-simulator'
-                           : null;
-              if (prefix) {
-                if (!groups[prefix]) groups[prefix] = [];
-                groups[prefix].push(artifact);
+              const m = artifact.name.match(/^MidenWallet-[^-]+-(Testnet|Devnet)-(Android|iOS)$/);
+              if (m) {
+                const key = `${m[2]}-${m[1]}`;
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(artifact);
               }
             }
 
-            // For each group, keep only the 10 most recent
             for (const [prefix, items] of Object.entries(groups)) {
-              // Sort by created_at descending
               items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-              // Delete everything after the first 10
               const toDelete = items.slice(10);
               for (const artifact of toDelete) {
                 console.log(`Deleting old artifact: ${artifact.name} (${artifact.id})`);
@@ -157,4 +235,4 @@ jobs:
               }
             }
 
-            console.log(`Cleanup complete. Kept 10 most recent builds per platform.`);
+            console.log('Cleanup complete. Kept 10 most recent mobile builds per platform/network.');
