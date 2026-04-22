@@ -1,9 +1,9 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
+import { compareAccountIds } from './utils';
 import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { compareAccountIds } from './utils';
 
 export function tryParseTokenTransfers(
   parameters: any,
