@@ -163,6 +163,14 @@ export const useWalletStore = create<WalletStore>()(
         name
       });
       assertResponse(res.type === WalletMessageType.CreateAccountResponse);
+
+      // Pull fresh state right away. The StateUpdated broadcast is advisory and can
+      // race the CreateAccount response (extension port reconnect, SW waking, etc.),
+      // leaving consumers that await createAccount — notably CreateAccount.tsx's
+      // length-diff effect — looking at a stale accounts array.
+      const stateRes = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(stateRes.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(stateRes.state);
     },
 
     updateCurrentAccount: async accountPublicKey => {

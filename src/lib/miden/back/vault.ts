@@ -15,7 +15,7 @@ import {
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
 import { isDesktop, isMobile } from 'lib/platform';
-import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -221,16 +221,16 @@ export class Vault {
 
       // Clear storage before any inserts to avoid wiping newly inserted keys later.
       // clearStorage wipes the entire platform key-value store, which would also
-      // erase the guardian URL that the onboarding flow just wrote for a PSM import.
+      // erase the guardian URL that the onboarding flow just wrote for a Guardian import.
       // Snapshot it and restore after the wipe so downstream reads
-      // (createPsmAccount / importAccountFromPsm) see the caller's choice.
+      // (createGuardianAccount / importAccountFromGuardian) see the caller's choice.
       // TODO: thread guardianEndpoint as an explicit arg through registerWallet → spawn
       // instead of round-tripping through storage.
       console.log('[Vault.spawn] Step 3: clearing storage...');
-      const preservedPsmUrl = await fetchFromStorage<string>(PSM_URL_STORAGE_KEY);
+      const preservedGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
-      if (preservedPsmUrl) {
-        await putToStorage(PSM_URL_STORAGE_KEY, preservedPsmUrl);
+      if (preservedGuardianUrl) {
+        await putToStorage(GUARDIAN_URL_STORAGE_KEY, preservedGuardianUrl);
       }
       console.log('[Vault.spawn] Step 4: storage cleared');
 
@@ -260,7 +260,7 @@ export class Vault {
       const hdAccIndex = 0;
       const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
 
-      // Helper to sign words using the vault key (needed for PSM import)
+      // Helper to sign words using the vault key (needed for Guardian import)
       const signWordFn = async (pk: string, wordHex: string) => {
         const word = Word.fromHex(wordHex);
         const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pk), vaultKey);
@@ -269,7 +269,7 @@ export class Vault {
         return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
       };
 
-      // Helper to get public key from commitment (needed for PSM import)
+      // Helper to get public key from commitment (needed for Guardian import)
       const getPublicKeyForCommitment = async (pkc: string) => {
         const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), vaultKey);
         const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(sk, 'hex')));
@@ -287,11 +287,11 @@ export class Vault {
             console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
             return await midenClient.importAccountBySeed(walletType, walletSeed, signWordFn, getPublicKeyForCommitment);
           } catch (e) {
-            // PSM imports must not silently fall back: a failure here means the guardian lookup
+            // Guardian imports must not silently fall back: a failure here means the guardian lookup
             // failed, and creating a fresh local account would leave the user with the wrong
             // balance under their seed. Propagate so the UI can let them fix the URL or switch
             // to public-account import.
-            if (walletType === WalletType.Psm) {
+            if (walletType === WalletType.Guardian) {
               throw e;
             }
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
@@ -690,7 +690,7 @@ function getMainDerivationPath(walletType: WalletType, accIndex: number) {
     walletTypeIndex = 0;
   } else if (walletType === WalletType.OffChain) {
     walletTypeIndex = 1;
-  } else if (walletType === WalletType.Psm) {
+  } else if (walletType === WalletType.Guardian) {
     walletTypeIndex = 2;
   } else {
     throw new Error('Invalid wallet type');

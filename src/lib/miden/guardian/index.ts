@@ -8,11 +8,11 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
-import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 
-import { fetchFromStorage } from '../front';
+import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientInterface } from '../sdk/miden-client-interface';
@@ -23,7 +23,7 @@ const MAX_SYNC_RETRIES = 20;
 /**
  * MultisigService wraps the MultisigClient and Multisig classes from
  * @openzeppelin/miden-multisig-client to provide a simplified interface
- * for PSM account operations.
+ * for Guardian account operations.
  */
 export class MultisigService {
   multisig: Multisig;
@@ -38,7 +38,7 @@ export class MultisigService {
   }
 
   /**
-   * Initialize a MultisigService for an existing PSM account.
+   * Initialize a MultisigService for an existing Guardian account.
    */
   static async init(
     account: Account,
@@ -48,7 +48,7 @@ export class MultisigService {
   ): Promise<MultisigService> {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-      const guardianEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
+      const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
 
       const webClient = (await MidenClientInterface.create({})).client;
 
@@ -62,19 +62,21 @@ export class MultisigService {
     }
   }
 
-  static async importAccountFromPsm(
+  static async importAccountFromGuardian(
     publicKey: string,
     signerCommitment: string,
     signWordFn: SignWordFunction,
     accountId: string,
     webClient: MidenClient
   ) {
-    const psmEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
-    const psm = new GuardianHttpClient(psmEndpoint);
+    console.log('Importing account from Guardian with accountId:', accountId);
+    const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+    console.log('Using Guardian endpoint:', guardianEndpoint);
+    const guardian = new GuardianHttpClient(guardianEndpoint);
     const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-    psm.setSigner(signer);
+    guardian.setSigner(signer);
     try {
-      const { stateJson } = await psm.getState(accountId);
+      const { stateJson } = await guardian.getState(accountId);
       const accountBase64 = stateJson.data;
       const binaryString = atob(accountBase64);
       const accountBytes = new Uint8Array(binaryString.length);
@@ -84,7 +86,8 @@ export class MultisigService {
       const account = Account.deserialize(accountBytes);
       await webClient.accounts.insert({ account, overwrite: true });
     } catch (error) {
-      console.log('Error fetching account state from PSM:', error);
+      console.log('Error fetching account state from Guardian:', error);
+      throw error;
     }
   }
 
@@ -155,7 +158,7 @@ export class MultisigService {
       await this.multisig.syncState();
       this.syncRetryCount = 0; // Reset retry count on successful sync
     } catch (error) {
-      console.log('[PSM] sync error ', error);
+      console.log('[Guardian] sync error ', error);
       const isNonceTooLow =
         error instanceof Error && error.message.includes('nonce') && error.message.includes('too low');
 

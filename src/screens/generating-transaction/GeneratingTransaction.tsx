@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension, isMobile } from 'lib/platform';
@@ -133,7 +134,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const generateTransaction = useCallback(async () => {
     setHasStartedProcessing(true);
     try {
-      const success = await dbTransactionsLoop(signTransaction);
+      const success = await dbTransactionsLoop(signTransaction, false, zustandProvider);
       // Don't stop on failure - continue processing remaining transactions
       // The failed transaction is already marked as Failed in IndexedDB
       if (success === false) {
@@ -293,7 +294,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
    * stages are type-neutral — they either describe network state
    * (syncing, confirming), only apply to one type (delivering → private
    * send only; registering-guardian → switch-guardian only), or describe
-   * PSM-specific phases that are the same action regardless of what the
+   * Guardian-specific phases that are the same action regardless of what the
    * proposal does (creating-proposal / signing-proposal / submitting).
    */
   const stageTitleKey = useCallback((stage?: ITransactionStage, type?: ITransactionType): string => {

@@ -8,7 +8,7 @@ import {
   hasQueuedTransactions,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity/transactions';
-import { type PsmAccountProvider } from 'lib/miden/front/psm-manager';
+import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
@@ -50,10 +50,10 @@ async function swSignCallback(publicKey: string, signingInputs: string): Promise
 }
 
 /**
- * Vault-backed PSM account provider for service worker context.
+ * Vault-backed Guardian account provider for service worker context.
  * Uses the Vault directly instead of the Zustand store.
  */
-const vaultPsmProvider: PsmAccountProvider = {
+const vaultGuardianProvider: GuardianAccountProvider = {
   getAccounts: async () => {
     return withUnlocked(async ({ vault }) => {
       return await vault.fetchAccounts();
@@ -118,7 +118,7 @@ export async function startTransactionProcessing(): Promise<void> {
     while (attempts < maxAttempts) {
       attempts++;
       console.log('[TransactionProcessor] Loop attempt', attempts);
-      const result = await safeGenerateTransactionsLoop(swSignCallback, false, vaultPsmProvider);
+      const result = await safeGenerateTransactionsLoop(swSignCallback, false, vaultGuardianProvider);
       console.log('[TransactionProcessor] Loop result:', result);
 
       // Broadcast progress so popup UI can update

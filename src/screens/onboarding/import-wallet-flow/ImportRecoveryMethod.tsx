@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
-import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { Badge } from 'lib/ui/badge';
 
 import { WalletType } from '../types';
@@ -19,15 +19,15 @@ export interface ImportRecoveryMethodScreenProps {
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({ isError, onSubmit }) => {
   const { t } = useTranslation();
 
-  const [selected, setSelected] = useState<WalletType>(WalletType.Psm);
-  const [endpointInput, setEndpointInput] = useState<string>(DEFAULT_PSM_ENDPOINT);
+  const [selected, setSelected] = useState<WalletType>(WalletType.Guardian);
+  const [endpointInput, setEndpointInput] = useState<string>(DEFAULT_GUARDIAN_ENDPOINT);
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  const showError = Boolean(isError) && !dirty && selected === WalletType.Psm;
+  const showError = Boolean(isError) && !dirty && selected === WalletType.Guardian;
 
   const trimmedEndpoint = endpointInput.trim();
-  const canContinue = selected === WalletType.OnChain || (selected === WalletType.Psm && trimmedEndpoint.length > 0);
+  const canContinue = selected === WalletType.OnChain || (selected === WalletType.Guardian && trimmedEndpoint.length > 0);
 
   const handleContinue = () => {
     console.log('Continue with selection:', { selected, trimmedEndpoint });
@@ -35,11 +35,11 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       onSubmit({ walletType: WalletType.OnChain });
       return;
     }
-    onSubmit({ walletType: WalletType.Psm, guardianEndpoint: trimmedEndpoint });
+    onSubmit({ walletType: WalletType.Guardian, guardianEndpoint: trimmedEndpoint });
   };
 
-  const handleSelectPsm = () => {
-    setSelected(WalletType.Psm);
+  const handleSelectGuardian = () => {
+    setSelected(WalletType.Guardian);
     setDirty(true);
   };
 
@@ -57,11 +57,11 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   const options = useMemo(
     () => [
       {
-        id: WalletType.Psm,
+        id: WalletType.Guardian,
         title: t('importViaGuardian'),
         description: t('importViaGuardianDescription'),
         isDefault: true,
-        onSelect: handleSelectPsm
+        onSelect: handleSelectGuardian
       },
       {
         id: WalletType.OnChain,
@@ -86,7 +86,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       <div className="flex flex-col w-full">
         {options.map(option => {
           const isSelected = selected === option.id;
-          const isPsm = option.id === WalletType.Psm;
+          const isGuardian = option.id === WalletType.Guardian;
           return (
             <div
               key={option.id}
@@ -107,7 +107,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
               </div>
               <p className="text-grey-600 text-sm">{option.description}</p>
 
-              {isPsm && isSelected && (
+              {isGuardian && isSelected && (
                 <div className="mt-4 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
                   {!isCustomizing && (
                     <div className="flex flex-col gap-1">
@@ -127,7 +127,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
                     <Input
                       id="guardian-endpoint-input"
                       value={endpointInput}
-                      placeholder={DEFAULT_PSM_ENDPOINT}
+                      placeholder={DEFAULT_GUARDIAN_ENDPOINT}
                       onChange={event => {
                         setEndpointInput(event.target.value);
                         setDirty(true);

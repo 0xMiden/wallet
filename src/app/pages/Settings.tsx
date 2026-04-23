@@ -95,7 +95,7 @@ type Tab = {
   linksOutsideOfWallet?: boolean;
   isDrawer?: boolean;
   onClick?: () => void;
-  psmOnly?: boolean;
+  guardianOnly?: boolean;
 };
 
 type TabGroup = {
@@ -158,7 +158,7 @@ const TAB_GROUPS: TabGroup[] = [
         Icon: SettingsIcon,
         Component: GuardianSettings,
         isDrawer: true,
-        psmOnly: true
+        guardianOnly: true
       }
     ]
   },
@@ -231,22 +231,22 @@ const HIDDEN_TABS: Tab[] = [
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
-  const isPsmAccount = currentAccountType === WalletType.Psm;
+  const isGuardianAccount = currentAccountType === WalletType.Guardian;
 
-  // Filter tabs that are gated to PSM accounts. Non-PSM users don't see
+  // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
   // the Guardian Settings entry at all (menu, drawer, or routable page).
   const tabGroups = useMemo(
     () =>
       TAB_GROUPS.map(group => ({
         ...group,
-        tabs: group.tabs.filter(tab => !tab.psmOnly || isPsmAccount)
+        tabs: group.tabs.filter(tab => !tab.guardianOnly || isGuardianAccount)
       })).filter(group => group.tabs.length > 0),
-    [isPsmAccount]
+    [isGuardianAccount]
   );
 
   const allTabs = useMemo(
-    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tab => !tab.psmOnly || isPsmAccount)],
-    [tabGroups, isPsmAccount]
+    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tab => !tab.guardianOnly || isGuardianAccount)],
+    [tabGroups, isGuardianAccount]
   );
 
   const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);

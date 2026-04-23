@@ -279,11 +279,11 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.NewWalletResponse });
 
       const { registerWallet } = useWalletStore.getState();
-      await registerWallet(WalletType.Psm, 'password123', 'mnemonic words', true);
+      await registerWallet(WalletType.Guardian, 'password123', 'mnemonic words', true);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.NewWalletRequest,
-        walletType: WalletType.Psm,
+        walletType: WalletType.Guardian,
         password: 'password123',
         mnemonic: 'mnemonic words',
         ownMnemonic: true
@@ -684,7 +684,7 @@ describe('useWalletStore', () => {
   describe('registerWallet / importWalletFromClient / unlock', () => {
     it('registerWallet sends NewWalletRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.NewWalletResponse });
-      await useWalletStore.getState().registerWallet(WalletType.Psm, 'pw', 'mnemonic-12', false);
+      await useWalletStore.getState().registerWallet(WalletType.Guardian, 'pw', 'mnemonic-12', false);
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({ type: WalletMessageType.NewWalletRequest, password: 'pw' })
       );
@@ -692,7 +692,7 @@ describe('useWalletStore', () => {
 
     it('registerWallet throws on invalid response', async () => {
       mockRequest.mockResolvedValueOnce({ type: 'wrong' });
-      await expect(useWalletStore.getState().registerWallet(WalletType.Psm, 'pw', 'm', false)).rejects.toThrow();
+      await expect(useWalletStore.getState().registerWallet(WalletType.Guardian, 'pw', 'm', false)).rejects.toThrow();
     });
 
     it('importWalletFromClient sends ImportFromClientRequest', async () => {

@@ -9,7 +9,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { putToStorage } from 'lib/miden/front/storage';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
-import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletStatus, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
@@ -73,7 +73,7 @@ const Welcome: FC = () => {
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [importType, setImportType] = useState<ImportType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
-  const [walletType, setWalletType] = useState<WalletType>(WalletType.Psm);
+  const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
   const [importedWithFile, setImportedWithFile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
@@ -241,9 +241,9 @@ const Welcome: FC = () => {
         break;
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
-        if (action.payload.walletType === WalletType.Psm && action.payload.guardianEndpoint) {
+        if (action.payload.walletType === WalletType.Guardian && action.payload.guardianEndpoint) {
           console.log('Putting guardian endpoint to storage:', action.payload.guardianEndpoint);
-          await putToStorage(PSM_URL_STORAGE_KEY, action.payload.guardianEndpoint);
+          await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
         }
         setGuardianLookupError(false);
         navigate('/#confirmation');
@@ -262,7 +262,7 @@ const Welcome: FC = () => {
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
-          if (onboardingType === OnboardingType.Import && walletType === WalletType.Psm) {
+          if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
           } else if (password === '__HARDWARE_ONLY__') {

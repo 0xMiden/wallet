@@ -605,7 +605,11 @@ describe('transactions utilities', () => {
       } as any;
 
       try {
-        await generateTransaction(transaction, signCallback);
+        await generateTransaction(transaction, signCallback, false, {
+          getAccounts: async () => [],
+          getPublicKeyForCommitment: async () => '',
+          signWord: async () => ''
+        });
       } catch {
         // Expected to fail on TransactionResult.deserialize — that's fine
       }

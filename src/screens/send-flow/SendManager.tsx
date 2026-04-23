@@ -95,7 +95,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         name: contact.name,
         isOwned: true,
         contactType: contact.isPublic ? ('public' as const) : ('private' as const),
-        isGuardian: contact.type === WalletType.Psm
+        isGuardian: contact.type === WalletType.Guardian
       }));
 
     const externalContacts: Contact[] = addressBookContacts

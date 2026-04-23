@@ -1,8 +1,8 @@
 import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk';
 import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
-import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 import { fetchFromStorage } from '../front/storage';
 
@@ -15,7 +15,7 @@ export const MULTISIG_SLOT_NAMES = {
 } as const;
 
 /**
- * Extract signer commitment and public key from a PSM account's storage.
+ * Extract signer commitment and public key from a Guardian account's storage.
  */
 export async function getSignerDetailsFromAccount(
   account: Account,
@@ -40,22 +40,22 @@ export async function getSignerDetailsFromAccount(
 }
 
 /**
- * Create a PSM (Private State Manager) account using the MultisigClient.
+ * Create a Guardian (Private State Manager) account using the MultisigClient.
  *
- * This creates a 1-of-1 multisig account with PSM signature verification enabled.
- * The account is registered with the PSM backend and the secret key is stored locally.
+ * This creates a 1-of-1 multisig account with Guardian signature verification enabled.
+ * The account is registered with the Guardian backend and the secret key is stored locally.
  *
  * @param webClient - The Miden WebClient instance
  * @param seed - Optional seed for key derivation (random if not provided)
  * @param skipRegistration - Skip guardian registration (used by the import path)
  * @param guardianEndpointOverride - Force a specific guardian URL for pubkey derivation.
  *   Account ID is a content hash that includes the guardian pubkey baked into storage,
- *   so the import flow passes `DEFAULT_PSM_ENDPOINT` to reproduce the ID the account
- *   originally had; the user's custom URL is used by `importAccountFromPsm` for the
+ *   so the import flow passes `DEFAULT_GUARDIAN_ENDPOINT` to reproduce the ID the account
+ *   originally had; the user's custom URL is used by `importAccountFromGuardian` for the
  *   live state fetch only.
  * @returns The created Account
  */
-export async function createPsmAccount(
+export async function createGuardianAccount(
   webClient: MidenClient,
   seed?: Uint8Array,
   skipRegistration: boolean = false,
@@ -70,10 +70,10 @@ export async function createPsmAccount(
     const sk = AuthSecretKey.rpoFalconWithRNG(seed);
     const signerCommitment = sk.publicKey().toCommitment();
 
-    // Get PSM endpoint and initialize client
+    // Get Guardian endpoint and initialize client
     const guardianEndpoint =
-      guardianEndpointOverride ?? (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) ?? DEFAULT_PSM_ENDPOINT;
-    console.log('Using PSM endpoint:', guardianEndpoint);
+      guardianEndpointOverride ?? (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ?? DEFAULT_GUARDIAN_ENDPOINT;
+    console.log('Using Guardian endpoint:', guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment, pubkey } = await client.guardianClient.getPubkey();
     // Create the multisig account using the package utility
@@ -100,12 +100,12 @@ export async function createPsmAccount(
     // Store the secret key in WebStore for signing
     await webClient.keystore.insert(multisig.account.id(), sk);
 
-    console.log('PSM account created:', multisig.account.id().toString());
+    console.log('Guardian account created:', multisig.account.id().toString());
 
     return multisig.account;
   } catch (e) {
     console.log(e);
-    console.error('Error creating PSM account:', e);
-    throw new Error('Failed to create PSM account');
+    console.error('Error creating Guardian account:', e);
+    throw new Error('Failed to create Guardian account');
   }
 }

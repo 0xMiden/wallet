@@ -15,4 +15,4 @@ export type ThemeSetting = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export const DEFAULT_THEME: ThemeSetting = 'system';
 
-export const PSM_URL_STORAGE_KEY = 'psm_url_setting';
+export const GUARDIAN_URL_STORAGE_KEY = 'guardian_url_setting';

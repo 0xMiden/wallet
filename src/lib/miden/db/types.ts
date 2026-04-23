@@ -23,10 +23,10 @@ export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian
  * label so users see what the wallet is actually doing during the 3-8s
  * spinner window. Not all stages apply to all tx types:
  *   - syncing              : all types, before `syncState()`
- *   - sending              : non-PSM types, during the SDK execute→prove→submit→apply
- *   - creating-proposal    : PSM only, while building the multisig proposal
- *   - signing-proposal     : PSM only, while the guardian signs the proposal
- *   - submitting           : PSM only, while the signed tx is submitted to the network
+ *   - sending              : non-Guardian types, during the SDK execute→prove→submit→apply
+ *   - creating-proposal    : Guardian only, while building the multisig proposal
+ *   - signing-proposal     : Guardian only, while the guardian signs the proposal
+ *   - submitting           : Guardian only, while the signed tx is submitted to the network
  *   - confirming           : send-private + switch-guardian, during `waitForTransactionCommit`
  *   - registering-guardian : switch-guardian only, during post-commit guardian re-registration
  *   - delivering           : send-private only, during `sendPrivateNote`

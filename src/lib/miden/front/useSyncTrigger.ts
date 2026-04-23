@@ -6,7 +6,7 @@ import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
-import { syncPsmAccounts } from './psm-manager';
+import { syncGuardianAccounts } from './guardian-sync';
 
 const SYNC_INTERVAL_MS = 3_000;
 
@@ -14,13 +14,13 @@ function triggerSync(intercom: ReturnType<typeof getIntercom>) {
   intercom
     .request({ type: WalletMessageType.SyncRequest })
     .then(() => {
-      // PSM sync runs in the frontend where the wallet is unlocked and signWord is available
-      const psmAccountKeys = useWalletStore
+      // Guardian sync runs in the frontend where the wallet is unlocked and signWord is available
+      const guardianAccountKeys = useWalletStore
         .getState()
-        .accounts.filter(acc => acc.type === WalletType.Psm)
+        .accounts.filter(acc => acc.type === WalletType.Guardian)
         .map(acc => acc.publicKey);
-      if (psmAccountKeys.length > 0) {
-        syncPsmAccounts().catch(() => {});
+      if (guardianAccountKeys.length > 0) {
+        syncGuardianAccounts().catch(() => {});
       }
     })
     .catch(() => {});
@@ -36,7 +36,7 @@ function triggerSync(intercom: ReturnType<typeof getIntercom>) {
  *   when the zustand balance/sync state was handed off to the React SDK.
  *   Without this, nothing polls on mobile and the UI never sees new notes.
  *
- * After each chain sync, PSM accounts are synced in the frontend context
+ * After each chain sync, Guardian accounts are synced in the frontend context
  * (where the wallet is unlocked and signWord is available).
  */
 export function useSyncTrigger() {
@@ -76,13 +76,13 @@ export function useSyncTrigger() {
             await client.syncState();
           });
 
-          // PSM sync runs outside the WASM lock — HTTP calls only.
-          const psmAccountKeys = useWalletStore
+          // Guardian sync runs outside the WASM lock — HTTP calls only.
+          const guardianAccountKeys = useWalletStore
             .getState()
-            .accounts.filter(acc => acc.type === WalletType.Psm)
+            .accounts.filter(acc => acc.type === WalletType.Guardian)
             .map(acc => acc.publicKey);
-          if (psmAccountKeys.length > 0) {
-            await syncPsmAccounts().catch(() => {});
+          if (guardianAccountKeys.length > 0) {
+            await syncGuardianAccounts().catch(() => {});
           }
         } catch (error) {
           console.warn('[useSyncTrigger] sync error:', error);

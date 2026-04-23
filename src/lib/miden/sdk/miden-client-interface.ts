@@ -27,11 +27,11 @@ import { isMobile } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
 
 import { ConsumeTransaction, SendTransaction } from '../db/types';
-// PSM helpers are dynamic-imported inside the methods that use them to avoid
-// a module init cycle: miden-client-interface → psm/index → sdk/miden-client →
-// miden-client-interface. Static imports here deadlock init_psm_manager in the
+// Guardian helpers are dynamic-imported inside the methods that use them to avoid
+// a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
+// miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
-import type { SignWordFunction } from '../psm/signer';
+import type { SignWordFunction } from '../guardian/signer';
 import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
 
@@ -103,9 +103,9 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
-    if (walletType === WalletType.Psm) {
-      const { createPsmAccount } = await import('../psm/account');
-      const account = await createPsmAccount(this.client, seed);
+    if (walletType === WalletType.Guardian) {
+      const { createGuardianAccount } = await import('../guardian/account');
+      const account = await createGuardianAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
     }
 
@@ -134,20 +134,27 @@ export class MidenClientInterface {
     signWordFn: SignWordFunction,
     getPublicKeyForCommitment: (commitment: string) => Promise<string>
   ): Promise<string> {
-    if (walletType === WalletType.Psm) {
-      console.log('Importing PSM account from seed', seed);
+    if (walletType === WalletType.Guardian) {
+      console.log('Importing Guardian account from seed', seed);
       try {
-        const [{ createPsmAccount, getSignerDetailsFromAccount }, { MultisigService }, { DEFAULT_PSM_ENDPOINT }] =
-          await Promise.all([import('../psm/account'), import('../psm/index'), import('lib/miden-chain/constants')]);
+        const [
+          { createGuardianAccount, getSignerDetailsFromAccount },
+          { MultisigService },
+          { DEFAULT_GUARDIAN_ENDPOINT }
+        ] = await Promise.all([
+          import('../guardian/account'),
+          import('../guardian/index'),
+          import('lib/miden-chain/constants')
+        ]);
         // Derive the account ID against the default guardian so it matches the ID
         // the account had at creation time. The user's custom guardian URL (persisted
-        // in PSM_URL_STORAGE_KEY) is picked up later by importAccountFromPsm for the
+        // in GUARDIAN_URL_STORAGE_KEY) is picked up later by importAccountFromGuardian for the
         // live state fetch.
-        const account = await createPsmAccount(this.client, seed, true, DEFAULT_PSM_ENDPOINT);
-        console.log('[MidenClientInterface] Imported PSM account from seed with ID:', account.id().toString());
+        const account = await createGuardianAccount(this.client, seed, true, DEFAULT_GUARDIAN_ENDPOINT);
+        console.log('[MidenClientInterface] Imported Guardian account from seed with ID:', account.id().toString());
         const accountId = account.id().toString();
         const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
-        await MultisigService.importAccountFromPsm(
+        await MultisigService.importAccountFromGuardian(
           `0x${publicKey}`,
           `0x${commitment}`,
           signWordFn,
@@ -157,7 +164,7 @@ export class MidenClientInterface {
         return getBech32AddressFromAccountId(account.id());
       } catch (error) {
         console.log(error);
-        throw new Error('Failed to import PSM account from seed');
+        throw new Error('Failed to import Guardian account from seed');
       }
     }
 

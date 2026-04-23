@@ -30,7 +30,7 @@ export const SelectRecoveryMethodScreen = ({
   const defaultOptions: RecoveryOption[] = useMemo(
     () => [
       {
-        id: WalletType.Psm,
+        id: WalletType.Guardian,
         title: t('guardianRecovery'),
         description: t('guardianRecoveryDescription'),
         isDefault: true

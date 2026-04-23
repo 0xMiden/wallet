@@ -371,7 +371,7 @@
   "currentGuardianEndpoint": "Current Guardian",
   "newGuardianEndpoint": "New Guardian Endpoint",
   "switchGuardian": "Switch Guardian",
-  "switchGuardianDescription": "Point your PSM account at a new guardian endpoint. The switch is signed as an on-chain proposal.",
+  "switchGuardianDescription": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal.",
   "switchingGuardian": "Switching guardian...",
   "guardianSwitched": "Guardian switched successfully.",
   "guardianEndpointUnchanged": "That's already your current guardian.",

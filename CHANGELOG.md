@@ -4,7 +4,7 @@
 
 ### Features
 
-* [FEATURE][all] Dedicated import-recovery-method screen for PSM wallet imports. Seed-phrase import now shows a screen with a collapsible guardian URL input (default: `DEFAULT_PSM_ENDPOINT`) and an "import public account" fallback; the chosen URL is persisted to `PSM_URL_STORAGE_KEY`. On guardian lookup failure the user is bounced back to the same screen with an inline "account not found on guardian" error — previously `Vault.spawn` swallowed the error and fell back to `createMidenWallet`, silently creating a fresh account under the same seed. PSM account ID is now derived against `DEFAULT_PSM_ENDPOINT` (matching creation-time identity) while the live state fetch targets the user's custom URL, which supports importing accounts whose guardian was switched post-creation. `Vault.spawn` also preserves `PSM_URL_STORAGE_KEY` across its pre-spawn `clearStorage()` so the URL the frontend just wrote survives the wipe.
+* [FEATURE][all] Guardian integration. Adds Guardian-backed accounts (1-of-1 multisig with on-chain Guardian signature verification), onboarding create/import flows with a dedicated recovery-method screen that accepts a custom guardian URL, Settings → Guardian Settings with an on-chain switch-guardian proposal that re-registers post-switch state with the new endpoint, service-worker routing for Guardian transaction signing via `MultisigService`, frontend Guardian sync outside the WASM lock, and per-stage progress labels (`creating-proposal`, `signing-proposal`, `submitting`, `registering-guardian`) in the transaction modal.
 * [FEATURE][all] Transaction-complete modal now surfaces a **View on Midenscan** action alongside **Done**. Desktop / extension opens the explorer in a new tab; mobile opens it as a native `InAppBrowser` overlay so dismissing the overlay returns the user to the completion screen with no state loss. URL resolved per-network via a new `MIDEN_EXPLORER_ENDPOINTS` map (testnet / devnet); localnet has no explorer → button hidden. The on-chain tx hash is plumbed through `SendManager.onSubmit` → `lastCompletedTxHash` in the Zustand store, cleared at the start of each send so the button never points at a stale hash. (#203)
 * [UX][all] Transaction-complete modal no longer auto-closes 3 s after success — user now dismisses explicitly, giving time to read the confirmation and tap **View on Midenscan**. (#203)
 
@@ -26,8 +26,7 @@
 
 ### Features
 
-* [FEATURE][all] Guardian switch for PSM accounts. Settings → Guardian Settings lets the user point a PSM account at a new guardian endpoint; the switch is a signed on-chain proposal that waits for inclusion, registers the post-switch account state with the new guardian, then flips the cached `PSM_URL_STORAGE_KEY` so subsequent syncs hit the new endpoint. The frontend cache self-heals when the stored endpoint drifts, so the popup stops syncing against the old guardian across the SW/frontend realm boundary.
-* [FEATURE][all] Per-stage label in the transaction progress modal. Each observable phase boundary (`syncing`, `sending`, `confirming`, `delivering`) writes a stage marker during tx processing, and the modal renders a stage-specific title + description instead of a single opaque "Generating Transaction" for the whole 3-8s spinner window. Send-type sub-label varies by tx type (claim / execute / send), and the batch subtitle surfaces a remaining-count when more than one tx is in flight. PSM/guardian-backed accounts also now surface their own phase boundaries (`creating-proposal`, `signing-proposal`, `submitting`, `registering-guardian`) so guardian-sign / submit / on-chain-confirm / guardian-re-register all render distinct labels instead of a single opaque spinner — switch-guardian in particular now walks the user through every step.
+* [FEATURE][all] Per-stage label in the transaction progress modal. Each observable phase boundary (`syncing`, `sending`, `confirming`, `delivering`) writes a stage marker during tx processing, and the modal renders a stage-specific title + description instead of a single opaque "Generating Transaction" for the whole 3-8s spinner window. Send-type sub-label varies by tx type (claim / execute / send), and the batch subtitle surfaces a remaining-count when more than one tx is in flight.
 
 ---
 
@@ -81,7 +80,6 @@
 * [FIX][all] Removed stale "Download Generated Files" button and output notes storage. The `useExportNotes` hook, `registerOutputNote`, and related storage key were unused dead code. Simplifies the transaction completion screen and its auto-close logic. (#160)
 * [FIX][all] Removed the "Upload File" button and drag-and-drop note import from the Receive page. The freed space is now used by the notes list, making it taller. (#161)
 * [FEATURE][all] Complete UI revamp across the wallet.
-* [FEATURE][all] Integrate gaurdian for private state management for the wallet.
 
 ---
 

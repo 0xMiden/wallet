@@ -5,15 +5,16 @@ import { useTranslation } from 'react-i18next';
 
 import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
-import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import {
   initiateSwitchGuardianTransaction,
   requestSWTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
-import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 
@@ -59,7 +60,8 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
           trimmed,
-          isDelegateProofEnabled()
+          isDelegateProofEnabled(),
+          zustandProvider
         );
         useWalletStore.getState().openTransactionModal();
         if (isExtension()) requestSWTransactionProcessing();
@@ -144,14 +146,14 @@ function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void }
 
   useEffect(() => {
     let cancelled = false;
-    fetchFromStorage<string>(PSM_URL_STORAGE_KEY)
+    fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
       .then(stored => {
         if (cancelled) return;
-        setEndpoint(stored || DEFAULT_PSM_ENDPOINT);
+        setEndpoint(stored || DEFAULT_GUARDIAN_ENDPOINT);
       })
       .catch(() => {
         if (cancelled) return;
-        setEndpoint(DEFAULT_PSM_ENDPOINT);
+        setEndpoint(DEFAULT_GUARDIAN_ENDPOINT);
       });
     return () => {
       cancelled = true;
@@ -162,8 +164,8 @@ function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void }
   // is a no-op and the explicit refresh() call after switch handles the update.
   useEffect(
     () =>
-      onStorageChanged<string>(PSM_URL_STORAGE_KEY, next => {
-        setEndpoint(next || DEFAULT_PSM_ENDPOINT);
+      onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
+        setEndpoint(next || DEFAULT_GUARDIAN_ENDPOINT);
       }),
     []
   );

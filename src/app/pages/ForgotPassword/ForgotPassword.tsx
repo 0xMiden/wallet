@@ -31,7 +31,7 @@ const ForgotPassword: FC = () => {
       if (!importedWithFile) {
         try {
           await registerWallet(
-            WalletType.Psm,
+            WalletType.Guardian,
             password,
             seedPhraseFormatted,
             onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general

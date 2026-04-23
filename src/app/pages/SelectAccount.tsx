@@ -9,7 +9,9 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount, useAllAccounts, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
+import { Badge } from 'lib/ui/badge';
 import { navigate, useLocation } from 'lib/woozie';
+import { WalletType } from 'screens/onboarding/types';
 import { truncateAddress } from 'utils/string';
 
 const SelectAccount: FC = () => {
@@ -69,7 +71,10 @@ const SelectAccount: FC = () => {
                       <Name className="font-semibold leading-none text-xl">{acc.name}</Name>
                       <div className="flex w-full items-start">
                         <span>
-                          {acc.isPublic ? t('public') : t('private')} • {truncateAddress(acc.publicKey, true, 8)}
+                          {acc.isPublic ? t('public') : t('private')} • {truncateAddress(acc.publicKey, true, 8)} •{' '}
+                          {acc.type === WalletType.Guardian ? (
+                            <span className="bg-primary-500 text-xs rounded-xl p-0.5 px-1">Guardian Protected</span>
+                          ) : null}
                         </span>
                       </div>
                     </div>
