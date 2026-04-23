@@ -75,17 +75,6 @@ export class IntercomServer {
 
   private handleMessage(msg: any, port: Runtime.Port) {
     if (port.sender?.id === browser.runtime.id && msg?.type === MessageType.Req) {
-      const reqType = msg?.data?.type;
-      if (reqType && reqType !== 'GET_STATE_REQUEST' && reqType !== 'SYNC_REQUEST') {
-        console.log(
-          '[IntercomServer] handleMessage:',
-          reqType,
-          'handlers:',
-          this.reqHandlers.length,
-          'initialized:',
-          this.initializedHandlers
-        );
-      }
       // If no request handler registered yet, respond with a default "Idle" state
       // for GetStateRequest so the UI can render (onboarding/unlock screen).
       // Other messages are queued for replay when the handler is registered.

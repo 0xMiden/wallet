@@ -196,6 +196,7 @@ export interface MidenPageRequest extends WalletMessageBase {
   payload: any;
   beacon?: boolean;
   encrypted?: boolean;
+  sessionId?: string;
 }
 
 export interface MidenPageResponse extends WalletMessageBase {

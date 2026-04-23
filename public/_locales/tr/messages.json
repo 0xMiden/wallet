@@ -422,6 +422,34 @@
     "message": "İşlem yürütülüyor",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "Vasi değiştiriliyor",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Teklif oluşturuluyor",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Vasiniz için işlem teklifini oluşturmak.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Vasi ile imza atmak",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Vasiniz teklifi imzalıyor.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "İşlem gönderiliyor",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "İmzalı işleminiz ağa gönderiliyor.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "Zincirde onaylanıyor",
     "englishSource": "Confirming on chain"
@@ -429,6 +457,14 @@
   "transactionStageConfirmingDescription": {
     "message": "Ağ onayı bekleniyor.",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Vasiye kaydolmak",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Hesap durumunuz yeni vasiye kaydediliyor.",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "note teslim ediliyor",
@@ -1562,6 +1598,46 @@
     "message": "Şifreli Cüzdan Dosyası",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Gardiyan",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Gözetmen Ayarları",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Mevcut Gardiyan",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Yeni Guardian Uç Noktası",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Anahtar Koruması",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Guardian hesabınızı yeni bir koruyucu uç noktasına yönlendirin. Anahtar, zincir içi bir teklif olarak imzalandı.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Vasi değiştiriliyor...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Guardian başarıyla geçiş yaptı.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Bu zaten sizin şu anki vasiniz.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "http:// veya https:// ile başlayan geçerli bir URL girin",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Şifreli Cüzdan Dosyanıza erişmek için şifrenizi girin.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1827,6 +1903,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Daha sonra cüzdanın içine birden fazla hesap türü ekleyebilir ve yönetebilirsiniz.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Hesap Kurtarmayı Ayarlayın",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Erişiminizi kaybederseniz hesabınızı nasıl kurtarmak istediğinizi seçin.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Gardiyan",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Tavsiye edilen. Hesabınız için koruyucu tabanlı kurtarma ancak gaurdian operatörü durumunuzu görebilir.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Tamamen Özel",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Yalnızca yerel, durumunuzu sizden başka kimse göremez ancak iyileşme olmaz, cihazınızı kaybetmek, paranızın kalıcı olarak kaybolmasına neden olur.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Halk",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Herkese açık bir zincir içi hesabı kurtarın.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Bu cüzdanı nasıl kurtarmak istersiniz?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Guardian aracılığıyla içe aktar",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Bu hesabı kurtarmak ve birlikte imza atmak için bir veli kullanın.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Herkese açık hesabı içe aktar",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "seed phrase hesabınızdan türetilen genel hesabı içe aktarın.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "Veli URL'si",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Farklı bir veli kullan",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Bu velide hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine herkese açık bir hesap olarak içe aktarın.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "Varsayılan",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "İşlem dosyası",

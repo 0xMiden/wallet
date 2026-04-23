@@ -422,6 +422,34 @@
     "message": "Transaktion wird ausgeführt",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "Vormund wechseln",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Angebot erstellen",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Erstellen Sie den Transaktionsvorschlag für Ihren Vormund.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Unterzeichnung mit Vormund",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Ihr Vormund unterzeichnet den Vorschlag.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Transaktion wird übermittelt",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Senden Sie Ihre signierte Transaktion an das Netzwerk.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "Bestätigung an der Kette",
     "englishSource": "Confirming on chain"
@@ -429,6 +457,14 @@
   "transactionStageConfirmingDescription": {
     "message": "Warten auf Netzwerkbestätigung.",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Anmeldung beim Erziehungsberechtigten",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Registrieren Sie Ihren Kontostatus beim neuen Vormund.",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Lieferung von note",
@@ -1562,6 +1598,46 @@
     "message": "Verschlüsselte Wallet-Datei",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Wächter",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Wächtereinstellungen",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Aktueller Wächter",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Neuer Guardian-Endpunkt",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Wächter wechseln",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Richten Sie Ihr Guardian-Konto auf einen neuen Guardian-Endpunkt. Der Wechsel wird als On-Chain-Vorschlag signiert.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Vormund wechseln...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Guardian hat erfolgreich gewechselt.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Das ist bereits Ihr aktueller Vormund.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "Geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt.",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Geben Sie Ihr Passwort ein, um auf Ihre verschlüsselte Wallet-Datei zuzugreifen.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1827,6 +1903,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Sie können später im Wallet mehrere Kontotypen hinzufügen und verwalten.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Richten Sie die Kontowiederherstellung ein",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Wählen Sie aus, wie Sie Ihr Konto wiederherstellen möchten, wenn Sie den Zugriff verlieren.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Wächter",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Empfohlen. Wächterbasierte Wiederherstellung für Ihr Konto, aber der Wächterbetreiber kann Ihren Status sehen.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Völlig privat",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Nur lokal, niemand außer Ihnen sieht Ihren Status, aber keine Wiederherstellung. Der Verlust Ihres Geräts führt zum dauerhaften Verlust Ihres Geldes.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Öffentlich",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Stellen Sie ein öffentliches On-Chain-Konto wieder her.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Wie möchten Sie diese Brieftasche wiederherstellen?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Import über Guardian",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Beauftragen Sie einen Erziehungsberechtigten mit der Wiederherstellung und Mitunterzeichnung dieses Kontos.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Öffentliches Konto importieren",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "Importieren Sie das von Ihrem seed phrase abgeleitete öffentliche Konto.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "Guardian-URL",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Verwenden Sie einen anderen Vormund",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Wir konnten Ihr Konto bei diesem Guardian nicht finden. Überprüfen Sie die URL oder importieren Sie stattdessen als öffentliches Konto.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "Standard",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "Transaktionsdatei",

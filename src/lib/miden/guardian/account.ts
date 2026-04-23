@@ -1,0 +1,113 @@
+import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
+import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
+
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+
+import { fetchFromStorage } from '../front/storage';
+
+// Re-export the slot names from the package for reading account state
+export const MULTISIG_SLOT_NAMES = {
+  THRESHOLD_CONFIG: 'openzeppelin::multisig::threshold_config',
+  SIGNER_PUBLIC_KEYS: 'openzeppelin::multisig::signer_public_keys',
+  EXECUTED_TRANSACTIONS: 'openzeppelin::multisig::executed_transactions',
+  PROCEDURE_THRESHOLDS: 'openzeppelin::multisig::procedure_thresholds'
+} as const;
+
+/**
+ * Extract signer commitment and public key from a Guardian account's storage.
+ */
+export async function getSignerDetailsFromAccount(
+  account: Account,
+  getPublicKeyForCommitment: (commitment: string) => Promise<string>
+): Promise<{ commitment: string; publicKey: string }> {
+  const mapEntries = account.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
+  if (!mapEntries) {
+    throw new Error('No signer public keys found in account storage');
+  }
+
+  if (!mapEntries[0]) {
+    throw new Error('No signer commitments found in account storage');
+  }
+
+  const commitment = mapEntries[0].value.slice(2);
+  if (!commitment) {
+    throw new Error('Commitment not found in account storage');
+  }
+
+  const publicKey = await getPublicKeyForCommitment(commitment);
+  return { commitment, publicKey };
+}
+
+/**
+ * Create a Guardian (Private State Manager) account using the MultisigClient.
+ *
+ * This creates a 1-of-1 multisig account with Guardian signature verification enabled.
+ * The account is registered with the Guardian backend and the secret key is stored locally.
+ *
+ * @param webClient - The Miden WebClient instance
+ * @param seed - Optional seed for key derivation (random if not provided)
+ * @param skipRegistration - Skip guardian registration (used by the import path)
+ * @param guardianEndpointOverride - Force a specific guardian URL for pubkey derivation.
+ *   Account ID is a content hash that includes the guardian pubkey baked into storage,
+ *   so the import flow passes `DEFAULT_GUARDIAN_ENDPOINT` to reproduce the ID the account
+ *   originally had; the user's custom URL is used by `importAccountFromGuardian` for the
+ *   live state fetch only.
+ * @returns The created Account
+ */
+export async function createGuardianAccount(
+  webClient: MidenClient,
+  seed?: Uint8Array,
+  skipRegistration: boolean = false,
+  guardianEndpointOverride?: string
+): Promise<Account> {
+  if (!seed) {
+    seed = crypto.getRandomValues(new Uint8Array(32));
+  }
+
+  try {
+    // Generate the signer secret key from seed
+    const sk = AuthSecretKey.rpoFalconWithRNG(seed);
+    const signerCommitment = sk.publicKey().toCommitment();
+
+    // Get Guardian endpoint and initialize client
+    const guardianEndpoint =
+      guardianEndpointOverride ??
+      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
+      DEFAULT_GUARDIAN_ENDPOINT;
+    console.log('Using Guardian endpoint:', guardianEndpoint);
+    const client = new MultisigClient(webClient, { guardianEndpoint });
+    const { commitment, pubkey } = await client.guardianClient.getPubkey();
+    // Create the multisig account using the package utility
+    const multisig = await client.create(
+      {
+        threshold: 1,
+        signerCommitments: [signerCommitment.toHex()],
+        guardianCommitment: commitment,
+        guardianPublicKey: pubkey,
+        guardianEnabled: true,
+        storageMode: 'private',
+        signatureScheme: 'falcon',
+        seed
+      },
+      new FalconSigner(sk)
+    );
+
+    if (!skipRegistration) {
+      await multisig.registerOnGuardian();
+    }
+    // Sync state with the node
+    await webClient.sync();
+
+    // Store the secret key in WebStore for signing
+    await webClient.keystore.insert(multisig.account.id(), sk);
+
+    console.log('Guardian account created:', multisig.account.id().toString());
+
+    return multisig.account;
+  } catch (e) {
+    console.log(e);
+    console.error('Error creating Guardian account:', e);
+    throw new Error('Failed to create Guardian account');
+  }
+}

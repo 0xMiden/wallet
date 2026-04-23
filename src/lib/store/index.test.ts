@@ -279,10 +279,11 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.NewWalletResponse });
 
       const { registerWallet } = useWalletStore.getState();
-      await registerWallet('password123', 'mnemonic words', true);
+      await registerWallet(WalletType.Guardian, 'password123', 'mnemonic words', true);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.NewWalletRequest,
+        walletType: WalletType.Guardian,
         password: 'password123',
         mnemonic: 'mnemonic words',
         ownMnemonic: true
@@ -326,6 +327,11 @@ describe('useWalletStore', () => {
   describe('Account actions', () => {
     it('createAccount sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.CreateAccountResponse });
+      // createAccount now pulls fresh state right after the create response lands.
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: { status: WalletStatus.Idle, accounts: [], networks: {}, settings: {}, ownMnemonic: false }
+      });
 
       const { createAccount } = useWalletStore.getState();
       await createAccount(WalletType.OnChain, 'My Account');
@@ -389,6 +395,53 @@ describe('useWalletStore', () => {
       const result = await getAuthSecretKey('key-id');
 
       expect(result).toBe('secret-key-123');
+    });
+
+    it('signWord posts a SignWordRequest and returns the signature string', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SignWordResponse,
+        signature: '0xword-sig'
+      });
+
+      const { signWord } = useWalletStore.getState();
+      const result = await signWord('pub-key', '0xword-hex');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub-key',
+        wordHex: '0xword-hex'
+      });
+      expect(result).toBe('0xword-sig');
+    });
+
+    it('signWord throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { signWord } = useWalletStore.getState();
+      await expect(signWord('pk', 'word')).rejects.toThrow('Invalid response');
+    });
+
+    it('getPublicKeyForCommitment posts a GetPublicKeyForCommitmentRequest and returns the pubkey', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey: 'derived-pub-key'
+      });
+
+      const { getPublicKeyForCommitment } = useWalletStore.getState();
+      const result = await getPublicKeyForCommitment('commit-hash');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+        commitment: 'commit-hash'
+      });
+      expect(result).toBe('derived-pub-key');
+    });
+
+    it('getPublicKeyForCommitment throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { getPublicKeyForCommitment } = useWalletStore.getState();
+      await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
     });
   });
 
@@ -683,7 +736,7 @@ describe('useWalletStore', () => {
   describe('registerWallet / importWalletFromClient / unlock', () => {
     it('registerWallet sends NewWalletRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.NewWalletResponse });
-      await useWalletStore.getState().registerWallet('pw', 'mnemonic-12', false);
+      await useWalletStore.getState().registerWallet(WalletType.Guardian, 'pw', 'mnemonic-12', false);
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({ type: WalletMessageType.NewWalletRequest, password: 'pw' })
       );
@@ -691,7 +744,7 @@ describe('useWalletStore', () => {
 
     it('registerWallet throws on invalid response', async () => {
       mockRequest.mockResolvedValueOnce({ type: 'wrong' });
-      await expect(useWalletStore.getState().registerWallet('pw', 'm', false)).rejects.toThrow();
+      await expect(useWalletStore.getState().registerWallet(WalletType.Guardian, 'pw', 'm', false)).rejects.toThrow();
     });
 
     it('importWalletFromClient sends ImportFromClientRequest', async () => {
@@ -712,6 +765,10 @@ describe('useWalletStore', () => {
   describe('createAccount', () => {
     it('sends CreateAccountRequest with walletType and name', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.CreateAccountResponse });
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: { status: WalletStatus.Idle, accounts: [], networks: {}, settings: {}, ownMnemonic: false }
+      });
       await useWalletStore.getState().createAccount(WalletType.OnChain, 'My Account');
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -180,6 +180,12 @@ export class IosWalletPage implements WalletPage {
     await this.fillInputByPlaceholder('Enter password again', password);
     await this.clickByText('button', /continue/i);
 
+    // Import-recovery-method step: pick "Import public account" so we don't
+    // need a guardian backend.
+    await this.pollForSelector('[data-testid="import-recovery-method"]', 15_000);
+    await this.clickByText('*', /import public account/i);
+    await this.clickByText('button', /continue/i);
+
     await this.pollForCondition(
       `var bd = document.body; return bd && /your wallet is ready/i.test(bd.textContent || '');`,
       120_000

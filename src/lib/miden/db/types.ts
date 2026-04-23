@@ -15,19 +15,31 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-export type ITransactionType = 'send' | 'consume' | 'execute';
+export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian';
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
  * still `Queued` during the initial sync). Drives the modal's per-stage
  * label so users see what the wallet is actually doing during the 3-8s
  * spinner window. Not all stages apply to all tx types:
- *   - syncing    : all types, before `syncState()`
- *   - sending    : all types, during the SDK execute→prove→submit→apply
- *   - confirming : send-private only, during `waitForTransactionCommit`
- *   - delivering : send-private only, during `sendPrivateNote`
+ *   - syncing              : all types, before `syncState()`
+ *   - sending              : non-Guardian types, during the SDK execute→prove→submit→apply
+ *   - creating-proposal    : Guardian only, while building the multisig proposal
+ *   - signing-proposal     : Guardian only, while the guardian signs the proposal
+ *   - submitting           : Guardian only, while the signed tx is submitted to the network
+ *   - confirming           : send-private + switch-guardian, during `waitForTransactionCommit`
+ *   - registering-guardian : switch-guardian only, during post-commit guardian re-registration
+ *   - delivering           : send-private only, during `sendPrivateNote`
  */
-export type ITransactionStage = 'syncing' | 'sending' | 'confirming' | 'delivering';
+export type ITransactionStage =
+  | 'syncing'
+  | 'sending'
+  | 'creating-proposal'
+  | 'signing-proposal'
+  | 'submitting'
+  | 'confirming'
+  | 'registering-guardian'
+  | 'delivering';
 
 export interface ITransaction {
   id: string;
@@ -184,6 +196,33 @@ export class ConsumeTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
+    this.delegateTransaction = delegateTransaction;
+  }
+}
+
+export class SwitchGuardianTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  transactionId?: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: { newGuardianEndpoint: string };
+  delegateTransaction?: boolean | undefined;
+
+  constructor(accountId: string, newGuardianEndpoint: string, delegateTransaction?: boolean) {
+    this.id = uuid();
+    this.type = 'switch-guardian';
+    this.accountId = accountId;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Switching guardian';
+    this.extraInputs = { newGuardianEndpoint };
     this.delegateTransaction = delegateTransaction;
   }
 }

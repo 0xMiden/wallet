@@ -422,6 +422,34 @@
     "message": "Выполнение транзакции",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "Переключение опекуна",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Создание предложения",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Составление предложения по сделке для вашего опекуна.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Подписание с опекуном",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Ваш опекун подписывает предложение.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Отправка транзакции",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Отправка подписанной транзакции в сеть.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "Подтверждение в цепочке",
     "englishSource": "Confirming on chain"
@@ -429,6 +457,14 @@
   "transactionStageConfirmingDescription": {
     "message": "Ожидание подтверждения сети.",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Регистрация у опекуна",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Регистрация состояния вашей учетной записи у нового опекуна.",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Доставка note",
@@ -1563,6 +1599,46 @@
     "message": "Зашифрованный файл кошелька",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Хранитель",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Настройки стража",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Текущий страж",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Новая конечная точка Стража",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Переключить стража",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Направьте свою учетную запись Guardian на новую конечную точку Guardian. Переключатель подписывается как предложение в цепочке.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Смена опекуна...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Guardian успешно переключился.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Это уже ваш нынешний опекун.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "Введите действительный URL-адрес, начинающийся с http:// или https://.",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Введите свой пароль для доступа к вашему зашифрованному файлу кошелька.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1828,6 +1904,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Позже вы сможете добавлять и управлять несколькими типами учетных записей в кошельке.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Настройка восстановления учетной записи",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Выберите, как вы хотите восстановить свою учетную запись, если вы потеряете доступ.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Хранитель",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Рекомендуется. Восстановление вашей учетной записи на основе Guardian, но оператор Guardian может видеть ваше состояние.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Полностью приватный",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Только локально, никто, кроме вас, не видит ваше состояние, но восстановления нет, потеря устройства приведет к безвозвратной потере ваших средств.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Общественный",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Восстановите общедоступную учетную запись в сети.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Как бы вы хотели восстановить этот кошелек?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Импорт через Guardian",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Используйте опекуна для восстановления и совместного подписания этой учетной записи.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Импортировать общедоступный аккаунт",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "Импортируйте общедоступную учетную запись, полученную из вашего seed phrase.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "URL-адрес хранителя",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Используйте другого опекуна",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Нам не удалось найти вашу учетную запись на этом опекуне. Вместо этого проверьте URL-адрес или импортируйте его как общедоступную учетную запись.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "По умолчанию",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "Файл транзакции",

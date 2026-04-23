@@ -52,7 +52,9 @@ export default {
     // Match both the eager default (`@miden-sdk/miden-sdk`) and the lazy
     // subpath (`@miden-sdk/miden-sdk/lazy`) — tests mock them identically.
     '^@miden-sdk/miden-sdk(/lazy)?$': '<rootDir>/__mocks__/wasmMock.js',
-    '^@miden-sdk/react(/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts'
+    '^@miden-sdk/react(/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts',
+    '^@openzeppelin/miden-multisig-client$': '<rootDir>/__mocks__/@openzeppelin/miden-multisig-client.ts',
+    '^@openzeppelin/guardian-client$': '<rootDir>/__mocks__/@openzeppelin/guardian-client.ts'
   },
   testEnvironment: 'jsdom',
   transform: {

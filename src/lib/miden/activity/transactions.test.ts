@@ -605,7 +605,11 @@ describe('transactions utilities', () => {
       } as any;
 
       try {
-        await generateTransaction(transaction, signCallback);
+        await generateTransaction(transaction, signCallback, false, {
+          getAccounts: async () => [],
+          getPublicKeyForCommitment: async () => '',
+          signWord: async () => ''
+        });
       } catch {
         // Expected to fail on TransactionResult.deserialize — that's fine
       }
@@ -734,6 +738,13 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     });
 
     const signCallback = jest.fn(async () => new Uint8Array());
+    // Guardian provider stub — test accounts are non-Guardian, so getAccounts()
+    // returns an empty list and the isGuardianAccount check short-circuits.
+    const guardianProvider = {
+      getAccounts: async () => [],
+      getPublicKeyForCommitment: async () => '',
+      signWord: async () => ''
+    };
 
     // ---- Phase 1: Network up, transaction succeeds ----
     networkUp = true;
@@ -748,7 +759,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       requestBytes: new Uint8Array([1])
     });
 
-    const result1 = await generateTransactionsLoop(signCallback);
+    const result1 = await generateTransactionsLoop(signCallback, false, guardianProvider);
 
     expect(result1).toBe(true);
     const tx1 = txStore.find((t: any) => t.id === 'tx-1');
@@ -771,7 +782,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       requestBytes: new Uint8Array([2])
     });
 
-    const result2 = await generateTransactionsLoop(signCallback);
+    const result2 = await generateTransactionsLoop(signCallback, false, guardianProvider);
 
     // generateTransactionsLoop catches the error and cancels the tx
     expect(result2).toBe(false);
@@ -795,7 +806,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       requestBytes: new Uint8Array([3])
     });
 
-    const result3 = await generateTransactionsLoop(signCallback);
+    const result3 = await generateTransactionsLoop(signCallback, false, guardianProvider);
 
     expect(result3).toBe(true);
     const tx3 = txStore.find((t: any) => t.id === 'tx-3');

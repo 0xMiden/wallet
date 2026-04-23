@@ -374,6 +374,255 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
   });
 
+  describe('miscellaneous branches', () => {
+    it('create() returns a mock-network client when MIDEN_USE_MOCK_CLIENT=true', async () => {
+      const fakeMockClient = buildFakeMidenClient();
+      const createMock = jest.fn(async () => fakeMockClient);
+
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        MidenClient: { create: jest.fn(), createMock },
+        NoteFile: { deserialize: jest.fn(() => ({})) },
+        AccountFile: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionProver: {
+          newRemoteProver: jest.fn(() => 'remote'),
+          newLocalProver: jest.fn(() => 'local')
+        },
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        exportStore: jest.fn(async () => '{}'),
+        importStore: jest.fn()
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc']]),
+        MIDEN_PROVING_ENDPOINTS: new Map(),
+        getNoteTransportUrl: () => undefined,
+        DEFAULT_NETWORK: 'localnet',
+        MIDEN_NETWORK_NAME: { LOCALNET: 'localnet', DEVNET: 'devnet', TESTNET: 'testnet' }
+      }));
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+
+      const prev = process.env.MIDEN_USE_MOCK_CLIENT;
+      process.env.MIDEN_USE_MOCK_CLIENT = 'true';
+      try {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = await MidenClientInterface.create({ seed: new Uint8Array([1, 2, 3]) });
+        expect(client.network).toBe('mock');
+        expect(createMock).toHaveBeenCalledWith({ seed: expect.any(Uint8Array) });
+      } finally {
+        process.env.MIDEN_USE_MOCK_CLIENT = prev;
+      }
+    });
+
+    it('create() omits keystore when no keystore callbacks are provided', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+      const createReal = jest.fn(async () => fakeMidenClient);
+
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        MidenClient: { create: createReal, createMock: jest.fn() },
+        NoteFile: { deserialize: jest.fn(() => ({})) },
+        AccountFile: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionProver: {
+          newRemoteProver: jest.fn(() => 'remote'),
+          newLocalProver: jest.fn(() => 'local')
+        },
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        exportStore: jest.fn(async () => '{}'),
+        importStore: jest.fn()
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc']]),
+        MIDEN_PROVING_ENDPOINTS: new Map(),
+        getNoteTransportUrl: () => undefined,
+        DEFAULT_NETWORK: 'localnet',
+        MIDEN_NETWORK_NAME: { LOCALNET: 'localnet', DEVNET: 'devnet', TESTNET: 'testnet' }
+      }));
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      await MidenClientInterface.create({}); // no callbacks → hasKeystore=false → keystore: undefined
+
+      expect(createReal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keystore: undefined
+        })
+      );
+    });
+
+    it('createMidenWallet routes a Guardian wallet type to createGuardianAccount', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+      const createGuardianAccount = jest.fn(async () => ({
+        id: () => ({ toString: () => 'guardian-id' })
+      }));
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
+      }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('../guardian/account', () => ({
+        createGuardianAccount,
+        getSignerDetailsFromAccount: jest.fn()
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.createMidenWallet('guardian' as any, new Uint8Array([9]));
+
+      expect(createGuardianAccount).toHaveBeenCalledWith(fakeMidenClient, expect.any(Uint8Array));
+      expect(result).toBe('guardian-id');
+    });
+
+    it('getInputNote delegates to client.notes.get and returns its result', async () => {
+      const fakeMidenClient = buildFakeMidenClient({
+        notes: { get: jest.fn(async () => 'fetched-note') }
+      });
+
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(client.getInputNote('note-xyz')).resolves.toBe('fetched-note' as never);
+      expect(fakeMidenClient.notes.get).toHaveBeenCalledWith('note-xyz');
+    });
+  });
+
+  describe('importAccountBySeed', () => {
+    it('falls through to importPublicMidenWalletFromSeed for non-Guardian accounts', async () => {
+      const fakeMidenClient = buildFakeMidenClient({
+        accounts: {
+          import: jest.fn(async () => ({ id: () => 'public-acc-id' }))
+        }
+      });
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.importAccountBySeed(
+        'on-chain' as any,
+        new Uint8Array([1, 2, 3]),
+        jest.fn(async () => '0xsig'),
+        jest.fn(async () => 'pk')
+      );
+
+      expect(result).toBe('public-acc-id');
+      expect(fakeMidenClient.accounts.import).toHaveBeenCalledWith({ seed: expect.any(Uint8Array) });
+    });
+
+    it('Guardian path: creates the account locally and re-hydrates state from the guardian', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+      const createGuardianAccount = jest.fn(async () => ({
+        id: () => ({ toString: () => 'guardian-acc-id' })
+      }));
+      const getSignerDetailsFromAccount = jest.fn(async () => ({ commitment: 'abc', publicKey: 'def' }));
+      const importAccountFromGuardian = jest.fn(async () => {});
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
+      }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('../guardian/account', () => ({
+        createGuardianAccount,
+        getSignerDetailsFromAccount
+      }));
+      jest.doMock('../guardian/index', () => ({
+        MultisigService: { importAccountFromGuardian }
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const signWordFn = jest.fn(async () => '0xsig');
+      const getPublicKeyForCommitment = jest.fn(async () => 'pk');
+      const result = await client.importAccountBySeed(
+        'guardian' as any,
+        new Uint8Array([1, 2, 3, 4]),
+        signWordFn,
+        getPublicKeyForCommitment
+      );
+
+      expect(createGuardianAccount).toHaveBeenCalledWith(
+        fakeMidenClient,
+        expect.any(Uint8Array),
+        true,
+        'https://default.guardian.test'
+      );
+      expect(getSignerDetailsFromAccount).toHaveBeenCalled();
+      expect(importAccountFromGuardian).toHaveBeenCalledWith(
+        '0xdef',
+        '0xabc',
+        signWordFn,
+        'guardian-acc-id',
+        fakeMidenClient
+      );
+      expect(result).toBe('guardian-acc-id');
+    });
+
+    it('Guardian path: wraps underlying errors in a "Failed to import Guardian account from seed" message', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('../guardian/account', () => ({
+        createGuardianAccount: jest.fn(async () => {
+          throw new Error('guardian down');
+        }),
+        getSignerDetailsFromAccount: jest.fn()
+      }));
+      jest.doMock('../guardian/index', () => ({
+        MultisigService: { importAccountFromGuardian: jest.fn() }
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.importAccountBySeed(
+          'guardian' as any,
+          new Uint8Array([1]),
+          jest.fn(async () => '0xsig'),
+          jest.fn(async () => 'pk')
+        )
+      ).rejects.toThrow('Failed to import Guardian account from seed');
+    });
+  });
+
   describe('withProverFallback connectivity-issue classification', () => {
     // Build a client that fails the first (delegate) call with a provided error and
     // succeeds the second (local-prover) call. Returns the addConnectivityIssue spy so
@@ -413,6 +662,35 @@ describe('MidenClientInterface', () => {
       const { addConnectivityIssue } = await runDelegateFailureCase(
         new Error('failed to execute transaction: invalid transaction request: note 0xdead has already been consumed')
       );
+      expect(addConnectivityIssue).not.toHaveBeenCalled();
+    });
+
+    it('rethrows immediately without local-prover retry when delegateTransaction=false', async () => {
+      // shouldDelegate=false → the local-prover-fallback branch is skipped and
+      // the error bubbles straight through the `throw err` line.
+      const addConnectivityIssue = jest.fn();
+      const consume = jest.fn().mockRejectedValueOnce(new Error('prover unreachable'));
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: false
+        } as any)
+      ).rejects.toThrow('prover unreachable');
+
+      // Called once (no local-prover retry) and banner untouched.
+      expect(consume).toHaveBeenCalledTimes(1);
       expect(addConnectivityIssue).not.toHaveBeenCalled();
     });
 

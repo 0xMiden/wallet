@@ -406,6 +406,34 @@
     "message": "Ejecutando transacción",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "Cambio de guardián",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Creando propuesta",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Construyendo la propuesta de transacción para su tutor.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Firma con tutor",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Su tutor firma la propuesta.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Presentando transacción",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Envío de su transacción firmada a la red.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "Confirmando en cadena",
     "englishSource": "Confirming on chain"
@@ -413,6 +441,14 @@
   "transactionStageConfirmingDescription": {
     "message": "Esperando confirmación de red.",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Registrarse con tutor",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Registrar el estado de su cuenta con el nuevo tutor.",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Entregando note",
@@ -1504,6 +1540,46 @@
     "message": "Archivo de billetera cifrado",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Guardián",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Configuración del guardián",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Tutor actual",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Nuevo punto final de Guardian",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Cambiar guardián",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Apunte su cuenta de Guardian a un nuevo punto final de Guardian. El cambio está firmado como una propuesta en cadena.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Cambiando de guardián...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Guardian cambió con éxito.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Ese ya es tu tutor actual.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "Introduzca una URL válida que comience con http:// o https://",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Ingrese su contraseña para acceder a su archivo de billetera cifrado.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1764,6 +1840,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Puede agregar y administrar varios tipos de cuentas más adelante dentro de la billetera.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Configurar la recuperación de la cuenta",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Elija cómo desea recuperar su cuenta si pierde el acceso.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Guardián",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Recomendado. Recuperación basada en Guardian para su cuenta, pero el operador Gaurdian puede ver su estado.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Totalmente privado",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Solo local, nadie ve su estado excepto usted, pero no hay recuperación; perder su dispositivo resultará en la pérdida permanente de sus fondos.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Público",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Recuperar una cuenta pública en cadena.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "¿Cómo le gustaría recuperar esta billetera?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Importar a través de Guardian",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Utilice un tutor para recuperar y firmar conjuntamente esta cuenta.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Importar cuenta pública",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "Importe la cuenta pública derivada de su seed phrase.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "URL del guardián",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Utilice un tutor diferente",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "No pudimos encontrar su cuenta en este guardián. En su lugar, verifique la URL o importe como una cuenta pública.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "Por defecto",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "archivo de transacción",

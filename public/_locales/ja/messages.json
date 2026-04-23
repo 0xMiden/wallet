@@ -422,6 +422,34 @@
     "message": "トランザクションの実行中",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "ガーディアンの切り替え",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "提案書の作成",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "保護者向けの取引提案書を作成します。",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "保護者とのサイン",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "あなたの保護者が提案書に署名しています。",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "トランザクションの送信",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "署名されたトランザクションをネットワークに送信します。",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "チェーンで確認中",
     "englishSource": "Confirming on chain"
@@ -429,6 +457,14 @@
   "transactionStageConfirmingDescription": {
     "message": "ネットワークの確認を待っています。",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "保護者への登録",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "新しい保護者にアカウントの状態を登録します。",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "note を配信中",
@@ -1562,6 +1598,46 @@
     "message": "暗号化されたウォレットファイル",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "ガーディアン",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "ガーディアンの設定",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "現在のガーディアン",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "新しいガーディアン エンドポイント",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "スイッチガーディアン",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Guardian アカウントを新しいガーディアン エンドポイントに向けます。スイッチはオンチェーン プロポーザルとして署名されます。",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "守護者を切り替えます...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "ガーディアンが正常に切り替わりました。",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "それはすでにあなたの現在の保護者です。",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "http:// または https:// で始まる有効な URL を入力してください",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "パスワードを入力して、暗号化されたウォレット ファイルにアクセスします。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1827,6 +1903,74 @@
   "canAddMultipleAccountsLater": {
     "message": "後からウォレット内で複数のアカウント タイプを追加および管理できます。",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "アカウント回復のセットアップ",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "アクセスできなくなった場合にアカウントを回復する方法を選択します。",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "ガーディアン",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "推奨。アカウントは Guardian ベースで回復されますが、Guurdian オペレーターはお客様の状態を確認できます。",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "完全プライベート",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "ローカルのみ、あなた以外の誰もあなたの状態を見ることはできませんが、回復はできません。デバイスを失うと資金が永久に失われます。",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "公共",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "公開オンチェーン アカウントを回復します。",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "このウォレットをどのように復元しますか?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Guardian 経由でインポートする",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "保護者を使用してこのアカウントを回復し、共同署名してください。",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "パブリックアカウントをインポートする",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "seed phrase から派生した公開アカウントをインポートします。",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "ガーディアンのURL",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "別のガーディアンを使用する",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "このガーディアンであなたのアカウントが見つかりませんでした。 URL を確認するか、代わりにパブリック アカウントとしてインポートしてください。",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "デフォルト",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "トランザクションファイル",
