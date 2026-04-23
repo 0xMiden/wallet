@@ -15,6 +15,7 @@ const DEVICE_TYPE_B = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro';
 
 const BOOT_TIMEOUT_MS = 60_000;
 const BOOT_POLL_MS = 1_000;
+const BOOTSTATUS_TIMEOUT_MS = 180_000;
 
 interface DevicePair {
   udidA: string;
@@ -69,24 +70,34 @@ export class SimulatorControl {
    * occasionally races with itself if multiple boots are issued quickly).
    */
   async ensureBooted(udid: string): Promise<void> {
-    if (await this.isBooted(udid)) return;
-
-    try {
-      await execSimctl(['boot', udid]);
-    } catch (err) {
-      if (!isAlreadyBootedError(err)) {
-        // Wait briefly and retry once
-        await sleep(2_000);
+    if (!(await this.isBooted(udid))) {
+      try {
         await execSimctl(['boot', udid]);
+      } catch (err) {
+        if (!isAlreadyBootedError(err)) {
+          // Wait briefly and retry once
+          await sleep(2_000);
+          await execSimctl(['boot', udid]);
+        }
+      }
+
+      const start = Date.now();
+      while (Date.now() - start < BOOT_TIMEOUT_MS) {
+        if (await this.isBooted(udid)) break;
+        await sleep(BOOT_POLL_MS);
+      }
+      if (!(await this.isBooted(udid))) {
+        throw new Error(`Simulator ${udid} did not reach Booted state within ${BOOT_TIMEOUT_MS}ms`);
       }
     }
 
-    const start = Date.now();
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
-      if (await this.isBooted(udid)) return;
-      await sleep(BOOT_POLL_MS);
-    }
-    throw new Error(`Simulator ${udid} did not reach Booted state within ${BOOT_TIMEOUT_MS}ms`);
+    // `Booted` from simctl does NOT mean SpringBoard is ready. `simctl launch`
+    // hangs on fresh boots if we skip this — CI runs with cold simulators
+    // observed multi-minute hangs inside simctl launch. bootstatus -b blocks
+    // until the device is actually usable.
+    await execFileAsync('xcrun', ['simctl', 'bootstatus', udid, '-b'], {
+      timeout: BOOTSTATUS_TIMEOUT_MS,
+    });
   }
 
   async install(udid: string, appPath: string): Promise<void> {
