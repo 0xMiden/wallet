@@ -72,26 +72,52 @@ async function launchSimWalletInstance(
   timeline: TimelineRecorder,
   label: 'A' | 'B'
 ): Promise<SimWalletInstance> {
+  const phaseStart = (): number => Date.now();
+  const ms = (s: number): number => Date.now() - s;
+
+  const tTerminate = phaseStart();
   await sim.terminate(udid, BUNDLE_ID);
+  const terminateMs = ms(tTerminate);
+
+  const tUninstall = phaseStart();
   await sim.uninstall(udid, BUNDLE_ID);
+  const uninstallMs = ms(tUninstall);
+
+  const tInstall = phaseStart();
   await sim.install(udid, APP_PATH);
+  const installMs = ms(tInstall);
+
+  const tLaunch = phaseStart();
   await sim.launch(udid, BUNDLE_ID, {
     MIDEN_E2E_TEST: 'true',
     MIDEN_NETWORK: envConfig.name,
   });
+  const launchMs = ms(tLaunch);
 
+  const tSleep = phaseStart();
   // The WebView needs a couple seconds to register with webinspectord_sim.
   await sleep(3_000);
+  const sleepMs = ms(tSleep);
 
+  const tCdp = phaseStart();
   const cdp = await CdpBridge.connect({ udid, bundleId: BUNDLE_ID });
+  const cdpConnectMs = ms(tCdp);
+
   const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });
 
   timeline.emit({
     category: 'test_lifecycle',
     severity: 'info',
     wallet: label,
-    message: `Wallet ${label} launched on udid ${udid}`,
-    data: { udid, bundleId: BUNDLE_ID },
+    message:
+      `Wallet ${label} launched on udid ${udid} ` +
+      `(terminate=${terminateMs}ms uninstall=${uninstallMs}ms install=${installMs}ms ` +
+      `launch=${launchMs}ms sleep=${sleepMs}ms cdp=${cdpConnectMs}ms)`,
+    data: {
+      udid,
+      bundleId: BUNDLE_ID,
+      fixturePhases: { terminateMs, uninstallMs, installMs, launchMs, sleepMs, cdpConnectMs },
+    },
   });
 
   return { walletPage, cdp, udid, bundleId: BUNDLE_ID };
@@ -203,6 +229,21 @@ export const test = base.extend<TwoSimulatorFixtures>({
 
     await use(instance.walletPage);
 
+    const stats = instance.walletPage.getStats();
+    timeline.emit({
+      category: 'test_lifecycle',
+      severity: 'info',
+      wallet: 'A',
+      message:
+        `Wallet A stats: ` +
+        `eval=${stats.cdp.evalCount}×${Math.round(stats.cdp.evalMs)}ms ` +
+        `async=${stats.cdp.evalAsyncCount}×${Math.round(stats.cdp.evalAsyncMs)}ms ` +
+        `evaluate=${stats.cdp.evaluateCount}×${Math.round(stats.cdp.evaluateMs)}ms ` +
+        `polls=${stats.polls.pollCount} iters=${stats.polls.pollIterations} ` +
+        `pollWall=${Math.round(stats.polls.pollMs)}ms pollSleep=${stats.polls.pollSleepMs}ms`,
+      data: stats,
+    });
+
     try {
       await instance.cdp.close();
     } catch {
@@ -222,6 +263,21 @@ export const test = base.extend<TwoSimulatorFixtures>({
     steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instance.walletPage, ''));
 
     await use(instance.walletPage);
+
+    const statsB = instance.walletPage.getStats();
+    timeline.emit({
+      category: 'test_lifecycle',
+      severity: 'info',
+      wallet: 'B',
+      message:
+        `Wallet B stats: ` +
+        `eval=${statsB.cdp.evalCount}×${Math.round(statsB.cdp.evalMs)}ms ` +
+        `async=${statsB.cdp.evalAsyncCount}×${Math.round(statsB.cdp.evalAsyncMs)}ms ` +
+        `evaluate=${statsB.cdp.evaluateCount}×${Math.round(statsB.cdp.evaluateMs)}ms ` +
+        `polls=${statsB.polls.pollCount} iters=${statsB.polls.pollIterations} ` +
+        `pollWall=${Math.round(statsB.polls.pollMs)}ms pollSleep=${statsB.polls.pollSleepMs}ms`,
+      data: statsB,
+    });
 
     if (testInfo.status !== 'passed' && testInfo.error) {
       try {

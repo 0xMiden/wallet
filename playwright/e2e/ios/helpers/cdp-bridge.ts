@@ -33,10 +33,32 @@ export interface CdpConsoleEntry {
  * RemoteDebugger so the rest of the harness only sees a CDP-like surface
  * (eval, evaluate, console).
  */
+export interface CdpStats {
+  evalCount: number;
+  evalMs: number;
+  evalAsyncCount: number;
+  evalAsyncMs: number;
+  evaluateCount: number;
+  evaluateMs: number;
+}
+
 export class CdpSession {
   private consoleListeners: Array<(entry: CdpConsoleEntry) => void> = [];
+  private stats: CdpStats = {
+    evalCount: 0,
+    evalMs: 0,
+    evalAsyncCount: 0,
+    evalAsyncMs: 0,
+    evaluateCount: 0,
+    evaluateMs: 0,
+  };
 
   constructor(private rd: RemoteDebugger) {}
+
+  /** Read the current call stats snapshot. */
+  getStats(): CdpStats {
+    return { ...this.stats };
+  }
 
   /**
    * Evaluate synchronous JavaScript and return the result. The body is the
@@ -48,10 +70,16 @@ export class CdpSession {
    * Promise object itself, not its value.
    */
   async eval<T = unknown>(body: string): Promise<T> {
-    return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-      body,
-      [],
-    ])) as T;
+    const start = Date.now();
+    try {
+      return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
+        body,
+        [],
+      ])) as T;
+    } finally {
+      this.stats.evalCount++;
+      this.stats.evalMs += Date.now() - start;
+    }
   }
 
   /**
@@ -76,10 +104,13 @@ export class CdpSession {
         timeoutMs
       );
     });
+    const start = Date.now();
     try {
       return (await Promise.race([exec, timeout])) as T;
     } finally {
       if (timer) clearTimeout(timer);
+      this.stats.evalAsyncCount++;
+      this.stats.evalAsyncMs += Date.now() - start;
     }
   }
 
@@ -94,10 +125,16 @@ export class CdpSession {
    */
   async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {
     const body = `return (${fn.toString()})();`;
-    return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-      body,
-      [],
-    ])) as T;
+    const start = Date.now();
+    try {
+      return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
+        body,
+        [],
+      ])) as T;
+    } finally {
+      this.stats.evaluateCount++;
+      this.stats.evaluateMs += Date.now() - start;
+    }
   }
 
   /**
