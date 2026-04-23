@@ -254,6 +254,28 @@ jobs:
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
 
+      # Pays the cold-start cost (WebKit JIT, WASM compile, first install
+      # bundle validation) outside the 15-min per-test Playwright timeout.
+      # Without this, the first spec eats ~8 min of warmup overhead that
+      # subsequent specs don't see. Terminates + uninstalls afterwards so
+      # the fixture starts from the same clean state it always has.
+      - name: Warm up simulators
+        shell: bash
+        run: |
+          UDID_A=$(node -p "require('./test-results-ios/.device-pair.json').udidA")
+          UDID_B=$(node -p "require('./test-results-ios/.device-pair.json').udidB")
+          APP_PATH=ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          for UDID in "$UDID_A" "$UDID_B"; do
+            echo "--- Warming sim $UDID ---"
+            xcrun simctl boot "$UDID" 2>/dev/null || true
+            xcrun simctl install "$UDID" "$APP_PATH"
+            xcrun simctl launch "$UDID" com.miden.wallet || true
+            sleep 20
+            xcrun simctl terminate "$UDID" com.miden.wallet 2>/dev/null || true
+            xcrun simctl uninstall "$UDID" com.miden.wallet 2>/dev/null || true
+          done
+          echo "Warmup complete."
+
       - name: Run blockchain E2E (mobile, devnet)
         # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
         # runners. Each fixture retries install → launch → CDP connect from
@@ -335,6 +357,28 @@ jobs:
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
+
+      # Pays the cold-start cost (WebKit JIT, WASM compile, first install
+      # bundle validation) outside the 15-min per-test Playwright timeout.
+      # Without this, the first spec eats ~8 min of warmup overhead that
+      # subsequent specs don't see. Terminates + uninstalls afterwards so
+      # the fixture starts from the same clean state it always has.
+      - name: Warm up simulators
+        shell: bash
+        run: |
+          UDID_A=$(node -p "require('./test-results-ios/.device-pair.json').udidA")
+          UDID_B=$(node -p "require('./test-results-ios/.device-pair.json').udidB")
+          APP_PATH=ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          for UDID in "$UDID_A" "$UDID_B"; do
+            echo "--- Warming sim $UDID ---"
+            xcrun simctl boot "$UDID" 2>/dev/null || true
+            xcrun simctl install "$UDID" "$APP_PATH"
+            xcrun simctl launch "$UDID" com.miden.wallet || true
+            sleep 20
+            xcrun simctl terminate "$UDID" com.miden.wallet 2>/dev/null || true
+            xcrun simctl uninstall "$UDID" com.miden.wallet 2>/dev/null || true
+          done
+          echo "Warmup complete."
 
       - name: Run blockchain E2E (mobile, testnet)
         # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
