@@ -43,6 +43,18 @@ type TwoSimulatorFixtures = {
   timeline: TimelineRecorder;
   steps: TestStepRunner;
   envConfig: EnvironmentConfig;
+  /**
+   * Internal fixture that brings up BOTH simulators in parallel. Exposed as
+   * a dependency for `walletA` and `walletB` so Playwright only runs the
+   * expensive launchSimWalletInstance work once per test (in parallel) and
+   * tears both down together. Tests should never reference this directly.
+   */
+  _simPair: {
+    instanceA: SimWalletInstance;
+    instanceB: SimWalletInstance;
+    simA: SimulatorControl;
+    simB: SimulatorControl;
+  };
 };
 
 interface SimWalletInstance {
@@ -65,6 +77,13 @@ function getRunOutputDir(testId: string): string {
  * install wipes the IndexedDB / Preferences sandbox without touching boot
  * state (~5s instead of the ~30s `simctl erase` would cost).
  */
+// Tracks which UDIDs have already had the app installed in this worker.
+// First-test fixture does a full install+launch; subsequent tests wipe the
+// sandbox instead — same per-test isolation guarantees (fresh IndexedDB,
+// localStorage, Preferences, WebKit caches) without paying ~5–15s for
+// simctl uninstall + install.
+const installedUdids = new Set<string>();
+
 async function launchSimWalletInstance(
   sim: SimulatorControl,
   udid: string,
@@ -79,13 +98,24 @@ async function launchSimWalletInstance(
   await sim.terminate(udid, BUNDLE_ID);
   const terminateMs = ms(tTerminate);
 
-  const tUninstall = phaseStart();
-  await sim.uninstall(udid, BUNDLE_ID);
-  const uninstallMs = ms(tUninstall);
+  const firstInstall = !installedUdids.has(udid);
+  let uninstallMs = 0;
+  let installMs = 0;
+  let wipeMs = 0;
+  if (firstInstall) {
+    const tUninstall = phaseStart();
+    await sim.uninstall(udid, BUNDLE_ID);
+    uninstallMs = ms(tUninstall);
 
-  const tInstall = phaseStart();
-  await sim.install(udid, APP_PATH);
-  const installMs = ms(tInstall);
+    const tInstall = phaseStart();
+    await sim.install(udid, APP_PATH);
+    installMs = ms(tInstall);
+    installedUdids.add(udid);
+  } else {
+    const tWipe = phaseStart();
+    await sim.wipeAppState(udid, BUNDLE_ID);
+    wipeMs = ms(tWipe);
+  }
 
   const tLaunch = phaseStart();
   await sim.launch(udid, BUNDLE_ID, {
@@ -111,12 +141,21 @@ async function launchSimWalletInstance(
     wallet: label,
     message:
       `Wallet ${label} launched on udid ${udid} ` +
-      `(terminate=${terminateMs}ms uninstall=${uninstallMs}ms install=${installMs}ms ` +
+      `(terminate=${terminateMs}ms ${firstInstall ? `uninstall=${uninstallMs}ms install=${installMs}ms` : `wipe=${wipeMs}ms`} ` +
       `launch=${launchMs}ms sleep=${sleepMs}ms cdp=${cdpConnectMs}ms)`,
     data: {
       udid,
       bundleId: BUNDLE_ID,
-      fixturePhases: { terminateMs, uninstallMs, installMs, launchMs, sleepMs, cdpConnectMs },
+      fixturePhases: {
+        terminateMs,
+        uninstallMs,
+        installMs,
+        wipeMs,
+        launchMs,
+        sleepMs,
+        cdpConnectMs,
+        firstInstall,
+      },
     },
   });
 
@@ -221,12 +260,36 @@ export const test = base.extend<TwoSimulatorFixtures>({
     await cli.cleanup();
   },
 
-  walletA: async ({ envConfig, timeline, steps }, use) => {
-    const { udidA } = await devicePair();
-    const sim = new SimulatorControl();
-    const instance = await launchSimWalletInstance(sim, udidA, envConfig, timeline, 'A');
-    steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instance.walletPage, ''));
+  _simPair: async ({ envConfig, timeline, steps }, use) => {
+    const { udidA, udidB } = await devicePair();
+    const simA = new SimulatorControl();
+    const simB = new SimulatorControl();
 
+    // Setup both wallets in parallel — biggest fixture-time saving (A was
+    // ~400s + B was ~185s sequentially on the first test; in parallel the
+    // max dominates).
+    const [instanceA, instanceB] = await Promise.all([
+      launchSimWalletInstance(simA, udidA, envConfig, timeline, 'A'),
+      launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B'),
+    ]);
+    steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));
+    steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instanceB.walletPage, ''));
+
+    await use({ instanceA, instanceB, simA, simB });
+
+    // Parallel teardown too. allSettled so one failure doesn't starve the other.
+    await Promise.allSettled([
+      instanceA.cdp.close().catch(() => undefined),
+      instanceB.cdp.close().catch(() => undefined),
+    ]);
+    await Promise.allSettled([
+      simA.terminate(udidA, BUNDLE_ID).catch(() => undefined),
+      simB.terminate(udidB, BUNDLE_ID).catch(() => undefined),
+    ]);
+  },
+
+  walletA: async ({ _simPair, timeline }, use) => {
+    const instance = _simPair.instanceA;
     await use(instance.walletPage);
 
     const stats = instance.walletPage.getStats();
@@ -243,25 +306,10 @@ export const test = base.extend<TwoSimulatorFixtures>({
         `pollWall=${Math.round(stats.polls.pollMs)}ms pollSleep=${stats.polls.pollSleepMs}ms`,
       data: stats,
     });
-
-    try {
-      await instance.cdp.close();
-    } catch {
-      // ignore
-    }
-    try {
-      await sim.terminate(udidA, BUNDLE_ID);
-    } catch {
-      // ignore
-    }
   },
 
-  walletB: async ({ envConfig, timeline, steps, walletA: _walletA, midenCli: _midenCli }, use, testInfo) => {
-    const { udidB } = await devicePair();
-    const sim = new SimulatorControl();
-    const instance = await launchSimWalletInstance(sim, udidB, envConfig, timeline, 'B');
-    steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instance.walletPage, ''));
-
+  walletB: async ({ _simPair, timeline, steps, midenCli: _midenCli }, use, testInfo) => {
+    const instance = _simPair.instanceB;
     await use(instance.walletPage);
 
     const statsB = instance.walletPage.getStats();
@@ -313,17 +361,6 @@ export const test = base.extend<TwoSimulatorFixtures>({
       } catch {
         // Don't let report generation fail the test teardown
       }
-    }
-
-    try {
-      await instance.cdp.close();
-    } catch {
-      // ignore
-    }
-    try {
-      await sim.terminate(udidB, BUNDLE_ID);
-    } catch {
-      // ignore
     }
   },
 });

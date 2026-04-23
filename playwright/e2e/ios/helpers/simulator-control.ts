@@ -125,6 +125,41 @@ export class SimulatorControl {
     await execSimctl(['uninstall', udid, bundleId]);
   }
 
+  /**
+   * Wipe the app's data sandbox (IndexedDB, localStorage, Preferences,
+   * WebKit caches) without reinstalling the binary. ~5–10× faster than
+   * uninstall + install on warm sims. Caller MUST terminate the app first
+   * — wiping a running app leaves partial state.
+   */
+  async wipeAppState(udid: string, bundleId: string): Promise<void> {
+    let dataContainer: string;
+    try {
+      const { stdout } = await execFileAsync('xcrun', [
+        'simctl',
+        'get_app_container',
+        udid,
+        bundleId,
+        'data',
+      ]);
+      dataContainer = stdout.trim();
+    } catch {
+      // App isn't installed — nothing to wipe.
+      return;
+    }
+    if (!dataContainer || !fs.existsSync(dataContainer)) return;
+
+    for (const sub of ['Library', 'Documents', 'tmp']) {
+      const p = path.join(dataContainer, sub);
+      if (fs.existsSync(p)) {
+        try {
+          fs.rmSync(p, { recursive: true, force: true });
+        } catch {
+          // best-effort; partial wipe is still better than a 10s reinstall
+        }
+      }
+    }
+  }
+
   async launch(udid: string, bundleId: string, env: Record<string, string> = {}): Promise<void> {
     // env vars are passed via SIMCTL_CHILD_<NAME> in the parent environment
     const childEnv: NodeJS.ProcessEnv = { ...process.env };
