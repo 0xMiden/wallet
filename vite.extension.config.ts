@@ -102,23 +102,15 @@ function copyPublicAssets(outDir: string): Plugin {
       // the app launcher. The source manifest stays canonical.
       if (MIDEN_NETWORK === 'devnet') {
         const swap = (path: string) =>
-          path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) =>
-            `logo-devnet${suffix ?? ''}.png`
-          );
+          path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) => `logo-devnet${suffix ?? ''}.png`);
         const swapIconDict = (dict: Record<string, string> | undefined) =>
-          dict
-            ? Object.fromEntries(
-                Object.entries(dict).map(([k, v]) => [k, swap(String(v))])
-              )
-            : dict;
+          dict ? Object.fromEntries(Object.entries(dict).map(([k, v]) => [k, swap(String(v))])) : dict;
         if (transformed.icons) transformed.icons = swapIconDict(transformed.icons);
         if (transformed.action?.default_icon) {
           transformed.action.default_icon = swapIconDict(transformed.action.default_icon);
         }
         if (transformed.browser_action?.default_icon) {
-          transformed.browser_action.default_icon = swapIconDict(
-            transformed.browser_action.default_icon
-          );
+          transformed.browser_action.default_icon = swapIconDict(transformed.browser_action.default_icon);
         }
         if (typeof transformed.name === 'string' && !transformed.name.includes('Devnet')) {
           transformed.name = `${transformed.name} (Devnet)`;
@@ -222,6 +214,7 @@ const sharedDefine = {
   'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
   'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
+  'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
@@ -325,18 +318,16 @@ export default defineConfig({
         fullpage: resolve(__dirname, 'fullpage.html'),
         confirm: resolve(__dirname, 'confirm.html'),
         options: resolve(__dirname, 'options.html'),
-        sidepanel: resolve(__dirname, 'sidepanel.html'),
-        // Content scripts (need to be standalone JS files)
-        contentScript: resolve(__dirname, 'src/contentScript.ts'),
-        addToWindow: resolve(__dirname, 'src/addToWindow.ts')
+        sidepanel: resolve(__dirname, 'sidepanel.html')
         // NOTE: background is built separately via vite.background.config.ts
-        // because it needs inlineDynamicImports (import() is banned in SWs)
+        // because it needs inlineDynamicImports (import() is banned in SWs).
+        // Content scripts (contentScript, addToWindow) are built separately
+        // via vite.contentScripts.config.ts because Chrome MV3 content scripts
+        // run as classic scripts and cannot use ES-module `import` statements.
       },
       output: {
         entryFileNames: chunkInfo => {
-          // Content scripts and background need fixed names
-          if (chunkInfo.name === 'contentScript') return 'contentScript.js';
-          if (chunkInfo.name === 'addToWindow') return 'addToWindow.js';
+          // background is emitted here by its own config; keep the fixed name
           if (chunkInfo.name === 'background') return 'background.js';
           return '[name].js';
         },
@@ -373,8 +364,8 @@ export default defineConfig({
       // Node module polyfills for browser context
       buffer: 'buffer',
       stream: 'stream-browserify',
-      assert: 'assert',
-    },
+      assert: 'assert'
+    }
   },
 
   define: {

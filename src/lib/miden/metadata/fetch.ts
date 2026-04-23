@@ -1,8 +1,8 @@
 import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
 import { DEFAULT_TOKEN_METADATA, getAssetUrl, MIDEN_METADATA } from './defaults';
 import { AssetMetadata, DetailedAssetMetdata } from './types';

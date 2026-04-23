@@ -1902,6 +1902,10 @@
     "message": "Ver no Explorer",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Ver no Midenscan",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "Em andamento",
     "englishSource": "In Progress"

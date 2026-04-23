@@ -234,6 +234,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     }
     try {
       clearErrors('root');
+      // Drop any hash from a previous completed tx before starting a fresh one,
+      // so the completion modal can't briefly flash a stale "View on Midenscan"
+      // button pointing at the previous hash.
+      useWalletStore.getState().setLastCompletedTxHash(null);
 
       // Step 1: Create the transaction (same as Receive's initiateConsumeTransaction)
       const txId = await initiateSendTransaction(
@@ -260,6 +264,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       if ('errorMessage' in result) {
         setError('root', { type: 'manual', message: result.errorMessage });
       } else {
+        // Stash the on-chain tx hash so the completion modal can render a
+        // "View on Midenscan" button. Set before navigation so the modal
+        // transitions to its complete state with the hash already present.
+        useWalletStore.getState().setLastCompletedTxHash(result.txHash);
         // Success - navigate to home on mobile, or completion screen on desktop
         if (isMobile()) {
           navigate('/');

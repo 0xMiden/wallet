@@ -467,6 +467,7 @@
   "noteId": "Note ID",
   "downloadGeneratedFile": "Download Generated File",
   "viewOnExplorer": "View on Explorer",
+  "viewOnMidenscan": "View on Midenscan",
   "inProgress": "In Progress",
   "you": "You",
   "invalidPayload": "(invalid payload)",

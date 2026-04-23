@@ -25,7 +25,12 @@ export interface WalletPage {
   getBalance(tokenSymbol?: string): Promise<number>;
   triggerSync(): Promise<void>;
   claimAllNotes(timeoutMs?: number): Promise<void>;
-  sendTokens(params: { recipientAddress: string; amount: string; isPrivate: boolean; tokenSymbol?: string }): Promise<void>;
+  sendTokens(params: {
+    recipientAddress: string;
+    amount: string;
+    isPrivate: boolean;
+    tokenSymbol?: string;
+  }): Promise<void>;
   waitForBalanceAbove(
     minBalance: number,
     timeoutMs: number,
@@ -45,6 +50,24 @@ export interface ChromeWalletPageApi extends WalletPage {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
+  quickBalanceSnapshot(): Promise<{
+    balance: number;
+    pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
+    pendingSum: number;
+    totalReportable: number;
+    pendingTxCount: number;
+    latestTxId?: string;
+    error?: string;
+  }>;
+  /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
+  dumpChromeStorage(): Promise<Record<string, unknown>>;
+  /**
+   * Full IndexedDB dump (all databases × all object stores). Returns a JSON
+   * string with binary/BigInt wrappers. This is where the Miden SDK keeps
+   * per-tx commit status — the ground truth for "did this tx land?".
+   */
+  dumpIndexedDB(): Promise<string>;
 }
 
 /**
@@ -142,7 +165,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const firstWord = seedWords[0];
     const lastWord = seedWords[seedWords.length - 1];
     if (!firstWord || !lastWord || seedWords.length < 12) {
-      throw new Error(`Failed to read seed words from backup screen. Got ${seedWords.length} words: ${seedWords.join(', ')}`);
+      throw new Error(
+        `Failed to read seed words from backup screen. Got ${seedWords.length} words: ${seedWords.join(', ')}`
+      );
     }
 
     await this.page.getByRole('button', { name: /continue/i }).click();
@@ -157,9 +182,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // earlier in DOM order, and the verify screen's index-based check fails.
     // Scope to <article> so the Continue button is not a candidate.
     const articleButtons = verifyContainer.locator('article button');
-    const buttonTexts: string[] = await articleButtons.evaluateAll(els =>
-      els.map(b => (b.textContent ?? '').trim())
-    );
+    const buttonTexts: string[] = await articleButtons.evaluateAll(els => els.map(b => (b.textContent ?? '').trim()));
 
     const firstIndex = buttonTexts.indexOf(firstWord);
     let lastIndex = buttonTexts.indexOf(lastWord);
@@ -171,7 +194,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     if (firstIndex < 0 || lastIndex < 0) {
       throw new Error(
         `Verify seed phrase: could not find "${firstWord}" / "${lastWord}" in grid. ` +
-        `Available: ${buttonTexts.join(', ')}`
+          `Available: ${buttonTexts.join(', ')}`
       );
     }
 
@@ -184,7 +207,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     if (isDisabled) {
       throw new Error(
         `Verify seed phrase: Continue button is disabled after selecting "${firstWord}" and "${lastWord}". ` +
-        `Available words: ${buttonTexts.join(', ')}`
+          `Available words: ${buttonTexts.join(', ')}`
       );
     }
     await continueBtn.click();
@@ -223,19 +246,26 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     try {
       // Wait for the natural navigation to the Explore page
-      await this.page.getByText('Send').or(this.page.getByText('Receive')).first()
+      await this.page
+        .getByText('Send')
+        .or(this.page.getByText('Receive'))
+        .first()
         .waitFor({ timeout: WALLET_CREATION_TIMEOUT });
     } catch {
       // Natural navigation didn't happen. Check what state we're in.
       const currentUrl = this.page.url();
-      const bodyText = await this.page.locator('body').textContent().catch(() => '');
+      const bodyText = await this.page
+        .locator('body')
+        .textContent()
+        .catch(() => '');
 
       // Check if the button returned to non-loading state (meaning register() threw)
-      const buttonLoading = await this.page.evaluate(() => {
-        const btn = document.querySelector('button');
-        return btn?.getAttribute('data-loading') === 'true' ||
-          btn?.querySelector('.animate-spin') !== null;
-      }).catch(() => false);
+      const buttonLoading = await this.page
+        .evaluate(() => {
+          const btn = document.querySelector('button');
+          return btn?.getAttribute('data-loading') === 'true' || btn?.querySelector('.animate-spin') !== null;
+        })
+        .catch(() => false);
 
       console.log(`[WalletPage] Wallet creation didn't navigate. URL: ${currentUrl}`);
       console.log(`[WalletPage] Button loading: ${buttonLoading}`);
@@ -249,13 +279,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         await this.page.reload({ waitUntil: 'domcontentloaded' });
         await this.page.waitForTimeout(3_000);
 
-        const sendVisible = await this.page.getByText('Send').isVisible().catch(() => false);
-        const receiveVisible = await this.page.getByText('Receive').isVisible().catch(() => false);
+        const sendVisible = await this.page
+          .getByText('Send')
+          .isVisible()
+          .catch(() => false);
+        const receiveVisible = await this.page
+          .getByText('Receive')
+          .isVisible()
+          .catch(() => false);
         if (sendVisible || receiveVisible) break;
 
         // Check if we're back at welcome screen (wallet not created)
-        const welcomeVisible = await this.page.getByTestId('onboarding-welcome')
-          .isVisible().catch(() => false);
+        const welcomeVisible = await this.page
+          .getByTestId('onboarding-welcome')
+          .isVisible()
+          .catch(() => false);
         if (welcomeVisible && attempt > 5) {
           // After 5 reload attempts, if still showing welcome, the wallet wasn't created.
           // Try creating it via direct intercom as fallback.
@@ -268,7 +306,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
                 type: 'NEW_WALLET_REQUEST',
                 password: pwd,
                 mnemonic: undefined,
-                ownMnemonic: false,
+                ownMnemonic: false
               });
             }, password);
             // Wait for state to propagate
@@ -290,10 +328,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       address = await this.getAccountAddress();
     } catch {
       // Fallback: try to get address from the store
-      address = await this.page.evaluate(() => {
-        const store = (window as any).__TEST_STORE__;
-        return store?.getState?.()?.currentAccount?.publicKey || 'unknown';
-      }) || 'unknown';
+      address =
+        (await this.page.evaluate(() => {
+          const store = (window as any).__TEST_STORE__;
+          return store?.getState?.()?.currentAccount?.publicKey || 'unknown';
+        })) || 'unknown';
     }
 
     return { address, seedPhrase: seedWords };
@@ -361,8 +400,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const storeAddress = await this.page
       .waitForFunction(
         () => {
-          const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } })
-            .__TEST_STORE__;
+          const store = (
+            window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+          ).__TEST_STORE__;
           const pk = store?.getState?.().currentAccount?.publicKey ?? '';
           return /^m[a-z]{1,4}1[a-z0-9]+/i.test(pk) ? pk : false;
         },
@@ -391,6 +431,207 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────
+
+  /**
+   * Non-invasive snapshot of the wallet's balance-related state. Unlike
+   * getBalance() it:
+   *   - does NOT navigate
+   *   - does NOT call state.fetchBalances (which triggers an RPC)
+   *   - does not require the Explore page to be visible
+   *
+   * Reads straight from the Zustand store + `chrome.storage.local`:
+   *   - `balance` = consumed vault assets (matches getBalance's first source)
+   *   - `pendingNotes` = full list of claimable notes (id + amount)
+   *   - `totalReportable` = balance + Σ pendingNotes — matches getBalance()
+   *   - `pendingTxCount` / `lastTxId` = wallet's recent outgoing transactions
+   *
+   * Safe to call every op: measured at ~50 ms per wallet.
+   */
+  async quickBalanceSnapshot(): Promise<{
+    balance: number;
+    pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
+    pendingSum: number;
+    totalReportable: number;
+    pendingTxCount: number;
+    latestTxId?: string;
+    error?: string;
+  }> {
+    try {
+      return await this.page.evaluate(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const store = (window as any).__TEST_STORE__;
+        const state = store?.getState?.();
+        let balance = 0;
+        for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
+          if (!Array.isArray(tokenList)) continue;
+          for (const token of tokenList) {
+            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+            if (amount > 0) balance += amount;
+          }
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const storage = await new Promise<any>(resolve => {
+          chrome.storage.local.get(['miden_sync_data'], resolve);
+        });
+        const notes = storage?.miden_sync_data?.notes ?? [];
+        const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
+        let pendingSum = 0;
+        for (const note of notes) {
+          const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
+          const decimals = note.metadata?.decimals ?? 8;
+          const amount = baseUnits / Math.pow(10, decimals);
+          pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
+          pendingSum += amount;
+        }
+
+        // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
+        let pendingTxCount = 0;
+        let latestTxId: string | undefined;
+        const txs = state?.transactions;
+        if (txs && typeof txs === 'object') {
+          const list = Array.isArray(txs) ? txs : Object.values(txs);
+          pendingTxCount = list.length;
+          // Pick the most recent by timestamp if available
+          let mostRecent: { id?: string; timestamp?: number } | null = null;
+          for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
+            const id = t.id ?? t.transactionId;
+            const ts = t.timestamp ?? 0;
+            if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
+              mostRecent = { id, timestamp: ts };
+            }
+          }
+          latestTxId = mostRecent?.id;
+        }
+
+        return {
+          balance,
+          pendingNotes,
+          pendingSum,
+          totalReportable: balance + pendingSum,
+          pendingTxCount,
+          latestTxId
+        };
+      });
+    } catch (e) {
+      return {
+        balance: 0,
+        pendingNotes: [],
+        pendingSum: 0,
+        totalReportable: 0,
+        pendingTxCount: 0,
+        error: e instanceof Error ? e.message : String(e)
+      };
+    }
+  }
+
+  /**
+   * Dump every key in chrome.storage.local — used at end-of-run for forensic
+   * analysis. Includes miden_sync_data (notes + vaultAssets), connectivity-
+   * issue flag, cached metadata, etc.
+   */
+  async dumpChromeStorage(): Promise<Record<string, unknown>> {
+    try {
+      return await this.page.evaluate(
+        () =>
+          new Promise<Record<string, unknown>>(resolve => {
+            chrome.storage.local.get(null, items => resolve(items || {}));
+          })
+      );
+    } catch (e) {
+      return { __error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  /**
+   * Dump every IndexedDB database on the extension origin. This is where the
+   * Miden SDK persists its authoritative state — accounts, transactions,
+   * notes, chain MMR, block headers. For "did this tx actually commit?"
+   * forensics, the SDK's `transactions` table is the ground truth.
+   *
+   * Output shape: `{ [dbName]: { version, stores: { [storeName]: entries[] } } }`.
+   * Binary fields (Uint8Array / ArrayBuffer / BigInt) are converted to
+   * `{ __type, hex | value, length }` wrappers so the result round-trips
+   * through JSON and through Playwright's postMessage serialization.
+   *
+   * Not exposed on WalletPage interface — Chrome-only (IndexedDB-per-origin).
+   */
+  async dumpIndexedDB(): Promise<string> {
+    try {
+      return await this.page.evaluate(async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const idb = (globalThis as any).indexedDB as IDBFactory;
+        const dbList = await idb.databases();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result: Record<string, any> = {};
+
+        const openDb = (name: string): Promise<IDBDatabase> =>
+          new Promise((resolve, reject) => {
+            const req = idb.open(name);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            req.onblocked = () => reject(new Error('blocked'));
+          });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const getAll = (store: IDBObjectStore): Promise<any[]> =>
+          new Promise((resolve, reject) => {
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+
+        for (const info of dbList) {
+          if (!info.name) continue;
+          try {
+            const db = await openDb(info.name);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stores: Record<string, any> = {};
+            for (const storeName of db.objectStoreNames) {
+              try {
+                const tx = db.transaction(storeName, 'readonly');
+                const store = tx.objectStore(storeName);
+                stores[storeName] = await getAll(store);
+              } catch (e) {
+                stores[storeName] = { __error: String(e) };
+              }
+            }
+            db.close();
+            result[info.name] = { version: info.version, stores };
+          } catch (e) {
+            result[info.name] = { __error: String(e) };
+          }
+        }
+
+        // JSON-serialize with binary/BigInt wrappers so the payload round-trips
+        // cleanly. Returning a string (vs the object) also avoids Playwright's
+        // structuredClone choking on Uint8Array in some Chromium revisions.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const replacer = (_k: string, v: any): unknown => {
+          if (v instanceof Uint8Array || v instanceof Uint8ClampedArray) {
+            const hex = Array.from(v)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            return { __type: 'Uint8Array', hex, length: v.length };
+          }
+          if (v instanceof ArrayBuffer) {
+            const arr = new Uint8Array(v);
+            const hex = Array.from(arr)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            return { __type: 'ArrayBuffer', hex, length: arr.length };
+          }
+          if (typeof v === 'bigint') {
+            return { __type: 'BigInt', value: v.toString() };
+          }
+          return v;
+        };
+        return JSON.stringify(result, replacer);
+      });
+    } catch (e) {
+      return JSON.stringify({ __error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   /**
    * Get the balance for a specific token from the Explore page.
@@ -434,7 +675,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         // 2. Also check consumable notes from sync data (pending incoming tokens)
         // These are notes that have been discovered but not yet consumed.
         try {
-          const storage = await new Promise<any>((resolve) => {
+          const storage = await new Promise<any>(resolve => {
             chrome.storage.local.get(['miden_sync_data'], resolve);
           });
           const syncData = storage?.miden_sync_data;
@@ -452,7 +693,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
         return {
           balance: totalBalance,
-          debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`,
+          debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`
         };
       });
 
@@ -489,15 +730,28 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   // ── Claim Notes ───────────────────────────────────────────────────────────
 
   /**
-   * Claim all consumable notes. For extension builds, claimable notes are read
-   * from chrome.storage.local (written by doSync). Notes only appear in the
-   * Receive page if they have metadata. Custom faucet notes may lack metadata,
-   * so we inject it into the Zustand store's assetsMetadata before navigating
-   * to the Receive page and clicking Claim All.
+   * Drain every claimable note until the wallet's consumable-notes cache is
+   * empty for two consecutive syncs (or until `timeoutMs` elapses).
    *
-   * Waits for vault balance to become positive.
+   * Reads pending notes from `chrome.storage.local.miden_sync_data.notes`, which
+   * is the same source `getBalance()` sums over — so "drained" here means the
+   * final balance tally can't miss tokens that got stuck as claimable.
+   *
+   * Why a dedicated drain loop (vs. click-once-then-return):
+   *   1. Every claim call after the initial post-mint one happens against a
+   *      wallet with balance > 0, so "vaultBalance > 0" is useless as a stop
+   *      condition — it was true before we started.
+   *   2. Sync can silently no-op (SW `isSyncing` guard drops concurrent
+   *      requests; testnet RPC 5xx; MV3 SW suspend/resume). A single "sync +
+   *      click" round can miss newly-landed notes. Looping over sync →
+   *      clickable buttons → wait → re-sync until the cache is stably empty
+   *      is the only way to guarantee the balance assertion is checking a
+   *      real terminal state.
    */
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    const STABLE_ZERO_THRESHOLD = 2;
+
     // Reload the page to get a fresh Dexie connection. During wallet creation,
     // clearStorage() deletes the IndexedDB which closes the frontend's Dexie handle.
     // Without a reload, transactions.add() throws DatabaseClosedError.
@@ -508,7 +762,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // Inject metadata for custom faucet tokens so they show up as claimable.
     // The useExtensionClaimableNotes hook filters: n.metadata || assetsMetadata[n.faucetId]
     await this.page.evaluate(async () => {
-      const storage = await new Promise<any>((resolve) => {
+      const storage = await new Promise<any>(resolve => {
         chrome.storage.local.get(['miden_cached_consumable_notes'], resolve);
       });
       const notes = storage?.miden_cached_consumable_notes || [];
@@ -517,18 +771,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       const store = (globalThis as any).__TEST_STORE__;
       if (!store) return;
 
-      // For each note's faucetId, ensure metadata exists in the store
       const state = store.getState();
       const metadata = { ...state.assetsMetadata };
       let updated = false;
       for (const note of notes) {
         if (!metadata[note.faucetId] && !note.metadata) {
-          // Inject default metadata for unknown faucets
           metadata[note.faucetId] = {
             name: note.metadata?.name || 'Test Token',
             symbol: note.metadata?.symbol || 'TST',
             decimals: note.metadata?.decimals ?? 8,
-            thumbnailUri: '',
+            thumbnailUri: ''
           };
           updated = true;
         }
@@ -539,72 +791,93 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       }
     });
 
-    // Navigate to Receive page where Claim buttons appear
     await this.navigateTo('/receive');
     await this.page.waitForTimeout(3_000);
 
-    // Click "Claim All" or individual "Claim" buttons
-    for (let attempt = 0; attempt < 5; attempt++) {
+    const readPendingCount = (): Promise<number> =>
+      this.page.evaluate(async () => {
+        const storage = await new Promise<any>(resolve => {
+          chrome.storage.local.get(['miden_sync_data'], resolve);
+        });
+        const notes = storage?.miden_sync_data?.notes;
+        return Array.isArray(notes) ? notes.length : 0;
+      });
+
+    let stableZero = 0;
+    let iteration = 0;
+    let lastPending = -1;
+    let stuckSameCountIters = 0;
+
+    while (Date.now() < deadline && stableZero < STABLE_ZERO_THRESHOLD) {
+      iteration++;
+      await this.triggerSync();
+
+      const pending = await readPendingCount();
+
+      if (pending === 0) {
+        stableZero++;
+        console.log(
+          `[WalletPage.claimAllNotes] iter=${iteration} pending=0 stableZero=${stableZero}/${STABLE_ZERO_THRESHOLD}`
+        );
+        if (stableZero < STABLE_ZERO_THRESHOLD) await this.page.waitForTimeout(2_000);
+        continue;
+      }
+
+      stableZero = 0;
+      stuckSameCountIters = pending === lastPending ? stuckSameCountIters + 1 : 0;
+      lastPending = pending;
+
+      // Let the React UI render buttons for newly-arrived notes before probing.
+      await this.page.waitForTimeout(2_000);
+
       const claimAllBtn = this.page.getByRole('button', { name: /claim all/i });
       if (await claimAllBtn.isVisible().catch(() => false)) {
-        console.log('[WalletPage.claimAllNotes] Clicking Claim All');
+        console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} clicking Claim All`);
         await claimAllBtn.click();
-        break;
+        await this.page.waitForTimeout(8_000);
+        continue;
       }
 
       const claimBtns = this.page.getByRole('button', { name: /^claim$/i });
       const count = await claimBtns.count();
       if (count > 0) {
-        console.log(`[WalletPage.claimAllNotes] Clicking ${count} Claim button(s)`);
+        console.log(
+          `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} clicking ${count} Claim button(s)`
+        );
         for (let i = 0; i < count; i++) {
           try {
             await claimBtns.nth(i).click({ timeout: 5_000 });
             await this.page.waitForTimeout(1_000);
-          } catch { /* may vanish */ }
+          } catch {
+            // button may vanish mid-iteration as the list re-renders
+          }
         }
-        break;
+        await this.page.waitForTimeout(5_000);
+        continue;
       }
 
-      // No buttons yet — sync and retry
-      console.log(`[WalletPage.claimAllNotes] No claim buttons (attempt ${attempt + 1}), syncing...`);
-      await this.triggerSync();
+      // Cache says notes are pending but the receive page hasn't rendered buttons.
+      // Usually resolves once React rehydrates from the updated store; navigate
+      // away/back to force a remount after a few stuck iterations.
+      console.log(
+        `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
+      );
+      if (stuckSameCountIters >= 3) {
+        await this.navigateTo('/');
+        await this.page.waitForTimeout(1_000);
+        await this.navigateTo('/receive');
+        stuckSameCountIters = 0;
+      }
       await this.page.waitForTimeout(3_000);
     }
 
-    // Wait for vault balance to become positive
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeoutMs) {
-      await this.triggerSync();
-      await this.page.waitForTimeout(5_000);
-
-      const vaultBalance = await this.page.evaluate(async () => {
-        const store = (globalThis as any).__TEST_STORE__;
-        if (!store) return 0;
-        const state = store.getState();
-        try {
-          if (state.currentAccount?.publicKey && state.fetchBalances) {
-            await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
-          }
-        } catch {}
-        const freshState = store.getState();
-        for (const tokenList of Object.values(freshState.balances || {}) as any[]) {
-          if (!Array.isArray(tokenList)) continue;
-          for (const token of tokenList) {
-            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (amount > 0) return amount;
-          }
-        }
-        return 0;
-      });
-
-      if (vaultBalance > 0) {
-        console.log(`[WalletPage.claimAllNotes] Vault balance: ${vaultBalance}`);
-        await this.navigateHome();
-        return;
-      }
+    if (Date.now() >= deadline) {
+      const remaining = await readPendingCount().catch(() => -1);
+      console.log(`[WalletPage.claimAllNotes] TIMEOUT after ${timeoutMs}ms, pending=${remaining} (iter=${iteration})`);
+    } else {
+      console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
 
-    console.log('[WalletPage.claimAllNotes] Vault balance still 0 after timeout');
     await this.navigateHome();
   }
 
@@ -632,9 +905,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // 2. SelectToken: click target token row
     if (params.tokenSymbol) {
-      const tokenRow = sendFlow.locator('div.cursor-pointer', {
-        has: this.page.getByText(params.tokenSymbol, { exact: true }),
-      }).first();
+      const tokenRow = sendFlow
+        .locator('div.cursor-pointer', {
+          has: this.page.getByText(params.tokenSymbol, { exact: true })
+        })
+        .first();
       await tokenRow.click({ timeout: 10_000 });
     } else {
       // CardItem renders as a <div> with cursor-pointer. Match the token row by its
@@ -648,11 +923,15 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.waitForTimeout(500);
 
     // Fill recipient address (input or textarea - the component may use either)
-    const addressInput = sendFlow.locator('input[placeholder*="wallet address"], input[placeholder*="address"], textarea').first();
+    const addressInput = sendFlow
+      .locator('input[placeholder*="wallet address"], input[placeholder*="address"], textarea')
+      .first();
     await addressInput.fill(params.recipientAddress);
 
     // Fill amount
-    const amountInput = sendFlow.locator('input[type="text"], input[type="number"], input[inputmode="decimal"]').first();
+    const amountInput = sendFlow
+      .locator('input[type="text"], input[type="number"], input[inputmode="decimal"]')
+      .first();
     await amountInput.fill(params.amount);
 
     // Toggle private payment if needed (default is true/On)
@@ -681,10 +960,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // Wait for success or return to home
     try {
       // Look for success indicators
-      await this.page.waitForSelector(
-        'text=/transaction.*initiated|transaction.*success|successfully/i',
-        { timeout: 120_000 }
-      );
+      await this.page.waitForSelector('text=/transaction.*initiated|transaction.*success|successfully/i', {
+        timeout: 120_000
+      });
     } catch {
       // May navigate away automatically - check we're not on an error screen
       const bodyText = await this.page.locator('body').textContent();
@@ -719,7 +997,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
           message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts },
+          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
         });
       }
 
@@ -730,9 +1008,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       }
     }
 
-    throw new Error(
-      `Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`
-    );
+    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
   }
 
   // ── Lock/Unlock ───────────────────────────────────────────────────────────

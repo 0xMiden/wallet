@@ -1904,6 +1904,10 @@
     "message": "エクスプローラーで見る",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "ミデンスキャンで見る",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "進行中",
     "englishSource": "In Progress"

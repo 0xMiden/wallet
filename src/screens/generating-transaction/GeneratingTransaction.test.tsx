@@ -9,8 +9,16 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+jest.mock('lib/platform', () => ({
+  isMobile: jest.fn(() => false),
+  isExtension: jest.fn(() => false)
+}));
+
 jest.mock('app/atoms/CircularProgress', () => () => null);
-jest.mock('components/Alert', () => ({ Alert: () => null, AlertVariant: { Warning: 'Warning' } }));
+jest.mock('components/Alert', () => ({
+  Alert: ({ title }: { title: string }) => <div data-testid="alert">{title}</div>,
+  AlertVariant: { Warning: 'Warning' }
+}));
 jest.mock('components/Button', () => ({ Button: () => null, ButtonVariant: {} }));
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
@@ -242,6 +250,66 @@ describe('GeneratingTransaction stage + state rendering', () => {
       <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} remainingCount={1} />
     );
     expect(container.textContent).not.toContain('transactionsRemainingInBatch');
+    act(() => root.unmount());
+  });
+
+  it('renders the View on Midenscan button and wires it to onViewExplorer on success', async () => {
+    const onViewExplorer = jest.fn();
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors={false}
+        onViewExplorer={onViewExplorer}
+      />
+    );
+
+    expect(container.textContent).toContain('viewOnMidenscan');
+    const button = container.querySelector('button') as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    act(() => {
+      button.click();
+    });
+    expect(onViewExplorer).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it('omits the View on Midenscan button when no onViewExplorer is provided', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+    );
+    expect(container.textContent).not.toContain('viewOnMidenscan');
+    act(() => root.unmount());
+  });
+
+  it('omits the View on Midenscan button on failure even when onViewExplorer is provided', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        failedCount={1}
+        onViewExplorer={jest.fn()}
+      />
+    );
+    expect(container.textContent).not.toContain('viewOnMidenscan');
+    act(() => root.unmount());
+  });
+
+  it('renders the "navigate home" warning alert when keepOpen is true (desktop, in-flight)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen />
+    );
+    expect(container.textContent).toContain('doNotCloseWindowNavigateHome');
+    act(() => root.unmount());
+  });
+
+  it('renders the "auto-close" warning alert when keepOpen is false (desktop, in-flight)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen={false} />
+    );
+    expect(container.textContent).toContain('doNotCloseWindowAutoClose');
     act(() => root.unmount());
   });
 });

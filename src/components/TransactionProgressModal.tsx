@@ -14,6 +14,9 @@ import {
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
+import { getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { openExternalUrl } from 'lib/mobile/external-browser';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -25,6 +28,9 @@ export const TransactionProgressModal: FC = () => {
   const isOpen = useWalletStore(state => state.isTransactionModalOpen);
   const openModal = useWalletStore(state => state.openTransactionModal);
   const closeModal = useWalletStore(state => state.closeTransactionModal);
+  const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
+
+  useHideNavbarWhileOpen(isOpen);
 
   const { signTransaction } = useMidenContext();
   const [error, setError] = useState(false);
@@ -163,22 +169,6 @@ export const TransactionProgressModal: FC = () => {
     };
   }, [isProcessing, generateTransaction, error, mutateTx]);
 
-  // Auto-close when all transactions are done
-  // Only auto-close AFTER we've done initial fetch (hasLoadedOnce) to prevent race condition
-  useEffect(() => {
-    if (isOpen && hasLoadedOnce && transactions.length === 0 && !error) {
-      // Give a brief delay so user sees completion
-      const timeoutId = setTimeout(() => {
-        closeModal();
-        setError(false);
-      }, 3000);
-      return () => {
-        clearTimeout(timeoutId);
-      };
-    }
-    return undefined;
-  }, [isOpen, hasLoadedOnce, transactions.length, error, closeModal]);
-
   const handleClose = useCallback(() => {
     // Pass true to indicate user explicitly dismissed (prevents auto-reopen)
     closeModal(true);
@@ -188,6 +178,12 @@ export const TransactionProgressModal: FC = () => {
   const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
+
+  const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
+  const onViewExplorer = useCallback(() => {
+    if (!explorerUrl) return;
+    openExternalUrl({ url: explorerUrl, title: 'Midenscan' });
+  }, [explorerUrl]);
 
   // Active-stage pickup: prefer the tx currently executing, else head of
   // queue so "Syncing" shows up instantly when the SW hasn't started on
@@ -234,6 +230,7 @@ export const TransactionProgressModal: FC = () => {
           activeStage={activeStage}
           activeType={activeType}
           remainingCount={remainingCount}
+          onViewExplorer={explorerUrl ? onViewExplorer : undefined}
         />
       </div>
       <button

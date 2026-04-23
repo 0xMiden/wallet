@@ -5,21 +5,29 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const ALARM_NAME = 'miden-sync';
 const SYNC_TIMEOUT_MS = 25_000;
 
-let isSyncing = false;
+// Concurrent doSync() callers join the in-flight sync instead of being dropped.
+// The previous boolean-guard silently no-op'd concurrent calls, so a single stuck
+// sync made every triggerSync() during that window return without having synced.
+let inFlight: Promise<void> | null = null;
 
-export async function doSync(): Promise<void> {
-  if (isSyncing) return;
-  isSyncing = true;
+export function doSync(): Promise<void> {
+  if (inFlight) return inFlight;
+  inFlight = runSync().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
 
+async function runSync(): Promise<void> {
   try {
     // Skip if wallet not set up
     const exists = await Vault.isExist();
@@ -163,14 +171,12 @@ export async function doSync(): Promise<void> {
     }
   } catch (err) {
     console.warn('[SyncManager] Sync error:', err);
-    // Always broadcast SyncCompleted so frontends don't get stuck with isSyncing=true
+    // Always broadcast SyncCompleted so frontends don't get stuck waiting.
     try {
       getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });
     } catch {
       // No frontends connected
     }
-  } finally {
-    isSyncing = false;
   }
 }
 
