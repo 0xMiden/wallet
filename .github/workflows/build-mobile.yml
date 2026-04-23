@@ -123,7 +123,10 @@ jobs:
       matrix:
         network: ${{ fromJSON(needs.setup.outputs.networks) }}
 
-    runs-on: macos-latest
+    # macos-26 is required for the iOS 26 SDK (UIGlassEffect in dapp-browser's
+    # WKWebViewController.swift). macos-latest currently ships Xcode 16.4 with
+    # the iOS 18 SDK, which can't resolve iOS 26 Liquid Glass APIs.
+    runs-on: macos-26
     name: Build iOS Simulator (${{ matrix.network }})
 
     steps:
