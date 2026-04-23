@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 
 /**
  * Returns the current MIDEN native-asset faucet ID.

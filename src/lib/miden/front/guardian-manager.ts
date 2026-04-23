@@ -1,12 +1,12 @@
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { MultisigService } from 'lib/miden/guardian';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { fetchFromStorage } from './storage';
 import { getSignerDetailsFromAccount } from '../guardian/account';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { fetchFromStorage } from './storage';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle
 const guardianServiceCache = new Map<string, MultisigService>();

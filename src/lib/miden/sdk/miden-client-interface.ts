@@ -16,24 +16,24 @@ import {
   TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
 
+import { addConnectivityIssue } from 'lib/miden/activity/connectivity-issues';
 import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
   MIDEN_PROVING_ENDPOINTS,
   getNoteTransportUrl
 } from 'lib/miden-chain/constants';
-import { addConnectivityIssue } from 'lib/miden/activity/connectivity-issues';
 import { isMobile } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
 
+import { NoteExportType } from './constants';
+import { getBech32AddressFromAccountId } from './helpers';
 import { ConsumeTransaction, SendTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
 import type { SignWordFunction } from '../guardian/signer';
-import { NoteExportType } from './constants';
-import { getBech32AddressFromAccountId } from './helpers';
 
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;

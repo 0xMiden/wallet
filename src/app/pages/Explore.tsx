@@ -7,7 +7,6 @@ import Header from 'app/layouts/PageLayout/Header';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { ActionButtons } from 'components/explore/ActionButtons';
 import { PriceChangeBadge } from 'components/explore/PriceChangeBadge';
-import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
 import {
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
@@ -16,6 +15,7 @@ import {
 import { setFaucetIdSetting, useAccount, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { navigate } from 'lib/woozie';

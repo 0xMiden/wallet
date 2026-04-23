@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { fetchFromStorage, searchAssets, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
 import { Asset, Token, FA2Token } from './types';

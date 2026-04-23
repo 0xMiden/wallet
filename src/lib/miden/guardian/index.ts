@@ -12,11 +12,11 @@ import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 
+import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientInterface } from '../sdk/miden-client-interface';
-import { WalletSigner, type SignWordFunction } from './signer';
 
 const MAX_SYNC_RETRIES = 20;
 

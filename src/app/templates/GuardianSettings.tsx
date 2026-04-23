@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 
 import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import {
   initiateSwitchGuardianTransaction,
   requestSWTransactionProcessing,
@@ -13,6 +12,7 @@ import {
 } from 'lib/miden/activity';
 import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';

@@ -23,12 +23,12 @@ import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
-import { WalletType } from '../onboarding/types';
 import { AccountsList } from './AccountsList';
 import { ReviewTransaction } from './ReviewTransaction';
 import { SelectToken } from './SelectToken';
 import { SendDetails } from './SendDetails';
 import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
+import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
   {

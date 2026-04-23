@@ -1,8 +1,8 @@
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { ITransactionType } from 'lib/miden/db/types';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
 import { IHistoryEntry } from './IHistoryEntry';
 
