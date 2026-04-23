@@ -99,7 +99,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           NETWORK="${{ matrix.network }}"
-          ENV_CAP="${NETWORK^}"
+          ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           mkdir -p release-output
           DMG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1 || true)
           if [ -z "$DMG" ]; then

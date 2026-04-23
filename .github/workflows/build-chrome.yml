@@ -74,7 +74,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./package.json').version")
           NETWORK="${{ matrix.network }}"
-          ENV_CAP="${NETWORK^}"
+          ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           FILE="MidenWallet.${VERSION}.${ENV_CAP}.zip"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "env_cap=${ENV_CAP}" >> "$GITHUB_OUTPUT"
