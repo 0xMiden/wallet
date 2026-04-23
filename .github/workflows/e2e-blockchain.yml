@@ -1,0 +1,368 @@
+name: E2E Blockchain
+
+# Runs the blockchain-backed E2E suites (Chrome extension + iOS simulator)
+# against public networks on every push to main. The per-platform gate jobs
+# pass as long as AT LEAST ONE network (devnet OR testnet) succeeded for
+# that platform — this tolerates short windows where wallet@main and a
+# single network are protocol-mismatched (e.g. devnet ahead of the pinned
+# SDK version).
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Network(s) to test against'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - devnet
+          - testnet
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --- Chrome ---------------------------------------------------------------
+
+  chrome-devnet:
+    name: Chrome E2E (devnet)
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: devnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      # cargo is needed to install miden-client-cli from crates.io on first run.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        # Cache key follows the root package.json so a SDK version bump
+        # (or any other root-level dep change) naturally invalidates — the
+        # CLI is installed version-matched to @miden-sdk/miden-sdk by
+        # helpers/miden-cli.ts.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Pre-install the miden-client-cli so the cold-cache ~7 min cargo
+      # compile happens in its own step, not inside Playwright's 5-min
+      # per-test timeout. `cargo install` is a no-op on warm cache.
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run blockchain E2E (devnet)
+        run: xvfb-run -a yarn test:e2e:blockchain:devnet
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-e2e-devnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  chrome-testnet:
+    name: Chrome E2E (testnet)
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: testnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run blockchain E2E (testnet)
+        run: xvfb-run -a yarn test:e2e:blockchain:testnet
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-e2e-testnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  chrome-gate:
+    name: Chrome E2E Gate
+    needs: [chrome-devnet, chrome-testnet]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require at least one network to pass
+        shell: bash
+        env:
+          DEVNET_RESULT: ${{ needs.chrome-devnet.result }}
+          TESTNET_RESULT: ${{ needs.chrome-testnet.result }}
+        run: |
+          echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
+          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
+            echo "Chrome E2E: at least one network passed."
+            exit 0
+          fi
+          echo "Chrome E2E: both networks failed or were skipped."
+          exit 1
+
+  # --- iOS Simulator --------------------------------------------------------
+
+  mobile-devnet:
+    name: Mobile E2E (devnet)
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
+    # used by dapp-browser's WKWebViewController.
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      E2E_NETWORK: devnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
+      # running — headless simctl boots don't expose webinspectord. Ignore
+      # exit status because `open -a` returns 0 even if already open.
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+
+      # Fresh-create + boot of custom simulators hangs multi-minute then
+      # errors on macos-26 runners. Pin the test harness to preinstalled
+      # Xcode sims by writing .device-pair.json before globalSetup reads it.
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            echo "Full device list:"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
+
+      - name: Build iOS app
+        run: yarn test:e2e:mobile:build
+
+      - name: Run blockchain E2E (mobile, devnet)
+        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
+        # runners. Each fixture retries install → launch → CDP connect from
+        # scratch, so a transient webinspectord hiccup doesn't fail the run.
+        # Config stays at retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --retries=1
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-e2e-devnet-${{ github.run_id }}
+          path: test-results-ios/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  mobile-testnet:
+    name: Mobile E2E (testnet)
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      E2E_NETWORK: testnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            echo "Full device list:"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
+
+      - name: Build iOS app
+        run: yarn test:e2e:mobile:build
+
+      - name: Run blockchain E2E (mobile, testnet)
+        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
+        # runners. Each fixture retries install → launch → CDP connect from
+        # scratch, so a transient webinspectord hiccup doesn't fail the run.
+        # Config stays at retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --retries=1
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-e2e-testnet-${{ github.run_id }}
+          path: test-results-ios/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  mobile-gate:
+    name: Mobile E2E Gate
+    needs: [mobile-devnet, mobile-testnet]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require at least one network to pass
+        shell: bash
+        env:
+          DEVNET_RESULT: ${{ needs.mobile-devnet.result }}
+          TESTNET_RESULT: ${{ needs.mobile-testnet.result }}
+        run: |
+          echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
+          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
+            echo "Mobile E2E: at least one network passed."
+            exit 0
+          fi
+          echo "Mobile E2E: both networks failed or were skipped."
+          exit 1
