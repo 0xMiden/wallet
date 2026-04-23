@@ -167,7 +167,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       className={classNames(
         'flex-1 h-full',
         'flex flex-col justify-content items-center gap-y-2',
-        'bg-app-bg px-4 pt-6',
+        'bg-app-bg text-heading-gray px-4 pt-6',
         className
       )}
       onSubmit={handleSubmit(handleImportSubmit)}

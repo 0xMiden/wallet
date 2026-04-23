@@ -54,7 +54,12 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
 
   return (
     <div
-      className={classNames('flex-1', 'flex flex-col justify-start items-center', 'bg-app-bg px-4 pt-6', className)}
+      className={classNames(
+        'flex-1',
+        'flex flex-col justify-start items-center',
+        'bg-app-bg text-heading-gray px-4 pt-6',
+        className
+      )}
       data-testid="import-seed-phrase"
     >
       <h1 className="text-2xl font-semibold">{t('importWallet')}</h1>

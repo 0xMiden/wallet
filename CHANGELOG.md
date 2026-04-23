@@ -8,6 +8,7 @@
 
 ### Fixes
 
+* [FIX][all] Onboarding import screens (`ImportSeedPhrase`, `ImportWalletFile`, `SelectImportType`) render readable text in dark mode. Root containers now include `text-heading-gray` so child `<h1>`/`<p>` elements inherit a theme-aware color instead of falling back to the user-agent default (black), which was illegible on the dark app background.
 * [FIX][all] Encrypted-wallet-file import now restores secret keys for every imported account, not just the first. The decrypted wallet payload carries the full `WalletAccount[]` (with `hdIndex` and `type` per account), and `Vault.spawnFromMidenClient` re-derives each auth key from the mnemonic and inserts it into the new keystore via `client.keystore.insert`. Previously the imported miden-client DB came over without keystore entries, so signing broke for any non-default account.
 * [FIX][all] Encrypted wallet file export now includes wallet account metadata alongside the miden-client/wallet DB dumps, so import can preserve account names and HD indices instead of falling back to generic "Miden Account N" labels.
 * [FIX][all] Encrypted-file password screen consolidates the hardware-vs-password branching around a single `hasHardwareProtector` check — hardware-only vaults skip password entry entirely, password-protected vaults keep the attempt/lockout flow.
