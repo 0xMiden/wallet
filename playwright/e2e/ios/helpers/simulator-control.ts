@@ -95,9 +95,22 @@ export class SimulatorControl {
     // hangs on fresh boots if we skip this — CI runs with cold simulators
     // observed multi-minute hangs inside simctl launch. bootstatus -b blocks
     // until the device is actually usable.
-    await execFileAsync('xcrun', ['simctl', 'bootstatus', udid, '-b'], {
-      timeout: BOOTSTATUS_TIMEOUT_MS,
-    });
+    //
+    // Best-effort: on some macos-26 CI runner images, bootstatus itself
+    // fails/hangs even when the sim is otherwise usable. Swallow the error
+    // and let the subsequent install/launch reveal whether the sim is
+    // really broken — a genuine sim failure produces a clearer error there.
+    try {
+      await execFileAsync('xcrun', ['simctl', 'bootstatus', udid, '-b'], {
+        timeout: BOOTSTATUS_TIMEOUT_MS,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[SimulatorControl] bootstatus for ${udid} did not complete cleanly; ` +
+          `continuing. Error: ${(err as Error).message}`
+      );
+    }
   }
 
   async install(udid: string, appPath: string): Promise<void> {
