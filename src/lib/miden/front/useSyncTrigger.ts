@@ -8,6 +8,30 @@ import { getIntercom, useWalletStore } from 'lib/store';
 const SYNC_INTERVAL_MS = 3_000;
 
 /**
+ * Returns true when the wallet is inside the Send flow (any step of
+ * SendManager — SelectToken, SelectRecipient, SelectAmount, Review, etc.).
+ *
+ * Woozie routes the extension under a hash URL (`USE_LOCATION_HASH_AS_URL`),
+ * so the Send root is reachable at `#/send`. All internal SendManager steps
+ * live under that same hash prefix.
+ *
+ * We pause `syncState` polling while the user is in the Send flow because:
+ *   - `SelectToken` renders its TST tile from `useAllBalances → fetchBalances
+ *     → getAccount` — an IndexedDB read serialized by the SDK. When sync is
+ *     holding the SDK's internal queue on a slow testnet (5-25s per tick),
+ *     the balance read waits and Playwright's 10s click budget on the tile
+ *     times out.
+ *   - The Send flow doesn't need fresh chain state to let the user pick a
+ *     token / recipient / amount. The sync that matters for Send happens
+ *     after submit, not during selection.
+ */
+function isInsideSendFlow(): boolean {
+  if (typeof window === 'undefined') return false;
+  // Hash can be `#/send`, `#/send/`, `#/send?...`, etc.
+  return window.location.hash.startsWith('#/send');
+}
+
+/**
  * Periodic sync every 3s while the wallet is Ready.
  *
  * - Extension: sends SyncRequest to the service worker, which runs syncState()
@@ -16,6 +40,8 @@ const SYNC_INTERVAL_MS = 3_000;
  *   wasm client lock), mirroring the old AutoSync behaviour that was removed
  *   when the zustand balance/sync state was handed off to the React SDK.
  *   Without this, nothing polls on mobile and the UI never sees new notes.
+ *
+ * Sync is paused for the duration of the Send flow (see `isInsideSendFlow`).
  */
 export function useSyncTrigger() {
   const status = useWalletStore(s => s.status);
@@ -26,6 +52,7 @@ export function useSyncTrigger() {
     if (isExtension()) {
       const intercom = getIntercom();
       const tick = () => {
+        if (isInsideSendFlow()) return;
         intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
       };
       tick();
@@ -46,8 +73,9 @@ export function useSyncTrigger() {
       const onGeneratingTxPage =
         typeof window !== 'undefined' && window.location.href.includes('generating-transaction');
       const mobileTxModalOpen = isMobile() && storeState.isTransactionModalOpen;
+      const inSendFlow = isInsideSendFlow();
 
-      if (!onGeneratingTxPage && !mobileTxModalOpen) {
+      if (!onGeneratingTxPage && !mobileTxModalOpen && !inSendFlow) {
         useWalletStore.getState().setSyncStatus(true);
         try {
           await withWasmClientLock(async () => {
