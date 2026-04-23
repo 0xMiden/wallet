@@ -69,6 +69,16 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      # Pre-install the miden-client-cli so the cold-cache ~7 min cargo
+      # compile happens in its own step, not inside Playwright's 5-min
+      # per-test timeout. `cargo install` is a no-op on warm cache.
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
+          cargo install miden-client-cli --version "$VERSION"
+
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
@@ -112,6 +122,13 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
+          cargo install miden-client-cli --version "$VERSION"
 
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
@@ -181,6 +198,19 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
+          cargo install miden-client-cli --version "$VERSION"
+
+      # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
+      # running — headless simctl boots don't expose webinspectord. Ignore
+      # exit status because `open -a` returns 0 even if already open.
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+
       - name: Run blockchain E2E (mobile, devnet)
         run: yarn test:e2e:mobile:devnet
 
@@ -218,6 +248,16 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
+          cargo install miden-client-cli --version "$VERSION"
+
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
 
       - name: Run blockchain E2E (mobile, testnet)
         run: yarn test:e2e:mobile:testnet
