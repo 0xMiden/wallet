@@ -181,17 +181,8 @@ jobs:
   # --- iOS Simulator --------------------------------------------------------
 
   mobile-devnet:
-    name: Mobile E2E (devnet shard ${{ matrix.shard }}/2)
+    name: Mobile E2E (devnet)
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
-    # Sharded across 2 runners in parallel. Playwright's --shard=N/M
-    # distributes tests alphabetically, so the split may be imperfect
-    # (send-private is the longest spec) — still a substantial wall-clock
-    # win over the single-runner ~45 min baseline. Aggregate job result is
-    # "success" only if BOTH shards pass, which is what the gate needs.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController.
     runs-on: macos-26
@@ -263,29 +254,25 @@ jobs:
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
 
-      - name: Run blockchain E2E (mobile, devnet, shard ${{ matrix.shard }}/2)
+      - name: Run blockchain E2E (mobile, devnet)
         # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
         # runners. Each fixture retries install → launch → CDP connect from
         # scratch, so a transient webinspectord hiccup doesn't fail the run.
         # Config stays at retries: 0 for fast local dev feedback.
-        run: yarn playwright test --config playwright.ios.config.ts --shard=${{ matrix.shard }}/2 --retries=1
+        run: yarn playwright test --config playwright.ios.config.ts --retries=1
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-e2e-devnet-shard-${{ matrix.shard }}-${{ github.run_id }}
+          name: mobile-e2e-devnet-${{ github.run_id }}
           path: test-results-ios/
           retention-days: 7
           if-no-files-found: ignore
 
   mobile-testnet:
-    name: Mobile E2E (testnet shard ${{ matrix.shard }}/2)
+    name: Mobile E2E (testnet)
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
     runs-on: macos-26
     timeout-minutes: 90
     env:
@@ -349,18 +336,18 @@ jobs:
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
 
-      - name: Run blockchain E2E (mobile, testnet, shard ${{ matrix.shard }}/2)
+      - name: Run blockchain E2E (mobile, testnet)
         # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
         # runners. Each fixture retries install → launch → CDP connect from
         # scratch, so a transient webinspectord hiccup doesn't fail the run.
         # Config stays at retries: 0 for fast local dev feedback.
-        run: yarn playwright test --config playwright.ios.config.ts --shard=${{ matrix.shard }}/2 --retries=1
+        run: yarn playwright test --config playwright.ios.config.ts --retries=1
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-e2e-testnet-shard-${{ matrix.shard }}-${{ github.run_id }}
+          name: mobile-e2e-testnet-${{ github.run_id }}
           path: test-results-ios/
           retention-days: 7
           if-no-files-found: ignore
