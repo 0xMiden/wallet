@@ -264,7 +264,11 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run blockchain E2E (mobile, devnet, shard ${{ matrix.shard }}/2)
-        run: yarn playwright test --config playwright.ios.config.ts --shard=${{ matrix.shard }}/2
+        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
+        # runners. Each fixture retries install → launch → CDP connect from
+        # scratch, so a transient webinspectord hiccup doesn't fail the run.
+        # Config stays at retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --shard=${{ matrix.shard }}/2 --retries=1
 
       - name: Upload artifacts
         if: always()
@@ -346,7 +350,11 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run blockchain E2E (mobile, testnet, shard ${{ matrix.shard }}/2)
-        run: yarn playwright test --config playwright.ios.config.ts --shard=${{ matrix.shard }}/2
+        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
+        # runners. Each fixture retries install → launch → CDP connect from
+        # scratch, so a transient webinspectord hiccup doesn't fail the run.
+        # Config stays at retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --shard=${{ matrix.shard }}/2 --retries=1
 
       - name: Upload artifacts
         if: always()
