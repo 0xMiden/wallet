@@ -396,6 +396,53 @@ describe('useWalletStore', () => {
 
       expect(result).toBe('secret-key-123');
     });
+
+    it('signWord posts a SignWordRequest and returns the signature string', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SignWordResponse,
+        signature: '0xword-sig'
+      });
+
+      const { signWord } = useWalletStore.getState();
+      const result = await signWord('pub-key', '0xword-hex');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub-key',
+        wordHex: '0xword-hex'
+      });
+      expect(result).toBe('0xword-sig');
+    });
+
+    it('signWord throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { signWord } = useWalletStore.getState();
+      await expect(signWord('pk', 'word')).rejects.toThrow('Invalid response');
+    });
+
+    it('getPublicKeyForCommitment posts a GetPublicKeyForCommitmentRequest and returns the pubkey', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey: 'derived-pub-key'
+      });
+
+      const { getPublicKeyForCommitment } = useWalletStore.getState();
+      const result = await getPublicKeyForCommitment('commit-hash');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+        commitment: 'commit-hash'
+      });
+      expect(result).toBe('derived-pub-key');
+    });
+
+    it('getPublicKeyForCommitment throws on a type-mismatched response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'WrongType' });
+
+      const { getPublicKeyForCommitment } = useWalletStore.getState();
+      await expect(getPublicKeyForCommitment('x')).rejects.toThrow('Invalid response');
+    });
   });
 
   describe('Asset actions', () => {

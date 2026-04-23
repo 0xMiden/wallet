@@ -839,6 +839,40 @@ describe('Vault hardware branches', () => {
     await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
+  it('Vault.spawn propagates importAccountBySeed failures for Guardian imports (no silent fallback)', async () => {
+    // The Guardian import path must NOT fall back to createMidenWallet — otherwise
+    // a silently-recreated account would leave the user with an empty balance
+    // under their seed. The branch rethrows, wrapped as a PublicError by withError.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
+
+    await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true)).rejects.toThrow(
+      PublicError
+    );
+
+    // createMidenWallet must NOT be called as a fallback — Guardian rethrows.
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalledWith(WalletType.Guardian, expect.anything());
+  });
+
+  it('createHDAccount supports WalletType.Guardian (derivation index 2)', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const vlt = await Vault.spawn(WalletType.OnChain, 'pw-guardian-test');
+    // Guardian resolves to the third branch inside getMainDerivationPath (walletTypeIndex=2);
+    // createMidenWallet is stubbed to return a predictable account id.
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('guardian-acc-1');
+    await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).resolves.toBeTruthy();
+  });
+
+  it('createHDAccount supports WalletType.OffChain (derivation index 1)', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const vlt = await Vault.spawn(WalletType.OnChain, 'pw-offchain-test');
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('off-acc-1');
+    await expect(vlt.createHDAccount(WalletType.OffChain, 'Off 1')).resolves.toBeTruthy();
+  });
+
   it('getHardwareVaultKey on desktop decrypts via desktop secure-storage', async () => {
     (isDesktop as jest.Mock).mockReturnValue(true);
     (isMobile as jest.Mock).mockReturnValue(false);
