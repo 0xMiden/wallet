@@ -32,7 +32,7 @@ const storeState: {
 };
 
 const mockIntercomRequest = jest.fn(async () => ({ type: 'ok' }));
-const mockGetIntercom = jest.fn(() => ({ request: mockIntercomRequest }));
+const mockGetIntercom = jest.fn((..._args: unknown[]) => ({ request: mockIntercomRequest }));
 
 jest.mock('lib/store', () => {
   // Zustand selector mock — reads the live storeState reference so test
@@ -45,22 +45,22 @@ jest.mock('lib/store', () => {
   };
 });
 
-const mockSyncState = jest.fn(async () => {});
-const mockGetMidenClient = jest.fn(async () => ({ syncState: mockSyncState }));
+const mockSyncState = jest.fn(async (..._args: unknown[]) => {});
+const mockGetMidenClient = jest.fn(async (..._args: unknown[]) => ({ syncState: mockSyncState }));
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   // In .tsx `<T>` parses as JSX — the trailing comma disambiguates it as a generic.
   withWasmClientLock: async <T,>(fn: () => Promise<T>) => fn()
 }));
 
-const mockIsExtension = jest.fn(() => false);
-const mockIsMobile = jest.fn(() => false);
+const mockIsExtension = jest.fn((..._args: unknown[]) => false);
+const mockIsMobile = jest.fn((..._args: unknown[]) => false);
 jest.mock('lib/platform', () => ({
   isExtension: (...args: unknown[]) => mockIsExtension(...args),
   isMobile: (...args: unknown[]) => mockIsMobile(...args)
 }));
 
-const mockSyncGuardianAccounts = jest.fn(async () => {});
+const mockSyncGuardianAccounts = jest.fn(async (..._args: unknown[]) => {});
 jest.mock('./guardian-sync', () => ({
   syncGuardianAccounts: (...args: unknown[]) => mockSyncGuardianAccounts(...args)
 }));

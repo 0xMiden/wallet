@@ -19,7 +19,7 @@ import {
 import { ITransactionStatus, SwitchGuardianTransaction } from '../db/types';
 
 const txStore: Array<Record<string, unknown>> = [];
-const putToStorage = jest.fn(async () => {});
+const putToStorage = jest.fn(async (..._args: unknown[]) => {});
 
 jest.mock('lib/miden/repo', () => ({
   db: { transaction: async (_mode: string, _t: unknown, cb: () => unknown) => cb() },

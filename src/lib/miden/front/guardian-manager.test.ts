@@ -25,7 +25,7 @@ jest.mock('../guardian/account', () => ({
 }));
 
 const mockGetAccount = jest.fn();
-const mockGetMidenClient = jest.fn(async () => ({ getAccount: mockGetAccount }));
+const mockGetMidenClient = jest.fn(async (..._args: unknown[]) => ({ getAccount: mockGetAccount }));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
