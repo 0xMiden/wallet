@@ -1,4 +1,4 @@
-import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk';
+import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
 import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';

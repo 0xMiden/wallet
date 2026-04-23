@@ -239,14 +239,22 @@ export default defineConfig({
   },
 
   resolve: {
-    alias: {
-      lib: resolve(__dirname, 'src/lib'),
-      app: resolve(__dirname, 'src/app'),
-      shared: resolve(__dirname, 'src/shared'),
-      components: resolve(__dirname, 'src/components'),
-      screens: resolve(__dirname, 'src/screens'),
-      utils: resolve(__dirname, 'src/utils')
-    }
+    alias: [
+      // Transitive imports through @openzeppelin/miden-multisig-client hit the
+      // EAGER @miden-sdk/miden-sdk entry, which has top-level `await loadWasm()`.
+      // The sw-patches TLA stripper below only catches `await` at column 0; the
+      // SDK's bundled factories emit indented `await init_*()` inside __esmMin
+      // wrappers, so the stripped output is a parse error. Force every resolver
+      // hit on the eager entry to the /lazy subpath (no TLA). Regex form so we
+      // don't accidentally double-rewrite `@miden-sdk/miden-sdk/lazy`.
+      { find: /^@miden-sdk\/miden-sdk$/, replacement: '@miden-sdk/miden-sdk/lazy' },
+      { find: 'lib', replacement: resolve(__dirname, 'src/lib') },
+      { find: 'app', replacement: resolve(__dirname, 'src/app') },
+      { find: 'shared', replacement: resolve(__dirname, 'src/shared') },
+      { find: 'components', replacement: resolve(__dirname, 'src/components') },
+      { find: 'screens', replacement: resolve(__dirname, 'src/screens') },
+      { find: 'utils', replacement: resolve(__dirname, 'src/utils') }
+    ]
   },
 
   define: {

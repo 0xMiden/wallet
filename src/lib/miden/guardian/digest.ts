@@ -1,4 +1,4 @@
-import { AccountId, Felt, FeltArray, Rpo256, Word } from '@miden-sdk/miden-sdk';
+import { AccountId, Felt, FeltArray, Rpo256, Word } from '@miden-sdk/miden-sdk/lazy';
 import type { RequestAuthPayload } from '@openzeppelin/guardian-client';
 
 export class AuthDigest {
