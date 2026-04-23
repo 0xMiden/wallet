@@ -4,7 +4,7 @@ import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-clien
 import { DEFAULT_PSM_ENDPOINT } from 'lib/miden-chain/constants';
 import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 
-import { fetchFromStorage } from '../front';
+import { fetchFromStorage } from '../front/storage';
 
 // Re-export the slot names from the package for reading account state
 export const MULTISIG_SLOT_NAMES = {
@@ -47,12 +47,19 @@ export async function getSignerDetailsFromAccount(
  *
  * @param webClient - The Miden WebClient instance
  * @param seed - Optional seed for key derivation (random if not provided)
+ * @param skipRegistration - Skip guardian registration (used by the import path)
+ * @param guardianEndpointOverride - Force a specific guardian URL for pubkey derivation.
+ *   Account ID is a content hash that includes the guardian pubkey baked into storage,
+ *   so the import flow passes `DEFAULT_PSM_ENDPOINT` to reproduce the ID the account
+ *   originally had; the user's custom URL is used by `importAccountFromPsm` for the
+ *   live state fetch only.
  * @returns The created Account
  */
 export async function createPsmAccount(
   webClient: MidenClient,
   seed?: Uint8Array,
-  skipRegistration: boolean = false
+  skipRegistration: boolean = false,
+  guardianEndpointOverride?: string
 ): Promise<Account> {
   if (!seed) {
     seed = crypto.getRandomValues(new Uint8Array(32));
@@ -64,7 +71,9 @@ export async function createPsmAccount(
     const signerCommitment = sk.publicKey().toCommitment();
 
     // Get PSM endpoint and initialize client
-    const guardianEndpoint = (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) || DEFAULT_PSM_ENDPOINT;
+    const guardianEndpoint =
+      guardianEndpointOverride ?? (await fetchFromStorage<string>(PSM_URL_STORAGE_KEY)) ?? DEFAULT_PSM_ENDPOINT;
+    console.log('Using PSM endpoint:', guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment, pubkey } = await client.guardianClient.getPubkey();
     // Create the multisig account using the package utility

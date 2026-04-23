@@ -27,9 +27,11 @@ import { isMobile } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
 
 import { ConsumeTransaction, SendTransaction } from '../db/types';
-import { createPsmAccount, getSignerDetailsFromAccount } from '../psm/account';
-import { MultisigService } from '../psm/index';
-import { SignWordFunction } from '../psm/signer';
+// PSM helpers are dynamic-imported inside the methods that use them to avoid
+// a module init cycle: miden-client-interface → psm/index → sdk/miden-client →
+// miden-client-interface. Static imports here deadlock init_psm_manager in the
+// SW bundle (both sides' __esmMin wrappers await each other).
+import type { SignWordFunction } from '../psm/signer';
 import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
 
@@ -102,6 +104,7 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
     if (walletType === WalletType.Psm) {
+      const { createPsmAccount } = await import('../psm/account');
       const account = await createPsmAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
     }
@@ -132,9 +135,15 @@ export class MidenClientInterface {
     getPublicKeyForCommitment: (commitment: string) => Promise<string>
   ): Promise<string> {
     if (walletType === WalletType.Psm) {
-      console.log('Importing PSM account from seed');
+      console.log('Importing PSM account from seed', seed);
       try {
-        const account = await createPsmAccount(this.client, seed, true);
+        const [{ createPsmAccount, getSignerDetailsFromAccount }, { MultisigService }, { DEFAULT_PSM_ENDPOINT }] =
+          await Promise.all([import('../psm/account'), import('../psm/index'), import('lib/miden-chain/constants')]);
+        // Derive the account ID against the default guardian so it matches the ID
+        // the account had at creation time. The user's custom guardian URL (persisted
+        // in PSM_URL_STORAGE_KEY) is picked up later by importAccountFromPsm for the
+        // live state fetch.
+        const account = await createPsmAccount(this.client, seed, true, DEFAULT_PSM_ENDPOINT);
         console.log('[MidenClientInterface] Imported PSM account from seed with ID:', account.id().toString());
         const accountId = account.id().toString();
         const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);

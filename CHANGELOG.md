@@ -2,6 +2,10 @@
 
 ## 1.14.4 (TBD)
 
+### Features
+
+* [FEATURE][all] Dedicated import-recovery-method screen for PSM wallet imports. Seed-phrase import now shows a screen with a collapsible guardian URL input (default: `DEFAULT_PSM_ENDPOINT`) and an "import public account" fallback; the chosen URL is persisted to `PSM_URL_STORAGE_KEY`. On guardian lookup failure the user is bounced back to the same screen with an inline "account not found on guardian" error — previously `Vault.spawn` swallowed the error and fell back to `createMidenWallet`, silently creating a fresh account under the same seed. PSM account ID is now derived against `DEFAULT_PSM_ENDPOINT` (matching creation-time identity) while the live state fetch targets the user's custom URL, which supports importing accounts whose guardian was switched post-creation. `Vault.spawn` also preserves `PSM_URL_STORAGE_KEY` across its pre-spawn `clearStorage()` so the URL the frontend just wrote survives the wipe.
+
 ### Fixes
 
 * [FIX][all] Encrypted-wallet-file import now restores secret keys for every imported account, not just the first. The decrypted wallet payload carries the full `WalletAccount[]` (with `hdIndex` and `type` per account), and `Vault.spawnFromMidenClient` re-derives each auth key from the mnemonic and inserts it into the new keystore via `client.keystore.insert`. Previously the imported miden-client DB came over without keystore entries, so signing broke for any non-default account.

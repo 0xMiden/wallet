@@ -13,9 +13,10 @@ import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import { WelcomeScreen } from './common/Welcome';
 import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
-import { RecoveryOption, SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
+import { SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
 import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransactionType';
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
+import { ImportRecoveryMethodScreen } from './import-wallet-flow/ImportRecoveryMethod';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
 import { ImportWalletFileScreen } from './import-wallet-flow/ImportWalletFile';
 import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
@@ -32,6 +33,7 @@ export interface OnboardingFlowProps {
   isHardwareSecurityAvailable?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
+  guardianLookupError?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
 }
@@ -54,6 +56,8 @@ const Header: React.FC<{
   } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
     currentStep = 2;
   } else if (step === OnboardingStep.SelectRecoveryMethod) {
+    currentStep = 4;
+  } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
     currentStep = 4;
   } else if (step === OnboardingStep.Confirmation) {
     currentStep = 4;
@@ -78,6 +82,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   isHardwareSecurityAvailable = false,
   biometricAttempts = 0,
   biometricError = null,
+  guardianLookupError = false,
   onBiometricChange,
   onAction
 }) => {
@@ -181,28 +186,15 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <ImportWalletFileScreen onSubmit={onImportFileSubmit} />;
       case OnboardingStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
-      case OnboardingStep.SelectRecoveryMethod: {
-        const importRecoveryOptions: RecoveryOption[] = [
-          {
-            id: WalletType.Psm,
-            title: t('guardianRecovery'),
-            description: t('guardianRecoveryDescription'),
-            isDefault: true
-          },
-          {
-            id: WalletType.OnChain,
-            title: t('publicAccountRecovery'),
-            description: t('publicAccountRecoveryDescription'),
-            isLast: true
-          }
-        ];
+      case OnboardingStep.SelectRecoveryMethod:
+        return <SelectRecoveryMethodScreen onSubmit={onSelectRecoveryMethodSubmit} />;
+      case OnboardingStep.ImportSelectRecoveryMethod:
         return (
-          <SelectRecoveryMethodScreen
-            onSubmit={onSelectRecoveryMethodSubmit}
-            options={onboardingType === OnboardingType.Import ? importRecoveryOptions : undefined}
+          <ImportRecoveryMethodScreen
+            isError={guardianLookupError}
+            onSubmit={payload => onForwardAction?.({ id: 'import-select-recovery-method', payload })}
           />
         );
-      }
       case OnboardingStep.SelectTransactionType:
         return <SelectTransactionTypeScreen onSubmit={onSelectTransactionTypeSubmit} />;
       case OnboardingStep.Confirmation:
@@ -230,8 +222,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onBiometricChange,
     biometricAttempts,
     biometricError,
-    onboardingType,
-    t
+    guardianLookupError
   ]);
 
   const onBack = () => {

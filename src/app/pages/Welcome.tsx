@@ -6,8 +6,10 @@ import wordslist from 'bip39/src/wordlists/english.json';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { useMidenContext } from 'lib/miden/front';
+import { putToStorage } from 'lib/miden/front/storage';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletStatus, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
@@ -78,6 +80,7 @@ const Welcome: FC = () => {
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
+  const [guardianLookupError, setGuardianLookupError] = useState(false);
   const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
   const { registerWallet, importWalletFromClient } = useMidenContext();
   const { trackEvent } = useAnalytics();
@@ -195,7 +198,7 @@ const Welcome: FC = () => {
           if (hardwareAvailable) {
             // Hardware-only mode: skip password, go to recovery method selection
             setPassword('__HARDWARE_ONLY__');
-            navigate('/#select-recovery-method');
+            navigate('/#import-select-recovery-method');
           } else {
             navigate('/#create-password');
           }
@@ -226,10 +229,23 @@ const Welcome: FC = () => {
         setPassword(action.payload.password);
         eventCategory = AnalyticsEventCategory.FormSubmit;
         // Hardware protection is automatically set up in Vault.spawn() when available
-        navigate('/#select-recovery-method');
+        if (onboardingType === OnboardingType.Import && importType === ImportType.SeedPhrase) {
+          navigate('/#import-select-recovery-method');
+        } else {
+          navigate('/#select-recovery-method');
+        }
         break;
       case 'select-recovery-method':
         setWalletType(action.payload);
+        navigate('/#confirmation');
+        break;
+      case 'import-select-recovery-method':
+        setWalletType(action.payload.walletType);
+        if (action.payload.walletType === WalletType.Psm && action.payload.guardianEndpoint) {
+          console.log('Putting guardian endpoint to storage:', action.payload.guardianEndpoint);
+          await putToStorage(PSM_URL_STORAGE_KEY, action.payload.guardianEndpoint);
+        }
+        setGuardianLookupError(false);
         navigate('/#confirmation');
         break;
       case 'confirmation':
@@ -246,8 +262,11 @@ const Welcome: FC = () => {
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
-          // Track biometric attempts for hardware-only mode
-          if (password === '__HARDWARE_ONLY__') {
+          if (onboardingType === OnboardingType.Import && walletType === WalletType.Psm) {
+            setGuardianLookupError(true);
+            navigate('/#import-select-recovery-method');
+          } else if (password === '__HARDWARE_ONLY__') {
+            // Track biometric attempts for hardware-only mode
             const newAttempts = biometricAttempts + 1;
             setBiometricAttempts(newAttempts);
             setBiometricError(error instanceof Error ? error.message : 'Biometric authentication failed');
@@ -283,6 +302,12 @@ const Welcome: FC = () => {
           }
         } else if (step === OnboardingStep.SelectRecoveryMethod) {
           if (onboardingType === OnboardingType.Import && password === '__HARDWARE_ONLY__') {
+            navigate('/#import-from-seed');
+          } else {
+            navigate('/#create-password');
+          }
+        } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
+          if (password === '__HARDWARE_ONLY__') {
             navigate('/#import-from-seed');
           } else {
             navigate('/#create-password');
@@ -330,6 +355,9 @@ const Welcome: FC = () => {
       case '#select-recovery-method':
         setStep(OnboardingStep.SelectRecoveryMethod);
         break;
+      case '#import-select-recovery-method':
+        setStep(OnboardingStep.ImportSelectRecoveryMethod);
+        break;
       case '#confirmation':
         if (!password) {
           navigate('/');
@@ -369,6 +397,7 @@ const Welcome: FC = () => {
       isHardwareSecurityAvailable={isHardwareSecurityAvailable}
       biometricAttempts={biometricAttempts}
       biometricError={biometricError}
+      guardianLookupError={guardianLookupError}
       onBiometricChange={setUseBiometric}
       onAction={onAction}
     />

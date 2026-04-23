@@ -15,11 +15,13 @@ import {
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
 import { isDesktop, isMobile } from 'lib/platform';
+import { PSM_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { compareAccountIds } from '../activity/utils';
+import { fetchFromStorage, putToStorage } from '../front/storage';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -217,9 +219,19 @@ export class Vault {
         mnemonic = Bip39.generateMnemonic(128);
       }
 
-      // Clear storage before any inserts to avoid wiping newly inserted keys later
+      // Clear storage before any inserts to avoid wiping newly inserted keys later.
+      // clearStorage wipes the entire platform key-value store, which would also
+      // erase the guardian URL that the onboarding flow just wrote for a PSM import.
+      // Snapshot it and restore after the wipe so downstream reads
+      // (createPsmAccount / importAccountFromPsm) see the caller's choice.
+      // TODO: thread guardianEndpoint as an explicit arg through registerWallet → spawn
+      // instead of round-tripping through storage.
       console.log('[Vault.spawn] Step 3: clearing storage...');
+      const preservedPsmUrl = await fetchFromStorage<string>(PSM_URL_STORAGE_KEY);
       await clearStorage();
+      if (preservedPsmUrl) {
+        await putToStorage(PSM_URL_STORAGE_KEY, preservedPsmUrl);
+      }
       console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
@@ -275,6 +287,13 @@ export class Vault {
             console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
             return await midenClient.importAccountBySeed(walletType, walletSeed, signWordFn, getPublicKeyForCommitment);
           } catch (e) {
+            // PSM imports must not silently fall back: a failure here means the guardian lookup
+            // failed, and creating a fresh local account would leave the user with the wrong
+            // balance under their seed. Propagate so the UI can let them fix the URL or switch
+            // to public-account import.
+            if (walletType === WalletType.Psm) {
+              throw e;
+            }
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
             return await midenClient.createMidenWallet(walletType, walletSeed);
           }
@@ -290,7 +309,7 @@ export class Vault {
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
-        isPublic: walletType === WalletType.OnChain,
+        isPublic: false,
         type: walletType,
         hdIndex: hdAccIndex
       };
@@ -401,12 +420,15 @@ export class Vault {
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
     return withError('Failed to create account', async () => {
+      console.log('[Vault.createHDAccount] Step 1: start, walletType =', walletType);
       const [mnemonic, allAccounts] = await Promise.all([
         fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey),
         this.fetchAccounts()
       ]);
+      console.log('[Vault.createHDAccount] Step 2: mnemonic + accounts loaded, count =', allAccounts.length);
 
       const isOwnMnemonic = await this.isOwnMnemonic();
+      console.log('[Vault.createHDAccount] Step 3: isOwnMnemonic =', isOwnMnemonic);
 
       let hdAccIndex;
       let accounts;
@@ -416,26 +438,35 @@ export class Vault {
         accounts = allAccounts.filter(acc => !acc.isPublic);
       }
       hdAccIndex = accounts.length;
+      console.log('[Vault.createHDAccount] Step 4: hdAccIndex =', hdAccIndex);
 
       const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
       const options: MidenClientCreateOptions = {
         insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
+      console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access
       const walletId = await withWasmClientLock(async () => {
+        console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
         const midenClient = await getMidenClient(options);
+        console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
         if (isOwnMnemonic && walletType === WalletType.OnChain) {
           try {
+            console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
             return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
           } catch (e) {
             console.warn('Failed to import wallet from seed, creating new wallet instead', e);
             return await midenClient.createMidenWallet(walletType, walletSeed);
           }
         } else {
-          return await midenClient.createMidenWallet(walletType, walletSeed);
+          console.log('[Vault.createHDAccount] Step 8b: createMidenWallet');
+          const id = await midenClient.createMidenWallet(walletType, walletSeed);
+          console.log('[Vault.createHDAccount] Step 9: createMidenWallet returned', id);
+          return id;
         }
       });
+      console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
       const accName = name || getNewAccountName(allAccounts);
 
