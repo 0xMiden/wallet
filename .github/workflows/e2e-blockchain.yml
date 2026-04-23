@@ -76,8 +76,13 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
-          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
-          cargo install miden-client-cli --version "$VERSION"
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
 
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
@@ -127,8 +132,13 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
-          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
-          cargo install miden-client-cli --version "$VERSION"
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
 
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
@@ -202,14 +212,44 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
-          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
-          cargo install miden-client-cli --version "$VERSION"
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
       # running — headless simctl boots don't expose webinspectord. Ignore
       # exit status because `open -a` returns 0 even if already open.
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # Fresh-create + boot of custom simulators hangs multi-minute then
+      # errors on macos-26 runners. Pin the test harness to preinstalled
+      # Xcode sims by writing .device-pair.json before globalSetup reads it.
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            echo "Full device list:"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
 
       - name: Run blockchain E2E (mobile, devnet)
         run: yarn test:e2e:mobile:devnet
@@ -253,11 +293,38 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
-          echo "Installing miden-client-cli@${VERSION} (no-op if already cached)..."
-          cargo install miden-client-cli --version "$VERSION"
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
 
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            echo "Full device list:"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
 
       - name: Run blockchain E2E (mobile, testnet)
         run: yarn test:e2e:mobile:testnet
