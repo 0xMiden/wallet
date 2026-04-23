@@ -1,11 +1,11 @@
 import { Runtime } from 'webextension-polyfill';
 
+import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
-import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { NoteExportType } from '../sdk/constants';

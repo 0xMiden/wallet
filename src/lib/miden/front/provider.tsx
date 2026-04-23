@@ -3,16 +3,16 @@ import React, { FC, useEffect, useMemo } from 'react';
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
-import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
+import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { isExtension } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
+import { getMidenClient } from '../sdk/miden-client';
 import { TokensMetadataProvider } from './assets';
 import { useSyncTrigger } from './useSyncTrigger';
-import { getMidenClient } from '../sdk/miden-client';
 
 // Pre-create the modal container to avoid flash when first opening
 if (typeof document !== 'undefined' && document.body) {

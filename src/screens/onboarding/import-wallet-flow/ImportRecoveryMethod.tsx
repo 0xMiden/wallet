@@ -27,7 +27,8 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   const showError = Boolean(isError) && !dirty && selected === WalletType.Guardian;
 
   const trimmedEndpoint = endpointInput.trim();
-  const canContinue = selected === WalletType.OnChain || (selected === WalletType.Guardian && trimmedEndpoint.length > 0);
+  const canContinue =
+    selected === WalletType.OnChain || (selected === WalletType.Guardian && trimmedEndpoint.length > 0);
 
   const handleContinue = () => {
     console.log('Continue with selection:', { selected, trimmedEndpoint });

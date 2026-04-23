@@ -43,8 +43,7 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
     mockImportPublicMidenWalletFromSeed(...(args as [Uint8Array])),
   // Mirror the production dispatch: for non-Guardian types, delegate to
   // importPublicMidenWalletFromSeed so existing tests keep asserting on it.
-  importAccountBySeed: async (_walletType: any, seed: Uint8Array) =>
-    mockImportPublicMidenWalletFromSeed(seed),
+  importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),

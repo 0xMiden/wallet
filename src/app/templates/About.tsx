@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import Logo from 'app/atoms/Logo';
 
-import MenuItem from './MenuItem';
 import pkg from '../../../package.json';
+import MenuItem from './MenuItem';
 
 const About: FC = () => {
   const { t } = useTranslation();

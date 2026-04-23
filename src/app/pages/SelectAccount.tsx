@@ -9,7 +9,6 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount, useAllAccounts, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
-import { Badge } from 'lib/ui/badge';
 import { navigate, useLocation } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 import { truncateAddress } from 'utils/string';

@@ -1,7 +1,7 @@
 import BigNumber from 'bignumber.js';
 
-import { fetchFromStorage } from 'lib/miden/front';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { fetchFromStorage } from 'lib/miden/front';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
 import {

@@ -45,7 +45,7 @@ export const SelectRecoveryMethodScreen = ({
     [t]
   );
   const options = optionsProp || defaultOptions;
-  const [selected, setSelected] = React.useState<WalletType>(options.find(o => o.isDefault)?.id || options[0].id);
+  const [selected, setSelected] = React.useState<WalletType>(options.find(o => o.isDefault)?.id || options[0]!.id);
 
   const handleContinue = () => {
     onSubmit?.(selected);

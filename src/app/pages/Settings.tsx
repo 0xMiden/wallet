@@ -45,10 +45,10 @@ import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
 
+import pkg from '../../../package.json';
 import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
-import pkg from '../../../package.json';
 
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
@@ -251,7 +251,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
 
   const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);
 
-  const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null, [allTabs, tabSlug]);
+  const activeTab = useMemo(
+    () => allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null,
+    [allTabs, tabSlug]
+  );
   const languageLabel = getCurrentLanguageLabel();
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);

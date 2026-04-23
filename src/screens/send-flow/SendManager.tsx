@@ -1,8 +1,11 @@
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { yupResolver } from '@hookform/resolvers/yup';
-import { useAppEnv } from 'app/env';
 import classNames from 'clsx';
+import { SubmitHandler, useForm } from 'react-hook-form';
+import * as yup from 'yup';
+
+import { useAppEnv } from 'app/env';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import {
@@ -18,9 +21,7 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
-import { SubmitHandler, useForm } from 'react-hook-form';
 import { isValidMidenAddress } from 'utils/miden';
-import * as yup from 'yup';
 
 import { WalletType } from '../onboarding/types';
 import { AccountsList } from './AccountsList';

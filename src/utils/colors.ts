@@ -1,7 +1,7 @@
 import { includes } from 'lodash';
 
-import colors from './tailwind-colors';
 import { ColorCode, Colors } from '../types/colors';
+import colors from './tailwind-colors';
 
 const _colors = colors as Colors;
 

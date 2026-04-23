@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { useAnalytics } from 'lib/analytics';
+import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import {
   safeGenerateTransactionsLoop as dbTransactionsLoop,
   getAllUncompletedTransactions,
@@ -16,7 +17,6 @@ import {
 import { ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension, isMobile } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';

@@ -1,5 +1,5 @@
-import * as Repo from 'lib/miden/repo';
 import { resetNativeAssetCache } from 'lib/miden-chain/native-asset';
+import * as Repo from 'lib/miden/repo';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 
 async function clearPlatformKeyValueStorage(): Promise<void> {

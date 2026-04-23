@@ -72,7 +72,9 @@ export async function createGuardianAccount(
 
     // Get Guardian endpoint and initialize client
     const guardianEndpoint =
-      guardianEndpointOverride ?? (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ?? DEFAULT_GUARDIAN_ENDPOINT;
+      guardianEndpointOverride ??
+      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
+      DEFAULT_GUARDIAN_ENDPOINT;
     console.log('Using Guardian endpoint:', guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment, pubkey } = await client.guardianClient.getPubkey();

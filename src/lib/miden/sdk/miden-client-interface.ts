@@ -16,13 +16,13 @@ import {
   TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { addConnectivityIssue } from 'lib/miden/activity/connectivity-issues';
 import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
   MIDEN_PROVING_ENDPOINTS,
   getNoteTransportUrl
 } from 'lib/miden-chain/constants';
+import { addConnectivityIssue } from 'lib/miden/activity/connectivity-issues';
 import { isMobile } from 'lib/platform';
 import { WalletType } from 'screens/onboarding/types';
 

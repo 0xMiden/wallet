@@ -40,6 +40,7 @@ import {
 } from 'lib/adapter/types';
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { formatBigInt } from 'lib/i18n/numbers';
+import { getNetworkId } from 'lib/miden-chain/constants';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -53,7 +54,6 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
-import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -61,8 +61,6 @@ import { WalletStatus } from 'lib/shared/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
-import { store, withUnlocked } from './store';
-import { startTransactionProcessing } from './transaction-processor';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -71,6 +69,8 @@ import {
 } from '../activity/transactions';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { store, withUnlocked } from './store';
+import { startTransactionProcessing } from './transaction-processor';
 
 /**
  * Starts background transaction processing using the unified SW
