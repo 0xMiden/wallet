@@ -265,19 +265,19 @@ export const test = base.extend<TwoSimulatorFixtures>({
     const simA = new SimulatorControl();
     const simB = new SimulatorControl();
 
-    // Setup both wallets in parallel — biggest fixture-time saving (A was
-    // ~400s + B was ~185s sequentially on the first test; in parallel the
-    // max dominates).
-    const [instanceA, instanceB] = await Promise.all([
-      launchSimWalletInstance(simA, udidA, envConfig, timeline, 'A'),
-      launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B'),
-    ]);
+    // Sequential: parallel simctl install/launch across two sims can deadlock
+    // CoreSimulatorService on cold macos-26 runners (observed 14+ min silent
+    // hangs in CI). The shared `_simPair` fixture still consolidates teardown
+    // and lets the wipeAppState optimization amortize across tests.
+    const instanceA = await launchSimWalletInstance(simA, udidA, envConfig, timeline, 'A');
+    const instanceB = await launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B');
     steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));
     steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instanceB.walletPage, ''));
 
     await use({ instanceA, instanceB, simA, simB });
 
-    // Parallel teardown too. allSettled so one failure doesn't starve the other.
+    // Parallel teardown is safe — close is a CDP socket close, terminate is
+    // just `simctl terminate` which doesn't contend.
     await Promise.allSettled([
       instanceA.cdp.close().catch(() => undefined),
       instanceB.cdp.close().catch(() => undefined),
