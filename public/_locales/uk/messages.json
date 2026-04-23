@@ -422,6 +422,34 @@
     "message": "Виконання транзакції",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "Зміна опікуна",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Створення пропозиції",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Створення пропозиції транзакції для вашого опікуна.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Підписання з опікуном",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Ваш опікун підписує пропозицію.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Подання транзакції",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Надсилання підписаної транзакції в мережу.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "Підтвердження по ланцюжку",
     "englishSource": "Confirming on chain"
@@ -429,6 +457,14 @@
   "transactionStageConfirmingDescription": {
     "message": "Очікування підтвердження мережі.",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Реєстрація в опікуна",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Реєстрація стану вашого облікового запису у нового опікуна.",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "Доставка note",
@@ -1563,6 +1599,46 @@
     "message": "Зашифрований файл гаманця",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Опікун",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Налаштування опікуна",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Поточний опікун",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Нова кінцева точка Guardian",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Switch Guardian",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Направте свій обліковий запис Guardian на нову кінцеву точку опікуна. Комутатор підписаний як пропозиція в ланцюжку.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Зміна опікуна...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Опікун перейшов успішно.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Це вже ваш поточний опікун.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "Введіть дійсну URL-адресу, яка починається з http:// або https://",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Введіть свій пароль, щоб отримати доступ до зашифрованого файлу гаманця.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1860,6 +1936,38 @@
   "publicAccountRecoveryDescription": {
     "message": "Відновіть загальнодоступний обліковий запис у мережі.",
     "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Як би ви хотіли відновити цей гаманець?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Імпортувати через Guardian",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Скористайтеся опікуном, щоб відновити та підписати цей обліковий запис.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Імпорт публічного облікового запису",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "Імпортуйте публічний обліковий запис, отриманий із вашого seed phrase.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "URL-адреса опікуна",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Використовуйте іншого опікуна",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Нам не вдалося знайти ваш обліковий запис у цього опікуна. Перевірте URL-адресу або імпортуйте як публічний обліковий запис.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
   "default": {
     "message": "За замовчуванням",
