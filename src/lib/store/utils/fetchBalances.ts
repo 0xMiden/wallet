@@ -54,8 +54,12 @@ export async function fetchBalances(
   // queued behind long-running writes like `syncState`.
   const midenClient = await getMidenClient();
   const acc = await midenClient.getAccount(address);
-  const account = acc ?? null;
-  const assets: FungibleAsset[] = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
+  let account: typeof acc | null = null;
+  let assets: FungibleAsset[] = [];
+  if (acc) {
+    account = acc;
+    assets = acc.vault().fungibleAssets() as FungibleAsset[];
+  }
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };
