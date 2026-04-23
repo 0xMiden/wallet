@@ -327,6 +327,11 @@ describe('useWalletStore', () => {
   describe('Account actions', () => {
     it('createAccount sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.CreateAccountResponse });
+      // createAccount now pulls fresh state right after the create response lands.
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: { status: WalletStatus.Idle, accounts: [], networks: {}, settings: {}, ownMnemonic: false }
+      });
 
       const { createAccount } = useWalletStore.getState();
       await createAccount(WalletType.OnChain, 'My Account');
@@ -713,6 +718,10 @@ describe('useWalletStore', () => {
   describe('createAccount', () => {
     it('sends CreateAccountRequest with walletType and name', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.CreateAccountResponse });
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: { status: WalletStatus.Idle, accounts: [], networks: {}, settings: {}, ownMnemonic: false }
+      });
       await useWalletStore.getState().createAccount(WalletType.OnChain, 'My Account');
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({
