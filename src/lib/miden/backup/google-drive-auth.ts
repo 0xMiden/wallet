@@ -34,9 +34,25 @@ import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Preferences } from '@capacitor/preferences';
 
-import { isExtension, isMobile } from 'lib/platform';
+import { isAndroid, isExtension, isIOS, isMobile } from 'lib/platform';
 
-import { GOOGLE_DRIVE_IOS_CLIENT_ID, GOOGLE_DRIVE_IOS_REDIRECT_URI, GOOGLE_DRIVE_SCOPES } from './constants';
+import {
+  GOOGLE_DRIVE_ANDROID_CLIENT_ID,
+  GOOGLE_DRIVE_ANDROID_REDIRECT_URI,
+  GOOGLE_DRIVE_IOS_CLIENT_ID,
+  GOOGLE_DRIVE_IOS_REDIRECT_URI,
+  GOOGLE_DRIVE_SCOPES
+} from './constants';
+
+function getMobileOAuthConfig(): { clientId: string; redirectUri: string } {
+  if (isAndroid()) {
+    return { clientId: GOOGLE_DRIVE_ANDROID_CLIENT_ID, redirectUri: GOOGLE_DRIVE_ANDROID_REDIRECT_URI };
+  }
+  if (isIOS()) {
+    return { clientId: GOOGLE_DRIVE_IOS_CLIENT_ID, redirectUri: GOOGLE_DRIVE_IOS_REDIRECT_URI };
+  }
+  throw new Error('Unsupported mobile platform for Google auth');
+}
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -215,14 +231,16 @@ async function extensionAuth(): Promise<GoogleAuthResult> {
   };
 }
 
-// ---- Mobile (iOS): System browser + deep link + PKCE + refresh token ----
+// ---- Mobile (iOS / Android): System browser + deep link + PKCE + refresh token ----
 
 async function mobileAuth(): Promise<GoogleAuthResult> {
+  const { clientId, redirectUri } = getMobileOAuthConfig();
+
   // Try silent refresh first
   const savedRefreshToken = await loadRefreshToken();
   if (savedRefreshToken) {
     try {
-      const refreshed = await refreshAccessToken(savedRefreshToken, GOOGLE_DRIVE_IOS_CLIENT_ID);
+      const refreshed = await refreshAccessToken(savedRefreshToken, clientId);
       return {
         accessToken: refreshed.accessToken,
         expiresAt: Date.now() + refreshed.expiresIn * 1000,
@@ -237,14 +255,14 @@ async function mobileAuth(): Promise<GoogleAuthResult> {
   // Interactive auth with PKCE
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
-  const authUrl = buildPkceOAuthUrl(GOOGLE_DRIVE_IOS_CLIENT_ID, GOOGLE_DRIVE_IOS_REDIRECT_URI, codeChallenge);
+  const authUrl = buildPkceOAuthUrl(clientId, redirectUri, codeChallenge);
 
   return new Promise<GoogleAuthResult>((resolve, reject) => {
     let settled = false;
 
     const listener = App.addListener('appUrlOpen', async (event: { url: string }) => {
       if (settled) return;
-      if (!event.url.startsWith(GOOGLE_DRIVE_IOS_REDIRECT_URI)) return;
+      if (!event.url.startsWith(redirectUri)) return;
 
       settled = true;
       await listener.then(h => h.remove());
@@ -257,12 +275,7 @@ async function mobileAuth(): Promise<GoogleAuthResult> {
       }
 
       try {
-        const tokenResult = await exchangeCodeForToken(
-          code,
-          codeVerifier,
-          GOOGLE_DRIVE_IOS_CLIENT_ID,
-          GOOGLE_DRIVE_IOS_REDIRECT_URI
-        );
+        const tokenResult = await exchangeCodeForToken(code, codeVerifier, clientId, redirectUri);
 
         // Persist refresh token for future silent auth
         if (!tokenResult.refreshToken) {
@@ -305,7 +318,8 @@ export async function trySilentGoogleAuth(): Promise<GoogleAuthResult | null> {
     const savedRefreshToken = await loadRefreshToken();
     if (!savedRefreshToken) return null;
     try {
-      const refreshed = await refreshAccessToken(savedRefreshToken, GOOGLE_DRIVE_IOS_CLIENT_ID);
+      const { clientId } = getMobileOAuthConfig();
+      const refreshed = await refreshAccessToken(savedRefreshToken, clientId);
       return {
         accessToken: refreshed.accessToken,
         expiresAt: Date.now() + refreshed.expiresIn * 1000,
