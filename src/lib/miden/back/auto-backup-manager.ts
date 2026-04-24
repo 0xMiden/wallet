@@ -12,6 +12,7 @@
 import { createCloudBackupWithKey } from 'lib/miden/backup/backup-service';
 import { refreshExtensionAccessToken } from 'lib/miden/backup/google-drive-auth';
 import { GoogleDriveProvider } from 'lib/miden/backup/google-drive-provider';
+import { restoreCloudBackupWithKey } from 'lib/miden/backup/restore-service';
 import { deriveKeyBytes, generateSalt, importVaultKey } from 'lib/miden/passworder';
 import { runWhenClientIdle } from 'lib/miden/sdk/miden-client';
 import { BackupEncryptionMethod } from 'lib/passkey/types';
@@ -31,7 +32,7 @@ let isBackingUp = false;
 let isPaused = false;
 let lastError: string | null = null;
 let settingsUpdateInProgress = false;
-let canonicalizationInProgress = false;
+let restoreInProgress = false;
 let hooksRegistered = false;
 
 // ---- Public API ----
@@ -47,7 +48,7 @@ export function registerAutoBackupHooks(): void {
   hooksRegistered = true;
 
   accountsUpdated.watch(() => {
-    if (!canonicalizationInProgress) triggerBackup();
+    if (!restoreInProgress) triggerBackup();
   });
   settingsUpdated.watch(() => {
     if (!settingsUpdateInProgress) triggerBackup();
@@ -153,10 +154,6 @@ export function isInternalSettingsUpdate(): boolean {
   return settingsUpdateInProgress;
 }
 
-export function setCanonicalizationInProgress(value: boolean): void {
-  canonicalizationInProgress = value;
-}
-
 export function getStatus(): AutoBackupStatus {
   const autoBackup = store.getState().settings?.autoBackup;
   console.log(autoBackup);
@@ -170,28 +167,46 @@ export function getStatus(): AutoBackupStatus {
 }
 
 /**
- * Returns the access token and encryption key needed for backup restore
- * during sync canonicalization. Returns null if auto-backup is not enabled
- * or credentials are unavailable.
+ * Manually restore the wallet from the current auto-backup. Requires auto-backup
+ * to already be enabled (the encryption key is read from the vault). Downloads
+ * the backup, decrypts it, imports the SDK + transaction databases, and replaces
+ * the vault's account list. Auth secret keys are re-derived for restored
+ * accounts so they remain signable.
  */
-export async function getBackupCredentials(): Promise<{
-  accessToken: string;
-  encryptionKey: CryptoKey;
-} | null> {
+export async function restoreFromBackupNow(): Promise<void> {
   const autoBackup = store.getState().settings?.autoBackup;
-  if (!autoBackup?.enabled) return null;
+  if (!autoBackup?.enabled) {
+    throw new Error('Auto-backup is not enabled');
+  }
 
   const tokenOk = await refreshTokenIfNeeded();
-  if (!tokenOk || !cachedAccessToken) return null;
+  if (!tokenOk || !cachedAccessToken) {
+    throw new Error('Google authentication expired. Please re-authenticate.');
+  }
 
+  const keyBytes = await withUnlocked(async ({ vault }) => vault.getAutoBackupKey());
+  if (!keyBytes) {
+    throw new Error('Auto-backup key not found in vault');
+  }
+
+  const encryptionKey = await importVaultKey(keyBytes);
+  keyBytes.fill(0);
+
+  const provider = new GoogleDriveProvider(cachedAccessToken);
+  const content = await restoreCloudBackupWithKey(encryptionKey, provider);
+
+  // Update the Vault's encrypted accounts and broadcast to the frontend
+  // without re-triggering an auto-backup (we just pulled from backup).
+  await withUnlocked(async ({ vault }) => {
+    await vault.replaceAccounts(content.walletAccounts);
+    await vault.restoreAccountKeys(content.walletAccounts);
+  });
+
+  restoreInProgress = true;
   try {
-    const keyBytes = await withUnlocked(async ({ vault }) => vault.getAutoBackupKey());
-    if (!keyBytes) return null;
-    const encryptionKey = await importVaultKey(keyBytes);
-    keyBytes.fill(0);
-    return { accessToken: cachedAccessToken, encryptionKey };
-  } catch {
-    return null;
+    accountsUpdated({ accounts: content.walletAccounts });
+  } finally {
+    restoreInProgress = false;
   }
 }
 

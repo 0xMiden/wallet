@@ -6,6 +6,7 @@ import {
   enableAutoBackup,
   getStatus as getAutoBackupStatus,
   registerAutoBackupHooks,
+  restoreFromBackupNow,
   triggerBackup
 } from 'lib/miden/back/auto-backup-manager';
 import { intercom } from 'lib/miden/back/defaults';
@@ -297,6 +298,10 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     }
     case WalletMessageType.AutoBackupStatusRequest: {
       return { type: WalletMessageType.AutoBackupStatusResponse, ...getAutoBackupStatus() };
+    }
+    case WalletMessageType.AutoBackupRestoreNowRequest: {
+      await restoreFromBackupNow();
+      return { type: WalletMessageType.AutoBackupRestoreNowResponse };
     }
   }
 }

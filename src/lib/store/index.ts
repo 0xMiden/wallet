@@ -302,6 +302,13 @@ export const useWalletStore = create<WalletStore>()(
       };
     },
 
+    restoreFromAutoBackup: async () => {
+      const res = await request({
+        type: WalletMessageType.AutoBackupRestoreNowRequest
+      });
+      assertResponse(res.type === WalletMessageType.AutoBackupRestoreNowResponse);
+    },
+
     // Signing actions
     signData: async (publicKey, signingInputs) => {
       const res = await request({

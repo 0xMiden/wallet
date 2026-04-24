@@ -61,6 +61,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeRegisterFromCloudBackup = useWalletStore(s => s.registerFromCloudBackup);
   const storeSetAutoBackupEnabled = useWalletStore(s => s.setAutoBackupEnabled);
   const storeFetchAutoBackupStatus = useWalletStore(s => s.fetchAutoBackupStatus);
+  const storeRestoreFromAutoBackup = useWalletStore(s => s.restoreFromAutoBackup);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
@@ -199,6 +200,10 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const fetchAutoBackupStatus = useCallback(async () => {
     return storeFetchAutoBackupStatus();
   }, [storeFetchAutoBackupStatus]);
+
+  const restoreFromAutoBackup = useCallback(async () => {
+    return storeRestoreFromAutoBackup();
+  }, [storeRestoreFromAutoBackup]);
 
   const signData = useCallback(
     async (publicKey: string, signingInputs: string) => {
@@ -376,7 +381,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     probeCloudBackup,
     registerFromCloudBackup,
     setAutoBackupEnabled,
-    fetchAutoBackupStatus
+    fetchAutoBackupStatus,
+    restoreFromAutoBackup
   };
 });
 

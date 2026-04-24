@@ -1,24 +1,61 @@
-import { AccountId, RpcClient } from '@miden-sdk/miden-sdk';
 import browser from 'webextension-polyfill';
 
 import { getMessage } from 'lib/i18n';
-import { getRpcEndpoint } from 'lib/miden-chain/constants';
-import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
-import { GoogleDriveProvider } from '../backup/google-drive-provider';
-import { restoreCloudBackupWithKey } from '../backup/restore-service';
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { getBackupCredentials, setCanonicalizationInProgress, triggerBackup } from './auto-backup-manager';
+import { triggerBackup } from './auto-backup-manager';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
-import { accountsUpdated, store } from './store';
 import { Vault } from './vault';
 
 const ALARM_NAME = 'miden-sync';
+
+let isSyncing = false;
+
+/**
+ * Platform-agnostic core: calls syncState() on the WASM client and triggers a
+ * backup if new consumable notes arrived. Used by MobileIntercomAdapter — skips
+ * the extension-specific chrome.storage.local writes and notification path.
+ */
+export async function doCoreSyncState(): Promise<void> {
+  if (isSyncing) return;
+  isSyncing = true;
+  try {
+    const exists = await Vault.isExist();
+    if (!exists) return;
+
+    await withTimeout(
+      withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        if (!client) return;
+        await client.syncState();
+      }),
+      SYNC_TIMEOUT_MS
+    );
+
+    const accountPubKey = await Vault.getCurrentAccountPublicKey();
+    if (accountPubKey) {
+      const noteIds = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        if (!client) return [];
+        const notes = await client.getConsumableNotes(accountPubKey);
+        return (notes || []).map((n: { id: () => { toString: () => string } }) => n.id().toString());
+      });
+      const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+      if (newIds.length > 0) {
+        triggerBackup();
+      }
+    }
+  } catch (err) {
+    console.warn('[SyncManager] Core sync error:', err);
+  } finally {
+    isSyncing = false;
+  }
+}
 
 // syncState is capped aggressively. On testnet with slow RPC a single
 // syncState can legitimately take 5-25s; the previous 25s ceiling plus the
@@ -28,116 +65,6 @@ const ALARM_NAME = 'miden-sync';
 // well below any UI click budget; if testnet RPC is genuinely slow, the
 // circuit breaker (below) trips and we back off rather than hammering.
 const SYNC_TIMEOUT_MS = 5_000;
-
-let isCanonicalizing = false;
-
-/**
- * Compares local account commitments against on-chain commitments for all
- * wallet accounts. If any account has diverged (e.g. another device submitted
- * a transaction), restores from the cloud backup so the subsequent syncState()
- * works on correct state.
- */
-async function checkAndCanonicalize(): Promise<void> {
-  if (isCanonicalizing) return;
-
-  const accounts = store.getState().accounts;
-  if (!accounts || accounts.length === 0) return;
-
-  // Skip if a local transaction is in flight — the local commitment will
-  // legitimately differ from on-chain until the tx is included, and
-  // canonicalizing now would clobber the pending state with an older backup.
-  const pending = await getAllUncompletedTransactions();
-  if (pending.length > 0) return;
-
-  try {
-    // Collect local commitments for all accounts in a single WASM lock
-    const localCommitments = await withWasmClientLock(async () => {
-      const client = await getMidenClient();
-      if (!client) return [];
-
-      const results: Array<{ publicKey: string; localHex: string; accountId: AccountId }> = [];
-      for (const acc of accounts) {
-        const account = await client.getAccount(acc.publicKey);
-        if (!account) continue;
-        results.push({
-          publicKey: acc.publicKey,
-          localHex: account.to_commitment().toHex(),
-          accountId: account.id()
-        });
-      }
-      return results;
-    });
-
-    if (localCommitments.length === 0) return;
-
-    // Check each account against its on-chain commitment (RPC, no WASM lock)
-    const rpcClient = new RpcClient(getRpcEndpoint());
-    let hasMismatch = false;
-
-    for (const { publicKey, localHex, accountId } of localCommitments) {
-      try {
-        const fetched = await rpcClient.getAccountDetails(accountId);
-        const onChainHex = fetched.commitment().toHex();
-        // If local and on-chain commitments differ, and on-chain isn't the empty default, we have a mismatch —
-        // another device has submitted a transaction that this device hasn't seen yet. We must restore from backup
-        // before syncing, or we'll sync to the wrong state and lose the pending transaction.
-        if (localHex !== onChainHex && onChainHex !== `0x${'0'.repeat(64)}`) {
-          console.log(
-            '[SyncManager] Commitment mismatch for',
-            publicKey,
-            '— local:',
-            localHex,
-            'on-chain:',
-            onChainHex
-          );
-          hasMismatch = true;
-          break;
-        }
-      } catch (err) {
-        console.warn('[SyncManager] RPC check failed for', publicKey, err);
-      }
-    }
-
-    if (!hasMismatch) return;
-
-    isCanonicalizing = true;
-
-    const credentials = await getBackupCredentials();
-    if (!credentials) {
-      console.warn('[SyncManager] Cannot canonicalize — auto-backup credentials unavailable');
-      return;
-    }
-
-    const provider = new GoogleDriveProvider(credentials.accessToken);
-    const content = await restoreCloudBackupWithKey(credentials.encryptionKey, provider);
-
-    // Update the Vault's encrypted accounts and the Effector store
-    // so the frontend reflects any accounts added on another device.
-    const { vault } = store.getState();
-    console.log('[SyncManager] Restoring from backup due to on-chain mismatch — accounts in backup:', vault);
-    if (vault) {
-      await vault.replaceAccounts(content.walletAccounts);
-      // Re-derive and persist auth secret keys so restored accounts are
-      // signable — replaceAccounts only writes metadata.
-      await vault.restoreAccountKeys(content.walletAccounts);
-      // Suppress the auto-backup that would otherwise fire from the
-      // accountsUpdated watcher — we just restored from backup, no point
-      // re-uploading what we just downloaded.
-      setCanonicalizationInProgress(true);
-      try {
-        accountsUpdated({ accounts: content.walletAccounts });
-      } finally {
-        setCanonicalizationInProgress(false);
-      }
-    }
-
-    console.log('[SyncManager] Canonicalization complete — restored from backup');
-  } catch (err) {
-    console.warn('[SyncManager] Canonicalization check failed:', err);
-  } finally {
-    isCanonicalizing = false;
-  }
-}
 
 // Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
 // a row we skip sync attempts for BACKOFF_MS, then allow one probe. A
@@ -175,9 +102,6 @@ async function runSync(): Promise<void> {
     // Skip if wallet not set up
     const exists = await Vault.isExist();
     if (!exists) return;
-
-    // Check on-chain alignment and restore from backup if any account diverged
-    await checkAndCanonicalize();
 
     // [Lock 1] THE sync for the whole app. Bounded by SYNC_TIMEOUT_MS so it
     // can't stall downstream consumers; a breach bumps the circuit-breaker

@@ -3,7 +3,8 @@ import {
   disableAutoBackup,
   enableAutoBackup,
   getStatus as getAutoBackupStatus,
-  registerAutoBackupHooks
+  registerAutoBackupHooks,
+  restoreFromBackupNow
 } from 'lib/miden/back/auto-backup-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doCoreSyncState } from 'lib/miden/back/sync-manager';
@@ -216,6 +217,11 @@ export class MobileIntercomAdapter {
 
       case WalletMessageType.AutoBackupStatusRequest: {
         return { type: WalletMessageType.AutoBackupStatusResponse, ...getAutoBackupStatus() };
+      }
+
+      case WalletMessageType.AutoBackupRestoreNowRequest: {
+        await restoreFromBackupNow();
+        return { type: WalletMessageType.AutoBackupRestoreNowResponse };
       }
 
       case WalletMessageType.SyncRequest: {

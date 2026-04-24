@@ -11,7 +11,7 @@ import { AutoBackupStatus } from 'lib/shared/types';
 type EncryptionMethod = 'password' | 'passkey';
 
 const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
-  const { setAutoBackupEnabled, fetchAutoBackupStatus } = useMidenContext();
+  const { setAutoBackupEnabled, fetchAutoBackupStatus, restoreFromAutoBackup } = useMidenContext();
 
   const [auth, setAuth] = useState<GoogleAuthResult | null>(null);
   const [backupPassword, setBackupPassword] = useState('');
@@ -96,6 +96,21 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
       setLoading(false);
     }
   }, [setAutoBackupEnabled, fetchAutoBackupStatus]);
+
+  const handleRestore = useCallback(async () => {
+    setLoading(true);
+    setStatus('Restoring from backup...');
+    try {
+      await restoreFromAutoBackup();
+      setStatus('Restored from backup');
+      const updated = await fetchAutoBackupStatus();
+      setAutoBackupStatus(updated);
+    } catch (err: unknown) {
+      setStatus(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [restoreFromAutoBackup, fetchAutoBackupStatus]);
 
   const handleGoogleReauth = useCallback(async () => {
     setLoading(true);
@@ -194,15 +209,24 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
         </>
       )}
 
-      {/* Disable */}
+      {/* Restore + Disable */}
       {isEnabled && (
-        <Button
-          className="w-full justify-center"
-          title="Disable Auto-Backup"
-          variant={ButtonVariant.Secondary}
-          onClick={handleDisable}
-          disabled={loading}
-        />
+        <>
+          <Button
+            className="w-full justify-center"
+            title="Restore from Backup"
+            variant={ButtonVariant.Primary}
+            onClick={handleRestore}
+            disabled={loading || autoBackupStatus?.needsGoogleReauth}
+          />
+          <Button
+            className="w-full justify-center"
+            title="Disable Auto-Backup"
+            variant={ButtonVariant.Secondary}
+            onClick={handleDisable}
+            disabled={loading}
+          />
+        </>
       )}
 
       {/* Status message */}

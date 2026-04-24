@@ -122,7 +122,9 @@ export enum WalletMessageType {
   AutoBackupSetEnabledRequest = 'AUTO_BACKUP_SET_ENABLED_REQUEST',
   AutoBackupSetEnabledResponse = 'AUTO_BACKUP_SET_ENABLED_RESPONSE',
   AutoBackupStatusRequest = 'AUTO_BACKUP_STATUS_REQUEST',
-  AutoBackupStatusResponse = 'AUTO_BACKUP_STATUS_RESPONSE'
+  AutoBackupStatusResponse = 'AUTO_BACKUP_STATUS_RESPONSE',
+  AutoBackupRestoreNowRequest = 'AUTO_BACKUP_RESTORE_NOW_REQUEST',
+  AutoBackupRestoreNowResponse = 'AUTO_BACKUP_RESTORE_NOW_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -758,6 +760,14 @@ export interface AutoBackupStatusResponse extends WalletMessageBase, AutoBackupS
   type: WalletMessageType.AutoBackupStatusResponse;
 }
 
+export interface AutoBackupRestoreNowRequest extends WalletMessageBase {
+  type: WalletMessageType.AutoBackupRestoreNowRequest;
+}
+
+export interface AutoBackupRestoreNowResponse extends WalletMessageBase {
+  type: WalletMessageType.AutoBackupRestoreNowResponse;
+}
+
 export enum WalletStatus {
   Idle,
   Locked,
@@ -814,7 +824,8 @@ export type WalletRequest =
   | CloudBackupProbeRequest
   | CloudBackupRegisterRequest
   | AutoBackupSetEnabledRequest
-  | AutoBackupStatusRequest;
+  | AutoBackupStatusRequest
+  | AutoBackupRestoreNowRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -867,4 +878,5 @@ export type WalletResponse =
   | CloudBackupProbeResponse
   | CloudBackupRegisterResponse
   | AutoBackupSetEnabledResponse
-  | AutoBackupStatusResponse;
+  | AutoBackupStatusResponse
+  | AutoBackupRestoreNowResponse;

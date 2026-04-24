@@ -188,6 +188,7 @@ export interface WalletActions {
     skipInitialBackup?: boolean
   ) => Promise<void>;
   fetchAutoBackupStatus: () => Promise<AutoBackupStatus>;
+  restoreFromAutoBackup: () => Promise<void>;
 
   // UI actions
   setSelectedNetworkId: (networkId: string) => void;

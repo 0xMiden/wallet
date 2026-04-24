@@ -103,8 +103,9 @@ export async function restoreCloudBackup(
 }
 
 /**
- * Restore from a cloud backup using a pre-derived CryptoKey.
- * Used by the sync canonicalization flow (auto-backup key is already in vault).
+ * Restore from a cloud backup using a pre-derived CryptoKey. Used by the
+ * manual "Restore from Backup" action when auto-backup is enabled (the
+ * encryption key is already in the vault — no password/passkey prompt needed).
  *
  * @throws If no backup exists, the key is wrong, or import fails.
  */
