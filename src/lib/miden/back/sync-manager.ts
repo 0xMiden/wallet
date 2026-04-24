@@ -5,13 +5,57 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { triggerBackup } from './auto-backup-manager';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const ALARM_NAME = 'miden-sync';
+
+let isSyncing = false;
+
+/**
+ * Platform-agnostic core: calls syncState() on the WASM client and triggers a
+ * backup if new consumable notes arrived. Used by MobileIntercomAdapter — skips
+ * the extension-specific chrome.storage.local writes and notification path.
+ */
+export async function doCoreSyncState(): Promise<void> {
+  if (isSyncing) return;
+  isSyncing = true;
+  try {
+    const exists = await Vault.isExist();
+    if (!exists) return;
+
+    await withTimeout(
+      withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        if (!client) return;
+        await client.syncState();
+      }),
+      SYNC_TIMEOUT_MS
+    );
+
+    const accountPubKey = await Vault.getCurrentAccountPublicKey();
+    if (accountPubKey) {
+      const noteIds = await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        if (!client) return [];
+        const notes = await client.getConsumableNotes(accountPubKey);
+        return (notes || []).map((n: { id: () => { toString: () => string } }) => n.id().toString());
+      });
+      const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+      if (newIds.length > 0) {
+        triggerBackup();
+      }
+    }
+  } catch (err) {
+    console.warn('[SyncManager] Core sync error:', err);
+  } finally {
+    isSyncing = false;
+  }
+}
 
 // syncState is capped aggressively. On testnet with slow RPC a single
 // syncState can legitimately take 5-25s; the previous 25s ceiling plus the
@@ -176,6 +220,10 @@ async function runSync(): Promise<void> {
       // Always update seenNoteIds for background dedup consistency
       const noteIds = parsedNotes.map(n => n.id);
       const newIds = await mergeAndPersistSeenNoteIds(noteIds);
+
+      if (newIds.length > 0) {
+        triggerBackup();
+      }
 
       // Write sync data to chrome.storage.local — the reliable data channel.
       // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).

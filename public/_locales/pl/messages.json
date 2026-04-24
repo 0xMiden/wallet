@@ -1504,6 +1504,63 @@
     "message": "Zaszyfrowany plik portfela",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Kopia zapasowa w chmurze",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Importuj z kopii zapasowej w chmurze",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Przywróć dane portfela z Dysku Google. Do ukończenia importu nadal będziesz potrzebować seed phrase.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Importuj z chmury",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Zaloguj się za pomocą Google",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Zalogowałem się jako $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Hasło zapasowe",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Przywracam kopię zapasową...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Sprawdzam kopię zapasową...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "Na tym koncie nie znaleziono kopii zapasowej.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "Ta kopia zapasowa została zaszyfrowana za pomocą klucza. Uwierzytelnij, aby przywrócić.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Przywróć za pomocą klucza dostępu",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Logowanie...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Wprowadź hasło, aby uzyskać dostęp do zaszyfrowanego pliku portfela.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

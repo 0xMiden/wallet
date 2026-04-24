@@ -1,4 +1,4 @@
-import type { WalletAccount } from 'lib/shared/types';
+import type { CloudBackupCredentials, WalletAccount } from 'lib/shared/types';
 
 export enum OnboardingType {
   Create = 'create',
@@ -12,7 +12,8 @@ export enum WalletType {
 
 export enum ImportType {
   SeedPhrase = 'seed-phrase',
-  WalletFile = 'wallet-file'
+  WalletFile = 'wallet-file',
+  CloudBackup = 'cloud-backup'
 }
 
 export enum OnboardingStep {
@@ -23,6 +24,7 @@ export enum OnboardingStep {
   SelectImportType = 'select-import-type',
   ImportFromSeed = 'import-from-seed',
   ImportFromFile = 'import-from-file',
+  ImportFromCloud = 'import-from-cloud',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
   SelectTransactionType = 'select-transaction-type',
@@ -41,7 +43,9 @@ export type OnboardingActionId =
   | 'select-transaction-type'
   | 'confirmation'
   | 'import-from-file'
-  | 'import-from-seed';
+  | 'import-from-seed'
+  | 'import-from-cloud'
+  | 'import-from-cloud-submit';
 
 export type CreateWalletAction = {
   id: 'create-wallet';
@@ -57,6 +61,15 @@ export type ImportFromFileAction = {
 
 export type ImportFromSeedAction = {
   id: 'import-from-seed';
+};
+
+export type ImportFromCloudAction = {
+  id: 'import-from-cloud';
+};
+
+export type ImportFromCloudSubmitAction = {
+  id: 'import-from-cloud-submit';
+  payload: CloudBackupCredentials;
 };
 
 export type BackupSeedPhraseAction = {
@@ -124,6 +137,8 @@ export type OnboardingAction =
   | BackAction
   | ImportFromFileAction
   | ImportFromSeedAction
+  | ImportFromCloudAction
+  | ImportFromCloudSubmitAction
   | ImportWalletFileSubmitAction
   | SwitchToPasswordAction;
 

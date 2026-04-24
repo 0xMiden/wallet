@@ -4,7 +4,15 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { WalletAccount, WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
+import {
+  AutoBackupEncryption,
+  CloudBackupRestoreEncryption,
+  WalletAccount,
+  WalletRequest,
+  WalletResponse,
+  WalletSettings,
+  WalletStatus
+} from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -48,6 +56,12 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
+  const storeRestoreCloudBackup = useWalletStore(s => s.restoreCloudBackup);
+  const storeProbeCloudBackup = useWalletStore(s => s.probeCloudBackup);
+  const storeRegisterFromCloudBackup = useWalletStore(s => s.registerFromCloudBackup);
+  const storeSetAutoBackupEnabled = useWalletStore(s => s.setAutoBackupEnabled);
+  const storeFetchAutoBackupStatus = useWalletStore(s => s.fetchAutoBackupStatus);
+  const storeRestoreFromAutoBackup = useWalletStore(s => s.restoreFromAutoBackup);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
@@ -143,6 +157,53 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     },
     [storeUpdateSettings]
   );
+
+  const restoreCloudBackup = useCallback(
+    async (accessToken: string, encryption: CloudBackupRestoreEncryption) => {
+      return await storeRestoreCloudBackup(accessToken, encryption);
+    },
+    [storeRestoreCloudBackup]
+  );
+
+  const probeCloudBackup = useCallback(
+    async (accessToken: string) => {
+      return await storeProbeCloudBackup(accessToken);
+    },
+    [storeProbeCloudBackup]
+  );
+
+  const registerFromCloudBackup = useCallback(
+    async (
+      password: string | undefined,
+      mnemonic: string,
+      walletAccounts: WalletAccount[],
+      walletSettings: WalletSettings
+    ) => {
+      await storeRegisterFromCloudBackup(password, mnemonic, walletAccounts, walletSettings);
+    },
+    [storeRegisterFromCloudBackup]
+  );
+
+  const setAutoBackupEnabled = useCallback(
+    async (
+      enabled: boolean,
+      accessToken?: string,
+      expiresAt?: number,
+      encryption?: AutoBackupEncryption,
+      skipInitialBackup?: boolean
+    ) => {
+      await storeSetAutoBackupEnabled(enabled, accessToken, expiresAt, encryption, skipInitialBackup);
+    },
+    [storeSetAutoBackupEnabled]
+  );
+
+  const fetchAutoBackupStatus = useCallback(async () => {
+    return storeFetchAutoBackupStatus();
+  }, [storeFetchAutoBackupStatus]);
+
+  const restoreFromAutoBackup = useCallback(async () => {
+    return storeRestoreFromAutoBackup();
+  }, [storeRestoreFromAutoBackup]);
 
   const signData = useCallback(
     async (publicKey: string, signingInputs: string) => {
@@ -315,7 +376,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     removeDAppSession,
     decryptCiphertexts,
     getOwnedRecords,
-    importWalletFromClient
+    importWalletFromClient,
+    restoreCloudBackup,
+    probeCloudBackup,
+    registerFromCloudBackup,
+    setAutoBackupEnabled,
+    fetchAutoBackupStatus,
+    restoreFromAutoBackup
   };
 });
 

@@ -1,6 +1,7 @@
 import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { triggerBackup } from 'lib/miden/back/auto-backup-manager';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -719,6 +720,7 @@ export const generateTransactionsLoop = async (
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
     await generateTransaction(nextTransaction, signCallback);
+    triggerBackup();
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);

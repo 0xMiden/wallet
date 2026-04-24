@@ -30,7 +30,12 @@ export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps
       {
         id: ImportType.WalletFile,
         title: t('importWithEncryptedWalletFile'),
-        description: t('importWithEncryptedWalletFileDescription'),
+        description: t('importWithEncryptedWalletFileDescription')
+      },
+      {
+        id: ImportType.CloudBackup,
+        title: t('importWithCloudBackup'),
+        description: t('importWithCloudBackupDescription'),
         isLast: true
       }
     ],

@@ -1562,6 +1562,63 @@
     "message": "加密钱包文件",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "云备份",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "从云备份导入",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "从 Google 云端硬盘恢复您的钱包数据。您仍然需要 seed phrase 来完成导入。",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "从云端导入",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "使用 Google 登录",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "登录身份 $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "备份密码",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "正在恢复备份...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "正在检查备份...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "在此帐户上找不到备份。",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "该备份已使用密钥加密。进行身份验证即可恢复。",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "使用密钥恢复",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "正在登录...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "输入您的密码以访问您的加密钱包文件。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

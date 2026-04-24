@@ -4,37 +4,55 @@ import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
+import { persistGoogleRefreshToken } from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import type { WalletAccount } from 'lib/shared/types';
+import type { CloudBackupCredentials, WalletAccount } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { OnboardingAction, OnboardingStep, OnboardingType } from 'screens/onboarding/types';
+import { ImportType, OnboardingAction, OnboardingStep, OnboardingType } from 'screens/onboarding/types';
 
 const ForgotPassword: FC = () => {
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
+  const [importType, setImportType] = useState<ImportType | null>(null);
   const [importedWithFile, setImportedWithFile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
 
-  const { registerWallet, importWalletFromClient } = useMidenContext();
+  const { registerWallet, importWalletFromClient, registerFromCloudBackup, setAutoBackupEnabled } = useMidenContext();
+  const [cloudBackupData, setCloudBackupData] = useState<CloudBackupCredentials | null>(null);
 
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       clearClientStorage();
 
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
-      if (!importedWithFile) {
+      if (cloudBackupData) {
         try {
-          await registerWallet(
+          await registerFromCloudBackup(
             password,
             seedPhraseFormatted,
-            onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general
+            cloudBackupData.walletAccounts,
+            cloudBackupData.walletSettings
           );
+          await persistGoogleRefreshToken(cloudBackupData.refreshToken);
+          await setAutoBackupEnabled(
+            true,
+            cloudBackupData.accessToken,
+            cloudBackupData.expiresAt,
+            cloudBackupData.encryption,
+            true
+          );
+        } catch (e) {
+          console.error(e);
+        }
+      } else if (!importedWithFile) {
+        try {
+          await registerWallet(password, seedPhraseFormatted, onboardingType === OnboardingType.Import);
         } catch (e) {
           console.error(e);
         }
@@ -50,7 +68,10 @@ const ForgotPassword: FC = () => {
     password,
     seedPhrase,
     importedWithFile,
+    cloudBackupData,
     registerWallet,
+    registerFromCloudBackup,
+    setAutoBackupEnabled,
     onboardingType,
     importWalletFromClient,
     importedWalletAccounts
@@ -70,6 +91,14 @@ const ForgotPassword: FC = () => {
           break;
         case 'import-from-file':
           setStep(OnboardingStep.ImportFromFile);
+          break;
+        case 'import-from-cloud':
+          setImportType(ImportType.CloudBackup);
+          setStep(OnboardingStep.ImportFromCloud);
+          break;
+        case 'import-from-cloud-submit':
+          setCloudBackupData(action.payload);
+          setStep(OnboardingStep.ImportFromSeed);
           break;
         case 'import-wallet-file-submit':
           const seedPhrase = action.payload.split(' ');
@@ -118,15 +147,21 @@ const ForgotPassword: FC = () => {
             } else {
               setStep(OnboardingStep.ImportFromSeed);
             }
-          } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
+          } else if (step === OnboardingStep.ImportFromCloud) {
             setStep(OnboardingStep.SelectImportType);
+          } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
+            if (importType === ImportType.CloudBackup) {
+              setStep(OnboardingStep.ImportFromCloud);
+            } else {
+              setStep(OnboardingStep.SelectImportType);
+            }
           }
           break;
         default:
           break;
       }
     },
-    [register, step, onboardingType]
+    [register, step, onboardingType, importType]
   );
 
   // Handle mobile back button/gesture in forgot password flow

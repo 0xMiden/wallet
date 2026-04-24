@@ -1562,6 +1562,63 @@
     "message": "암호화된 지갑 파일",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "클라우드 백업",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "클라우드 백업에서 가져오기",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Google 드라이브에서 지갑 데이터를 복원하세요. 가져오기를 완료하려면 seed phrase이 필요합니다.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "클라우드에서 가져오기",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Google로 로그인",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "다음 계정으로 로그인됨 $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "백업 비밀번호",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "백업 복원 중...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "백업 확인 중...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "이 계정에는 백업이 없습니다.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "이 백업은 암호키로 암호화되었습니다. 복원하려면 인증하세요.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "패스키로 복원",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "로그인 중...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "암호화된 지갑 파일에 접근하려면 비밀번호를 입력하세요.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

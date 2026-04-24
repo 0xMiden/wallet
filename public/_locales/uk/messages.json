@@ -1563,6 +1563,63 @@
     "message": "Зашифрований файл гаманця",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Хмарне резервне копіювання",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Імпорт із Cloud Backup",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Відновіть дані свого гаманця з Google Drive. Для завершення імпорту вам знадобиться ваш seed phrase.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Імпорт із хмари",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Увійдіть за допомогою Google",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Ви ввійшли як $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Резервний пароль",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Відновлення резервної копії...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Перевірка резервної копії...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "Для цього облікового запису не знайдено резервної копії.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "Ця резервна копія була зашифрована за допомогою ключа доступу. Щоб відновити, пройдіть автентифікацію.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Відновити за допомогою пароля",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Вхід...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Введіть свій пароль, щоб отримати доступ до зашифрованого файлу гаманця.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
