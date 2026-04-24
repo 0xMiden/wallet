@@ -23,16 +23,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Google OAuth redirect for cloud backup. Scheme must match the reverse-DNS
-                 form of the Android OAuth client ID (GOOGLE_DRIVE_ANDROID_CLIENT_ID in
-                 src/lib/miden/backup/constants.ts). Update both together. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.googleusercontent.apps.849882985138-REPLACE_WITH_ANDROID_CLIENT_ID" />
-            </intent-filter>
-
         </activity>
 
         <provider
