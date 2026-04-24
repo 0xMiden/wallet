@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import FormField, { PASSWORD_ERROR_CAPTION } from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
-import { getGoogleAuthToken, getStoredOAuthResult, GoogleAuthResult } from 'lib/miden/backup/google-drive-auth';
+import { getGoogleAuthToken, GoogleAuthResult, trySilentGoogleAuth } from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
 import { getPasskeyProvider } from 'lib/passkey';
 import { CloudBackupCredentials, CloudBackupProbeResult } from 'lib/shared/types';
@@ -35,11 +35,14 @@ export const ImportFromCloudScreen: React.FC<ImportFromCloudScreenProps> = ({ cl
   const [probeResult, setProbeResult] = useState<CloudBackupProbeResult | null>(null);
   const [probing, setProbing] = useState(false);
 
-  // Check for a stored OAuth result from a previous sign-in
+  // Restore a silent Google session if one's already authorized on this device,
+  // so the user doesn't have to click "Sign in" when they return to this screen.
   useEffect(() => {
-    getStoredOAuthResult().then(stored => {
-      if (stored) setAuth(stored);
-    });
+    trySilentGoogleAuth()
+      .then(result => {
+        if (result) setAuth(result);
+      })
+      .catch(() => {});
   }, []);
 
   // Probe backup after sign-in to detect encryption method
