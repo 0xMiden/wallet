@@ -1,16 +1,23 @@
 /**
  * Google OAuth authentication for cloud backup.
  *
- * Two platform-specific flows, both frontend-only (no backend token exchange):
+ * Three platform-specific flows, all frontend-only (no backend token exchange):
  *
  * Extension (Chrome):
- *   Uses `chrome.identity.getAuthToken` with the OAuth client configured in
- *   manifest.json. Chrome manages the consent flow (native dialog, not a tab)
- *   and caches tokens internally — silent refresh is a no-interaction call
- *   with `interactive: false`. No refresh token, client secret, or explicit
- *   redirect URI is needed. Requires the "identity" permission plus an
- *   `oauth2` block in manifest.json pointing at a Chrome Extension OAuth
- *   client (tied to the extension's public key / ID).
+ *   Uses `chrome.identity.launchWebAuthFlow` with a Web Application OAuth
+ *   client and PKCE (no client secret). Chrome opens a popup window to Google
+ *   OAuth, Google redirects to `https://<extension-id>.chromiumapp.org/`,
+ *   Chrome intercepts that redirect and returns the URL to us. We then
+ *   exchange the authorization code + PKCE verifier for access + refresh
+ *   tokens via POST to https://oauth2.googleapis.com/token, and persist the
+ *   refresh token in chrome.storage.local for silent re-auth.
+ *
+ *   Requires:
+ *     - Web Application OAuth client in Google Cloud Console
+ *     - `https://<extension-id>.chromiumapp.org/` listed as an authorized
+ *       redirect URI on that client (trailing slash required)
+ *     - "identity" permission in manifest.json
+ *     - "https://oauth2.googleapis.com/*" in manifest.json host_permissions
  *
  * Mobile (iOS):
  *   Uses system browser (@capacitor/browser) + deep link redirect + PKCE.
@@ -28,6 +35,9 @@
  *     - iOS OAuth client in Google Cloud Console
  *     - Reverse client ID registered as URL scheme in ios/App/App/Info.plist
  *     - @capacitor/browser, @capacitor/app, and @capacitor/preferences plugins
+ *
+ * Mobile (Android):
+ *   Native bridge — see google-auth-android.ts + GoogleAuthPlugin.kt.
  */
 
 import { App } from '@capacitor/app';
@@ -36,17 +46,18 @@ import { Preferences } from '@capacitor/preferences';
 
 import { isAndroid, isExtension, isIOS, isMobile } from 'lib/platform';
 
+import {
+  GOOGLE_DRIVE_EXTENSION_CLIENT_ID,
+  GOOGLE_DRIVE_IOS_CLIENT_ID,
+  GOOGLE_DRIVE_IOS_REDIRECT_URI,
+  GOOGLE_DRIVE_SCOPES
+} from './constants';
 import { GoogleAuthAndroid } from './google-auth-android';
-import { GOOGLE_DRIVE_IOS_CLIENT_ID, GOOGLE_DRIVE_IOS_REDIRECT_URI, GOOGLE_DRIVE_SCOPES } from './constants';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REFRESH_TOKEN_KEY = 'google_drive_refresh_token';
-
-// chrome.identity caches tokens internally; Google access tokens live ~1 hour.
-// Use a slightly conservative expiry so our own cache eagerly re-requests via
-// chrome.identity (which itself may return the same cached token or a fresh one).
-const EXTENSION_TOKEN_LIFETIME_MS = 55 * 60 * 1000;
+const EXT_REFRESH_TOKEN_KEY = 'google_drive_ext_refresh_token';
 
 export interface GoogleAuthResult {
   accessToken: string;
@@ -147,7 +158,7 @@ async function refreshAccessToken(
   return { accessToken: data.access_token, expiresIn: data.expires_in ?? 3600 };
 }
 
-// ---- Refresh token storage (mobile only — chrome.identity caches on extension) ----
+// ---- Refresh token storage ----
 
 async function saveRefreshToken(token: string): Promise<void> {
   await Preferences.set({ key: REFRESH_TOKEN_KEY, value: token });
@@ -162,57 +173,101 @@ export async function clearRefreshToken(): Promise<void> {
   await Preferences.remove({ key: REFRESH_TOKEN_KEY });
 }
 
+async function saveExtensionRefreshToken(token: string): Promise<void> {
+  const chrome = (globalThis as any).chrome;
+  if (chrome?.storage?.local) {
+    await chrome.storage.local.set({ [EXT_REFRESH_TOKEN_KEY]: token });
+  }
+}
+
+async function loadExtensionRefreshToken(): Promise<string | null> {
+  const chrome = (globalThis as any).chrome;
+  if (!chrome?.storage?.local) return null;
+  const result = await chrome.storage.local.get(EXT_REFRESH_TOKEN_KEY);
+  return result[EXT_REFRESH_TOKEN_KEY] ?? null;
+}
+
 /**
  * Re-persist a Google refresh token after storage has been cleared
- * (e.g. during cloud backup import which calls clearStorage). No-op on
- * extension since chrome.identity manages its own token cache.
+ * (e.g. during cloud backup import which calls clearStorage).
+ * Automatically picks the right storage backend for the current platform.
  */
 export async function persistGoogleRefreshToken(token: string): Promise<void> {
-  if (isMobile()) {
+  if (isExtension()) {
+    await saveExtensionRefreshToken(token);
+  } else if (isMobile()) {
     await saveRefreshToken(token);
   }
 }
 
-// ---- Extension: chrome.identity ----
+// ---- Extension: chrome.identity.launchWebAuthFlow + PKCE ----
 
-function getChromeIdentityToken(interactive: boolean): Promise<string | null> {
+function getExtensionRedirectUrl(): string {
+  const chrome = (globalThis as any).chrome;
+  return chrome.identity.getRedirectURL();
+}
+
+function launchWebAuthFlow(authUrl: string, interactive: boolean): Promise<string | null> {
   return new Promise(resolve => {
     const chrome = (globalThis as any).chrome;
-    if (!chrome?.identity?.getAuthToken) {
+    if (!chrome?.identity?.launchWebAuthFlow) {
       resolve(null);
       return;
     }
-    chrome.identity.getAuthToken({ interactive }, (token: string | undefined) => {
-      if (chrome.runtime.lastError || !token) {
+    chrome.identity.launchWebAuthFlow({ url: authUrl, interactive }, (responseUrl: string | undefined) => {
+      if (chrome.runtime.lastError || !responseUrl) {
         resolve(null);
         return;
       }
-      resolve(token);
+      resolve(responseUrl);
     });
   });
 }
 
 /**
- * Silently refresh the Google access token on extension via chrome.identity.
- * Returns null if the user hasn't consented or silent refresh fails.
+ * Silently refresh the Google access token on extension using the stored
+ * refresh token. Returns null if no refresh token is stored or if refresh fails.
  */
 export async function refreshExtensionAccessToken(): Promise<GoogleAuthResult | null> {
-  const token = await getChromeIdentityToken(false);
-  if (!token) return null;
-  return {
-    accessToken: token,
-    expiresAt: Date.now() + EXTENSION_TOKEN_LIFETIME_MS,
-    refreshToken: ''
-  };
+  const refreshToken = await loadExtensionRefreshToken();
+  if (!refreshToken) return null;
+  try {
+    const result = await refreshAccessToken(refreshToken, GOOGLE_DRIVE_EXTENSION_CLIENT_ID);
+    return {
+      accessToken: result.accessToken,
+      expiresAt: Date.now() + result.expiresIn * 1000,
+      refreshToken
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function extensionAuth(): Promise<GoogleAuthResult> {
-  const token = await getChromeIdentityToken(true);
-  if (!token) throw new Error('Google sign-in failed or was cancelled');
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
+  const redirectUri = getExtensionRedirectUrl();
+  const authUrl = buildPkceOAuthUrl(GOOGLE_DRIVE_EXTENSION_CLIENT_ID, redirectUri, codeChallenge);
+
+  const responseUrl = await launchWebAuthFlow(authUrl, true);
+  if (!responseUrl) throw new Error('Google sign-in failed or was cancelled');
+
+  const parsed = new URL(responseUrl);
+  const error = parsed.searchParams.get('error');
+  if (error) throw new Error(`OAuth error: ${error}`);
+  const code = parsed.searchParams.get('code');
+  if (!code) throw new Error('No authorization code in OAuth response');
+
+  const tokenResult = await exchangeCodeForToken(code, codeVerifier, GOOGLE_DRIVE_EXTENSION_CLIENT_ID, redirectUri);
+  if (!tokenResult.refreshToken) {
+    throw new Error('No refresh token received — required for auto-backup');
+  }
+  await saveExtensionRefreshToken(tokenResult.refreshToken);
+
   return {
-    accessToken: token,
-    expiresAt: Date.now() + EXTENSION_TOKEN_LIFETIME_MS,
-    refreshToken: ''
+    accessToken: tokenResult.accessToken,
+    expiresAt: Date.now() + tokenResult.expiresIn * 1000,
+    refreshToken: tokenResult.refreshToken
   };
 }
 
