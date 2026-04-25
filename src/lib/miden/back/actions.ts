@@ -55,9 +55,20 @@ function getUnlockQueue() {
   return _unlockQueue;
 }
 
+// service worker cold-start race
+let _vault: typeof Vault | null = null;
+async function getVault() {
+  if (!_vault) {
+    await init_vault(); // init_vault completes before returning
+    _vault = Vault;
+  }
+  return _vault;
+}
+
 export async function init() {
   console.log('[Actions.init] Starting...');
-  const vaultExist = await Vault.isExist();
+  const vault = await getVault(); // wait for vault initialization
+  const vaultExist = await vault.isExist();
   console.log('[Actions.init] Vault exists:', vaultExist);
   inited(vaultExist);
   console.log('[Actions.init] Called inited()');
