@@ -10,6 +10,7 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { init_vault } from './vault';
 
 const ALARM_NAME = 'miden-sync';
 
@@ -39,6 +40,16 @@ let inFlight: Promise<void> | null = null;
 let consecutiveSyncFailures = 0;
 let syncBackoffUntilMs = 0;
 
+// Lazy Vault initialization to prevent service worker cold-start race
+let _vault: typeof Vault | null = null;
+async function getVault() {
+  if (!_vault) {
+    await init_vault();
+    _vault = Vault;
+  }
+  return _vault;
+}
+
 export function doSync(): Promise<void> {
   if (inFlight) return inFlight;
   // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
@@ -56,7 +67,8 @@ export function doSync(): Promise<void> {
 async function runSync(): Promise<void> {
   try {
     // Skip if wallet not set up
-    const exists = await Vault.isExist();
+    const vault = await getVault();
+    const exists = await vault.isExist();
     if (!exists) return;
 
     // [Lock 1] THE sync for the whole app. Bounded by SYNC_TIMEOUT_MS so it
@@ -89,7 +101,8 @@ async function runSync(): Promise<void> {
     }
 
     const intercom = getIntercom()!;
-    const accountPubKey = await Vault.getCurrentAccountPublicKey();
+    const vault2 = await getVault();
+    const accountPubKey = await vault2.getCurrentAccountPublicKey();
 
     if (accountPubKey) {
       // [Lock 2] Read notes + vault assets from warm WASM client
