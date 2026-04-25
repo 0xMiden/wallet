@@ -196,11 +196,11 @@ export default defineConfig({
                 'async function processRequest'
               ].join('\n')
             );
-            // processRequest awaits inits for any request except GetStateRequest/SyncRequest
-            // (those are handled early via getFrontState's Idle fallback)
+            // processRequest awaits inits for any request except GET_STATE_REQUEST
+            // SYNC_REQUEST removed from bypass - it should now properly wait for init
             chunk.code = chunk.code.replace(
               /async function processRequest\(req[^)]*\)\s*\{/,
-              '$&\n  if (req?.type !== "GET_STATE_REQUEST" && req?.type !== "SYNC_REQUEST") { await __initsReady; }'
+              '$&\n  if (req?.type !== "GET_STATE_REQUEST") { await __initsReady; }'
             );
           }
         }
