@@ -27,6 +27,8 @@ import {
   MidenDAppConsumeResponse,
   MidenDAppPrivateNotesResponse,
   MidenDAppPrivateNotesRequest,
+  MidenDAppPrivateNoteBytesRequest,
+  MidenDAppPrivateNoteBytesResponse,
   MidenDAppSignRequest,
   MidenDAppSignResponse,
   MidenDAppAssetsResponse,
@@ -71,6 +73,7 @@ import {
 } from '../activity/transactions';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { NoteExportType } from '../sdk/constants';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -568,6 +571,83 @@ async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: 
   } catch (e) {
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
+}
+
+/**
+ * Pattern B silent backfill: returns base64-encoded NoteFile.serialize() bytes
+ * for the user's private notes so the dApp's local MidenClient can ingest them
+ * via importNoteFile.
+ *
+ * Permission model: silent piggyback on existing PrivateData/Notes Auto grant.
+ * If the dApp doesn't hold Auto permission, returns empty `bytes` array
+ * (NEVER throws "unauthorized" — the React adapter calls this every ~15s on
+ * each auto-sync, and prompting/errors at that cadence would be unusable).
+ * dApps elevate to Auto via the existing `requestPrivateNotes` flow which IS
+ * allowed to prompt.
+ *
+ * Per-note errors (note not found, serialize failure) are logged + skipped
+ * rather than failing the whole batch — adapter ingest is best-effort.
+ */
+export async function requestPrivateNoteBytes(
+  origin: string,
+  req: MidenDAppPrivateNoteBytesRequest
+): Promise<MidenDAppPrivateNoteBytesResponse> {
+  if (!req?.sourcePublicKey) {
+    throw new Error(MidenDAppErrorType.InvalidParams);
+  }
+
+  const dApp = await getDApp(origin, req.sourcePublicKey);
+  if (!dApp) {
+    // Silent: no dApp session → return empty rather than throw.
+    return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
+  }
+
+  // Silent permission gate: only Auto + Notes grants allow ingest.
+  const granted =
+    dApp.privateDataPermission === PrivateDataPermission.Auto &&
+    (dApp.allowedPrivateData & AllowedPrivateData.Notes) !== 0;
+  if (!granted) {
+    return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
+  }
+
+  // Resolve list of note IDs to export. If caller passed specific IDs, use
+  // them; otherwise enumerate all the user's private notes via the existing
+  // helper.
+  let noteIds: string[];
+  try {
+    if (req.noteIds && req.noteIds.length > 0) {
+      noteIds = req.noteIds;
+    } else {
+      const details = await getPrivateNoteDetails(NoteFilterTypes.All);
+      noteIds = details.map(d => d.noteId);
+    }
+  } catch {
+    // Even enumeration failure is best-effort — return empty.
+    return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
+  }
+
+  if (noteIds.length === 0) {
+    return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
+  }
+
+  // Export each note as NoteFile.serialize() bytes, base64 the result. Per-
+  // note try/catch so one bad note doesn't lose the rest.
+  const bytes: string[] = [];
+  await withUnlocked(async () => {
+    await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      for (const noteId of noteIds) {
+        try {
+          const noteBytes = await midenClient.exportNote(noteId, NoteExportType.FULL);
+          bytes.push(u8ToB64(noteBytes));
+        } catch (err) {
+          console.warn('[dapp.requestPrivateNoteBytes] export failed for', noteId, err);
+        }
+      }
+    });
+  });
+
+  return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes };
 }
 
 export async function requestConsumableNotes(

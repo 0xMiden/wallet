@@ -31,6 +31,7 @@ import {
   requestTransaction,
   requestConsumeTransaction,
   requestPrivateNotes,
+  requestPrivateNoteBytes,
   requestSign,
   requestAssets,
   requestImportPrivateNote,
@@ -295,6 +296,9 @@ export async function processDApp(
 
     case MidenDAppMessageType.PrivateNotesRequest:
       return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req)));
+
+    case MidenDAppMessageType.PrivateNoteBytesRequest:
+      return withInited(() => getDappQueue().add(() => requestPrivateNoteBytes(origin, req)));
 
     case MidenDAppMessageType.SignRequest:
       return withInited(() => getDappQueue().add(() => requestSign(origin, req)));

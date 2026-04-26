@@ -23,6 +23,7 @@ export type MidenDAppRequest =
   | MidenDAppSendTransactionRequest
   | MidenDAppConsumeRequest
   | MidenDAppPrivateNotesRequest
+  | MidenDAppPrivateNoteBytesRequest
   | MidenDAppSignRequest
   | MidenDAppAssetsRequest
   | MidenDAppImportPrivateNoteRequest
@@ -37,6 +38,7 @@ export type MidenDAppResponse =
   | MidenDAppSendTransactionResponse
   | MidenDAppConsumeResponse
   | MidenDAppPrivateNotesResponse
+  | MidenDAppPrivateNoteBytesResponse
   | MidenDAppSignResponse
   | MidenDAppAssetsResponse
   | MidenDAppImportPrivateNoteResponse
@@ -62,6 +64,8 @@ export enum MidenDAppMessageType {
   ConsumeResponse = 'CONSUME_RESPONSE',
   PrivateNotesRequest = 'PRIVATE_NOTES_REQUEST',
   PrivateNotesResponse = 'PRIVATE_NOTES_RESPONSE',
+  PrivateNoteBytesRequest = 'PRIVATE_NOTE_BYTES_REQUEST',
+  PrivateNoteBytesResponse = 'PRIVATE_NOTE_BYTES_RESPONSE',
   SignRequest = 'SIGN_REQUEST',
   SignResponse = 'SIGN_RESPONSE',
   AssetsRequest = 'ASSETS_REQUEST',
@@ -156,6 +160,28 @@ export interface MidenDAppPrivateNotesRequest extends MidenDAppMessageBase {
 export interface MidenDAppPrivateNotesResponse extends MidenDAppMessageBase {
   type: MidenDAppMessageType.PrivateNotesResponse;
   privateNotes: InputNoteDetails[];
+}
+
+/**
+ * Pattern B private-note bytes export. Returns base64-encoded
+ * NoteFile.serialize() bytes for the user's private notes so the dApp's
+ * local MidenClient can ingest them and treat them like any other note.
+ *
+ * IMPORTANT: silent contract — never prompts. If the dApp lacks Auto+Notes
+ * permission, the wallet returns an empty `bytes` array. Permission
+ * elevation flows through `PrivateNotesRequest`, which IS allowed to prompt.
+ */
+export interface MidenDAppPrivateNoteBytesRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.PrivateNoteBytesRequest;
+  sourcePublicKey: string;
+  /** Optional. Omitted/empty = "all my private notes for this dApp." */
+  noteIds?: string[];
+}
+
+export interface MidenDAppPrivateNoteBytesResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.PrivateNoteBytesResponse;
+  /** base64-encoded NoteFile.serialize() bytes; empty array allowed. */
+  bytes: string[];
 }
 
 export interface MidenDAppSignRequest extends MidenDAppMessageBase {
