@@ -575,8 +575,16 @@ async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: 
 
 /**
  * Pattern B silent backfill: returns base64-encoded NoteFile.serialize() bytes
- * for the user's private notes so the dApp's local MidenClient can ingest them
- * via importNoteFile.
+ * for private notes the connected dApp account can consume, so the dApp's
+ * local MidenClient can ingest them via importNoteFile.
+ *
+ * Account-scoped: only returns notes the dApp's session account
+ * (`dApp.accountId`) can consume — NEVER notes from other accounts the user
+ * holds in the same wallet. This matches the security scope of the existing
+ * `requestConsumableNotes` handler. Even if the dApp passes explicit
+ * `noteIds`, the result is intersected with the account-scoped consumable
+ * set so an attacker can't request bytes for arbitrary IDs they happen to
+ * know.
  *
  * Permission model: silent piggyback on existing PrivateData/Notes Auto grant.
  * If the dApp doesn't hold Auto permission, returns empty `bytes` array
@@ -585,8 +593,8 @@ async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: 
  * dApps elevate to Auto via the existing `requestPrivateNotes` flow which IS
  * allowed to prompt.
  *
- * Per-note errors (note not found, serialize failure) are logged + skipped
- * rather than failing the whole batch — adapter ingest is best-effort.
+ * Per-note errors (not found, serialize failure) are logged + skipped rather
+ * than failing the whole batch — adapter ingest is best-effort.
  */
 export async function requestPrivateNoteBytes(
   origin: string,
@@ -610,28 +618,55 @@ export async function requestPrivateNoteBytes(
     return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
   }
 
-  // Resolve list of note IDs to export. If caller passed specific IDs, use
-  // them; otherwise enumerate all the user's private notes via the existing
-  // helper.
-  let noteIds: string[];
+  // Account-scoped enumeration: only private notes consumable BY this dApp's
+  // account. Filtering happens here (at the wallet boundary) to avoid handing
+  // a malicious dApp a path to harvest other accounts' notes via either the
+  // omitted-IDs branch or arbitrary-ID requests.
+  let allowedIds: Set<string>;
   try {
-    if (req.noteIds && req.noteIds.length > 0) {
-      noteIds = req.noteIds;
-    } else {
-      const details = await getPrivateNoteDetails(NoteFilterTypes.All);
-      noteIds = details.map(d => d.noteId);
-    }
+    allowedIds = await withUnlocked(async () => {
+      return await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        const consumable = await midenClient.getConsumableNotes(dApp.accountId);
+        const ids = new Set<string>();
+        for (const record of consumable) {
+          // Only private notes need ingest backfill — public notes flow
+          // through the dApp's own RPC sync.
+          try {
+            const meta = record.metadata?.();
+            const noteType = meta?.noteType?.();
+            if (noteType !== NoteType.Private) continue;
+            ids.add(record.id().toString());
+          } catch {
+            // Skip records we can't introspect.
+          }
+        }
+        return ids;
+      });
+    });
   } catch {
-    // Even enumeration failure is best-effort — return empty.
+    // Enumeration failure is best-effort — return empty.
     return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
   }
+
+  if (allowedIds.size === 0) {
+    return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
+  }
+
+  // Intersect requested IDs with the account-scoped set when the dApp passes
+  // them; otherwise export everything in scope.
+  const noteIds =
+    req.noteIds && req.noteIds.length > 0
+      ? req.noteIds.filter((id) => allowedIds.has(id))
+      : Array.from(allowedIds);
 
   if (noteIds.length === 0) {
     return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes: [] };
   }
 
   // Export each note as NoteFile.serialize() bytes, base64 the result. Per-
-  // note try/catch so one bad note doesn't lose the rest.
+  // note try/catch so one bad note doesn't lose the rest. Logs gated behind
+  // dappDebug so prod builds don't dump note IDs to os_log / logcat.
   const bytes: string[] = [];
   await withUnlocked(async () => {
     await withWasmClientLock(async () => {
@@ -641,7 +676,7 @@ export async function requestPrivateNoteBytes(
           const noteBytes = await midenClient.exportNote(noteId, NoteExportType.FULL);
           bytes.push(u8ToB64(noteBytes));
         } catch (err) {
-          console.warn('[dapp.requestPrivateNoteBytes] export failed for', noteId, err);
+          dappDebug('[dapp.requestPrivateNoteBytes] export failed for', noteId, err);
         }
       }
     });
