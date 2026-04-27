@@ -903,19 +903,28 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     const sendFlow = this.page.getByTestId('send-flow');
     await sendFlow.waitFor({ timeout: 15_000 });
 
-    // 2. SelectToken: click target token row
+    // 2. SelectToken: click target token row.
+    //
+    // Timeout sized for the worst-case actionability wait under stress: a sync
+    // tick that started just before the navigation can hold the WASM lock for
+    // 5-25s on testnet, during which `useAllBalances → fetchBalances →
+    // getAccount` (the data feeding the tile) is queued. The wallet-side
+    // pointer-events fix on TransactionProgressModal removes the *other* major
+    // cause of click misses (a stale modal overlay from the previous op), so
+    // 30s is comfortable headroom rather than a regular hit.
+    const TILE_CLICK_TIMEOUT_MS = 30_000;
     if (params.tokenSymbol) {
       const tokenRow = sendFlow
         .locator('div.cursor-pointer', {
           has: this.page.getByText(params.tokenSymbol, { exact: true })
         })
         .first();
-      await tokenRow.click({ timeout: 10_000 });
+      await tokenRow.click({ timeout: TILE_CLICK_TIMEOUT_MS });
     } else {
       // CardItem renders as a <div> with cursor-pointer. Match the token row by its
       // title text structure (token name + balance) inside the send flow container.
       const tokenItem = sendFlow.locator('div.cursor-pointer').first();
-      await tokenItem.click({ timeout: 10_000 });
+      await tokenItem.click({ timeout: TILE_CLICK_TIMEOUT_MS });
     }
 
     // 3. SendDetails: fill address, amount, toggle private
@@ -949,9 +958,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // Click Continue
     await sendFlow.getByRole('button', { name: /continue/i }).click();
 
-    // 4. ReviewTransaction: click Confirm
+    // 4. ReviewTransaction: click Confirm. Same 30s budget as the tile click —
+    // a sync that started while the user was filling the form can still be
+    // holding the WASM lock when Confirm is reached.
     await this.page.waitForTimeout(500);
-    await sendFlow.getByRole('button', { name: /confirm/i }).click({ timeout: 10_000 });
+    await sendFlow.getByRole('button', { name: /confirm/i }).click({ timeout: 30_000 });
 
     // 5. Wait for transaction processing
     // The GeneratingTransaction screen shows, then TransactionInitiated
