@@ -166,6 +166,15 @@ export async function requestPrivateNotes(
   return res.privateNotes;
 }
 
+export async function requestAccountFile(sourcePublicKey: string): Promise<string | null> {
+  const res = await request({
+    type: MidenDAppMessageType.AccountFileRequest,
+    sourcePublicKey
+  });
+  assertResponse(res.type === MidenDAppMessageType.AccountFileResponse);
+  return res.bytes;
+}
+
 export async function signBytes(sourceAccountId: string, sourcePublicKey: string, message: string, kind: SignKind) {
   const res = await request({
     type: MidenDAppMessageType.SignRequest,

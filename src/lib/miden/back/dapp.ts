@@ -29,6 +29,8 @@ import {
   MidenDAppPrivateNotesRequest,
   MidenDAppPrivateNoteBytesRequest,
   MidenDAppPrivateNoteBytesResponse,
+  MidenDAppAccountFileRequest,
+  MidenDAppAccountFileResponse,
   MidenDAppSignRequest,
   MidenDAppSignResponse,
   MidenDAppAssetsResponse,
@@ -683,6 +685,58 @@ export async function requestPrivateNoteBytes(
   });
 
   return { type: MidenDAppMessageType.PrivateNoteBytesResponse, bytes };
+}
+
+/**
+ * Export the connected dApp account as a serialized AccountFile so the dApp
+ * can adopt the wallet's account ID locally.
+ *
+ * - Public funded accounts: dApp could just call importAccountById on RPC.
+ *   Returning the AccountFile here is a uniform fallback path.
+ * - Public UNFUNDED accounts: chain has no state yet — this is the only way
+ *   the dApp can know the canonical account ID.
+ * - Private accounts: chain never has state — this is mandatory; dApp also
+ *   needs continuous re-push (handled by ingestState on the dApp side).
+ *
+ * Permission: silent piggyback on Auto + Notes (Pattern B). Returns
+ * `bytes: null` if not granted; never prompts. dApps elevate via
+ * `requestPrivateNotes` (the prompt-bearing endpoint).
+ */
+export async function requestAccountFile(
+  origin: string,
+  req: MidenDAppAccountFileRequest
+): Promise<MidenDAppAccountFileResponse> {
+  if (!req?.sourcePublicKey) {
+    throw new Error(MidenDAppErrorType.InvalidParams);
+  }
+
+  const dApp = await getDApp(origin, req.sourcePublicKey);
+  if (!dApp) {
+    return { type: MidenDAppMessageType.AccountFileResponse, bytes: null };
+  }
+
+  const granted =
+    dApp.privateDataPermission === PrivateDataPermission.Auto &&
+    (dApp.allowedPrivateData & AllowedPrivateData.Notes) !== 0;
+  if (!granted) {
+    return { type: MidenDAppMessageType.AccountFileResponse, bytes: null };
+  }
+
+  try {
+    const bytes = await withUnlocked(async () => {
+      return await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        return await midenClient.exportAccountFile(dApp.accountId);
+      });
+    });
+    return {
+      type: MidenDAppMessageType.AccountFileResponse,
+      bytes: u8ToB64(bytes)
+    };
+  } catch (err) {
+    dappDebug('[dapp.requestAccountFile] export failed', err);
+    return { type: MidenDAppMessageType.AccountFileResponse, bytes: null };
+  }
 }
 
 export async function requestConsumableNotes(

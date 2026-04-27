@@ -130,6 +130,11 @@ export class MidenClientInterface {
     return await this.client.accounts.import(accountId);
   }
 
+  async exportAccountFile(accountId: string): Promise<Uint8Array> {
+    const accountFile = await this.client.accounts.export(accountId);
+    return accountFile.serialize();
+  }
+
   async getAccounts() {
     return await this.client.accounts.list();
   }

@@ -24,6 +24,7 @@ export type MidenDAppRequest =
   | MidenDAppConsumeRequest
   | MidenDAppPrivateNotesRequest
   | MidenDAppPrivateNoteBytesRequest
+  | MidenDAppAccountFileRequest
   | MidenDAppSignRequest
   | MidenDAppAssetsRequest
   | MidenDAppImportPrivateNoteRequest
@@ -39,6 +40,7 @@ export type MidenDAppResponse =
   | MidenDAppConsumeResponse
   | MidenDAppPrivateNotesResponse
   | MidenDAppPrivateNoteBytesResponse
+  | MidenDAppAccountFileResponse
   | MidenDAppSignResponse
   | MidenDAppAssetsResponse
   | MidenDAppImportPrivateNoteResponse
@@ -66,6 +68,8 @@ export enum MidenDAppMessageType {
   PrivateNotesResponse = 'PRIVATE_NOTES_RESPONSE',
   PrivateNoteBytesRequest = 'PRIVATE_NOTE_BYTES_REQUEST',
   PrivateNoteBytesResponse = 'PRIVATE_NOTE_BYTES_RESPONSE',
+  AccountFileRequest = 'ACCOUNT_FILE_REQUEST',
+  AccountFileResponse = 'ACCOUNT_FILE_RESPONSE',
   SignRequest = 'SIGN_REQUEST',
   SignResponse = 'SIGN_RESPONSE',
   AssetsRequest = 'ASSETS_REQUEST',
@@ -182,6 +186,33 @@ export interface MidenDAppPrivateNoteBytesResponse extends MidenDAppMessageBase 
   type: MidenDAppMessageType.PrivateNoteBytesResponse;
   /** base64-encoded NoteFile.serialize() bytes; empty array allowed. */
   bytes: string[];
+}
+
+/**
+ * Request the serialized AccountFile bytes for the connected dApp account.
+ *
+ * Used by the dApp's signer adapter to bootstrap accounts that aren't
+ * chain-visible: public-storage accounts that haven't transacted yet
+ * (chain has no state) and private-storage accounts (chain never has
+ * state). The dApp imports the bytes via `client.importAccountFile` so
+ * its local store reflects the wallet's account ID without needing to
+ * re-derive it.
+ *
+ * IMPORTANT: silent contract — never prompts. If the dApp lacks
+ * Auto+Notes permission, the wallet returns `bytes: null`. Permission
+ * elevation flows through `PrivateNotesRequest`, which IS allowed to
+ * prompt (Pattern B reuses the existing PrivateData/Notes grant as a
+ * single "trust this dApp with my private state" gesture).
+ */
+export interface MidenDAppAccountFileRequest extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.AccountFileRequest;
+  sourcePublicKey: string;
+}
+
+export interface MidenDAppAccountFileResponse extends MidenDAppMessageBase {
+  type: MidenDAppMessageType.AccountFileResponse;
+  /** base64-encoded AccountFile.serialize() bytes; null if not granted. */
+  bytes: string | null;
 }
 
 export interface MidenDAppSignRequest extends MidenDAppMessageBase {

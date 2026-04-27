@@ -16,6 +16,7 @@ import {
   importPrivateNote,
   isAvailable,
   onPermissionChange,
+  requestAccountFile,
   requestAssets,
   requestConsumableNotes,
   requestConsume,
@@ -95,6 +96,12 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
   async requestConsumableNotes(): Promise<{ consumableNotes: InputNoteDetails[] }> {
     const res = await requestConsumableNotes(this.address!);
     return { consumableNotes: res };
+  }
+
+  async requestAccountFile(): Promise<{ bytes: string | null }> {
+    const publicKeyAsHex = bytesToHex(this.publicKey!);
+    const bytes = await requestAccountFile(publicKeyAsHex);
+    return { bytes };
   }
 
   async connect(
