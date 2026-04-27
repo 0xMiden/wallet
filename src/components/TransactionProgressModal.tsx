@@ -205,14 +205,27 @@ export const TransactionProgressModal: FC = () => {
     document.body.appendChild(modalRoot);
   }
 
-  // Use portal to render modal in dedicated container, avoiding conflicts with other modals
+  // Use portal to render modal in dedicated container, avoiding conflicts with other modals.
+  //
+  // The overlay is rendered click-through (`pointer-events-none`); the
+  // content opts back in (`pointer-events-auto`). The backdrop is a
+  // visual cue, not a click trap — the underlying UI keeps receiving
+  // clicks while a transaction is in flight, so the user (or a test
+  // harness) can navigate, start another send, etc. without waiting for
+  // this modal to dismiss. Processing already runs independently of
+  // `isOpen` (see the `isProcessing` flag above), so the modal has no
+  // reason to freeze the rest of the wallet.
+  //
+  // `shouldCloseOnOverlayClick` is `false` because clicks no longer
+  // reach the overlay — dismissal is via the explicit Hide/Done button
+  // or the ESC key.
   return createPortal(
     <Modal
       isOpen={isOpen}
       onRequestClose={handleClose}
-      shouldCloseOnOverlayClick={transactionComplete || error}
-      className={classNames('w-full max-w-lg outline-none flex flex-col items-stretch gap-6')}
-      overlayClassName="fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4"
+      shouldCloseOnOverlayClick={false}
+      className={classNames('w-full max-w-lg outline-none flex flex-col items-stretch gap-6 pointer-events-auto')}
+      overlayClassName="fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4 pointer-events-none"
       style={{
         overlay: { zIndex: 9999 },
         content: { position: 'relative', inset: 'unset', zIndex: 9999 }
