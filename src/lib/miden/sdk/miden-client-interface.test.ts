@@ -128,8 +128,9 @@ describe('MidenClientInterface', () => {
     jest.doMock('screens/onboarding/types', () => ({
       WalletType: { OnChain: 'on-chain', OffChain: 'off-chain' }
     }));
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -189,8 +190,9 @@ describe('MidenClientInterface', () => {
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id)
     }));
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -225,8 +227,9 @@ describe('MidenClientInterface', () => {
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id)
     }));
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -240,8 +243,9 @@ describe('MidenClientInterface', () => {
   it('sends private note', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -268,8 +272,9 @@ describe('MidenClientInterface', () => {
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id)
     }));
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -283,8 +288,9 @@ describe('MidenClientInterface', () => {
   it('waits for transaction commit successfully', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -306,8 +312,9 @@ describe('MidenClientInterface', () => {
       }
     });
 
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -329,8 +336,9 @@ describe('MidenClientInterface', () => {
         newLocalProver: jest.fn(() => 'local')
       }
     }));
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -357,8 +365,9 @@ describe('MidenClientInterface', () => {
         newLocalProver: jest.fn(() => 'local')
       }
     }));
-    jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-      addConnectivityIssue: jest.fn()
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
@@ -374,12 +383,13 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
   });
 
-  describe('withProverFallback connectivity-issue classification', () => {
+  describe('withProverFallback connectivity-state categorization', () => {
     // Build a client that fails the first (delegate) call with a provided error and
-    // succeeds the second (local-prover) call. Returns the addConnectivityIssue spy so
-    // the caller can assert whether it fired.
+    // succeeds the second (local-prover) call. Returns the connectivity-state spies
+    // so the caller can assert whether prover was marked / cleared.
     async function runDelegateFailureCase(err: Error) {
-      const addConnectivityIssue = jest.fn();
+      const markConnectivityIssue = jest.fn();
+      const clearConnectivityIssue = jest.fn();
       const consume = jest
         .fn()
         .mockImplementationOnce(async () => {
@@ -392,7 +402,10 @@ describe('MidenClientInterface', () => {
       jest.doMock('@miden-sdk/miden-sdk', () => ({
         TransactionProver: { newLocalProver: jest.fn(() => 'local') }
       }));
-      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue,
+        clearConnectivityIssue
+      }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
@@ -406,38 +419,38 @@ describe('MidenClientInterface', () => {
 
       expect(result).toBe(fakeTransactionResult);
       expect(consume).toHaveBeenCalledTimes(2); // delegate attempt + local retry
-      return { addConnectivityIssue };
+      return { markConnectivityIssue, clearConnectivityIssue };
     }
 
-    it('does NOT mark connectivity issue for "note has already been consumed"', async () => {
-      const { addConnectivityIssue } = await runDelegateFailureCase(
+    it('does NOT mark prover for "note has already been consumed"', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(
         new Error('failed to execute transaction: invalid transaction request: note 0xdead has already been consumed')
       );
-      expect(addConnectivityIssue).not.toHaveBeenCalled();
+      expect(markConnectivityIssue).not.toHaveBeenCalled();
     });
 
-    it('does NOT mark connectivity issue for "invalid transaction request"', async () => {
-      const { addConnectivityIssue } = await runDelegateFailureCase(
+    it('does NOT mark prover for "invalid transaction request"', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(
         new Error('invalid transaction request: something else went wrong')
       );
-      expect(addConnectivityIssue).not.toHaveBeenCalled();
+      expect(markConnectivityIssue).not.toHaveBeenCalled();
     });
 
-    it('DOES mark connectivity issue on "Failed to fetch"', async () => {
-      const { addConnectivityIssue } = await runDelegateFailureCase(new Error('Failed to fetch'));
-      expect(addConnectivityIssue).toHaveBeenCalled();
+    it('DOES mark prover on "Failed to fetch"', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(new Error('Failed to fetch'));
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
     });
 
-    it('DOES mark connectivity issue on 502 Bad Gateway', async () => {
-      const { addConnectivityIssue } = await runDelegateFailureCase(
+    it('DOES mark prover on 502 Bad Gateway', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(
         new Error('prover responded with status code 502: Bad Gateway')
       );
-      expect(addConnectivityIssue).toHaveBeenCalled();
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
     });
 
-    it('DOES mark connectivity issue on abort / timeout', async () => {
-      const { addConnectivityIssue } = await runDelegateFailureCase(new Error('The operation was aborted'));
-      expect(addConnectivityIssue).toHaveBeenCalled();
+    it('DOES mark prover on abort / timeout', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(new Error('The operation was aborted'));
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
     });
 
     it.each([
@@ -450,17 +463,45 @@ describe('MidenClientInterface', () => {
       ['connection refused'],
       ['transport error: closed stream'],
       ['rpc error: deadline exceeded']
-    ])('DOES mark connectivity issue for %p', async message => {
-      const { addConnectivityIssue } = await runDelegateFailureCase(new Error(message));
-      expect(addConnectivityIssue).toHaveBeenCalled();
+    ])('DOES mark prover for %p', async message => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
     });
 
     it.each([['note has already been consumed'], ['some unrecognized wasm error']])(
-      'does NOT mark connectivity issue for %p',
+      'does NOT mark prover for %p',
       async message => {
-        const { addConnectivityIssue } = await runDelegateFailureCase(new Error(message));
-        expect(addConnectivityIssue).not.toHaveBeenCalled();
+        const { markConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+        expect(markConnectivityIssue).not.toHaveBeenCalled();
       }
     );
+
+    it('clears prover on a successful prover call', async () => {
+      const markConnectivityIssue = jest.fn();
+      const clearConnectivityIssue = jest.fn();
+      const consume = jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult }));
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue,
+        clearConnectivityIssue
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
+
+      expect(markConnectivityIssue).not.toHaveBeenCalled();
+      expect(clearConnectivityIssue).toHaveBeenCalledWith('prover');
+    });
   });
 });
