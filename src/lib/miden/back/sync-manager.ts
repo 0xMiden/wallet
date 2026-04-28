@@ -10,7 +10,12 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { init_vault } from './vault';
+
+// `init_vault` is the ESM module factory for `./vault`, injected by Vite's
+// SW bundle transform. We must NOT add a source-level binding (e.g.
+// `declare const init_vault`) because Rolldown would rename the factory to
+// `init_vault$1` to avoid the collision, breaking the lazy accessor at
+// runtime. The @ts-expect-error below is the intended escape hatch.
 
 const ALARM_NAME = 'miden-sync';
 
@@ -40,11 +45,14 @@ let inFlight: Promise<void> | null = null;
 let consecutiveSyncFailures = 0;
 let syncBackoffUntilMs = 0;
 
-// Lazy Vault initialization to prevent service worker cold-start race
+// Lazy Vault initialization to prevent service worker cold-start race.
+// See actions.ts:getVault for the full explanation. In Jest, `init_vault`
+// is undefined; the typeof guard skips the factory call.
 let _vault: typeof Vault | null = null;
 async function getVault() {
   if (!_vault) {
-    await init_vault();
+    // @ts-expect-error init_vault is injected by Vite's SW bundle transform
+    if (typeof init_vault === 'function') await init_vault();
     _vault = Vault;
   }
   return _vault;
