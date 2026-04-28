@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useState } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { createPortal } from 'react-dom';
@@ -20,6 +20,7 @@ import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
+import { useLocation } from 'lib/woozie';
 import { GeneratingTransaction } from 'screens/generating-transaction/GeneratingTransaction';
 
 export const TransactionProgressModal: FC = () => {
@@ -174,6 +175,69 @@ export const TransactionProgressModal: FC = () => {
     closeModal(true);
     setError(false);
   }, [closeModal]);
+
+  // Auto-dismiss the modal when the user navigates somewhere else.
+  //
+  // Why: PR #217 made the modal overlay click-through, but the modal CONTENT
+  // (the centered card + progress SVG) still occupies pixel area. When the
+  // user — or the stress harness — moves to a new screen and tries to click
+  // anything that falls behind the card's bounding box, Playwright's
+  // actionability check sees `transaction-modal-root subtree intercepts
+  // pointer events` and times out. The 04-28 stress run reproduced this
+  // 504 times on the post-#217 wallet (Δ = −141 TST).
+  //
+  // The fix: when the user navigates AWAY from the screen the modal opened
+  // on, dismiss the modal. Tx processing keeps running via the
+  // `isProcessing` flag — independent of `isOpen` — so nothing in flight is
+  // cancelled.
+  //
+  // Two complications:
+  //
+  // 1. SendManager's own onSubmit/onGenerateTransaction calls
+  //    `openTransactionModal()` immediately followed by `navigate('/')` (on
+  //    desktop) or stays put (on mobile). We do NOT want to dismiss on that
+  //    self-initiated navigation — the user just submitted, the modal needs
+  //    to land on the home screen so they can see progress.
+  //
+  // 2. `pathname` flips through many intermediate values during a test run
+  //    even when the user is "stationary" (e.g., the SendManager's internal
+  //    multi-step routes within /send). We track the FINAL post-open
+  //    pathname and only react to changes from THAT.
+  //
+  // Implementation: capture the pathname while a 2s grace timer runs (this
+  // covers SendManager's auto-nav). Once the timer fires, the latest
+  // captured pathname becomes the reference; subsequent changes from it
+  // dismiss the modal.
+  const { pathname } = useLocation();
+  const settledPathnameRef = useRef<string | null>(null);
+  const [graceElapsed, setGraceElapsed] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      settledPathnameRef.current = null;
+      setGraceElapsed(false);
+      return;
+    }
+    setGraceElapsed(false);
+    const POST_OPEN_GRACE_MS = 2000;
+    const timer = setTimeout(() => setGraceElapsed(true), POST_OPEN_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!graceElapsed) {
+      // During the grace window, keep updating the snapshot so SendManager's
+      // own `navigate('/')` lands as the post-open settled pathname.
+      settledPathnameRef.current = pathname;
+      return;
+    }
+    // Grace window done. From here on, any pathname change is a user
+    // navigation away from where the modal opened — dismiss.
+    if (settledPathnameRef.current !== null && pathname !== settledPathnameRef.current) {
+      handleClose();
+    }
+  }, [isOpen, graceElapsed, pathname, handleClose]);
 
   const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   // Only show complete if we've loaded AND there are no transactions
