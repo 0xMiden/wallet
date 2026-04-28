@@ -92,10 +92,13 @@ export const TransactionProgressModal: FC = () => {
 
     // Re-run whenever the SW respawns (StateUpdated is broadcast at the
     // tail of `start()` in `lib/miden/back/main.ts`). On mobile / desktop
-    // this is a no-op churn — there's no SW death to recover from — but
-    // the subscribe contract is identical across adapters so the cost is
-    // negligible.
-    if (!isExtension()) return () => undefined;
+    // this is a no-op churn — there's no SW death to recover from — so
+    // we only subscribe in the extension build.
+    if (!isExtension()) {
+      return () => {
+        cancelled = true;
+      };
+    }
     const unsubscribe = getIntercom().subscribe((msg: WalletNotification) => {
       if (msg?.type === WalletMessageType.StateUpdated) {
         resumeIfNeeded();
