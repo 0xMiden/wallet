@@ -491,6 +491,28 @@ describe('doSync — syncState timeout + circuit breaker', () => {
     });
   });
 
+  it('awaits init_vault when present (SW bundle simulation)', async () => {
+    // Cover the `typeof init_vault === 'function'` true arm of the lazy
+    // getVault() accessor. In the Jest env init_vault is undefined; we install
+    // a stub on globalThis and re-import the module to drive the factory-await
+    // path.
+    const initVaultStub = jest.fn(async () => {});
+    (globalThis as any).init_vault = initVaultStub;
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const { doSync: isolated } = await import('./sync-manager');
+        await isolated();
+        expect(initVaultStub).toHaveBeenCalled();
+        // A second sync should not re-await the factory (the `_vault` cache hits).
+        initVaultStub.mockClear();
+        await isolated();
+        expect(initVaultStub).not.toHaveBeenCalled();
+      });
+    } finally {
+      delete (globalThis as any).init_vault;
+    }
+  });
+
   it('the breaker closes after the backoff window elapses', async () => {
     await jest.isolateModulesAsync(async () => {
       jest.spyOn(console, 'warn').mockImplementation();
