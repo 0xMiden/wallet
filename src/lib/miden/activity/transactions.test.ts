@@ -18,7 +18,10 @@ import {
   cancelStaleQueuedTransactions,
   generateTransaction,
   MAX_WAIT_BEFORE_CANCEL,
-  MAX_QUEUED_AGE
+  MAX_QUEUED_AGE,
+  MAX_CONSECUTIVE_CONSUME_FAILURES,
+  RECENT_FAILURE_WINDOW_SEC,
+  RETRY_COOLDOWN_SEC
 } from './transactions';
 
 // Mock functions defined inside factory to avoid hoisting issues with SWC
@@ -364,11 +367,92 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
-    it('creates a new transaction when only a Failed consume exists (retry allowed)', async () => {
-      // Failed txs are excluded from the dedup filter, so the user can retry a consume
-      // that previously failed. The Dexie query filter drops Failed rows, so we simulate
-      // that here by returning [] from the filtered query.
-      mockDedupQuery([]);
+    it('creates a new transaction when only an old Failed consume exists (retry allowed after cooldown)', async () => {
+      // The dedup query now returns ALL consume rows for the noteId (Failed
+      // included), and the bounded-retry policy decides whether to allow a new
+      // attempt. Single Failed row whose `completedAt` is past both the
+      // RETRY_COOLDOWN_SEC and the RECENT_FAILURE_WINDOW_SEC → cap and cooldown
+      // both clear → new attempt is enqueued.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const oldFailedTx = {
+        id: 'old-failed-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 100,
+        completedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 50
+      };
+      mockDedupQuery([oldFailedTx]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+      expect(typeof result).toBe('string');
+      expect(result).not.toBe('old-failed-tx');
+    });
+
+    it('blocks a new attempt while the cooldown has not elapsed since the last Failed', async () => {
+      // Most recent Failed completed less than RETRY_COOLDOWN_SEC ago →
+      // suppress the new attempt and return the most recent Failed id.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const recentFailed = {
+        id: 'recent-failed-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - 30,
+        completedAt: nowSec - 10
+      };
+      mockDedupQuery([recentFailed]);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(result).toBe('recent-failed-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('blocks a new attempt after MAX_CONSECUTIVE_CONSUME_FAILURES inside the recent window', async () => {
+      // The cap is on consecutive failures inside RECENT_FAILURE_WINDOW_SEC.
+      // Build MAX_CONSECUTIVE recent failures, the most recent of which IS
+      // outside the per-attempt cooldown. Cooldown alone would allow; the
+      // cap fires and suppresses.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const failedRows = Array.from({ length: MAX_CONSECUTIVE_CONSUME_FAILURES }, (_, i) => ({
+        id: `failed-tx-${i}`,
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - RETRY_COOLDOWN_SEC - 1000 - i,
+        completedAt: nowSec - RETRY_COOLDOWN_SEC - 100 - i
+      }));
+      mockDedupQuery(failedRows);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      // Should reuse the most-recent Failed id (the one with the smallest age).
+      expect(result).toBe('failed-tx-0');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('ignores Failed rows older than RECENT_FAILURE_WINDOW_SEC when counting toward the cap', async () => {
+      // 10 Failed rows but all of them are older than the recent window —
+      // none count toward the cap. The single recent Failed clears the
+      // cooldown and is the only one that matters; new attempt allowed.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const ancient = Array.from({ length: 10 }, (_, i) => ({
+        id: `ancient-failed-${i}`,
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 10_000 - i,
+        completedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 5_000 - i
+      }));
+      mockDedupQuery(ancient);
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransaction('account-1', note);
