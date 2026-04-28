@@ -478,6 +478,114 @@ describe('transactions utilities', () => {
       expect(result).not.toBe('other-account-tx');
       expect(mockTransactionsAdd).toHaveBeenCalled();
     });
+
+    it('falls back to initiatedAt when a Failed row has no completedAt (cap+cooldown still apply)', async () => {
+      // Edge case: a Failed row whose `completedAt` was never written (e.g. a
+      // crash mid-cancel). The recent-window filter, the sort comparator, AND
+      // the cooldown check all use `completedAt ?? initiatedAt`, so a row
+      // missing `completedAt` must still be considered for the gate. This test
+      // exercises the `?? initiatedAt` fallback on lines 183, 186, and 189 by
+      // ranking a no-completedAt Failed first via initiatedAt and verifying the
+      // cooldown branch suppresses the new attempt.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const noCompletedAtFailed = {
+        id: 'no-completed-at-failed',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - 5,
+        completedAt: undefined
+      };
+      const olderFailed = {
+        id: 'older-failed',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - RETRY_COOLDOWN_SEC - 200,
+        completedAt: nowSec - RETRY_COOLDOWN_SEC - 100
+      };
+      mockDedupQuery([olderFailed, noCompletedAtFailed]);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      // The no-completedAt row sorts first (initiatedAt = nowSec - 5 is the
+      // highest effective timestamp), and its initiatedAt-derived "recency" is
+      // inside the cooldown window, so suppression returns its id.
+      expect(result).toBe('no-completed-at-failed');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
+    it('drops Failed rows with no completedAt and stale initiatedAt from the recent-window filter', async () => {
+      // Same `?? initiatedAt` fallback on line 183, but this time the fallback
+      // value is OUTSIDE the recent-failure window — the row is filtered out,
+      // leaving zero recent failures, and a new attempt is enqueued.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const ancientNoCompletedAt = {
+        id: 'ancient-no-completed-at',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - RECENT_FAILURE_WINDOW_SEC - 10_000,
+        completedAt: undefined
+      };
+      mockDedupQuery([ancientNoCompletedAt]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+      expect(result).not.toBe('ancient-no-completed-at');
+    });
+
+    it('sort comparator hits the `b.completedAt ?? b.initiatedAt` fallback when an interior row lacks completedAt', async () => {
+      // Three Failed rows where the middle one (in input order) has
+      // `completedAt: undefined`. The sort comparator's pairwise calls force
+      // both arms of the `??` on `b`: the missing-completedAt row eventually
+      // appears in the `b` slot of a comparison and exercises the fallback.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const inputRows = [
+        {
+          id: 'a-recent',
+          type: 'consume',
+          noteId: 'note-123',
+          accountId: 'account-1',
+          status: ITransactionStatus.Failed,
+          initiatedAt: nowSec - 200,
+          completedAt: nowSec - 100
+        },
+        {
+          id: 'b-no-completedat',
+          type: 'consume',
+          noteId: 'note-123',
+          accountId: 'account-1',
+          status: ITransactionStatus.Failed,
+          initiatedAt: nowSec - 50,
+          completedAt: undefined
+        },
+        {
+          id: 'c-recent',
+          type: 'consume',
+          noteId: 'note-123',
+          accountId: 'account-1',
+          status: ITransactionStatus.Failed,
+          initiatedAt: nowSec - 400,
+          completedAt: nowSec - 300
+        }
+      ];
+      mockDedupQuery(inputRows);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      // After sorting, the no-completedAt row's effective timestamp
+      // (initiatedAt = nowSec - 50) is the highest, so it wins as the most
+      // recent. The cooldown branch fires because that timestamp is well
+      // inside RETRY_COOLDOWN_SEC, suppressing the new attempt.
+      expect(result).toBe('b-no-completedat');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
   });
 
   describe('initiateConsumeTransactionFromId', () => {
