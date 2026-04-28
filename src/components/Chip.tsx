@@ -10,7 +10,10 @@ export interface ChipProps extends React.ComponentProps<'label'> {
   className?: string;
 }
 
-const defaultClassName = 'bg-white border border-grey-100 text-black hover:border-grey-200 hover:bg-grey-50';
+// hover:bg-gray-50 maps to --color-surface-tertiary → #f3f3f3 / #333333 so the
+// hover state stays readable when text-black auto-flips to white in dark mode.
+// The previous hover:bg-grey-50 was a literal #F3F3F3 → invisible white-on-light.
+const defaultClassName = 'bg-white border border-grey-100 text-black hover:border-grey-200 hover:bg-gray-50';
 const selectedClassName = 'bg-pure-black border border-pure-black text-pure-white hover:bg-grey-800';
 
 export const Chip: React.FC<ChipProps> = ({ label, selected, className, onClick, ...props }) => {

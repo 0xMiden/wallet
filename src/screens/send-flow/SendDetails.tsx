@@ -266,7 +266,10 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 type="button"
                 className={clsx(
                   'flex-1 py-3 rounded-10 text-sm font-semibold transition-colors cursor-pointer',
-                  sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-pure-white text-heading-gray/40'
+                  // bg-input-bg auto-flips via --color-input-bg so the unselected
+                  // button stays readable in dark mode. Previous bg-pure-white was
+                  // a literal #FFFFFF and produced white-on-white in dark theme.
+                  sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-input-bg text-heading-gray/40'
                 )}
                 onClick={() => {
                   hapticLight();

@@ -43,13 +43,24 @@ const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
     copy();
   }, [publicKey, copy]);
 
+  // Truncate to a chip-friendly form: 0x + first 6 + ... + last 4.
+  // Until the WASM client resolves the key we render a non-breaking space so
+  // the row keeps its height and doesn't jump on first paint.
+  const truncatedPublicKey = publicKey ? `0x${publicKey.slice(0, 6)}...${publicKey.slice(-4)}` : ' ';
+
   return (
     <div className="w-full flex flex-col gap-6 pb-6">
       <div className="flex items-center justify-between text-heading-gray">
         <div className="flex flex-col">
           <span className="font-medium text-base">{t('accountPublicKey')}</span>
+          <span className="text-xs font-mono text-text-muted select-text">{truncatedPublicKey}</span>
         </div>
-        <button type="button" onClick={handleCopy} className="flex items-center cursor-pointer hover:bg-gray-25">
+        <button
+          type="button"
+          onClick={handleCopy}
+          disabled={!publicKey}
+          className="flex items-center cursor-pointer hover:bg-gray-25 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
           <Icon name={copied ? IconName.Checkmark : IconName.Copy} className={clsx('w-5 h-5 p-1 stroke-black')} />
         </button>
       </div>
