@@ -313,16 +313,22 @@ describe('verifyStuckTransactionsFromNode', () => {
   });
 });
 
+const mockGuardianProvider = {
+  getAccounts: jest.fn(async () => []),
+  getPublicKeyForCommitment: jest.fn(async () => ''),
+  signWord: jest.fn(async () => '')
+};
+
 describe('safeGenerateTransactionsLoop', () => {
   it('returns true when there are no queued transactions', async () => {
     const sign = jest.fn();
-    const result = await safeGenerateTransactionsLoop(sign);
+    const result = await safeGenerateTransactionsLoop(sign, false, mockGuardianProvider);
     expect(result).toBe(true);
   });
 
   it('returns undefined when navigator.locks.request reports the lock is unavailable', async () => {
     installNavigatorLocksMock(null); // null lock means "not available"
-    const result = await safeGenerateTransactionsLoop(jest.fn());
+    const result = await safeGenerateTransactionsLoop(jest.fn(), false, mockGuardianProvider);
     expect(result).toBeUndefined();
   });
 });
@@ -331,7 +337,7 @@ describe('startBackgroundTransactionProcessing', () => {
   it('schedules a background loop and returns synchronously', () => {
     // We just verify it returns without throwing — the actual background work
     // happens in a fire-and-forget Promise we don't await.
-    expect(() => startBackgroundTransactionProcessing(jest.fn())).not.toThrow();
+    expect(() => startBackgroundTransactionProcessing(jest.fn(), false, mockGuardianProvider)).not.toThrow();
   });
 });
 

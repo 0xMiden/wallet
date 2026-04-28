@@ -10,7 +10,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { WalletAccount } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { OnboardingAction, OnboardingStep, OnboardingType } from 'screens/onboarding/types';
+import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 const ForgotPassword: FC = () => {
   const [step, setStep] = useState(OnboardingStep.Welcome);
@@ -31,6 +31,7 @@ const ForgotPassword: FC = () => {
       if (!importedWithFile) {
         try {
           await registerWallet(
+            WalletType.Guardian,
             password,
             seedPhraseFormatted,
             onboardingType === OnboardingType.Import // might be able to leverage ownMnemonic to determine whther to attempt imports in general

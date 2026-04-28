@@ -19,6 +19,8 @@ jest.mock('lib/platform/storage-adapter', () => ({
   })
 }));
 
+import { act, renderHook } from '@testing-library/react';
+
 import { addConnectivityIssue, sendConnectivityIssue } from './connectivity-issues';
 
 beforeEach(() => {
@@ -48,5 +50,57 @@ describe('sendConnectivityIssue', () => {
         })
       })
     );
+  });
+});
+
+// useConnectivityIssues is a thin wrapper around useStorage; exercising it
+// via useStorage's real suspense path is flaky with @testing-library/react.
+// Stub useStorage at the module level and drive the hook through that — we
+// only need to prove the wrapper forwards state + dismisses correctly.
+describe('useConnectivityIssues', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const conn = require('./connectivity-issues');
+
+  // We re-import the module under a mock of useStorage so the hook is
+  // covered without the suspense machinery.
+  let useHook: typeof conn.useConnectivityIssues;
+  let setStored: (v: boolean) => void;
+  let storedValue = false;
+  let setValue: jest.Mock;
+
+  beforeEach(() => {
+    jest.resetModules();
+    setValue = jest.fn(async (v: boolean) => {
+      storedValue = v;
+    });
+    setStored = (v: boolean) => {
+      storedValue = v;
+    };
+    jest.doMock('../front', () => ({
+      useStorage: jest.fn(() => [storedValue, setValue]),
+      putToStorage: jest.fn(async () => {})
+    }));
+    // Re-require after mocking so the hook picks up the stubbed useStorage.
+    const reloaded = require('./connectivity-issues');
+    useHook = reloaded.useConnectivityIssues;
+  });
+
+  it('returns the stored flag and dispatches false on dismiss', () => {
+    setStored(true);
+    const { result } = renderHook(() => useHook());
+
+    const [value, dismiss] = result.current;
+    expect(value).toBe(true);
+
+    act(() => {
+      dismiss();
+    });
+    expect(setValue).toHaveBeenCalledWith(false);
+  });
+
+  it('returns the default false when nothing is stored', () => {
+    setStored(false);
+    const { result } = renderHook(() => useHook());
+    expect(result.current[0]).toBe(false);
   });
 });

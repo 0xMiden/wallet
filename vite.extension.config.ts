@@ -6,14 +6,14 @@
  *
  * Replaces webpack.config.js entirely for the extension build.
  */
-import { resolve, join, sep } from 'path';
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react-swc';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, cpSync, readdirSync, statSync } from 'fs';
+import { resolve, join, sep } from 'path';
+import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 // vite-plugin-svgr doesn't work with Vite 8's Rolldown -- use custom plugin
 import wasm from 'vite-plugin-wasm';
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react-swc';
-import { defineConfig, type Plugin } from 'vite';
 
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
@@ -332,6 +332,12 @@ export default defineConfig({
           return '[name].js';
         },
         chunkFileNames: 'chunks/[name].[hash].js',
+        manualChunks(id) {
+          // Force the wasm-bindgen glue into a single shared chunk so static
+          // and dynamic imports resolve to the same `class Account` / `class WebClient` —
+          // otherwise Rolldown duplicates the module per chunk and `_assertClass` fails across them.
+          if (id.includes('@miden-sdk/miden-sdk/dist/Cargo-')) return 'miden-sdk-wasm';
+        },
         assetFileNames: assetInfo => {
           if (assetInfo.names?.[0]?.endsWith('.wasm')) {
             return 'static/wasm/[name].[hash][extname]';

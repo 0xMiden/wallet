@@ -422,6 +422,34 @@
     "message": "执行交易",
     "englishSource": "Executing transaction"
   },
+  "transactionStageSwitching": {
+    "message": "切换监护人",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "创建提案",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "为您的监护人制定交易建议。",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "与监护人签字",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "您的监护人正在签署该提案。",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "提交交易",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "将您签名的交易发送到网络。",
+    "englishSource": "Sending your signed transaction to the network."
+  },
   "transactionStageConfirming": {
     "message": "链上确认",
     "englishSource": "Confirming on chain"
@@ -429,6 +457,14 @@
   "transactionStageConfirmingDescription": {
     "message": "等待网络确认。",
     "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "与监护人一起登记",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "向新监护人注册您的帐户状态。",
+    "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
     "message": "正在传送note",
@@ -1562,6 +1598,46 @@
     "message": "加密钱包文件",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "监护人",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "监护人设置",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "现任监护人",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "新的守护者端点",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "开关守护者",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "将您的监护人帐户指向新的监护人端点。该切换被签署为链上提案。",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "切换监护人...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "守护者切换成功。",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "那已经是你现在的监护人了。",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "输入以 http:// 或 https:// 开头的有效 URL",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "输入您的密码以访问您的加密钱包文件。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1827,6 +1903,74 @@
   "canAddMultipleAccountsLater": {
     "message": "您可以稍后在钱包中添加和管理多个帐户类型。",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "设置帐户恢复",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "选择在失去访问权限时恢复帐户的方式。",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "监护人",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "受到推崇的。基于监护人的帐户恢复，但监护人操作员可以看到您的状态。",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "完全私人",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "仅限本地，除了您之外没有人看到您的状态，但无法恢复，丢失您的设备将导致您的资金永久丢失。",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "民众",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "恢复公共链上账户。",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "您想如何找回这个钱包？",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "通过 Guardian 导入",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "使用监护人来恢复并共同签署此帐户。",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "导入公众号",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "导入从您的 seed phrase 派生的公共帐户。",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "监护人网址",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "使用不同的监护人",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "我们在该监护人上找不到您的帐户。请检查 URL 或导入为公共帐户。",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "默认",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "交易文件",

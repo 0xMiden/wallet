@@ -81,12 +81,13 @@ describe('MobileIntercomAdapter', () => {
     it('handles NewWalletRequest', async () => {
       const response = await adapter.request({
         type: WalletMessageType.NewWalletRequest,
+        walletType: 'on-chain',
         password: 'test123',
         mnemonic: 'word1 word2 word3',
         ownMnemonic: false
       } as any);
 
-      expect(Actions.registerNewWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', false);
+      expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'test123', 'word1 word2 word3', false);
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
     });
 

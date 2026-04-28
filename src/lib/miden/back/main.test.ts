@@ -233,11 +233,12 @@ describe('processRequest', () => {
   it('NewWalletRequest delegates to registerNewWallet', async () => {
     const res = await dispatch({
       type: WalletMessageType.NewWalletRequest,
+      walletType: 'on-chain',
       password: 'pw',
       mnemonic: 'm',
       ownMnemonic: false
     });
-    expect(Actions.registerNewWallet).toHaveBeenCalledWith('pw', 'm', false);
+    expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'pw', 'm', false);
     expect(res.type).toBe(WalletMessageType.NewWalletResponse);
   });
 

@@ -121,10 +121,10 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.NewWalletRequest:
       console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
       try {
-        await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
+        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
         console.log('[processRequest] registerNewWallet completed successfully');
-      } catch (err: any) {
-        console.error('[processRequest] registerNewWallet FAILED:', err?.message, err?.stack?.slice(0, 500));
+      } catch (err: unknown) {
+        console.error('[processRequest] registerNewWallet FAILED:', err);
         throw err;
       }
       return { type: WalletMessageType.NewWalletResponse };
@@ -205,6 +205,18 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SignTransactionResponse,
         signature
+      };
+    case WalletMessageType.SignWordRequest:
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      return {
+        type: WalletMessageType.SignWordResponse,
+        signature: wordSignature
+      };
+    case WalletMessageType.GetPublicKeyForCommitmentRequest:
+      const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
+      return {
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey: commitmentPublicKey
       };
     case WalletMessageType.GetAuthSecretKeyRequest:
       const key = await Actions.getAuthSecretKey(req.key);

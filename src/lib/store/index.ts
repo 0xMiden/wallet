@@ -124,9 +124,11 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (password, mnemonic, ownMnemonic) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic) => {
+      console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
+        walletType,
         password,
         mnemonic,
         ownMnemonic
@@ -161,6 +163,14 @@ export const useWalletStore = create<WalletStore>()(
         name
       });
       assertResponse(res.type === WalletMessageType.CreateAccountResponse);
+
+      // Pull fresh state right away. The StateUpdated broadcast is advisory and can
+      // race the CreateAccount response (extension port reconnect, SW waking, etc.),
+      // leaving consumers that await createAccount — notably CreateAccount.tsx's
+      // length-diff effect — looking at a stale accounts array.
+      const stateRes = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(stateRes.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(stateRes.state);
     },
 
     updateCurrentAccount: async accountPublicKey => {
@@ -264,6 +274,25 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SignTransactionResponse);
       const signatureAsHex = res.signature;
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
+    },
+
+    signWord: async (publicKey, wordHex) => {
+      const res = await request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey,
+        wordHex
+      });
+      assertResponse(res.type === WalletMessageType.SignWordResponse);
+      return res.signature;
+    },
+
+    getPublicKeyForCommitment: async commitment => {
+      const res = await request({
+        type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+        commitment
+      });
+      assertResponse(res.type === WalletMessageType.GetPublicKeyForCommitmentResponse);
+      return res.publicKey;
     },
 
     getAuthSecretKey: async key => {

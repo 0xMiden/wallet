@@ -39,7 +39,7 @@ export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps
 
   return (
     <div
-      className="flex-1 flex flex-col items-center bg-transparent px-4 pt-6 overflow-y-auto"
+      className="flex-1 flex flex-col items-center bg-transparent text-heading-gray px-4 pt-6 overflow-y-auto"
       data-testid="import-select-type"
     >
       <div className="flex flex-col items-center pb-6">
