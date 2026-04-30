@@ -82,7 +82,7 @@ export function useSyncTrigger() {
             const client = await getMidenClient();
             if (!client || cancelled) return;
             await client.syncState();
-          });
+          }, 'sync.trigger');
         } catch (error) {
           console.warn('[useSyncTrigger] sync error:', error);
         } finally {
