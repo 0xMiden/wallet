@@ -1531,6 +1531,63 @@
     "message": "Encrypted Wallet File",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Cloud Backup",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Import from Cloud Backup",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Import from Cloud",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Sign in with Google",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Signed in as $email$",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Backup Password",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Restoring backup...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Checking backup...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "No backup found on this account.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "This backup was encrypted with a passkey. Authenticate to restore.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Restore with Passkey",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Signing in...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Enter your password to access your Encrypted Wallet File.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

@@ -194,6 +194,22 @@ class MidenClientSingleton {
       this.initializingPromiseWithOptions = null;
     }
   }
+
+  /**
+   * Dispose every cached client instance so the next getMidenClient() call
+   * re-instantiates against the current IDB state. Call this after operations
+   * that mutate the underlying store out-of-band (e.g. importDb during a
+   * cloud-backup restore) — the in-memory WASM client would otherwise keep
+   * serving stale data until the page reloads.
+   */
+  dispose(): void {
+    if (this.instance) {
+      this.instance.free();
+      this.instance = null;
+      this.initializingPromise = null;
+    }
+    this.disposeInstanceWithOptions();
+  }
 }
 
 const midenClientSingleton = new MidenClientSingleton();
@@ -207,4 +223,14 @@ export async function getMidenClient(options?: MidenClientCreateOptions): Promis
     return await midenClientSingleton.getInstanceWithOptions(options);
   }
   return await midenClientSingleton.getInstance();
+}
+
+/**
+ * Tear down every cached WASM client instance. After this, the next
+ * getMidenClient() call re-initializes a fresh client that reads from
+ * the current IDB state. Callers are responsible for holding the WASM
+ * client lock while disposing.
+ */
+export function disposeMidenClient(): void {
+  midenClientSingleton.dispose();
 }

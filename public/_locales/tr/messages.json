@@ -1562,6 +1562,63 @@
     "message": "Şifreli Cüzdan Dosyası",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Bulut Yedekleme",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Bulut Yedekleme'den içe aktar",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Cüzdan verilerinizi Google Drive'dan geri yükleyin. İçe aktarma işlemini tamamlamak için yine de seed phrase numaranıza ihtiyacınız olacak.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Buluttan İçe Aktar",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Google ile oturum açın",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Şu şekilde oturum açıldı: $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Yedekleme Şifresi",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Yedekleme geri yükleniyor...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Yedekleme kontrol ediliyor...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "Bu hesapta yedek bulunamadı.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "Bu yedekleme bir geçiş anahtarıyla şifrelendi. Geri yüklemek için kimlik doğrulaması yapın.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Şifre Anahtarı ile Geri Yükle",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Oturum açılıyor...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Şifreli Cüzdan Dosyanıza erişmek için şifrenizi girin.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

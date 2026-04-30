@@ -65,6 +65,8 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     // Biometric authentication for hardware security
     implementation 'androidx.biometric:biometric:1.1.0'
+    // Google Identity Services — AuthorizationClient for Drive scope OAuth (cloud backup)
+    implementation 'com.google.android.gms:play-services-auth:21.3.0'
 }
 
 apply from: 'capacitor.build.gradle'

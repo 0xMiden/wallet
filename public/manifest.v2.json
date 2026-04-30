@@ -19,10 +19,16 @@
     "unlimitedStorage",
     "clipboardWrite",
     "activeTab",
+    "identity",
     "http://localhost:4180/",
     "http://localhost:3000/",
-    "https://*.miden.fi/*"
+    "https://*.miden.fi/*",
+    "https://accounts.google.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://www.googleapis.com/*"
   ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAygLPRoPk3J/x6c2JU9H2yIcshyuMsWuKep6BSblZlVXm5E8jPZ5eSVdNooTZi2gk4vaN9Zo70fR7ArTPIqdjEkC/yFcgcpGdJD7Dh9SNuFfx/5xzowmRbKDZVRx7kK7E9BJ4LKMWEew3P94uSwBXIFndUROwN9G3voFN2d5no2F6oNKOddnmeRx0tjoCIEyCdEcdf0fEmz5JjhpTHe2X6sBOpkEBf9XwqmUmlcytHmAHsbJv5pKQeyb430sJFKJiOkX+q1125iAKaYmL0bCMRftH0+5Ho02rvRAZtZPl5dJvsYzbsIGUQzse9N6lNYvryiIB1dE1K8RnVI4fjH8wtwIDAQAB",
+
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
 
   "__chrome|firefox__author": "Miden",

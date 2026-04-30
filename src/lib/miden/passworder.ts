@@ -136,6 +136,22 @@ export function deriveKey(key: CryptoKey, salt: Uint8Array, iterations = 1_310_0
   );
 }
 
+/**
+ * Derive raw key bytes from a password + salt via PBKDF2.
+ * Unlike deriveKey(), this returns extractable raw bytes (for vault storage).
+ */
+export async function deriveKeyBytes(password: string, salt: Uint8Array, iterations = 1_310_000): Promise<Uint8Array> {
+  const passKey = await generateKey(password);
+  const saltBuffer = new ArrayBuffer(salt.byteLength);
+  new Uint8Array(saltBuffer).set(new Uint8Array(salt));
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltBuffer, iterations, hash: 'SHA-256' },
+    passKey,
+    256
+  );
+  return new Uint8Array(bits);
+}
+
 export function generateSalt(byteCount = 32) {
   const view = new Uint8Array(byteCount);
   crypto.getRandomValues(view);
@@ -187,6 +203,28 @@ export async function generateKeyHash(password: string): Promise<string> {
 export async function generateKeyFromHash(keyHash: string): Promise<CryptoKey> {
   const hashBuffer = Buffer.from(keyHash, 'base64');
   return importKey(hashBuffer.buffer.slice(hashBuffer.byteOffset, hashBuffer.byteOffset + hashBuffer.byteLength));
+}
+
+// ============================================================================
+// Binary Encryption (for cloud backup payloads)
+// ============================================================================
+
+/** AES-GCM encrypt raw bytes. Returns iv (16 bytes) + ciphertext. */
+export async function encryptBytes(data: Uint8Array<ArrayBuffer>, key: CryptoKey): Promise<Uint8Array<ArrayBuffer>> {
+  const iv = crypto.getRandomValues(new Uint8Array(16));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+  const out = new Uint8Array(16 + ciphertext.byteLength);
+  out.set(iv, 0);
+  out.set(new Uint8Array(ciphertext), 16);
+  return out;
+}
+
+/** Decrypt bytes produced by encryptBytes. Expects iv (16 bytes) + ciphertext. */
+export async function decryptBytes(data: Uint8Array<ArrayBuffer>, key: CryptoKey): Promise<Uint8Array<ArrayBuffer>> {
+  const iv = data.subarray(0, 16);
+  const ciphertext = data.subarray(16);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new Uint8Array(plaintext);
 }
 
 // ============================================================================

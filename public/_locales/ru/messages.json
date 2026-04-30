@@ -1563,6 +1563,63 @@
     "message": "Зашифрованный файл кошелька",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Облачное резервное копирование",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Импорт из облачного резервного копирования",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Восстановите данные своего кошелька с Google Диска. Для завершения импорта вам все равно понадобится ваш seed phrase.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Импорт из облака",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Войти через Google",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Вошёл как $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Резервный пароль",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Восстановление резервной копии...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Проверяем резервную копию...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "В этом аккаунте не найдено резервных копий.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "Эта резервная копия была зашифрована с помощью пароля. Авторизуйтесь для восстановления.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Восстановить с помощью пароля",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Вход в систему...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Введите свой пароль для доступа к вашему зашифрованному файлу кошелька.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

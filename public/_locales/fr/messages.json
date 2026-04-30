@@ -1561,6 +1561,63 @@
     "message": "Fichier de portefeuille crypté",
     "englishSource": "Encrypted Wallet File"
   },
+  "cloudBackup": {
+    "message": "Sauvegarde dans le cloud",
+    "englishSource": "Cloud Backup"
+  },
+  "importWithCloudBackup": {
+    "message": "Importer depuis la sauvegarde cloud",
+    "englishSource": "Import from Cloud Backup"
+  },
+  "importWithCloudBackupDescription": {
+    "message": "Restaurez les données de votre portefeuille depuis Google Drive. Vous aurez toujours besoin de votre seed phrase pour terminer l'importation.",
+    "englishSource": "Restore your wallet data from Google Drive. You will still need your seed phrase to complete the import."
+  },
+  "importFromCloudBackup": {
+    "message": "Importer depuis le cloud",
+    "englishSource": "Import from Cloud"
+  },
+  "cloudSignIn": {
+    "message": "Connectez-vous avec Google",
+    "englishSource": "Sign in with Google"
+  },
+  "cloudSignedIn": {
+    "message": "Connecté en tant que $email$ ",
+    "englishSource": "Signed in as $email$",
+    "placeholders": {
+      "email": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupPassword": {
+    "message": "Mot de passe de sauvegarde",
+    "englishSource": "Backup Password"
+  },
+  "cloudRestoring": {
+    "message": "Restauration de la sauvegarde...",
+    "englishSource": "Restoring backup..."
+  },
+  "cloudProbing": {
+    "message": "Vérification de la sauvegarde...",
+    "englishSource": "Checking backup..."
+  },
+  "cloudNoBackupFound": {
+    "message": "Aucune sauvegarde trouvée sur ce compte.",
+    "englishSource": "No backup found on this account."
+  },
+  "cloudPasskeyRestoreHint": {
+    "message": "Cette sauvegarde a été chiffrée avec un mot de passe. Authenticate to restore.",
+    "englishSource": "This backup was encrypted with a passkey. Authenticate to restore."
+  },
+  "cloudRestoreWithPasskey": {
+    "message": "Restaurer avec la clé d'accès",
+    "englishSource": "Restore with Passkey"
+  },
+  "signingIn": {
+    "message": "Connexion...",
+    "englishSource": "Signing in..."
+  },
   "encryptedWalletFileDescription": {
     "message": "Entrez votre mot de passe pour accéder à votre fichier de portefeuille crypté.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."

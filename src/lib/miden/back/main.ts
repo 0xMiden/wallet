@@ -1,6 +1,14 @@
 import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
+import {
+  disableAutoBackup,
+  enableAutoBackup,
+  getStatus as getAutoBackupStatus,
+  registerAutoBackupHooks,
+  restoreFromBackupNow,
+  triggerBackup
+} from 'lib/miden/back/auto-backup-manager';
 import { intercom } from 'lib/miden/back/defaults';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
@@ -8,10 +16,16 @@ import { startTransactionProcessing } from 'lib/miden/back/transaction-processor
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
+import { GoogleDriveProvider } from '../backup/google-drive-provider';
+import { probeCloudBackup, restoreCloudBackup, RestoreEncryptionArgs } from '../backup/restore-service';
 import { NoteExportType } from '../sdk/constants';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
+
+function fromBase64(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
 // `store` may not be initialized at module scope evaluation time.
@@ -37,6 +51,8 @@ export async function start() {
   });
   // Force frontend to re-fetch state now that everything is initialized
   intercom.broadcast({ type: WalletMessageType.StateUpdated });
+
+  registerAutoBackupHooks();
 }
 
 async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
@@ -50,6 +66,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.NoteClaimStartedResponse };
     case WalletMessageType.ProcessTransactionsRequest:
       // Fire-and-forget — start processing asynchronously
+      // triggerBackup is called by transaction-processor when all transactions complete
       startTransactionProcessing().catch(err => console.error('[TransactionProcessor] Error:', err));
       return { type: WalletMessageType.ProcessTransactionsResponse };
     case WalletMessageType.ImportNoteBytesRequest: {
@@ -60,6 +77,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         await client.syncState();
         return id.toString();
       });
+      triggerBackup();
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
     }
     case WalletMessageType.ExportNoteRequest: {
@@ -248,5 +266,42 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     //   type: WalletMessageType.GetOwnedRecordsResponse,
     //   records
     // };
+    case WalletMessageType.CloudBackupRestoreRequest: {
+      const provider = new GoogleDriveProvider(req.accessToken);
+      const restoreArgs: RestoreEncryptionArgs =
+        req.encryption.method === 'password'
+          ? { type: 'password', backupPassword: req.encryption.backupPassword }
+          : { type: 'passkey', keyMaterial: fromBase64(req.encryption.keyMaterial) };
+      const content = await restoreCloudBackup(restoreArgs, provider);
+      return {
+        type: WalletMessageType.CloudBackupRestoreResponse,
+        walletAccounts: content.walletAccounts,
+        walletSettings: content.walletSettings
+      };
+    }
+    case WalletMessageType.CloudBackupProbeRequest: {
+      const provider = new GoogleDriveProvider(req.accessToken);
+      const probe = await probeCloudBackup(provider);
+      return { type: WalletMessageType.CloudBackupProbeResponse, ...probe };
+    }
+    case WalletMessageType.CloudBackupRegisterRequest: {
+      await Actions.registerFromCloudBackup(req.password ?? '', req.mnemonic, req.walletAccounts, req.walletSettings);
+      return { type: WalletMessageType.CloudBackupRegisterResponse };
+    }
+    case WalletMessageType.AutoBackupSetEnabledRequest: {
+      if (req.enabled && req.encryption && req.accessToken && req.expiresAt) {
+        await enableAutoBackup(req.encryption, req.accessToken, req.expiresAt, req.skipInitialBackup);
+      } else {
+        await disableAutoBackup();
+      }
+      return { type: WalletMessageType.AutoBackupSetEnabledResponse };
+    }
+    case WalletMessageType.AutoBackupStatusRequest: {
+      return { type: WalletMessageType.AutoBackupStatusResponse, ...getAutoBackupStatus() };
+    }
+    case WalletMessageType.AutoBackupRestoreNowRequest: {
+      await restoreFromBackupNow();
+      return { type: WalletMessageType.AutoBackupRestoreNowResponse };
+    }
   }
 }

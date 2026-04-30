@@ -244,6 +244,71 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    // Cloud backup actions
+    restoreCloudBackup: async (accessToken, encryption) => {
+      const res = await request({
+        type: WalletMessageType.CloudBackupRestoreRequest,
+        accessToken,
+        encryption
+      });
+      assertResponse(res.type === WalletMessageType.CloudBackupRestoreResponse);
+      return { walletAccounts: res.walletAccounts, walletSettings: res.walletSettings };
+    },
+
+    probeCloudBackup: async accessToken => {
+      const res = await request({
+        type: WalletMessageType.CloudBackupProbeRequest,
+        accessToken
+      });
+      assertResponse(res.type === WalletMessageType.CloudBackupProbeResponse);
+      return { encryptionMethod: res.encryptionMethod, credentialId: res.credentialId, prfSalt: res.prfSalt };
+    },
+
+    registerFromCloudBackup: async (password, mnemonic, walletAccounts, walletSettings) => {
+      const res = await request({
+        type: WalletMessageType.CloudBackupRegisterRequest,
+        password,
+        mnemonic,
+        walletAccounts,
+        walletSettings
+      });
+      assertResponse(res.type === WalletMessageType.CloudBackupRegisterResponse);
+    },
+
+    // Auto backup actions
+    setAutoBackupEnabled: async (enabled, accessToken, expiresAt, encryption, skipInitialBackup) => {
+      const res = await request({
+        type: WalletMessageType.AutoBackupSetEnabledRequest,
+        enabled,
+        accessToken,
+        expiresAt,
+        encryption,
+        skipInitialBackup
+      });
+      assertResponse(res.type === WalletMessageType.AutoBackupSetEnabledResponse);
+    },
+
+    fetchAutoBackupStatus: async () => {
+      const res = await request({
+        type: WalletMessageType.AutoBackupStatusRequest
+      });
+      assertResponse(res.type === WalletMessageType.AutoBackupStatusResponse);
+      return {
+        enabled: res.enabled,
+        lastBackupAt: res.lastBackupAt,
+        lastError: res.lastError,
+        method: res.method,
+        needsGoogleReauth: res.needsGoogleReauth
+      };
+    },
+
+    restoreFromAutoBackup: async () => {
+      const res = await request({
+        type: WalletMessageType.AutoBackupRestoreNowRequest
+      });
+      assertResponse(res.type === WalletMessageType.AutoBackupRestoreNowResponse);
+    },
+
     // Signing actions
     signData: async (publicKey, signingInputs) => {
       const res = await request({

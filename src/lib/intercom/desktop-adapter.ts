@@ -7,6 +7,7 @@
  */
 
 import * as Actions from 'lib/miden/back/actions';
+import { registerAutoBackupHooks } from 'lib/miden/back/auto-backup-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
@@ -35,6 +36,8 @@ export class DesktopIntercomAdapter {
     frontStore.watch(() => {
       this.notifySubscribers({ type: WalletMessageType.StateUpdated });
     });
+
+    registerAutoBackupHooks();
 
     this.initialized = true;
     console.log('DesktopIntercomAdapter: Backend initialized');

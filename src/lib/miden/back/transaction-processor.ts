@@ -106,7 +106,9 @@ export async function startTransactionProcessing(): Promise<void> {
       }
 
       const remaining = await getAllUncompletedTransactions();
-      if (remaining.length === 0) break;
+      if (remaining.length === 0) {
+        break;
+      }
 
       await new Promise(resolve => setTimeout(resolve, 5000));
     }

@@ -25,7 +25,7 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
 const STORAGE_KEY_PREFIX = 'vault';
-const DEFAULT_SETTINGS = {};
+const DEFAULT_SETTINGS: WalletSettings = {};
 
 // Storage keys for vault key protectors
 const VAULT_KEY_PASSWORD_STORAGE_KEY = 'vault_key_password';
@@ -43,6 +43,7 @@ enum StorageEntity {
   Accounts = 'accounts',
   Settings = 'settings',
   OwnMnemonic = 'ownmnemonic',
+  AutoBackupKey = 'autobackupkey',
   LegacyMigrationLevel = 'mgrnlvl'
 }
 
@@ -55,6 +56,7 @@ const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey)
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
+const autoBackupKeyStrgKey = createStorageKey(StorageEntity.AutoBackupKey);
 
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
@@ -240,7 +242,7 @@ export class Vault {
         insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
       };
       const hdAccIndex = 0;
-      const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
+      const walletSeed = deriveClientSeed(WalletType.OffChain, mnemonic, 0);
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const accPublicKey = await withWasmClientLock(async () => {
@@ -253,22 +255,22 @@ export class Vault {
             return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
           } catch (e) {
             console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+            return await midenClient.createMidenWallet(WalletType.OffChain, walletSeed);
           }
         } else {
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           console.log('[Vault.spawn] Step 8b: syncing state...');
           await midenClient.syncState();
           console.log('[Vault.spawn] Step 9: creating miden wallet...');
-          return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+          return await midenClient.createMidenWallet(WalletType.OffChain, walletSeed);
         }
       });
 
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
-        isPublic: true,
-        type: WalletType.OnChain,
+        isPublic: false,
+        type: WalletType.OffChain,
         hdIndex: hdAccIndex
       };
       const newAccounts = [initialAccount];
@@ -368,12 +370,89 @@ export class Vault {
     });
   }
 
+  static async spawnFromCloudBackup(
+    password: string,
+    mnemonic: string,
+    backedUpAccounts: WalletAccount[],
+    backedUpSettings: WalletSettings
+  ): Promise<Vault> {
+    return withError('Failed to spawn from cloud backup', async (): Promise<Vault> => {
+      const vaultKeyBytes = Passworder.generateVaultKey();
+      const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
+
+      await clearStorage(false);
+
+      const useHardwareOnly = !password;
+      const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+
+      if (useHardwareOnly && hardwareAvailable) {
+        const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
+        if (!hardwareSetupSuccess) {
+          throw new PublicError('Hardware security setup failed. Please try again.');
+        }
+      } else {
+        const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
+        await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
+      }
+
+      // Re-import each account from its seed to trigger the insertKeyCallback,
+      // which stores the auth secret keys needed for signing transactions.
+      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
+        const pubKeyHex = Buffer.from(key).toString('hex');
+        const secretKeyHex = Buffer.from(secretKey).toString('hex');
+        await encryptAndSaveMany(
+          [
+            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
+            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+          ],
+          vaultKey
+        );
+      };
+      const options: MidenClientCreateOptions = { insertKeyCallback };
+
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient(options);
+        for (const account of backedUpAccounts) {
+          const walletSeed = deriveClientSeed(account.type, mnemonic, account.hdIndex);
+          const midenAccount = await midenClient.getAccount(account.publicKey);
+          if (!midenAccount) {
+            throw new PublicError(
+              `Account ${account.name} could not be found in the backup miden client dump but was expected to be there.`
+            );
+          }
+          const key = midenAccount.getPublicKeyCommitments()[0]!.serialize();
+          const sk = AuthSecretKey.rpoFalconWithRNG(walletSeed).serialize();
+          await insertKeyCallback(key, sk);
+        }
+      });
+
+      await encryptAndSaveMany(
+        [
+          [checkStrgKey, generateCheck()],
+          [mnemonicStrgKey, mnemonic ?? ''],
+          [accountsStrgKey, backedUpAccounts],
+          [settingsStrgKey, backedUpSettings]
+        ],
+        vaultKey
+      );
+      await savePlain(currentAccPubKeyStrgKey, backedUpAccounts[0]!.publicKey);
+      await savePlain(ownMnemonicStrgKey, true);
+
+      return new Vault(vaultKey);
+    });
+  }
+
   static async getCurrentAccountPublicKey() {
     return await getPlain<string>(currentAccPubKeyStrgKey);
   }
 
-  async fetchSettings() {
-    return DEFAULT_SETTINGS;
+  async fetchSettings(): Promise<WalletSettings> {
+    try {
+      const settings = await fetchAndDecryptOneWithLegacyFallBack<WalletSettings>(settingsStrgKey, this.vaultKey);
+      return settings ?? DEFAULT_SETTINGS;
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
   }
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
@@ -462,6 +541,46 @@ export class Vault {
     });
   }
 
+  async replaceAccounts(accounts: WalletAccount[]): Promise<void> {
+    await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
+  }
+
+  /**
+   * Re-derive and persist the auth secret key for each account from the
+   * vault's mnemonic. Used after a cloud-backup restore brings in accounts
+   * we don't have signing material for — without this, signTransaction()
+   * fails on the restored accounts. Idempotent: safe to call for accounts
+   * whose keys are already stored.
+   */
+  async restoreAccountKeys(accounts: WalletAccount[]): Promise<void> {
+    return withError('Failed to restore account keys', async () => {
+      const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey);
+
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        for (const account of accounts) {
+          const midenAccount = await midenClient.getAccount(account.publicKey);
+          if (!midenAccount) {
+            console.warn('[Vault.restoreAccountKeys] Account not in client store:', account.publicKey);
+            continue;
+          }
+          const walletSeed = deriveClientSeed(account.type, mnemonic, account.hdIndex);
+          const key = midenAccount.getPublicKeyCommitments()[0]!.serialize();
+          const sk = AuthSecretKey.rpoFalconWithRNG(walletSeed).serialize();
+          const pubKeyHex = Buffer.from(key).toString('hex');
+          const secretKeyHex = Buffer.from(sk).toString('hex');
+          await encryptAndSaveMany(
+            [
+              [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
+              [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+            ],
+            this.vaultKey
+          );
+        }
+      });
+    });
+  }
+
   async updateSettings(settings: Partial<WalletSettings>) {
     return withError('Failed to update settings', async () => {
       const current = await this.fetchSettings();
@@ -469,6 +588,23 @@ export class Vault {
       await encryptAndSaveMany([[settingsStrgKey, newSettings]], this.vaultKey);
       return newSettings;
     });
+  }
+
+  async saveAutoBackupKey(keyBytes: Uint8Array): Promise<void> {
+    await encryptAndSaveMany([[autoBackupKeyStrgKey, u8ToB64(keyBytes)]], this.vaultKey);
+  }
+
+  async getAutoBackupKey(): Promise<Uint8Array | null> {
+    try {
+      const b64 = await fetchAndDecryptOneWithLegacyFallBack<string>(autoBackupKeyStrgKey, this.vaultKey);
+      return b64ToU8(b64);
+    } catch {
+      return null;
+    }
+  }
+
+  async clearAutoBackupKey(): Promise<void> {
+    await encryptAndSaveMany([[autoBackupKeyStrgKey, null]], this.vaultKey);
   }
 
   async authorize(_sendTransaction: SendTransaction) {}

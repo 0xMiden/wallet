@@ -129,6 +129,22 @@ export function registerImportedWallet(password?: string, mnemonic?: string, wal
   });
 }
 
+export function registerFromCloudBackup(
+  password: string,
+  mnemonic: string,
+  accounts: WalletAccount[],
+  settings: WalletSettings
+) {
+  return withInited(async () => {
+    const vault = await Vault.spawnFromCloudBackup(password, mnemonic, accounts, settings);
+    const vaultAccounts = await vault.fetchAccounts();
+    const vaultSettings = await vault.fetchSettings();
+    const currentAccount = await vault.getCurrentAccount();
+    const ownMnemonicFlag = await vault.isOwnMnemonic();
+    unlocked({ vault, accounts: vaultAccounts, settings: vaultSettings, currentAccount, ownMnemonic: ownMnemonicFlag });
+  });
+}
+
 export function lock() {
   return withInited(async () => {
     // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
