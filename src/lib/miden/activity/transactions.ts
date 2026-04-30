@@ -99,7 +99,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
             error
           });
         }
-      });
+      }, 'tx.complete-custom.private-deliver');
     } catch (error) {
       console.error('Failed to initialize Miden client for private note send', {
         txId: transaction.id,
@@ -123,7 +123,7 @@ export const initiateConsumeTransactionFromId = async (
     const midenClient = await getMidenClient();
 
     return midenClient.getInputNote(noteId);
-  });
+  }, 'tx.consume-from-id.get-note');
   if (!sdkNote) {
     throw new Error(`Note with id ${noteId} not found`);
   }
@@ -324,7 +324,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       } catch (error) {
         return { success: false, errorType: 'transport', error };
       }
-    }).catch(error => ({ success: false, errorType: 'init' as const, error }));
+    }, 'tx.complete-send.private-deliver').catch(error => ({ success: false, errorType: 'init' as const, error }));
 
     if (!sendResult.success) {
       if (sendResult.errorType === 'transport') {
@@ -568,7 +568,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
       const noteDetails = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
         return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
-      });
+      }, 'tx.recover-stuck.get-note');
 
       const note = noteDetails[0];
       if (!note) {
@@ -620,7 +620,7 @@ export const generateTransaction = async (
   await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
     await midenClient.syncState();
-  });
+  }, 'tx.pipeline.sync');
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {

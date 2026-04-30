@@ -25,6 +25,10 @@ class AsyncMutex {
     });
   }
 
+  pendingCount(): number {
+    return this.queue.length;
+  }
+
   release(): void {
     const next = this.queue.shift();
     if (next) {
@@ -99,12 +103,28 @@ const wasmClientMutex = new AsyncMutex();
 /**
  * Execute an operation with the WASM client mutex held.
  * This ensures only one WASM client operation runs at a time across the entire app.
+ *
+ * Stress instrumentation: when wait or hold time exceeds 50ms, emits a
+ * `[lock]` console.log line. The Playwright stress harness captures these
+ * via browser_console events and writes them into timeline.ndjson for
+ * per-call-site attribution. Strip the `label` arg + the gated log block
+ * when the contention question is answered.
  */
-export async function withWasmClientLock<T>(operation: () => Promise<T>): Promise<T> {
+export async function withWasmClientLock<T>(operation: () => Promise<T>, label: string = 'unlabeled'): Promise<T> {
+  const requestedAt = performance.now();
   await wasmClientMutex.acquire();
+  const acquiredAt = performance.now();
+  const waitMs = acquiredAt - requestedAt;
   try {
     return await operation();
   } finally {
+    const heldMs = performance.now() - acquiredAt;
+    if (waitMs > 50 || heldMs > 50) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[lock] label=${label} wait=${waitMs.toFixed(0)}ms held=${heldMs.toFixed(0)}ms qDepth=${wasmClientMutex.pendingCount()}`
+      );
+    }
     wasmClientMutex.release();
   }
 }

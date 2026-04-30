@@ -69,7 +69,7 @@ async function runSync(): Promise<void> {
           const client = await getMidenClient();
           if (!client) return;
           await client.syncState();
-        }),
+        }, 'sync.manager.poll'),
         SYNC_TIMEOUT_MS
       );
       consecutiveSyncFailures = 0;
@@ -137,7 +137,7 @@ async function runSync(): Promise<void> {
         }
 
         return { parsedNotes: notes, vaultAssets: assets };
-      });
+      }, 'sync.manager.notes');
 
       // Fetch metadata for all faucets in parallel (RPC, outside lock — no WASM needed)
       // Collect all unique faucet IDs from both notes and vault assets

@@ -22,6 +22,6 @@ export const importAllNotes = async () => {
     }
     await new Promise(resolve => setTimeout(resolve, 2000));
     await midenClient.syncState();
-  });
+  }, 'notes.import');
   await putToStorage(IMPORT_NOTES_KEY, []);
 };

@@ -149,7 +149,7 @@ async function fetchNotesFromLocalClient(
     rawNotes = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
       return midenClient.getConsumableNotes(publicAddress);
-    });
+    }, 'claimable.list');
   } catch (e) {
     debugInfoRef.current = {
       ...debugInfoRef.current,
