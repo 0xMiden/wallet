@@ -90,7 +90,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
         const midenClient = await getMidenClient();
 
         try {
-          await midenClient.waitForTransactionCommit(executedTx.id().toHex());
+          await midenClient.waitForTransactionCommit(executedTx.id().toHex(), 60_000, 1_000);
           await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
         } catch (error) {
           console.error('Failed to send private note through the transport layer', {
@@ -317,7 +317,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     const sendResult = await withWasmClientLock<SendResult>(async () => {
       try {
         const midenClient = await getMidenClient();
-        await midenClient.waitForTransactionCommit(executedTx.id().toHex());
+        await midenClient.waitForTransactionCommit(executedTx.id().toHex(), 60_000, 1_000);
         await setTransactionStage(tx.id, 'delivering');
         await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
         return { success: true };
