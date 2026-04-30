@@ -12,7 +12,7 @@ export const GOOGLE_DRIVE_BACKUP_FILENAME = 'miden-wallet-backup';
 // The client's "Authorized redirect URIs" must include `https://<extension-id>.chromiumapp.org/`
 // (trailing slash required) where <extension-id> is `chrome.runtime.id`.
 export const GOOGLE_DRIVE_EXTENSION_CLIENT_ID =
-  '849882985138-REPLACE_WITH_WEB_APP_CLIENT_ID.apps.googleusercontent.com';
+  '849882985138-qsagc75sbjn1njkid22e7assb72rmqvi.apps.googleusercontent.com';
 export const GOOGLE_DRIVE_IOS_CLIENT_ID = '849882985138-gbl44m5nmvuim6eiv4vmtg5rvoq4knqi.apps.googleusercontent.com';
 export const GOOGLE_DRIVE_IOS_REDIRECT_URI =
   'com.googleusercontent.apps.849882985138-gbl44m5nmvuim6eiv4vmtg5rvoq4knqi:/oauthredirect';

@@ -8,9 +8,9 @@
   "scripts": {
     "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules && patch-package",
     "start": "yarn watch:src",
-    "dev": "rimraf ./dist && concurrently yarn:watch:*",
+    "dev": "rimraf ./dist && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:bg && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:cs && concurrently -n bg,ext -c blue,green \"cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development vite build --config vite.background.config.ts --watch\" \"cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 MODE_ENV=development NODE_ENV=development vite build --config vite.extension.config.ts --watch\"",
     "dev-clean": "rimraf node_modules && yarn cache clean && yarn install && yarn dev",
-    "watch:src": "echo 'Use vite dev instead'",
+    "watch:src": "vite run --config vite.extension.config.ts",
     "watch:dist": "mv3-hot-reload",
     "build": "yarn build:extension && yarn build:mobile",
     "build:extension": "cross-env TARGET_BROWSER=chrome yarn build:bg && cross-env TARGET_BROWSER=chrome yarn build:cs && cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
@@ -89,7 +89,7 @@
     "desktop:build": "yarn build:desktop && yarn tauri build",
     "desktop:reset": "rm -rf ~/Library/WebKit/com.miden.wallet ~/Library/Caches/com.miden.wallet ~/Library/Application\\ Support/com.miden.wallet",
     "build:devnet": "rimraf ./dist && yarn clear:webpack-cache && cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=production MANIFEST_VERSION=3 webpack",
-    "dev:devnet": "cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=development MANIFEST_VERSION=3 webpack --watch --progress",
+    "dev:devnet": "cross-env MIDEN_NETWORK=devnet yarn run dev",
     "build:desktop:devnet": "rimraf ./dist/desktop && cross-env MIDEN_NETWORK=devnet DISABLE_TS_CHECKER=true NODE_ENV=development MODE_ENV=production webpack --config webpack.desktop.config.js",
     "tauri": "tauri"
   },

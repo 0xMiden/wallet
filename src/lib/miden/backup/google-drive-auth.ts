@@ -12,12 +12,21 @@
  *   tokens via POST to https://oauth2.googleapis.com/token, and persist the
  *   refresh token in chrome.storage.local for silent re-auth.
  *
+ *   The browser-action popup closes when focus shifts to the OAuth window,
+ *   which would drop the in-flight launchWebAuthFlow promise. To survive the
+ *   round-trip, when sign-in is triggered from the popup we promote the
+ *   extension to side panel mode (the panel is docked to the browser window
+ *   and stays open while other windows take focus), set a pending flag in
+ *   chrome.storage.local, and let consumePendingExtensionAuth resume the
+ *   flow once the side panel mounts.
+ *
  *   Requires:
  *     - Web Application OAuth client in Google Cloud Console
  *     - `https://<extension-id>.chromiumapp.org/` listed as an authorized
  *       redirect URI on that client (trailing slash required)
  *     - "identity" permission in manifest.json
  *     - "https://oauth2.googleapis.com/*" in manifest.json host_permissions
+ *     - "sidePanel" permission + side_panel.default_path in manifest.json
  *
  * Mobile (iOS):
  *   Uses system browser (@capacitor/browser) + deep link redirect + PKCE.
@@ -58,6 +67,7 @@ const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REFRESH_TOKEN_KEY = 'google_drive_refresh_token';
 const EXT_REFRESH_TOKEN_KEY = 'google_drive_ext_refresh_token';
+const EXT_PENDING_OAUTH_KEY = 'google_drive_ext_oauth_pending';
 
 export interface GoogleAuthResult {
   accessToken: string;
@@ -202,6 +212,46 @@ export async function persistGoogleRefreshToken(token: string): Promise<void> {
 
 // ---- Extension: chrome.identity.launchWebAuthFlow + PKCE ----
 
+// The browser-action popup closes the moment focus shifts to the OAuth window
+// opened by launchWebAuthFlow, which drops the in-flight promise and aborts
+// the flow. To survive the OAuth round-trip we promote the extension to side
+// panel mode (the panel is docked to the browser window and stays open while
+// other windows take focus) and resume sign-in there via consumePendingExtensionAuth.
+function isExtensionPopupWindow(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.location.pathname.endsWith('popup.html');
+}
+
+async function promoteToSidePanelAndDeferOAuth(): Promise<never> {
+  const chrome = (globalThis as any).chrome;
+  if (!chrome?.sidePanel?.open) {
+    throw new Error('Side panel API unavailable — open the wallet in full page to sign in');
+  }
+  // Preserve the current route so the side panel lands back where the user clicked Sign In.
+  const currentHash = window.location.hash || '';
+  const sidePanelPath = `sidepanel.html${currentHash}`;
+  await chrome.storage.local.set({
+    [EXT_PENDING_OAUTH_KEY]: true,
+    sidepanel_mode: true
+  });
+  try {
+    await chrome.sidePanel.setOptions({ path: sidePanelPath, enabled: true });
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    chrome.action.setPopup({ popup: '' });
+    const win = await chrome.windows.getLastFocused();
+    await chrome.sidePanel.open({ windowId: win.id });
+  } catch (err) {
+    // Side panel didn't open — clear the flag so we don't strand a pending state
+    await chrome.storage.local.remove(EXT_PENDING_OAUTH_KEY);
+    chrome.action.setPopup({ popup: 'popup.html' });
+    chrome.storage.local.set({ sidepanel_mode: false });
+    throw err;
+  }
+  window.close();
+  // The popup is closing; the side panel will resume OAuth via consumePendingExtensionAuth.
+  return new Promise<never>(() => {});
+}
+
 function getExtensionRedirectUrl(): string {
   const chrome = (globalThis as any).chrome;
   return chrome.identity.getRedirectURL();
@@ -244,6 +294,10 @@ export async function refreshExtensionAccessToken(): Promise<GoogleAuthResult | 
 }
 
 async function extensionAuth(): Promise<GoogleAuthResult> {
+  if (isExtensionPopupWindow()) {
+    await promoteToSidePanelAndDeferOAuth();
+  }
+
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
   const redirectUri = getExtensionRedirectUrl();
@@ -423,4 +477,21 @@ export async function getGoogleAuthToken(): Promise<GoogleAuthResult> {
     return mobileAuth();
   }
   throw new Error('Unsupported platform for Google auth');
+}
+
+/**
+ * If a sign-in attempt was started in the popup and deferred by switching
+ * the extension to side panel mode, finish that flow now. Returns the auth
+ * result if a deferred sign-in was consumed, null otherwise. Safe to call
+ * unconditionally on screens that initiate Google sign-in.
+ */
+export async function consumePendingExtensionAuth(): Promise<GoogleAuthResult | null> {
+  if (!isExtension()) return null;
+  if (isExtensionPopupWindow()) return null;
+  const chrome = (globalThis as any).chrome;
+  if (!chrome?.storage?.local) return null;
+  const result = await chrome.storage.local.get(EXT_PENDING_OAUTH_KEY);
+  if (!result[EXT_PENDING_OAUTH_KEY]) return null;
+  await chrome.storage.local.remove(EXT_PENDING_OAUTH_KEY);
+  return extensionAuth();
 }

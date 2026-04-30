@@ -1,7 +1,12 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { getGoogleAuthToken, GoogleAuthResult, trySilentGoogleAuth } from 'lib/miden/backup/google-drive-auth';
+import {
+  consumePendingExtensionAuth,
+  getGoogleAuthToken,
+  GoogleAuthResult,
+  trySilentGoogleAuth
+} from 'lib/miden/backup/google-drive-auth';
 import { useMidenContext } from 'lib/miden/front';
 import { generateSalt } from 'lib/miden/passworder';
 import { getPasskeyProvider } from 'lib/passkey';
@@ -20,16 +25,25 @@ const CloudBackupSettings: FC<{ onClose?: () => void }> = () => {
   const [loading, setLoading] = useState(false);
   const [autoBackupStatus, setAutoBackupStatus] = useState<AutoBackupStatus | null>(null);
 
-  // Fetch auto-backup status and try silent Google auth on mount
+  // Fetch auto-backup status and try silent Google auth on mount.
+  // If we just landed here in the side panel after the popup deferred OAuth
+  // (popup closes when OAuth window takes focus), resume the interactive flow.
   useEffect(() => {
     fetchAutoBackupStatus()
       .then(setAutoBackupStatus)
       .catch(() => {});
-    trySilentGoogleAuth()
-      .then(result => {
-        if (result) setAuth(result);
+    consumePendingExtensionAuth()
+      .then(deferred => {
+        if (deferred) {
+          setAuth(deferred);
+          setStatus('Signed in with Google');
+          return;
+        }
+        return trySilentGoogleAuth().then(silent => {
+          if (silent) setAuth(silent);
+        });
       })
-      .catch(() => {});
+      .catch(err => setStatus(`Sign-in failed: ${err instanceof Error ? err.message : String(err)}`));
   }, [fetchAutoBackupStatus]);
 
   const handleSignIn = useCallback(async () => {
