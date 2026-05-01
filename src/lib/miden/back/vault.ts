@@ -389,7 +389,7 @@ export class Vault {
             throw new PublicError('Account from Miden Client not found in provided wallet accounts');
           }
           const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
-          const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
+          const secretKey = AuthSecretKey.ecdsaWithRNG(walletSeed);
           await midenClient.client.keystore.insert(account.id(), secretKey);
         }
       });

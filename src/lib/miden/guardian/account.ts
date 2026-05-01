@@ -1,5 +1,5 @@
 import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
-import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
+import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -67,7 +67,7 @@ export async function createGuardianAccount(
 
   try {
     // Generate the signer secret key from seed
-    const sk = AuthSecretKey.rpoFalconWithRNG(seed);
+    const sk = AuthSecretKey.ecdsaWithRNG(seed);
     const signerCommitment = sk.publicKey().toCommitment();
 
     // Get Guardian endpoint and initialize client
@@ -87,10 +87,10 @@ export async function createGuardianAccount(
         guardianPublicKey: pubkey,
         guardianEnabled: true,
         storageMode: 'private',
-        signatureScheme: 'falcon',
+        signatureScheme: 'ecdsa',
         seed
       },
-      new FalconSigner(sk)
+      new EcdsaSigner(sk)
     );
 
     if (!skipRegistration) {

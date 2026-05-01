@@ -21,20 +21,20 @@ jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
 
-// AuthSecretKey.rpoFalconWithRNG + commitment calls need a predictable stub.
-const mockAuthSecretKeyRpo = jest.fn();
+// AuthSecretKey.ecdsaWithRNG + commitment calls need a predictable stub.
+const mockAuthSecretKeyEcdsa = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...actual,
-    AuthSecretKey: { rpoFalconWithRNG: (seed: unknown) => mockAuthSecretKeyRpo(seed) }
+    AuthSecretKey: { ecdsaWithRNG: (seed: unknown) => mockAuthSecretKeyEcdsa(seed) }
   };
 });
 jest.mock('@miden-sdk/miden-sdk', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...actual,
-    AuthSecretKey: { rpoFalconWithRNG: (seed: unknown) => mockAuthSecretKeyRpo(seed) }
+    AuthSecretKey: { ecdsaWithRNG: (seed: unknown) => mockAuthSecretKeyEcdsa(seed) }
   };
 });
 
@@ -54,7 +54,7 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
       getPubkey: (...a: unknown[]) => multisigClientConfig.getPubkey(...a)
     }
   })),
-  FalconSigner: jest.fn().mockImplementation((sk: unknown) => ({ sk }))
+  EcdsaSigner: jest.fn().mockImplementation((sk: unknown) => ({ sk }))
 }));
 
 describe('getSignerDetailsFromAccount', () => {
@@ -123,7 +123,7 @@ describe('createGuardianAccount', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockAuthSecretKeyRpo.mockReturnValue({
+    mockAuthSecretKeyEcdsa.mockReturnValue({
       publicKey: () => ({ toCommitment: () => ({ toHex: () => '0xsigner-commit' }) })
     });
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
@@ -138,7 +138,7 @@ describe('createGuardianAccount', () => {
     const seed = new Uint8Array([1, 2, 3, 4]);
     const account = await createGuardianAccount(webClient as never, seed);
 
-    expect(mockAuthSecretKeyRpo).toHaveBeenCalledWith(seed);
+    expect(mockAuthSecretKeyEcdsa).toHaveBeenCalledWith(seed);
     expect(multisigClientConfig.create).toHaveBeenCalledWith(
       expect.objectContaining({
         threshold: 1,
@@ -147,7 +147,7 @@ describe('createGuardianAccount', () => {
         guardianPublicKey: 'g-pubkey',
         guardianEnabled: true,
         storageMode: 'private',
-        signatureScheme: 'falcon',
+        signatureScheme: 'ecdsa',
         seed
       }),
       expect.anything()
@@ -164,8 +164,8 @@ describe('createGuardianAccount', () => {
 
     await createGuardianAccount(webClient as never);
 
-    // rpoFalconWithRNG was still called with a 32-byte Uint8Array.
-    const seedArg = mockAuthSecretKeyRpo.mock.calls[0]?.[0];
+    // ecdsaWithRNG was still called with a 32-byte Uint8Array.
+    const seedArg = mockAuthSecretKeyEcdsa.mock.calls[0]?.[0];
     expect(seedArg).toBeInstanceOf(Uint8Array);
     expect((seedArg as Uint8Array).length).toBe(32);
   });

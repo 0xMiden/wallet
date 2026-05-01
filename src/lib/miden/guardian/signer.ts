@@ -6,12 +6,13 @@ export type SignWordFunction = (publicKey: string, wordHex: string) => Promise<s
 export class WalletSigner implements Signer {
   readonly commitment: string;
   readonly publicKey: string;
-  readonly scheme: SignatureScheme = 'falcon';
+  readonly scheme: SignatureScheme;
   private signWordFn: (wordHex: string) => Promise<string>;
 
-  constructor(publicKey: string, commitment: string, signWordFn: SignWordFunction) {
+  constructor(publicKey: string, commitment: string, signWordFn: SignWordFunction, scheme: SignatureScheme = 'ecdsa') {
     this.publicKey = publicKey;
     this.commitment = commitment;
+    this.scheme = scheme;
     this.signWordFn = (wordHex: string) => signWordFn(commitment.slice(2), wordHex);
   }
 

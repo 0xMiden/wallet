@@ -37,10 +37,6 @@ export class GuardianHttpClient {
 
 export class GuardianHttpError extends Error {}
 
-export class FalconSigner {
-  constructor(..._args: unknown[]) {}
-}
-
 export class EcdsaSigner {
   constructor(..._args: unknown[]) {}
 }
