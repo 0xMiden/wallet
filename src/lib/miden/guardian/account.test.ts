@@ -1,7 +1,8 @@
 /**
  * guardian/account — getSignerDetailsFromAccount reads the first signer
  * commitment out of the multisig storage slot; createGuardianAccount drives
- * MultisigClient.create + guardian registration + keystore insertion.
+ * MultisigClient.create + guardian registration + keystore insertion for
+ * the 3-key (hot + cold + guardian) layout.
  *
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
@@ -21,22 +22,51 @@ jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
 
-// AuthSecretKey.ecdsaWithRNG + commitment calls need a predictable stub.
-const mockAuthSecretKeyEcdsa = jest.fn();
+// AuthSecretKey.ecdsaWithRNG returns a deterministic stub keyed by the seed
+// so we can distinguish hot vs cold material. Each call mints a new "key"
+// object whose serialize/publicKey/etc are jest mocks the assertions can read.
+type StubKey = {
+  serialize: jest.Mock;
+  publicKey: jest.Mock;
+  __seedTag: string;
+};
+const stubKeyByTag: Record<string, StubKey> = {};
+const buildStubKey = (tag: string): StubKey => {
+  const key: StubKey = {
+    __seedTag: tag,
+    serialize: jest.fn(() => new Uint8Array([0xaa, ...Buffer.from(tag, 'utf-8')])),
+    publicKey: jest.fn(() => ({
+      serialize: jest.fn(() => new Uint8Array([0x01, ...Buffer.from(`pub-${tag}`, 'utf-8')])),
+      toCommitment: jest.fn(() => ({ toHex: () => `0xcommit-${tag}` }))
+    }))
+  };
+  stubKeyByTag[tag] = key;
+  return key;
+};
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...actual,
-    AuthSecretKey: { ecdsaWithRNG: (seed: unknown) => mockAuthSecretKeyEcdsa(seed) }
+    AuthSecretKey: {
+      ecdsaWithRNG: jest.fn((seed: Uint8Array) => buildStubKey(`s${Array.from(seed).join('-')}`))
+    }
   };
 });
 jest.mock('@miden-sdk/miden-sdk', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...actual,
-    AuthSecretKey: { ecdsaWithRNG: (seed: unknown) => mockAuthSecretKeyEcdsa(seed) }
+    AuthSecretKey: {
+      ecdsaWithRNG: jest.fn((seed: Uint8Array) => buildStubKey(`s${Array.from(seed).join('-')}`))
+    }
   };
 });
+
+// secure-hot-key facade — generateHotKey is the only entry createGuardianAccount uses.
+const mockGenerateHotKey = jest.fn();
+jest.mock('lib/secure-hot-key', () => ({
+  generateHotKey: (...a: unknown[]) => mockGenerateHotKey(...a)
+}));
 
 // Guardian SDK stubs — keep per-test knobs for getPubkey + client.create.
 const multisigClientConfig: {
@@ -46,6 +76,7 @@ const multisigClientConfig: {
   create: jest.fn(),
   getPubkey: jest.fn()
 };
+const ecdsaSignerCtor = jest.fn();
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   MultisigClient: jest.fn().mockImplementation(() => ({
@@ -54,7 +85,10 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
       getPubkey: (...a: unknown[]) => multisigClientConfig.getPubkey(...a)
     }
   })),
-  EcdsaSigner: jest.fn().mockImplementation((sk: unknown) => ({ sk }))
+  EcdsaSigner: jest.fn().mockImplementation((sk: unknown) => {
+    ecdsaSignerCtor(sk);
+    return { sk };
+  })
 }));
 
 describe('getSignerDetailsFromAccount', () => {
@@ -123,26 +157,30 @@ describe('createGuardianAccount', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockAuthSecretKeyEcdsa.mockReturnValue({
-      publicKey: () => ({ toCommitment: () => ({ toHex: () => '0xsigner-commit' }) })
-    });
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
     mockFetchFromStorage.mockResolvedValue(undefined);
+    mockGenerateHotKey.mockResolvedValue({
+      ciphertext: 'hot-ciphertext-hex',
+      publicKeyHex: 'hot-pubkey-hex',
+      commitmentHex: '0xhot-commit'
+    });
   });
 
-  it('creates a 1-of-1 multisig, registers with the guardian, syncs, and persists the signer key', async () => {
+  it('creates a 2-of-N multisig with [hot, cold] commitments, registers, syncs, persists cold to keystore', async () => {
     const webClient = makeWebClient();
     const multisig = makeMultisig();
     multisigClientConfig.create.mockResolvedValueOnce(multisig);
 
     const seed = new Uint8Array([1, 2, 3, 4]);
-    const account = await createGuardianAccount(webClient as never, seed);
+    const result = await createGuardianAccount(webClient as never, seed);
 
-    expect(mockAuthSecretKeyEcdsa).toHaveBeenCalledWith(seed);
+    // Hot is generated via the secure-hot-key facade; cold is HD-derived from seed.
+    expect(mockGenerateHotKey).toHaveBeenCalledTimes(1);
     expect(multisigClientConfig.create).toHaveBeenCalledWith(
       expect.objectContaining({
         threshold: 1,
-        signerCommitments: ['0xsigner-commit'],
+        // Hot first, cold second — order is load-bearing for downstream role routing.
+        signerCommitments: ['0xhot-commit', '0xcommit-s1-2-3-4'],
         guardianCommitment: 'g-commit',
         guardianPublicKey: 'g-pubkey',
         guardianEnabled: true,
@@ -152,10 +190,22 @@ describe('createGuardianAccount', () => {
       }),
       expect.anything()
     );
+    // The deploy proposal is signed by cold (we hand the cold AuthSecretKey to EcdsaSigner).
+    expect(ecdsaSignerCtor).toHaveBeenCalledWith(stubKeyByTag['s1-2-3-4']);
     expect(multisig.registerOnGuardian).toHaveBeenCalled();
     expect(webClient.sync).toHaveBeenCalled();
-    expect(webClient.keystore.insert).toHaveBeenCalled();
-    expect(account).toBe(multisig.account);
+    // Only the cold key is inserted into the SDK keystore — hot lives outside.
+    expect(webClient.keystore.insert).toHaveBeenCalledTimes(1);
+    expect(webClient.keystore.insert).toHaveBeenCalledWith(expect.anything(), stubKeyByTag['s1-2-3-4']);
+
+    // The rich return shape exposes everything vault.ts needs to persist.
+    expect(result.account).toBe(multisig.account);
+    expect(result.keys).toEqual({
+      hotPublicKey: 'hot-pubkey-hex',
+      coldPublicKey: expect.any(String),
+      hotCiphertext: 'hot-ciphertext-hex',
+      coldSecretKeyHex: expect.any(String)
+    });
   });
 
   it('generates a random seed when none is provided', async () => {
@@ -164,8 +214,9 @@ describe('createGuardianAccount', () => {
 
     await createGuardianAccount(webClient as never);
 
-    // ecdsaWithRNG was still called with a 32-byte Uint8Array.
-    const seedArg = mockAuthSecretKeyEcdsa.mock.calls[0]?.[0];
+    // ecdsaWithRNG was still called with a 32-byte Uint8Array (cold-seed fallback).
+    const ecdsaCall = jest.requireMock('@miden-sdk/miden-sdk/lazy').AuthSecretKey.ecdsaWithRNG;
+    const seedArg = ecdsaCall.mock.calls[0]?.[0];
     expect(seedArg).toBeInstanceOf(Uint8Array);
     expect((seedArg as Uint8Array).length).toBe(32);
   });

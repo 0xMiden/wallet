@@ -33,7 +33,13 @@ import { ConsumeTransaction, SendTransaction } from '../db/types';
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
+import type { CreatedGuardianKeys } from '../guardian/account';
 import type { SignWordFunction } from '../guardian/signer';
+
+export interface GuardianAccountCreationResult {
+  accountId: string;
+  keys: CreatedGuardianKeys;
+}
 
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
@@ -104,9 +110,11 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
     if (walletType === WalletType.Guardian) {
-      const { createGuardianAccount } = await import('../guardian/account');
-      const account = await createGuardianAccount(this.client, seed);
-      return getBech32AddressFromAccountId(account.id());
+      // Guardian creation needs to surface the hot/cold keys produced inside
+      // createGuardianAccount so the vault can persist them. Callers must use
+      // createGuardianMidenWallet directly — this branch protects against the
+      // older string-returning API being relied on.
+      throw new Error('Guardian wallets must be created via createGuardianMidenWallet');
     }
 
     const isPublic = walletType === WalletType.OnChain;
@@ -115,6 +123,17 @@ export class MidenClientInterface {
       seed
     });
     return getBech32AddressFromAccountId(wallet.id());
+  }
+
+  /**
+   * Create a 3-key Guardian account. Returns the account ID alongside the hot
+   * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
+   * both before writing them to storage).
+   */
+  async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
+    const { createGuardianAccount } = await import('../guardian/account');
+    const { account, keys } = await createGuardianAccount(this.client, coldSeed);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
@@ -131,44 +150,66 @@ export class MidenClientInterface {
   async importAccountBySeed(
     walletType: WalletType,
     seed: Uint8Array,
-    signWordFn: SignWordFunction,
-    getPublicKeyForCommitment: (commitment: string) => Promise<string>
+    _signWordFn: SignWordFunction,
+    _getPublicKeyForCommitment: (commitment: string) => Promise<string>
   ): Promise<string> {
     if (walletType === WalletType.Guardian) {
-      console.log('Importing Guardian account from seed', seed);
-      try {
-        const [
-          { createGuardianAccount, getSignerDetailsFromAccount },
-          { MultisigService },
-          { DEFAULT_GUARDIAN_ENDPOINT }
-        ] = await Promise.all([
-          import('../guardian/account'),
-          import('../guardian/index'),
-          import('lib/miden-chain/constants')
-        ]);
-        // Derive the account ID against the default guardian so it matches the ID
-        // the account had at creation time. The user's custom guardian URL (persisted
-        // in GUARDIAN_URL_STORAGE_KEY) is picked up later by importAccountFromGuardian for the
-        // live state fetch.
-        const account = await createGuardianAccount(this.client, seed, true, DEFAULT_GUARDIAN_ENDPOINT);
-        console.log('[MidenClientInterface] Imported Guardian account from seed with ID:', account.id().toString());
-        const accountId = account.id().toString();
-        const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
-        await MultisigService.importAccountFromGuardian(
-          `0x${publicKey}`,
-          `0x${commitment}`,
-          signWordFn,
-          accountId,
-          this.client
-        );
-        return getBech32AddressFromAccountId(account.id());
-      } catch (error) {
-        console.log(error);
-        throw new Error('Failed to import Guardian account from seed');
-      }
+      // Guardian import surfaces the hot/cold keys in addition to the account
+      // ID. Use importGuardianAccountBySeed.
+      throw new Error('Guardian wallets must be imported via importGuardianAccountBySeed');
     }
 
     return await this.importPublicMidenWalletFromSeed(seed);
+  }
+
+  /**
+   * Import a Guardian account by seed.
+   *
+   * Caveat (3-key migration): the cold key is fully recoverable from the
+   * mnemonic, but the hot key is random and cannot be reconstructed. This
+   * method generates a fresh hot key, which means the locally-derived
+   * account ID won't match the one the user originally created — recovery
+   * after import requires a `replace_signer` proposal signed by cold +
+   * guardian to re-bind the new hot pubkey on-chain. Phase 8 of the
+   * migration plan covers that flow; until it lands, importing a Guardian
+   * account leaves the user with an empty fresh account under their seed.
+   */
+  async importGuardianAccountBySeed(
+    coldSeed: Uint8Array,
+    signWordFn: SignWordFunction,
+    getPublicKeyForCommitment: (commitment: string) => Promise<string>
+  ): Promise<GuardianAccountCreationResult> {
+    console.log('Importing Guardian account from seed', coldSeed);
+    try {
+      const [
+        { createGuardianAccount, getSignerDetailsFromAccount },
+        { MultisigService },
+        { DEFAULT_GUARDIAN_ENDPOINT }
+      ] = await Promise.all([
+        import('../guardian/account'),
+        import('../guardian/index'),
+        import('lib/miden-chain/constants')
+      ]);
+      // Derive the account ID against the default guardian so it matches the ID
+      // the account had at creation time. The user's custom guardian URL
+      // (persisted in GUARDIAN_URL_STORAGE_KEY) is picked up later by
+      // importAccountFromGuardian for the live state fetch.
+      const { account, keys } = await createGuardianAccount(this.client, coldSeed, true, DEFAULT_GUARDIAN_ENDPOINT);
+      const accountIdStr = account.id().toString();
+      console.log('[MidenClientInterface] Imported Guardian account from seed with ID:', accountIdStr);
+      const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
+      await MultisigService.importAccountFromGuardian(
+        `0x${publicKey}`,
+        `0x${commitment}`,
+        signWordFn,
+        accountIdStr,
+        this.client
+      );
+      return { accountId: getBech32AddressFromAccountId(account.id()), keys };
+    } catch (error) {
+      console.log(error);
+      throw new Error('Failed to import Guardian account from seed');
+    }
   }
 
   async importNoteBytes(noteBytes: Uint8Array) {

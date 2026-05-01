@@ -34,6 +34,20 @@ jest.mock('lib/platform/storage-adapter', () => ({
 // ---------------------------------------------------------------------------
 const mockCreateMidenWallet = jest.fn(async (_type: any, _seed: Uint8Array) => 'acc-pub-key-1');
 const mockImportPublicMidenWalletFromSeed = jest.fn(async (_seed: Uint8Array) => 'acc-pub-key-imported');
+const GUARDIAN_KEYS_FIXTURE = {
+  hotPublicKey: 'hot-pub',
+  coldPublicKey: 'cold-pub',
+  hotCiphertext: 'hot-ct',
+  coldSecretKeyHex: 'cold-sk'
+};
+const mockCreateGuardianMidenWallet = jest.fn(async (_seed: Uint8Array) => ({
+  accountId: 'guardian-acc-1',
+  keys: GUARDIAN_KEYS_FIXTURE
+}));
+const mockImportGuardianAccountBySeed = jest.fn(async (_seed: Uint8Array, _signWord: any, _getPub: any) => ({
+  accountId: 'guardian-acc-imported',
+  keys: GUARDIAN_KEYS_FIXTURE
+}));
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
@@ -41,9 +55,12 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   createMidenWallet: (...args: unknown[]) => mockCreateMidenWallet(...(args as [any, Uint8Array])),
   importPublicMidenWalletFromSeed: (...args: unknown[]) =>
     mockImportPublicMidenWalletFromSeed(...(args as [Uint8Array])),
-  // Mirror the production dispatch: for non-Guardian types, delegate to
-  // importPublicMidenWalletFromSeed so existing tests keep asserting on it.
+  // Non-Guardian: delegate to importPublicMidenWalletFromSeed so existing
+  // tests keep asserting on it.
   importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
+  createGuardianMidenWallet: (...args: unknown[]) => mockCreateGuardianMidenWallet(...(args as [Uint8Array])),
+  importGuardianAccountBySeed: (...args: unknown[]) =>
+    mockImportGuardianAccountBySeed(...(args as [Uint8Array, any, any])),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
@@ -59,6 +76,8 @@ jest.mock('../sdk/miden-client', () => ({
 const mockMidenClient = {
   createMidenWallet: mockCreateMidenWallet,
   importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
+  createGuardianMidenWallet: mockCreateGuardianMidenWallet,
+  importGuardianAccountBySeed: mockImportGuardianAccountBySeed,
   getAccounts: mockGetAccounts,
   getAccount: mockGetAccount,
   syncState: mockSyncState,
@@ -186,6 +205,14 @@ beforeEach(() => {
   (isDesktop as jest.Mock).mockReturnValue(false);
   (isMobile as jest.Mock).mockReturnValue(false);
   mockMidenClient.createMidenWallet.mockResolvedValue('acc-pub-key-1');
+  mockMidenClient.createGuardianMidenWallet.mockResolvedValue({
+    accountId: 'guardian-acc-1',
+    keys: GUARDIAN_KEYS_FIXTURE
+  });
+  mockMidenClient.importGuardianAccountBySeed.mockResolvedValue({
+    accountId: 'guardian-acc-imported',
+    keys: GUARDIAN_KEYS_FIXTURE
+  });
   mockMidenClient.getAccounts.mockResolvedValue([]);
   mockMidenClient.getAccount.mockResolvedValue(null);
   mockMidenClient.syncState.mockResolvedValue(undefined);
@@ -839,20 +866,20 @@ describe('Vault hardware branches', () => {
     await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
-  it('Vault.spawn propagates importAccountBySeed failures for Guardian imports (no silent fallback)', async () => {
-    // The Guardian import path must NOT fall back to createMidenWallet — otherwise
+  it('Vault.spawn propagates importGuardianAccountBySeed failures (no silent fallback)', async () => {
+    // The Guardian import path must NOT fall back to createGuardianMidenWallet — otherwise
     // a silently-recreated account would leave the user with an empty balance
     // under their seed. The branch rethrows, wrapped as a PublicError by withError.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
+    mockMidenClient.importGuardianAccountBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
 
     await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true)).rejects.toThrow(
       PublicError
     );
 
-    // createMidenWallet must NOT be called as a fallback — Guardian rethrows.
-    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalledWith(WalletType.Guardian, expect.anything());
+    // createGuardianMidenWallet must NOT be called as a fallback — Guardian rethrows.
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
   it('createHDAccount supports WalletType.Guardian (derivation index 2)', async () => {
@@ -860,8 +887,11 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     const vlt = await Vault.spawn(WalletType.OnChain, 'pw-guardian-test');
     // Guardian resolves to the third branch inside getMainDerivationPath (walletTypeIndex=2);
-    // createMidenWallet is stubbed to return a predictable account id.
-    mockMidenClient.createMidenWallet.mockResolvedValueOnce('guardian-acc-1');
+    // createGuardianMidenWallet is stubbed to return a predictable account id + keys.
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-1',
+      keys: GUARDIAN_KEYS_FIXTURE
+    });
     await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).resolves.toBeTruthy();
   });
 

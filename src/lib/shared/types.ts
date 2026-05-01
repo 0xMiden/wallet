@@ -274,6 +274,11 @@ export interface WalletAccount {
   isPublic: boolean;
   type: WalletType;
   hdIndex: number;
+  // Set on Guardian accounts created with the 3-key model (hot + cold + guardian).
+  // Absent on non-Guardian accounts and on legacy single-signer Guardian records
+  // produced before the migration; consumers should treat absence as "not 3-key".
+  hotPublicKey?: string;
+  coldPublicKey?: string;
 }
 
 export interface WalletNetwork {

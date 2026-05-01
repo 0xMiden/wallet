@@ -22,6 +22,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
+import type { CreatedGuardianKeys } from '../guardian/account';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -38,6 +39,7 @@ enum StorageEntity {
   MigrationLevel = 'migration',
   Mnemonic = 'mnemonic',
   AccAuthSecretKey = 'accauthsecretkey',
+  AccColdSecretKey = 'accouldsecretkey',
   AccAuthPubKey = 'accauthpubkey',
   AccPubKey = 'accpubkey',
   AccViewKey = 'accviewkey',
@@ -52,6 +54,9 @@ const checkStrgKey = createStorageKey(StorageEntity.Check);
 const mnemonicStrgKey = createStorageKey(StorageEntity.Mnemonic);
 const accPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccPubKey);
 const accAuthSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthSecretKey);
+// Mirror of cold-key blobs keyed by cold pubkey, separate from accAuthSecretKey
+// so role-aware signWord (Phase 3) can route hot vs cold by storage entity.
+const accColdSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccColdSecretKey);
 const accAuthPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthPubKey);
 const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey);
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
@@ -71,6 +76,27 @@ const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
     );
   };
 };
+
+/**
+ * Persist the hot ciphertext + cold mirror produced by createGuardianAccount,
+ * wrapping each blob under the vault key. Cold is also already in the SDK
+ * keystore via the standard insertKeyCallback path; the mirror under
+ * accColdSecretKeyStrgKey lets role-aware signWord (Phase 3) route hot vs
+ * cold by storage entity without touching the WASM keystore.
+ *
+ * Storage keys use the unprefixed signer-commitment hex (matching the
+ * WalletSigner convention everywhere else in the codebase).
+ */
+async function persistGuardianKeys(vaultKey: CryptoKey, keys: CreatedGuardianKeys) {
+  await encryptAndSaveMany(
+    [
+      [accAuthPubKeyStrgKey(keys.hotPublicKey), keys.hotPublicKey],
+      [accAuthSecretKeyStrgKey(keys.hotPublicKey), keys.hotCiphertext],
+      [accColdSecretKeyStrgKey(keys.coldPublicKey), keys.coldSecretKeyHex]
+    ],
+    vaultKey
+  );
+}
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
 
@@ -278,40 +304,70 @@ export class Vault {
 
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
-      const accPublicKey = await withWasmClientLock(async () => {
-        console.log('[Vault.spawn] Step 6: getting miden client...');
-        const midenClient = await getMidenClient(options);
-        console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
-        if (ownMnemonic && midenClient.network !== 'mock') {
-          try {
-            console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
-            return await midenClient.importAccountBySeed(walletType, walletSeed, signWordFn, getPublicKeyForCommitment);
-          } catch (e) {
-            // Guardian imports must not silently fall back: a failure here means the guardian lookup
-            // failed, and creating a fresh local account would leave the user with the wrong
-            // balance under their seed. Propagate so the UI can let them fix the URL or switch
-            // to public-account import.
-            if (walletType === WalletType.Guardian) {
-              throw e;
+      const created = await withWasmClientLock(
+        async (): Promise<{
+          accountId: string;
+          guardianKeys?: CreatedGuardianKeys;
+        }> => {
+          console.log('[Vault.spawn] Step 6: getting miden client...');
+          const midenClient = await getMidenClient(options);
+          console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
+
+          if (walletType === WalletType.Guardian) {
+            // Guardian: cold key derives from seed (HD-deterministic), hot is
+            // freshly generated via the secure-hot-key facade. Both branches
+            // surface the keys so vault can persist them under the vault envelope.
+            if (ownMnemonic && midenClient.network !== 'mock') {
+              console.log('[Vault.spawn] Step 8a: importing Guardian account from seed...');
+              const result = await midenClient.importGuardianAccountBySeed(
+                walletSeed,
+                signWordFn,
+                getPublicKeyForCommitment
+              );
+              return { accountId: result.accountId, guardianKeys: result.keys };
             }
-            console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(walletType, walletSeed);
+            console.log('[Vault.spawn] Step 8b: syncing state then creating Guardian account...');
+            await midenClient.syncState();
+            const result = await midenClient.createGuardianMidenWallet(walletSeed);
+            return { accountId: result.accountId, guardianKeys: result.keys };
           }
-        } else {
+
+          if (ownMnemonic && midenClient.network !== 'mock') {
+            try {
+              console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
+              return {
+                accountId: await midenClient.importAccountBySeed(
+                  walletType,
+                  walletSeed,
+                  signWordFn,
+                  getPublicKeyForCommitment
+                )
+              };
+            } catch (e) {
+              console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
+              return { accountId: await midenClient.createMidenWallet(walletType, walletSeed) };
+            }
+          }
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           console.log('[Vault.spawn] Step 8b: syncing state...');
           await midenClient.syncState();
           console.log('[Vault.spawn] Step 9: creating miden wallet...');
-          return await midenClient.createMidenWallet(walletType, walletSeed);
+          return { accountId: await midenClient.createMidenWallet(walletType, walletSeed) };
         }
-      });
+      );
+
+      const accPublicKey = created.accountId;
 
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
         isPublic: false,
         type: walletType,
-        hdIndex: hdAccIndex
+        hdIndex: hdAccIndex,
+        ...(created.guardianKeys && {
+          hotPublicKey: created.guardianKeys.hotPublicKey,
+          coldPublicKey: created.guardianKeys.coldPublicKey
+        })
       };
       const newAccounts = [initialAccount];
 
@@ -324,6 +380,9 @@ export class Vault {
         ],
         vaultKey
       );
+      if (created.guardianKeys) {
+        await persistGuardianKeys(vaultKey, created.guardianKeys);
+      }
       await savePlain(currentAccPubKeyStrgKey, accPublicKey);
       await savePlain(ownMnemonicStrgKey, ownMnemonic ?? false);
 
@@ -447,25 +506,37 @@ export class Vault {
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access
-      const walletId = await withWasmClientLock(async () => {
-        console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
-        const midenClient = await getMidenClient(options);
-        console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
-        if (isOwnMnemonic && walletType === WalletType.OnChain) {
-          try {
-            console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
-            return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
-          } catch (e) {
-            console.warn('Failed to import wallet from seed, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(walletType, walletSeed);
+      const created = await withWasmClientLock(
+        async (): Promise<{
+          accountId: string;
+          guardianKeys?: CreatedGuardianKeys;
+        }> => {
+          console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
+          const midenClient = await getMidenClient(options);
+          console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
+
+          if (walletType === WalletType.Guardian) {
+            console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
+            const result = await midenClient.createGuardianMidenWallet(walletSeed);
+            return { accountId: result.accountId, guardianKeys: result.keys };
           }
-        } else {
+
+          if (isOwnMnemonic && walletType === WalletType.OnChain) {
+            try {
+              console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
+              return { accountId: await midenClient.importPublicMidenWalletFromSeed(walletSeed) };
+            } catch (e) {
+              console.warn('Failed to import wallet from seed, creating new wallet instead', e);
+              return { accountId: await midenClient.createMidenWallet(walletType, walletSeed) };
+            }
+          }
           console.log('[Vault.createHDAccount] Step 8b: createMidenWallet');
           const id = await midenClient.createMidenWallet(walletType, walletSeed);
           console.log('[Vault.createHDAccount] Step 9: createMidenWallet returned', id);
-          return id;
+          return { accountId: id };
         }
-      });
+      );
+      const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
       const accName = name || getNewAccountName(allAccounts);
@@ -475,7 +546,11 @@ export class Vault {
         name: accName,
         publicKey: walletId,
         isPublic: walletType === WalletType.OnChain,
-        hdIndex: hdAccIndex
+        hdIndex: hdAccIndex,
+        ...(created.guardianKeys && {
+          hotPublicKey: created.guardianKeys.hotPublicKey,
+          coldPublicKey: created.guardianKeys.coldPublicKey
+        })
       };
 
       const newAllAcounts = concatAccount(allAccounts, newAccount);
@@ -488,6 +563,9 @@ export class Vault {
         ],
         this.vaultKey
       );
+      if (created.guardianKeys) {
+        await persistGuardianKeys(this.vaultKey, created.guardianKeys);
+      }
 
       return newAllAcounts;
     });
