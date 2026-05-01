@@ -30,10 +30,10 @@ describe('WalletSigner', () => {
     signer = new WalletSigner(publicKey, commitment, signWordFn);
   });
 
-  it('exposes the configured public key, commitment, and falcon scheme', () => {
+  it('exposes the configured public key, commitment, and ecdsa scheme', () => {
     expect(signer.publicKey).toBe(publicKey);
     expect(signer.commitment).toBe(commitment);
-    expect(signer.scheme).toBe('falcon');
+    expect(signer.scheme).toBe('ecdsa');
   });
 
   it('signAccountIdWithTimestamp hashes and delegates to signWord with commitment stripped of 0x', async () => {

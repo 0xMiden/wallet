@@ -411,7 +411,7 @@ export class Vault {
             continue;
           }
           const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
-          const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
+          const secretKey = AuthSecretKey.ecdsaWithRNG(walletSeed);
           await midenClient.client.keystore.insert(account.id(), secretKey);
         }
       });
