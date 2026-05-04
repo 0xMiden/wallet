@@ -2183,6 +2183,46 @@
     "message": "钱包可能离线或不同步。",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "您似乎处于离线状态",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "检查您的互联网连接，然后重试。",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "无法到达 Miden 节点",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "该节点可能已关闭或负载过重。您的余额可能已过期。",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "证明服务不可用",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "交易将使用本地证明，直到服务恢复。",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "重新连接",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "正在尝试恢复您的连接。",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "再试一次",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "重试同步",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "您的note已成功消耗。",
     "englishSource": "Your note was successfully consumed."

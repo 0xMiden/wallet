@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 
+import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension, isMobile } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
@@ -83,8 +85,15 @@ export function useSyncTrigger() {
             if (!client || cancelled) return;
             await client.syncState();
           });
+          // Sync succeeded on mobile/desktop — clear any active
+          // network/node/resolving categories. Mirrors the SW path in
+          // sync-manager.doSync.
+          clearReachabilityIssues();
         } catch (error) {
           console.warn('[useSyncTrigger] sync error:', error);
+          if (isLikelyNetworkError(error)) {
+            markConnectivityIssue(classifySyncError(error));
+          }
         } finally {
           // Mirrors the old AutoSync: flipping isSyncing false also sets
           // hasCompletedInitialSync=true, which the header spinner watches.

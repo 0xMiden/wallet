@@ -1,6 +1,8 @@
 import browser from 'webextension-polyfill';
 
 import { getMessage } from 'lib/i18n';
+import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
@@ -93,12 +95,26 @@ async function runSync(): Promise<void> {
         SYNC_TIMEOUT_MS
       );
       consecutiveSyncFailures = 0;
+      // Sync went through end-to-end: the user has connectivity AND the
+      // node is responding. Clear any active reachability category. We
+      // don't touch `prover` — that's a separate service with separate
+      // health and is owned by withProverFallback.
+      clearReachabilityIssues();
     } catch (err) {
       consecutiveSyncFailures++;
       console.warn(
         `[SyncManager] syncState failed (${consecutiveSyncFailures}/${MAX_CONSECUTIVE_SYNC_FAILURES}):`,
         err
       );
+      // Categorize the sync failure as network (browser is offline) or
+      // node (we can reach the open net but the Miden RPC didn't answer).
+      // Skip semantic / non-transport errors so a malformed-response bug
+      // in the SDK doesn't masquerade as connectivity. Suppressing the
+      // synthetic `Sync timeout` from withTimeout is intentional —
+      // timeouts are themselves transport-shaped.
+      if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
+        markConnectivityIssue(classifySyncError(err));
+      }
       if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
         syncBackoffUntilMs = Date.now() + BACKOFF_MS;
         consecutiveSyncFailures = 0;
