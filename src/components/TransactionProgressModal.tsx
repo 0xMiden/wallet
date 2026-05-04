@@ -10,6 +10,7 @@ import {
   requestSWTransactionProcessing,
   safeGenerateTransactionsLoop as dbTransactionsLoop,
   getAllUncompletedTransactions,
+  getFailedTransactions,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -18,7 +19,8 @@ import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
-import { useWalletStore } from 'lib/store';
+import { WalletMessageType, type WalletNotification } from 'lib/shared/types';
+import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useLocation } from 'lib/woozie';
 import { GeneratingTransaction } from 'screens/generating-transaction/GeneratingTransaction';
@@ -39,6 +41,17 @@ export const TransactionProgressModal: FC = () => {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   // Track if we're actively processing (started when modal opens, continues even when hidden)
   const [isProcessing, setIsProcessing] = useState(false);
+  // Number of new failures observed since the modal opened. Mirrors the
+  // pattern in the full-page `GeneratingTransaction` route: snapshot the
+  // pre-existing Failed-tx count when the session starts, then count any
+  // additional Failed rows as session-attributable failures. Pre-#211 the
+  // modal's extension branch had no failure detection at all because
+  // `generateTransaction` is a no-op on extension and the polling loop
+  // only watched `getAllUncompletedTransactions`, so failed txs (which
+  // drop out of the uncompleted list when `cancelTransaction` flips
+  // status to Failed) silently rendered as "Transaction Completed".
+  const [sessionFailedCount, setSessionFailedCount] = useState(0);
+  const initialFailedCountRef = useRef<number | null>(null);
 
   // If there are uncompleted send transactions on mount (e.g. after a reload
   // mid-send), resume processing silently. We deliberately do NOT auto-open
@@ -48,12 +61,23 @@ export const TransactionProgressModal: FC = () => {
   // send action still opens the modal via `openTransactionModal()` in
   // SendManager.
   //
-  // On extension: nudge the SW, which owns the tx loop.
+  // On extension: nudge the SW, which owns the tx loop. The recovery
+  // also re-fires every time the SW broadcasts `StateUpdated` — that
+  // event is sent at the end of `start()` after `Actions.init()` resolves,
+  // so it doubles as an SW-respawn signal. Pre-#216 this effect had
+  // `[signTransaction]` deps (stable) and was therefore mount-once, which
+  // meant within a single popup lifetime spanning multiple SW deaths the
+  // recovery only ran on the initial React-tree mount; subsequent SW
+  // deaths left orphaned `GeneratingTransaction` rows un-nudged for hours.
+  //
   // On mobile/desktop: no SW — drive the loop directly via the shared
   // background processor (same entry point Explore's auto-consume uses).
   useEffect(() => {
+    let cancelled = false;
     const resumeIfNeeded = async () => {
+      if (cancelled) return;
       const uncompleted = await getAllUncompletedTransactions();
+      if (cancelled) return;
       const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
       if (!hasSendTxs) return;
       if (isExtension()) {
@@ -63,13 +87,35 @@ export const TransactionProgressModal: FC = () => {
       }
     };
 
+    // Initial mount run.
     resumeIfNeeded();
+
+    // Re-run whenever the SW respawns (StateUpdated is broadcast at the
+    // tail of `start()` in `lib/miden/back/main.ts`). On mobile / desktop
+    // this is a no-op churn — there's no SW death to recover from — so
+    // we only subscribe in the extension build.
+    if (!isExtension()) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const unsubscribe = getIntercom().subscribe((msg: WalletNotification) => {
+      if (msg?.type === WalletMessageType.StateUpdated) {
+        resumeIfNeeded();
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [signTransaction]);
 
   // Reset hasLoadedOnce when modal closes
   useEffect(() => {
     if (!isOpen) {
       setHasLoadedOnce(false);
+      setSessionFailedCount(0);
+      initialFailedCountRef.current = null;
     }
   }, [isOpen]);
 
@@ -89,6 +135,33 @@ export const TransactionProgressModal: FC = () => {
       dedupingInterval: 250
     }
   );
+
+  // Poll for failed transactions so the modal can detect failures that
+  // surface only via Dexie (the SW's transaction loop is the writer on
+  // extension; the modal is a pure observer there). Same key used by
+  // the full-page `GeneratingTransaction` so SWR dedupes the request.
+  const { data: failedTxs } = useRetryableSWR(
+    isOpen ? [`all-failed-transactions`] : null,
+    async () => getFailedTransactions(),
+    {
+      revalidateOnMount: true,
+      refreshInterval: 5_000,
+      dedupingInterval: 3_000
+    }
+  );
+
+  // Snapshot the failed-tx count the first time we see it after open,
+  // then derive new failures by delta. Reset on close (the cleanup
+  // effect below clears the ref so the next open snapshots fresh).
+  useEffect(() => {
+    if (!failedTxs) return;
+    if (initialFailedCountRef.current === null) {
+      initialFailedCountRef.current = failedTxs.length;
+      return;
+    }
+    const delta = failedTxs.length - initialFailedCountRef.current;
+    if (delta > 0) setSessionFailedCount(delta);
+  }, [failedTxs]);
 
   const transactions = txs || [];
 
@@ -174,6 +247,8 @@ export const TransactionProgressModal: FC = () => {
     // Pass true to indicate user explicitly dismissed (prevents auto-reopen)
     closeModal(true);
     setError(false);
+    setSessionFailedCount(0);
+    initialFailedCountRef.current = null;
   }, [closeModal]);
 
   // Auto-dismiss the modal when the user navigates somewhere else.
@@ -242,6 +317,13 @@ export const TransactionProgressModal: FC = () => {
   const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
+  // hasErrors must reflect both the local error state (raised on the
+  // non-extension `generateTransaction` path when the loop throws) AND
+  // any new Failed rows observed since open (the only signal available
+  // on the extension path, where the SW owns processing). Without the
+  // session-failed delta, the modal renders "Transaction Completed" for
+  // any tx that actually failed via `cancelTransaction`.
+  const hasErrors = error || sessionFailedCount > 0;
 
   const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
   const onViewExplorer = useCallback(() => {
@@ -303,7 +385,8 @@ export const TransactionProgressModal: FC = () => {
           progress={progress}
           onDoneClick={handleClose}
           transactionComplete={transactionComplete}
-          hasErrors={error}
+          hasErrors={hasErrors}
+          failedCount={sessionFailedCount}
           activeStage={activeStage}
           activeType={activeType}
           remainingCount={remainingCount}
