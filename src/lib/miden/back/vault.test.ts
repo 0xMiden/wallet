@@ -539,6 +539,22 @@ describe('Vault.revealMnemonic', () => {
   });
 });
 
+describe('Vault.revealPrivateKey', () => {
+  it('returns the stored hex secret key for the given account public key', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('acc-pub-key-1'), 'aabbccdd']], vaultKey);
+
+    const secret = await Vault.revealPrivateKey('acc-pub-key-1', 'pw');
+    expect(secret).toBe('aabbccdd');
+  });
+
+  it('rejects with PublicError when no secret key is stored for the account', async () => {
+    await seedVault('pw');
+    await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
 describe('Vault.createHDAccount', () => {
   it('appends a new on-chain account with a derived default name', async () => {
     const vault = await seedVault('pw');

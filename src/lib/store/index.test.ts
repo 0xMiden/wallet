@@ -352,6 +352,40 @@ describe('useWalletStore', () => {
         password: 'password123'
       });
     });
+
+    it('revealPrivateKey returns hex secret from response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.RevealPrivateKeyResponse,
+        privateKey: 'aabbccdd'
+      });
+
+      const { revealPrivateKey } = useWalletStore.getState();
+      const result = await revealPrivateKey('pk1', 'password123');
+
+      expect(result).toBe('aabbccdd');
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.RevealPrivateKeyRequest,
+        accountPublicKey: 'pk1',
+        password: 'password123'
+      });
+    });
+
+    it('importAccount returns new account public key from response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ImportAccountResponse,
+        accountPublicKey: 'imported-pk'
+      });
+
+      const { importAccount } = useWalletStore.getState();
+      const result = await importAccount('aabbccdd', 'My Imported');
+
+      expect(result).toBe('imported-pk');
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ImportAccountRequest,
+        privateKey: 'aabbccdd',
+        name: 'My Imported'
+      });
+    });
   });
 
   describe('Signing actions', () => {
@@ -942,6 +976,13 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(true);
       useWalletStore.getState().resetTransactionModalDismiss();
       expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(false);
+    });
+
+    it('setLastCompletedTxHash stores and clears the hash', () => {
+      useWalletStore.getState().setLastCompletedTxHash('0xabc');
+      expect(useWalletStore.getState().lastCompletedTxHash).toBe('0xabc');
+      useWalletStore.getState().setLastCompletedTxHash(null);
+      expect(useWalletStore.getState().lastCompletedTxHash).toBeNull();
     });
   });
 
