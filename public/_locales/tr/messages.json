@@ -2208,6 +2208,46 @@
     "message": "Cüzdan çevrimdışı olabilir veya senkronize olmayabilir.",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "Çevrimdışı görünüyorsunuz",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "İnternet bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "Miden düğümüne ulaşılamıyor",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "Düğüm kapalı veya ağır yük altında olabilir. Bakiyeniz güncel olmayabilir.",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "Hizmetin kullanılamadığını kanıtlama",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "Hizmet geri dönene kadar işlemlerde yerel kanıtlama kullanılacaktır.",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "Yeniden bağlanılıyor",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "Bağlantınız yeniden kurulmaya çalışılıyor.",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "Tekrar deneyin",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "Senkronizasyonu yeniden dene",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "Notunuz başarıyla kullanıldı.",
     "englishSource": "Your note was successfully consumed."

@@ -60,9 +60,35 @@ function getUnlockQueue() {
   return _unlockQueue;
 }
 
+// Service worker cold-start race: in the Vite SW build, top-level await is
+// stripped so the `vault.ts` ESM module factory (`init_vault`) may not have
+// completed when this module is first reached. Awaiting the factory directly
+// is idempotent (subsequent calls resolve immediately) and guarantees the
+// `Vault` binding is populated before we touch it.
+//
+// `init_vault` is injected into the bundle by Vite's ESM transform — it is
+// not a source-level symbol. We must NOT add a source-level `init_vault`
+// binding (e.g. `declare const init_vault`) because Rolldown would rename
+// the auto-generated factory to `init_vault$1` to avoid the collision, and
+// our call would then resolve to `undefined` at runtime. The vite plugin
+// emits a top-level `var init_vault = init_vault$1;` alias so the lookup
+// below resolves correctly in the SW bundle. In Jest (no bundle transform)
+// the symbol is undefined and we skip the factory call — the module is
+// already fully evaluated by the test runner.
+let _vault: typeof Vault | null = null;
+async function getVault() {
+  if (!_vault) {
+    // @ts-expect-error init_vault is injected by Vite's SW bundle transform
+    if (typeof init_vault === 'function') await init_vault();
+    _vault = Vault;
+  }
+  return _vault;
+}
+
 export async function init() {
   console.log('[Actions.init] Starting...');
-  const vaultExist = await Vault.isExist();
+  const vault = await getVault(); // wait for vault initialization
+  const vaultExist = await vault.isExist();
   console.log('[Actions.init] Vault exists:', vaultExist);
   inited(vaultExist);
   console.log('[Actions.init] Called inited()');
@@ -90,8 +116,9 @@ export async function getFrontState(): Promise<WalletState> {
 
 export async function isDAppEnabled() {
   const storage = getStorageProvider();
+  const vault = await getVault();
   const bools = await Promise.all([
-    Vault.isExist(),
+    vault.isExist(),
     (async () => {
       const key = MidenSharedStorageKey.DAppEnabled;
       const items = await storage.get([key]);

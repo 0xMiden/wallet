@@ -47,6 +47,13 @@ jest.mock('../sdk/helpers', () => ({
     typeof input === 'string' ? input : input && typeof input.toString === 'function' ? input.toString() : 'bech32-stub'
 }));
 
+const mockMarkConnectivityIssue = jest.fn();
+const mockClearReachabilityIssues = jest.fn();
+jest.mock('lib/miden/activity/connectivity-state', () => ({
+  markConnectivityIssue: (...args: unknown[]) => mockMarkConnectivityIssue(...args),
+  clearReachabilityIssues: () => mockClearReachabilityIssues()
+}));
+
 const mockClient = {
   syncState: jest.fn(async () => {}),
   getConsumableNotes: jest.fn(async () => [] as any[]),
@@ -302,6 +309,30 @@ describe('setupSyncManager', () => {
   });
 });
 
+describe('doSync — connectivity categorization', () => {
+  it('clears reachability issues on a successful sync', async () => {
+    mockClearReachabilityIssues.mockClear();
+    await doSync();
+    expect(mockClearReachabilityIssues).toHaveBeenCalled();
+  });
+
+  it('marks node category on a transport-shaped sync error', async () => {
+    mockMarkConnectivityIssue.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc error: deadline exceeded'));
+    await doSync();
+    expect(mockMarkConnectivityIssue).toHaveBeenCalled();
+    const arg = mockMarkConnectivityIssue.mock.calls[0]?.[0];
+    expect(['network', 'node']).toContain(arg);
+  });
+
+  it('does NOT mark connectivity for a semantic / non-transport error', async () => {
+    mockMarkConnectivityIssue.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new Error('something completely unrelated'));
+    await doSync();
+    expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+  });
+});
+
 describe('doSync — notification getMessage fallback branches', () => {
   it('uses fallback strings when getMessage returns empty (single note)', async () => {
     const { getMessage } = jest.requireMock('lib/i18n');
@@ -489,6 +520,28 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       // All four calls reached syncState; breaker never opened.
       expect(mockClient.syncState).toHaveBeenCalledTimes(4);
     });
+  });
+
+  it('awaits init_vault when present (SW bundle simulation)', async () => {
+    // Cover the `typeof init_vault === 'function'` true arm of the lazy
+    // getVault() accessor. In the Jest env init_vault is undefined; we install
+    // a stub on globalThis and re-import the module to drive the factory-await
+    // path.
+    const initVaultStub = jest.fn(async () => {});
+    (globalThis as any).init_vault = initVaultStub;
+    try {
+      await jest.isolateModulesAsync(async () => {
+        const { doSync: isolated } = await import('./sync-manager');
+        await isolated();
+        expect(initVaultStub).toHaveBeenCalled();
+        // A second sync should not re-await the factory (the `_vault` cache hits).
+        initVaultStub.mockClear();
+        await isolated();
+        expect(initVaultStub).not.toHaveBeenCalled();
+      });
+    } finally {
+      delete (globalThis as any).init_vault;
+    }
   });
 
   it('the breaker closes after the backoff window elapses', async () => {

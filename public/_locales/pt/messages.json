@@ -2206,6 +2206,46 @@
     "message": "A carteira pode estar off-line ou fora de sincronia.",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "Você parece estar off-line",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "Verifique sua conexão com a Internet e tente novamente.",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "Não é possível acessar o nó Miden",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "O nó pode estar inativo ou sob carga pesada. Seu saldo pode estar desatualizado.",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "Comprovando serviço indisponível",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "As transações usarão prova local até que o serviço esteja de volta.",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "Reconectando",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "Tentando restaurar sua conexão.",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "Tente novamente",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "Tentar sincronizar novamente",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "Sua note foi consumida com sucesso.",
     "englishSource": "Your note was successfully consumed."

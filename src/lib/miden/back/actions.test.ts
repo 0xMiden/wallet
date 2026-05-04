@@ -710,4 +710,74 @@ describe('actions', () => {
       expect(pk2).toBe('pk2');
     });
   });
+
+  // The lazy `getVault()` accessor in actions.ts has a `typeof init_vault === 'function'`
+  // guard that only fires in the SW bundle (Vite injects `init_vault`). In Jest the
+  // symbol is undefined, so the true arm of that branch is unreachable without a
+  // shim. We isolate the module, install a fake `init_vault` on globalThis, and
+  // re-import to drive the factory-await arm.
+  describe('lazy getVault() with init_vault present (SW bundle simulation)', () => {
+    it('awaits init_vault when defined and proceeds to Vault.isExist', async () => {
+      const initVaultStub = jest.fn(async () => {});
+      (globalThis as any).init_vault = initVaultStub;
+      try {
+        await jest.isolateModulesAsync(async () => {
+          jest.doMock('lib/miden/back/vault', () => ({
+            Vault: {
+              isExist: jest.fn().mockResolvedValue(true),
+              spawn: jest.fn(),
+              setup: jest.fn(),
+              spawnFromMidenClient: jest.fn(),
+              getCurrentAccountPublicKey: jest.fn()
+            }
+          }));
+          jest.doMock('./store', () => ({
+            store: { getState: jest.fn(() => ({ inited: true })) },
+            toFront: jest.fn(s => s),
+            inited: jest.fn(),
+            locked: jest.fn(),
+            unlocked: jest.fn(),
+            accountsUpdated: jest.fn(),
+            settingsUpdated: jest.fn(),
+            currentAccountUpdated: jest.fn(),
+            withInited: jest.fn(async (fn: any) => fn()),
+            withUnlocked: jest.fn(async (fn: any) => fn({ vault: {} }))
+          }));
+          jest.doMock('./dapp', () => ({
+            dappDebug: jest.fn(),
+            getAllDApps: jest.fn(),
+            removeDApp: jest.fn(),
+            getCurrentPermission: jest.fn(),
+            requestPermission: jest.fn(),
+            requestDisconnect: jest.fn(),
+            requestTransaction: jest.fn(),
+            requestSendTransaction: jest.fn(),
+            requestConsumeTransaction: jest.fn(),
+            requestPrivateNotes: jest.fn(),
+            requestSign: jest.fn(),
+            requestAssets: jest.fn(),
+            requestImportPrivateNote: jest.fn(),
+            requestConsumableNotes: jest.fn(),
+            waitForTransaction: jest.fn()
+          }));
+          jest.doMock('webextension-polyfill', () => ({
+            storage: { local: { get: jest.fn().mockResolvedValue({ DAppEnabled: true }) } }
+          }));
+
+          const isolated = await import('./actions');
+          await isolated.init();
+          // The factory must have been awaited at least once on first vault access.
+          expect(initVaultStub).toHaveBeenCalled();
+
+          // A second call (via isDAppEnabled) does NOT re-enter the factory because
+          // the lazy `_vault` is now memoized — exercises the falsy `if (!_vault)` arm.
+          initVaultStub.mockClear();
+          await isolated.isDAppEnabled();
+          expect(initVaultStub).not.toHaveBeenCalled();
+        });
+      } finally {
+        delete (globalThis as any).init_vault;
+      }
+    });
+  });
 });
