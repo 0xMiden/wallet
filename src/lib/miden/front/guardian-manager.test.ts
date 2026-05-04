@@ -48,8 +48,17 @@ jest.mock('lib/settings/constants', () => ({
 
 const GUARDIAN_PK = 'guardian-pk';
 const OTHER_PK = 'other-pk';
+const HOT_PK = 'hot-pk-hex';
 
-const guardianAccount = { publicKey: GUARDIAN_PK, type: WalletType.Guardian, name: 'Guardian', hdIndex: 0 };
+const guardianAccount = {
+  publicKey: GUARDIAN_PK,
+  type: WalletType.Guardian,
+  name: 'Guardian',
+  hdIndex: 0,
+  // Phase 4: WalletAccount carries the hot pubkey directly; getOrCreateMultisigService
+  // reads it and throws if missing.
+  hotPublicKey: HOT_PK
+};
 const onChainAccount = { publicKey: OTHER_PK, type: WalletType.OnChain, name: 'Public', hdIndex: 1 };
 
 const makeProvider = (accounts: unknown[]): GuardianAccountProvider => ({
@@ -63,7 +72,7 @@ describe('guardian-manager', () => {
     jest.clearAllMocks();
     clearGuardianCache();
     mockFetchFromStorage.mockResolvedValue('https://default.guardian.test');
-    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'abc', publicKey: 'def' });
+    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'abc' });
     mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'acc-id' }) });
   });
 
@@ -76,7 +85,9 @@ describe('guardian-manager', () => {
       const result = await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
       expect(result).toBe(service);
-      expect(mockMultisigServiceInit).toHaveBeenCalledWith(expect.anything(), '0xdef', '0xabc', provider.signWord);
+      // The publicKey arg comes from WalletAccount.hotPublicKey (not from
+      // getSignerDetailsFromAccount anymore), prefixed with `0x`.
+      expect(mockMultisigServiceInit).toHaveBeenCalledWith(expect.anything(), `0x${HOT_PK}`, '0xabc', provider.signWord);
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
       mockMultisigServiceInit.mockClear();

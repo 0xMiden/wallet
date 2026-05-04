@@ -46,10 +46,9 @@ export class MultisigService {
     signerCommitment: string,
     signWordFn: SignWordFunction
   ): Promise<MultisigService> {
+    const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-      const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
-
       const webClient = (await MidenClientInterface.create({})).client;
 
       const client = new MultisigClient(webClient, { guardianEndpoint });

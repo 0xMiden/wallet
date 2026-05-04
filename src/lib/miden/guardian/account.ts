@@ -35,13 +35,15 @@ export interface CreatedGuardianAccount {
 }
 
 /**
- * Extract signer commitment and public key from a Guardian account's storage.
+ * Extract the hot signer's commitment from a Guardian account's storage and
+ * pair it with the supplied hot public key.
+ *
+ * Convention: `signerCommitments: [hot, cold]` per createGuardianAccount —
+ * so `mapEntries[0]` is the hot signer's commitment.
  */
-export async function getSignerDetailsFromAccount(
-  account: Account,
-  getPublicKeyForCommitment: (commitment: string) => Promise<string>
-): Promise<{ commitment: string; publicKey: string }> {
+export async function getSignerDetailsFromAccount(account: Account): Promise<{ commitment: string }> {
   const mapEntries = account.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
+  console.log('Signer public keys map entries:', mapEntries);
   if (!mapEntries) {
     throw new Error('No signer public keys found in account storage');
   }
@@ -55,8 +57,7 @@ export async function getSignerDetailsFromAccount(
     throw new Error('Commitment not found in account storage');
   }
 
-  const publicKey = await getPublicKeyForCommitment(commitment);
-  return { commitment, publicKey };
+  return { commitment };
 }
 
 /**
@@ -111,8 +112,8 @@ export async function createGuardianAccount(
     console.log('Using Guardian endpoint:', guardianEndpoint);
 
     const client = new MultisigClient(webClient, { guardianEndpoint });
-    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey();
-
+    const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
+    console.log('Guardian commitment:', guardianCommitment, guardianPubkey);
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
     const multisig = await client.create(
@@ -124,7 +125,13 @@ export async function createGuardianAccount(
         guardianEnabled: true,
         storageMode: 'private',
         signatureScheme: 'ecdsa',
-        seed: coldSeed
+        seed: coldSeed,
+        procedureThresholds: [
+          {
+            procedure: 'update_guardian',
+            threshold: 2
+          }
+        ]
       },
       new EcdsaSigner(coldSk)
     );
