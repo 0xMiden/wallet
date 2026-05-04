@@ -4,8 +4,8 @@
 // Direct import avoids this because transaction-processor doesn't need the
 // activity module's full init chain.
 import {
+  cancelStuckTransactions,
   getAllUncompletedTransactions,
-  hasQueuedTransactions,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity/transactions';
 import { WalletMessageType } from 'lib/shared/types';
@@ -35,6 +35,15 @@ async function getBrowser(): Promise<BrowserPolyfill> {
 }
 
 const ALARM_NAME = 'miden-tx-processor';
+// Defence-in-depth self-heal alarm. Fires at a cadence comfortably past
+// `MAX_WAIT_BEFORE_CANCEL` (30 min) so that any orphan transaction left
+// in `GeneratingTransaction` after the SW dies mid-call is reaped within
+// at most ~one alarm period after the SW respawns. The setupTransactionProcessor
+// startup gate also catches orphans, but the alarm closes the corner case
+// where the SW respawns for an unrelated reason (sync, dApp request, etc.)
+// and never observes the orphan via that startup hook.
+const STUCK_TX_HEAL_ALARM = 'miden-tx-stuck-heal';
+const STUCK_TX_HEAL_PERIOD_MIN = 5;
 let isProcessing = false;
 
 /**
@@ -126,29 +135,62 @@ export async function startTransactionProcessing(): Promise<void> {
  * Set up on SW startup: check for orphaned transactions and resume processing.
  */
 export function setupTransactionProcessor(): void {
-  // Listen for keepalive alarm — extension only. Lazy-load so
-  // non-extension bundles never evaluate the polyfill.
+  // Register alarm listeners and the standalone self-heal alarm — extension
+  // only. Lazy-load so non-extension bundles never evaluate the polyfill.
   void (async () => {
     try {
       const browser = await getBrowser();
       browser.alarms.onAlarm.addListener((alarm: { name: string }) => {
         if (alarm.name === ALARM_NAME) {
-          // Alarm fires to keep SW alive — no action needed, processing loop is running
+          // Keepalive alarm fires to keep SW alive — no action needed,
+          // processing loop is running.
+        } else if (alarm.name === STUCK_TX_HEAL_ALARM) {
+          // Defence-in-depth self-heal: reap any orphans whose
+          // processingStartedAt is past MAX_WAIT_BEFORE_CANCEL. This is
+          // independent of `startTransactionProcessing` so we don't depend
+          // on the SW being mid-loop when an orphan ages out.
+          cancelStuckTransactions().catch(err =>
+            console.warn('[TransactionProcessor] Stuck-tx heal alarm error:', err)
+          );
         }
       });
+      // Long-period self-heal alarm. Chrome MV3 clamps periodInMinutes to
+      // a 1-minute floor in production, but our value is well above that
+      // so no clamping kicks in.
+      browser.alarms.create(STUCK_TX_HEAL_ALARM, { periodInMinutes: STUCK_TX_HEAL_PERIOD_MIN });
     } catch {
       /* c8 ignore start */
       // Non-extension context: no alarms API, nothing to register.
     } /* c8 ignore stop */
   })();
 
-  // Check for orphaned transactions on startup
-  hasQueuedTransactions()
-    .then(hasQueued => {
-      if (hasQueued) {
-        console.log('[TransactionProcessor] Resuming orphaned transactions');
+  // Check for orphaned transactions on startup. Use
+  // `getAllUncompletedTransactions` (which includes BOTH `Queued` and
+  // `GeneratingTransaction`) so that an SW death mid-`generateTransaction`
+  // is recovered the next time the SW spawns. The previous gate used
+  // `hasQueuedTransactions` (Queued-only), which left
+  // `GeneratingTransaction` orphans invisible to startup recovery — they
+  // could only be reaped by a user-initiated transaction nudging the
+  // processor loop, sometimes hours later (issue #216).
+  //
+  // Note: `startTransactionProcessing` calls `safeGenerateTransactionsLoop`,
+  // whose first action is `cancelStuckTransactions()` — so a stale
+  // `GeneratingTransaction` orphan is flipped to Failed within the first
+  // tick, then any newly-queued txs are picked up. Combined with the
+  // bounded retry policy in `initiateConsumeTransaction`, the cancel
+  // cascade documented in #216 is bounded by #215's per-noteId retry cap.
+  getAllUncompletedTransactions()
+    .then(uncompleted => {
+      if (uncompleted.length > 0) {
+        console.log('[TransactionProcessor] Resuming orphaned transactions:', uncompleted.length);
         startTransactionProcessing();
       }
     })
     .catch(err => console.warn('[TransactionProcessor] Startup check error:', err));
+
+  // Also fire a one-shot self-heal sweep at startup so an aged-out
+  // orphan is reaped even when nothing else is queued. (The alarm above
+  // catches the steady state; this catches the very-first SW respawn
+  // after long idle, before the first alarm tick.)
+  cancelStuckTransactions().catch(err => console.warn('[TransactionProcessor] Startup heal error:', err));
 }
