@@ -1,4 +1,4 @@
-import { RpcClient } from '@miden-sdk/miden-sdk';
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';

@@ -1,7 +1,7 @@
 import BigNumber from 'bignumber.js';
 
-import { ITransaction } from '../db/types';
 import { isPositiveNumber, toTokenId, tryParseTokenTransfers, interpretTransactionResult } from './helpers';
+import { ITransaction } from '../db/types';
 
 // Mock the SDK helper
 jest.mock('../sdk/helpers', () => ({

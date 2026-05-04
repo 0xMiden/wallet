@@ -49,7 +49,7 @@ async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttem
   for (let i = 0; i < maxAttempts; i++) {
     try {
       console.log('[waitForReadyState] Attempt', i + 1);
-      const state = await fetchStateFromBackend(0);
+      const state = await fetchStateFromBackend();
       console.log('[waitForReadyState] Got state:', { status: state.status, hasAccounts: !!state.accounts?.length });
       syncFromBackend(state);
       if (state.status === WalletStatus.Ready) {

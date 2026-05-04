@@ -48,6 +48,31 @@ export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://127.0.0.1:57292']
 ]);
 
+export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.TESTNET, 'https://testnet.midenscan.com'],
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://devnet.midenscan.com']
+]);
+
+export function getExplorerTxUrl(txHash: string, network: string = DEFAULT_NETWORK): string | undefined {
+  const base = MIDEN_EXPLORER_ENDPOINTS.get(network);
+  return base ? `${base}/tx/${txHash}` : undefined;
+}
+
+/**
+ * Build-time override for the note-transport URL, independent of the chain
+ * RPC's network. Lets developers point a testnet-RPC build at a local
+ * transport instance (e.g. `~/miden/miden-note-transport` run via `cargo run`)
+ * for iteration without having to deploy a fix to `transport.miden.io`.
+ *
+ * Set via `MIDEN_NOTE_TRANSPORT_URL=http://localhost:57292 yarn build:...`.
+ * Empty string = use the per-network default from the map above.
+ */
+const MIDEN_NOTE_TRANSPORT_URL_OVERRIDE = process.env.MIDEN_NOTE_TRANSPORT_URL || '';
+
+export function getNoteTransportUrl(network: string): string | undefined {
+  return MIDEN_NOTE_TRANSPORT_URL_OVERRIDE || MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network);
+}
+
 export const MIDEN_NETWORKS: MidenNetwork[] = [
   {
     rpcBaseURL: 'https://rpc.testnet.miden.io',

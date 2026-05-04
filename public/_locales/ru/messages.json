@@ -1915,6 +1915,10 @@
     "message": "Посмотреть в проводнике",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Посмотреть на Миденскане",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "В ходе выполнения",
     "englishSource": "In Progress"

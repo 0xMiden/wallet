@@ -1851,6 +1851,10 @@
     "message": "Ver en el Explorador",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Ver en Midenscan",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "En curso",
     "englishSource": "In Progress"

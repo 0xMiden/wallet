@@ -102,23 +102,15 @@ function copyPublicAssets(outDir: string): Plugin {
       // the app launcher. The source manifest stays canonical.
       if (MIDEN_NETWORK === 'devnet') {
         const swap = (path: string) =>
-          path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) =>
-            `logo-devnet${suffix ?? ''}.png`
-          );
+          path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) => `logo-devnet${suffix ?? ''}.png`);
         const swapIconDict = (dict: Record<string, string> | undefined) =>
-          dict
-            ? Object.fromEntries(
-                Object.entries(dict).map(([k, v]) => [k, swap(String(v))])
-              )
-            : dict;
+          dict ? Object.fromEntries(Object.entries(dict).map(([k, v]) => [k, swap(String(v))])) : dict;
         if (transformed.icons) transformed.icons = swapIconDict(transformed.icons);
         if (transformed.action?.default_icon) {
           transformed.action.default_icon = swapIconDict(transformed.action.default_icon);
         }
         if (transformed.browser_action?.default_icon) {
-          transformed.browser_action.default_icon = swapIconDict(
-            transformed.browser_action.default_icon
-          );
+          transformed.browser_action.default_icon = swapIconDict(transformed.browser_action.default_icon);
         }
         if (typeof transformed.name === 'string' && !transformed.name.includes('Devnet')) {
           transformed.name = `${transformed.name} (Devnet)`;
@@ -156,7 +148,7 @@ function copyPublicAssets(outDir: string): Plugin {
           cpSync(sdkWasm, join(assetsDir, 'miden_client_web.wasm'));
         }
       }
-    },
+    }
   };
 }
 
@@ -184,7 +176,7 @@ function swPatches(): Plugin {
           chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
         }
       }
-    },
+    }
   };
 }
 
@@ -199,7 +191,7 @@ function svgStubForBackground(): Plugin {
       if (id.endsWith('.svg') && this.getModuleInfo?.(id)?.isEntry === false) {
         return 'export const ReactComponent = () => null; export default "";';
       }
-    },
+    }
   };
 }
 
@@ -214,7 +206,7 @@ const sharedAlias = {
   components: resolve(__dirname, 'src/components'),
   screens: resolve(__dirname, 'src/screens'),
   utils: resolve(__dirname, 'src/utils'),
-  stories: resolve(__dirname, 'src/stories'),
+  stories: resolve(__dirname, 'src/stories')
 };
 
 const sharedDefine = {
@@ -222,9 +214,10 @@ const sharedDefine = {
   'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
   'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
+  'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
-  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };
 
 export default defineConfig({
@@ -249,20 +242,24 @@ export default defineConfig({
         const { readFileSync } = await import('fs');
         const svgContent = readFileSync(filePath, 'utf8');
         const { transform } = await import('@svgr/core');
-        const jsxCode = await transform(svgContent, {
-          plugins: ['@svgr/plugin-jsx'],
-          exportType: 'named',
-          namedExport: 'ReactComponent',
-          jsxRuntime: 'automatic',
-          prettier: false,
-          svgo: false,
-          titleProp: true,
-          ref: true,
-        }, { filePath });
+        const jsxCode = await transform(
+          svgContent,
+          {
+            plugins: ['@svgr/plugin-jsx'],
+            exportType: 'named',
+            namedExport: 'ReactComponent',
+            jsxRuntime: 'automatic',
+            prettier: false,
+            svgo: false,
+            titleProp: true,
+            ref: true
+          },
+          { filePath }
+        );
         const code = jsxCode + '\nexport default "";';
         // Return as JSX so Vite/Rolldown transforms it to JS
         return { code, moduleType: 'jsx' };
-      },
+      }
     } satisfies Plugin,
     wasm(),
     // Polyfill Node built-ins used by crypto/stream libraries (readable-stream uses util.debuglog)
@@ -270,20 +267,19 @@ export default defineConfig({
     // to avoid injecting fake document/window that break React's CSS animation detection.
     nodePolyfills({
       include: ['util', 'stream', 'assert', 'buffer', 'process'],
-      globals: { Buffer: false, process: false },
+      globals: { Buffer: false, process: false }
     }),
     // Extension HTML fixes
     {
       name: 'extension-html-fixes',
       enforce: 'post',
       transformIndexHtml(html) {
-        return html
-          .replace(/ crossorigin/g, '')
-          // Inject process global via external script (inline scripts blocked by CSP)
-          .replace(
-            '<script type="module"',
-            '<script src="/globals.js"></script>\n    <script type="module"'
-          );
+        return (
+          html
+            .replace(/ crossorigin/g, '')
+            // Inject process global via external script (inline scripts blocked by CSP)
+            .replace('<script type="module"', '<script src="/globals.js"></script>\n    <script type="module"')
+        );
       },
       // Inject global React + Buffer for CJS dependencies that expect them.
       // Rolldown's CJS-to-ESM interop scopes `var React = require_react()` inside
@@ -298,9 +294,9 @@ export default defineConfig({
             'var React = $1; globalThis.React = globalThis.React || React;'
           );
         }
-      },
+      }
     } satisfies Plugin,
-    copyPublicAssets(resolve(__dirname, OUTPUT_DIR)),
+    copyPublicAssets(resolve(__dirname, OUTPUT_DIR))
   ],
 
   // Disable Vite's built-in public dir handling -- our copyPublicAssets plugin
@@ -322,23 +318,21 @@ export default defineConfig({
         fullpage: resolve(__dirname, 'fullpage.html'),
         confirm: resolve(__dirname, 'confirm.html'),
         options: resolve(__dirname, 'options.html'),
-        sidepanel: resolve(__dirname, 'sidepanel.html'),
-        // Content scripts (need to be standalone JS files)
-        contentScript: resolve(__dirname, 'src/contentScript.ts'),
-        addToWindow: resolve(__dirname, 'src/addToWindow.ts'),
+        sidepanel: resolve(__dirname, 'sidepanel.html')
         // NOTE: background is built separately via vite.background.config.ts
-        // because it needs inlineDynamicImports (import() is banned in SWs)
+        // because it needs inlineDynamicImports (import() is banned in SWs).
+        // Content scripts (contentScript, addToWindow) are built separately
+        // via vite.contentScripts.config.ts because Chrome MV3 content scripts
+        // run as classic scripts and cannot use ES-module `import` statements.
       },
       output: {
-        entryFileNames: (chunkInfo) => {
-          // Content scripts and background need fixed names
-          if (chunkInfo.name === 'contentScript') return 'contentScript.js';
-          if (chunkInfo.name === 'addToWindow') return 'addToWindow.js';
+        entryFileNames: chunkInfo => {
+          // background is emitted here by its own config; keep the fixed name
           if (chunkInfo.name === 'background') return 'background.js';
           return '[name].js';
         },
         chunkFileNames: 'chunks/[name].[hash].js',
-        assetFileNames: (assetInfo) => {
+        assetFileNames: assetInfo => {
           if (assetInfo.names?.[0]?.endsWith('.wasm')) {
             return 'static/wasm/[name].[hash][extname]';
           }
@@ -346,13 +340,13 @@ export default defineConfig({
             return 'static/styles/[name][extname]';
           }
           return 'static/media/[name].[hash][extname]';
-        },
-      },
-    },
+        }
+      }
+    }
   },
 
   worker: {
-    format: 'es',
+    format: 'es'
   },
 
   resolve: {
@@ -364,8 +358,8 @@ export default defineConfig({
       // Node module polyfills for browser context
       buffer: 'buffer',
       stream: 'stream-browserify',
-      assert: 'assert',
-    },
+      assert: 'assert'
+    }
   },
 
   define: {
@@ -373,12 +367,12 @@ export default defineConfig({
     // Provide process.browser for libraries that check it
     'process.browser': 'true',
     // Global process object for compatibility
-    'global': 'globalThis',
+    global: 'globalThis'
   },
 
   css: {
     modules: {
-      generateScopedName: '[path][name]__[local]--[hash:base64:5]',
-    },
-  },
+      generateScopedName: '[path][name]__[local]--[hash:base64:5]'
+    }
+  }
 });

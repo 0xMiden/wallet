@@ -14,8 +14,8 @@ import { isDesktop, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
-import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
 import { PageLayoutSelectors } from './PageLayout.selectors';
+import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
 import { ChangelogOverlay } from './PageLayout/ChangelogOverlay/ChangelogOverlay';
 
 interface PageLayoutProps extends PropsWithChildren, ToolbarProps {

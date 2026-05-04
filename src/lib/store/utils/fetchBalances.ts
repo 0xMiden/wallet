@@ -6,7 +6,7 @@ import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getMidenClient } from 'lib/miden/sdk/miden-client';
 import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
@@ -24,8 +24,14 @@ export interface FetchBalancesOptions {
  * This is the single source of truth for balance fetching logic.
  * Used by both the useAllBalances hook and the Zustand store action.
  *
- * The WASM lock is held only for getAccount (IndexedDB read).
- * Metadata fetching uses RpcClient directly and does not need the WASM lock.
+ * `getAccount` is an IndexedDB read on the SDK side; the SDK's internal
+ * `_serializeWasmCall` chain already queues it against concurrent WASM ops,
+ * so we deliberately do NOT wrap it in the wallet-side `withWasmClientLock`.
+ * Stacking our mutex on top of the SDK's queue was causing the Send-flow
+ * SelectToken tile to stall behind a long-running `syncState` on testnet,
+ * blowing past Playwright's 10s click budget and producing `locator.click`
+ * timeouts under stress. Metadata fetching uses RpcClient directly and
+ * doesn't need serialization either.
  */
 export async function fetchBalances(
   address: string,
@@ -43,17 +49,17 @@ export async function fetchBalances(
   // Get midenFaucetId early so we can use it inside the lock
   const midenFaucetId = await getFaucetIdSetting();
 
-  // Only hold the WASM lock for the getAccount call (IndexedDB read)
-  const { account, assets } = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    const acc = await midenClient.getAccount(address);
-
-    if (!acc) {
-      return { account: null, assets: [] as FungibleAsset[] };
-    }
-
-    return { account: acc, assets: acc.vault().fungibleAssets() as FungibleAsset[] };
-  });
+  // `getAccount` is serialized internally by the SDK (`_serializeWasmCall`).
+  // We intentionally skip `withWasmClientLock` here so balance reads aren't
+  // queued behind long-running writes like `syncState`.
+  const midenClient = await getMidenClient();
+  const acc = await midenClient.getAccount(address);
+  let account: typeof acc | null = null;
+  let assets: FungibleAsset[] = [];
+  if (acc) {
+    account = acc;
+    assets = acc.vault().fungibleAssets() as FungibleAsset[];
+  }
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
   const fetchedMetadatas: Record<string, AssetMetadata> = { ...cachedMetadatas };

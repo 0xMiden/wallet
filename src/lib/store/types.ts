@@ -88,6 +88,13 @@ export interface TransactionModalSlice {
    * list; PR-4 generalizes to a per-instance map.
    */
   activeDappSessionId: string | null;
+  /**
+   * On-chain hash of the most recently completed transaction initiated in
+   * this session, used to render a "View on Midenscan" action in the
+   * transaction-complete modal. Cleared when the modal opens for a new tx
+   * or closes, so a stale hash never leaks across sends.
+   */
+  lastCompletedTxHash: string | null;
 }
 
 /**
@@ -203,6 +210,7 @@ export interface TransactionModalActions {
    * in lockstep so legacy consumers stay correct.
    */
   setActiveDappSession: (sessionId: string | null) => void;
+  setLastCompletedTxHash: (txHash: string | null) => void;
 }
 
 /**

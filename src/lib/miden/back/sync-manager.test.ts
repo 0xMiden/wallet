@@ -210,7 +210,7 @@ describe('doSync', () => {
     expect(mockClient.syncState).toHaveBeenCalledTimes(2);
   });
 
-  it('concurrent doSync calls skip the second invocation (re-entrancy guard)', async () => {
+  it('concurrent doSync calls coalesce onto one syncState invocation', async () => {
     let syncResolve: () => void;
     const syncPromise = new Promise<void>(resolve => {
       syncResolve = resolve;
@@ -218,7 +218,7 @@ describe('doSync', () => {
     mockClient.syncState.mockImplementationOnce(() => syncPromise);
 
     const first = doSync();
-    const second = doSync(); // should hit isSyncing guard
+    const second = doSync(); // should join the in-flight promise
 
     syncResolve!();
     await first;
@@ -434,5 +434,92 @@ describe('doSync — note metadata branches', () => {
     await doSync();
     expect(showNotification).toHaveBeenCalled();
     delete (globalThis as any).registration;
+  });
+});
+
+// The circuit-breaker state (`consecutiveSyncFailures`, `syncBackoffUntilMs`)
+// is module-level. Each test isolates the module so the counter starts at 0
+// and the backoff window is closed at the start of every case.
+describe('doSync — syncState timeout + circuit breaker', () => {
+  it('increments the failure counter when syncState rejects and trips the breaker after consecutive failures', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('persistent rpc failure'));
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      // 3 back-to-back failures should trip the breaker on the 3rd.
+      await isolated();
+      await isolated();
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(3);
+
+      // Breaker is now open — subsequent doSync should short-circuit without
+      // calling syncState.
+      await isolated();
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(3);
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('circuit breaker open — skipping syncs'));
+      warnSpy.mockRestore();
+    });
+  });
+
+  it('a successful syncState resets the failure counter mid-streak', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      // Two failures + one success → counter back to 0.
+      mockClient.syncState.mockRejectedValueOnce(new Error('blip 1'));
+      await isolated();
+      mockClient.syncState.mockRejectedValueOnce(new Error('blip 2'));
+      await isolated();
+      mockClient.syncState.mockResolvedValueOnce(undefined);
+      await isolated();
+
+      // A single subsequent failure must NOT trip the breaker (previously it
+      // would have been the 3rd consecutive failure before the reset).
+      mockClient.syncState.mockRejectedValueOnce(new Error('blip 3'));
+      await isolated();
+
+      // All four calls reached syncState; breaker never opened.
+      expect(mockClient.syncState).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  it('the breaker closes after the backoff window elapses', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('rpc offline'));
+
+      let fakeNow = 1_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      // Trip the breaker.
+      await isolated();
+      await isolated();
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(3);
+
+      // Inside backoff window — skipped.
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(3);
+
+      // Advance past the 30s backoff. Next doSync should probe syncState again.
+      fakeNow += 35_000;
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockResolvedValueOnce(undefined);
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(1);
+
+      nowSpy.mockRestore();
+    });
   });
 });

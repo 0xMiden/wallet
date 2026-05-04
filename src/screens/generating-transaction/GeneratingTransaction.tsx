@@ -15,6 +15,8 @@ import {
 } from 'lib/miden/activity';
 import { ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
+import { getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension, isMobile } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -166,6 +168,13 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const activeType = active?.type;
   const remainingCount = transactions.length;
 
+  const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
+  const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
+  const onViewExplorer = useCallback(() => {
+    if (!explorerUrl) return;
+    openExternalUrl({ url: explorerUrl, title: 'Midenscan' });
+  }, [explorerUrl]);
+
   return (
     <div
       className={classNames(
@@ -187,6 +196,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           activeStage={activeStage}
           activeType={activeType}
           remainingCount={remainingCount}
+          onViewExplorer={explorerUrl ? onViewExplorer : undefined}
         />
       </div>
     </div>
@@ -206,6 +216,12 @@ export interface GeneratingTransactionProps {
   activeType?: ITransactionType;
   /** Number of tx still in-flight (queued + generating). */
   remainingCount?: number;
+  /**
+   * When provided and the tx completed successfully, renders a "View on
+   * Midenscan" button below the success message. Parent decides how to
+   * open the URL (new tab on desktop, InAppBrowser overlay on mobile).
+   */
+  onViewExplorer?: () => void;
 }
 
 export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
@@ -215,7 +231,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   keepOpen,
   activeStage,
   activeType,
-  remainingCount = 0
+  remainingCount = 0,
+  onViewExplorer
 }) => {
   const { t } = useTranslation();
   const inExtension = isExtension();
@@ -359,6 +376,33 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <p className="text-heading-gray/60 text-center mt-3" style={{ fontSize: 12, lineHeight: '130%' }}>
               {t('transactionsRemainingInBatch', { count: remainingCount })}
             </p>
+          )}
+
+          {/* View on Midenscan — only on success, and only when parent wired up a URL. */}
+          {transactionComplete && !hasErrors && onViewExplorer && (
+            <button
+              type="button"
+              onClick={onViewExplorer}
+              className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-heading-gray/80 hover:text-heading-gray underline-offset-2 hover:underline"
+            >
+              {t('viewOnMidenscan')}
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M4 2H10V8M10 2L3 9"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
           )}
         </div>
       </div>

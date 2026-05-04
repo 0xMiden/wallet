@@ -1914,6 +1914,10 @@
     "message": "Explorer'da görüntüle",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Midenscan'de görüntüle",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "Devam etmekte",
     "englishSource": "In Progress"

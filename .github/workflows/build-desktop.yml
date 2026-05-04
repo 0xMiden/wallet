@@ -1,18 +1,27 @@
 name: Build Desktop Apps
 
 on:
-  # Build on version tags (e.g., v1.0.0, v1.2.3)
-  push:
-    tags:
-      - 'v*'
+  # Build when a GitHub Release is published
+  release:
+    types: [published]
 
-  # Also allow manual trigger from Actions tab
+  # Also allow manual trigger from Actions tab (on any branch)
   workflow_dispatch:
+    inputs:
+      network:
+        description: 'Network to build for'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - testnet
+          - devnet
 
 # Minimal permissions for security
 permissions:
-  contents: read
-  actions: write  # Required for artifact cleanup
+  contents: write   # needed to attach assets to a GitHub Release
+  actions: write    # needed for artifact cleanup
 
 # Cancel in-progress runs for the same branch
 concurrency:
@@ -20,10 +29,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      networks: ${{ steps.set.outputs.networks }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.network }}" != "both" ]]; then
+            echo 'networks=["${{ inputs.network }}"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'networks=["testnet","devnet"]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: setup
     strategy:
       fail-fast: false
       matrix:
+        network: ${{ fromJSON(needs.setup.outputs.networks) }}
+        platform: [macos-latest, windows-latest]
         include:
           - platform: macos-latest
             name: macOS
@@ -31,7 +57,7 @@ jobs:
             name: Windows
 
     runs-on: ${{ matrix.platform }}
-    name: Build (${{ matrix.name }})
+    name: Build ${{ matrix.name }} (${{ matrix.network }})
 
     steps:
       - name: Checkout
@@ -61,17 +87,72 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIDEN_NETWORK: ${{ matrix.network }}
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
+
+      # --- macOS: rename + stage DMG ---
+      - name: Stage macOS artifacts
+        if: matrix.platform == 'macos-latest'
+        id: stage_mac
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NETWORK="${{ matrix.network }}"
+          ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+          mkdir -p release-output
+          DMG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg 2>/dev/null | head -1 || true)
+          if [ -z "$DMG" ]; then
+            echo "No .dmg produced under src-tauri/target/universal-apple-darwin/release/bundle/dmg/"
+            exit 1
+          fi
+          FILE="MidenWallet-macOS-${VERSION}-${ENV_CAP}.dmg"
+          cp "$DMG" "release-output/${FILE}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "env_cap=${ENV_CAP}" >> "$GITHUB_OUTPUT"
+          echo "file=${FILE}" >> "$GITHUB_OUTPUT"
+
+      # --- Windows: rename + stage MSI + NSIS ---
+      - name: Stage Windows artifacts
+        if: matrix.platform == 'windows-latest'
+        id: stage_win
+        shell: pwsh
+        run: |
+          $Version = (Get-Content package.json | ConvertFrom-Json).version
+          $Network = "${{ matrix.network }}"
+          $EnvCap = $Network.Substring(0,1).ToUpper() + $Network.Substring(1)
+          New-Item -ItemType Directory -Force -Path release-output | Out-Null
+
+          $produced = @()
+
+          $msi = Get-ChildItem src-tauri/target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msi) {
+            $msiOut = "MidenWallet-Windows-$Version-$EnvCap.msi"
+            Copy-Item $msi.FullName "release-output/$msiOut"
+            $produced += $msiOut
+          }
+
+          $nsis = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsis) {
+            $nsisOut = "MidenWallet-Windows-$Version-$EnvCap-Setup.exe"
+            Copy-Item $nsis.FullName "release-output/$nsisOut"
+            $produced += $nsisOut
+          }
+
+          if ($produced.Count -eq 0) {
+            Write-Error "No Windows bundle produced (expected .msi or .exe)"
+            exit 1
+          }
+
+          "version=$Version"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "env_cap=$EnvCap"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Upload macOS artifacts
         if: matrix.platform == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: miden-wallet-macos-${{ github.ref_name }}
-          path: |
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          name: MidenWallet-${{ steps.stage_mac.outputs.version }}-${{ steps.stage_mac.outputs.env_cap }}-macOS
+          path: release-output/*
           retention-days: 30
           if-no-files-found: error
 
@@ -79,14 +160,29 @@ jobs:
         if: matrix.platform == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: miden-wallet-windows-${{ github.ref_name }}
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
+          name: MidenWallet-${{ steps.stage_win.outputs.version }}-${{ steps.stage_win.outputs.env_cap }}-Windows
+          path: release-output/*
           retention-days: 30
           if-no-files-found: error
 
-  # Cleanup old artifacts, keep only last 10 builds per platform
+      - name: Attach macOS assets to GitHub Release
+        if: github.event_name == 'release' && matrix.platform == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${{ github.event.release.tag_name }}" release-output/* --clobber
+
+      - name: Attach Windows assets to GitHub Release
+        if: github.event_name == 'release' && matrix.platform == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          Get-ChildItem release-output/* | ForEach-Object {
+            gh release upload "${{ github.event.release.tag_name }}" $_.FullName --clobber
+          }
+
+  # Cleanup old artifacts, keep only last 10 builds per platform/network
   cleanup:
     runs-on: ubuntu-latest
     needs: build
@@ -101,24 +197,18 @@ jobs:
               per_page: 100
             });
 
-            // Group by prefix (miden-wallet-macos or miden-wallet-windows)
             const groups = {};
             for (const artifact of artifacts.artifacts) {
-              const prefix = artifact.name.startsWith('miden-wallet-macos') ? 'macos'
-                           : artifact.name.startsWith('miden-wallet-windows') ? 'windows'
-                           : null;
-              if (prefix) {
-                if (!groups[prefix]) groups[prefix] = [];
-                groups[prefix].push(artifact);
+              const m = artifact.name.match(/^MidenWallet-[^-]+-(Testnet|Devnet)-(macOS|Windows)$/);
+              if (m) {
+                const key = `${m[2]}-${m[1]}`;
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(artifact);
               }
             }
 
-            // For each group, keep only the 10 most recent
             for (const [prefix, items] of Object.entries(groups)) {
-              // Sort by created_at descending
               items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-              // Delete everything after the first 10
               const toDelete = items.slice(10);
               for (const artifact of toDelete) {
                 console.log(`Deleting old artifact: ${artifact.name} (${artifact.id})`);
@@ -130,4 +220,4 @@ jobs:
               }
             }
 
-            console.log(`Cleanup complete. Kept 10 most recent builds per platform.`);
+            console.log('Cleanup complete. Kept 10 most recent desktop builds per platform/network.');

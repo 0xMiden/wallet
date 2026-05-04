@@ -43,6 +43,18 @@ type TwoSimulatorFixtures = {
   timeline: TimelineRecorder;
   steps: TestStepRunner;
   envConfig: EnvironmentConfig;
+  /**
+   * Internal fixture that brings up BOTH simulators in parallel. Exposed as
+   * a dependency for `walletA` and `walletB` so Playwright only runs the
+   * expensive launchSimWalletInstance work once per test (in parallel) and
+   * tears both down together. Tests should never reference this directly.
+   */
+  _simPair: {
+    instanceA: SimWalletInstance;
+    instanceB: SimWalletInstance;
+    simA: SimulatorControl;
+    simB: SimulatorControl;
+  };
 };
 
 interface SimWalletInstance {
@@ -65,6 +77,13 @@ function getRunOutputDir(testId: string): string {
  * install wipes the IndexedDB / Preferences sandbox without touching boot
  * state (~5s instead of the ~30s `simctl erase` would cost).
  */
+// Tracks which UDIDs have already had the app installed in this worker.
+// First-test fixture does a full install+launch; subsequent tests wipe the
+// sandbox instead — same per-test isolation guarantees (fresh IndexedDB,
+// localStorage, Preferences, WebKit caches) without paying ~5–15s for
+// simctl uninstall + install.
+const installedUdids = new Set<string>();
+
 async function launchSimWalletInstance(
   sim: SimulatorControl,
   udid: string,
@@ -72,26 +91,72 @@ async function launchSimWalletInstance(
   timeline: TimelineRecorder,
   label: 'A' | 'B'
 ): Promise<SimWalletInstance> {
+  const phaseStart = (): number => Date.now();
+  const ms = (s: number): number => Date.now() - s;
+
+  const tTerminate = phaseStart();
   await sim.terminate(udid, BUNDLE_ID);
-  await sim.uninstall(udid, BUNDLE_ID);
-  await sim.install(udid, APP_PATH);
+  const terminateMs = ms(tTerminate);
+
+  const firstInstall = !installedUdids.has(udid);
+  let uninstallMs = 0;
+  let installMs = 0;
+  let wipeMs = 0;
+  if (firstInstall) {
+    const tUninstall = phaseStart();
+    await sim.uninstall(udid, BUNDLE_ID);
+    uninstallMs = ms(tUninstall);
+
+    const tInstall = phaseStart();
+    await sim.install(udid, APP_PATH);
+    installMs = ms(tInstall);
+    installedUdids.add(udid);
+  } else {
+    const tWipe = phaseStart();
+    await sim.wipeAppState(udid, BUNDLE_ID);
+    wipeMs = ms(tWipe);
+  }
+
+  const tLaunch = phaseStart();
   await sim.launch(udid, BUNDLE_ID, {
     MIDEN_E2E_TEST: 'true',
     MIDEN_NETWORK: envConfig.name,
   });
+  const launchMs = ms(tLaunch);
 
+  const tSleep = phaseStart();
   // The WebView needs a couple seconds to register with webinspectord_sim.
   await sleep(3_000);
+  const sleepMs = ms(tSleep);
 
+  const tCdp = phaseStart();
   const cdp = await CdpBridge.connect({ udid, bundleId: BUNDLE_ID });
+  const cdpConnectMs = ms(tCdp);
+
   const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });
 
   timeline.emit({
     category: 'test_lifecycle',
     severity: 'info',
     wallet: label,
-    message: `Wallet ${label} launched on udid ${udid}`,
-    data: { udid, bundleId: BUNDLE_ID },
+    message:
+      `Wallet ${label} launched on udid ${udid} ` +
+      `(terminate=${terminateMs}ms ${firstInstall ? `uninstall=${uninstallMs}ms install=${installMs}ms` : `wipe=${wipeMs}ms`} ` +
+      `launch=${launchMs}ms sleep=${sleepMs}ms cdp=${cdpConnectMs}ms)`,
+    data: {
+      udid,
+      bundleId: BUNDLE_ID,
+      fixturePhases: {
+        terminateMs,
+        uninstallMs,
+        installMs,
+        wipeMs,
+        launchMs,
+        sleepMs,
+        cdpConnectMs,
+        firstInstall,
+      },
+    },
   });
 
   return { walletPage, cdp, udid, bundleId: BUNDLE_ID };
@@ -195,33 +260,72 @@ export const test = base.extend<TwoSimulatorFixtures>({
     await cli.cleanup();
   },
 
-  walletA: async ({ envConfig, timeline, steps }, use) => {
-    const { udidA } = await devicePair();
-    const sim = new SimulatorControl();
-    const instance = await launchSimWalletInstance(sim, udidA, envConfig, timeline, 'A');
-    steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instance.walletPage, ''));
+  _simPair: async ({ envConfig, timeline, steps }, use) => {
+    const { udidA, udidB } = await devicePair();
+    const simA = new SimulatorControl();
+    const simB = new SimulatorControl();
 
-    await use(instance.walletPage);
+    // Sequential: parallel simctl install/launch across two sims can deadlock
+    // CoreSimulatorService on cold macos-26 runners (observed 14+ min silent
+    // hangs in CI). The shared `_simPair` fixture still consolidates teardown
+    // and lets the wipeAppState optimization amortize across tests.
+    const instanceA = await launchSimWalletInstance(simA, udidA, envConfig, timeline, 'A');
+    const instanceB = await launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B');
+    steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));
+    steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instanceB.walletPage, ''));
 
-    try {
-      await instance.cdp.close();
-    } catch {
-      // ignore
-    }
-    try {
-      await sim.terminate(udidA, BUNDLE_ID);
-    } catch {
-      // ignore
-    }
+    await use({ instanceA, instanceB, simA, simB });
+
+    // Parallel teardown is safe — close is a CDP socket close, terminate is
+    // just `simctl terminate` which doesn't contend.
+    await Promise.allSettled([
+      instanceA.cdp.close().catch(() => undefined),
+      instanceB.cdp.close().catch(() => undefined),
+    ]);
+    await Promise.allSettled([
+      simA.terminate(udidA, BUNDLE_ID).catch(() => undefined),
+      simB.terminate(udidB, BUNDLE_ID).catch(() => undefined),
+    ]);
   },
 
-  walletB: async ({ envConfig, timeline, steps, walletA: _walletA, midenCli: _midenCli }, use, testInfo) => {
-    const { udidB } = await devicePair();
-    const sim = new SimulatorControl();
-    const instance = await launchSimWalletInstance(sim, udidB, envConfig, timeline, 'B');
-    steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instance.walletPage, ''));
-
+  walletA: async ({ _simPair, timeline }, use) => {
+    const instance = _simPair.instanceA;
     await use(instance.walletPage);
+
+    const stats = instance.walletPage.getStats();
+    timeline.emit({
+      category: 'test_lifecycle',
+      severity: 'info',
+      wallet: 'A',
+      message:
+        `Wallet A stats: ` +
+        `eval=${stats.cdp.evalCount}×${Math.round(stats.cdp.evalMs)}ms ` +
+        `async=${stats.cdp.evalAsyncCount}×${Math.round(stats.cdp.evalAsyncMs)}ms ` +
+        `evaluate=${stats.cdp.evaluateCount}×${Math.round(stats.cdp.evaluateMs)}ms ` +
+        `polls=${stats.polls.pollCount} iters=${stats.polls.pollIterations} ` +
+        `pollWall=${Math.round(stats.polls.pollMs)}ms pollSleep=${stats.polls.pollSleepMs}ms`,
+      data: stats,
+    });
+  },
+
+  walletB: async ({ _simPair, timeline, steps, midenCli: _midenCli }, use, testInfo) => {
+    const instance = _simPair.instanceB;
+    await use(instance.walletPage);
+
+    const statsB = instance.walletPage.getStats();
+    timeline.emit({
+      category: 'test_lifecycle',
+      severity: 'info',
+      wallet: 'B',
+      message:
+        `Wallet B stats: ` +
+        `eval=${statsB.cdp.evalCount}×${Math.round(statsB.cdp.evalMs)}ms ` +
+        `async=${statsB.cdp.evalAsyncCount}×${Math.round(statsB.cdp.evalAsyncMs)}ms ` +
+        `evaluate=${statsB.cdp.evaluateCount}×${Math.round(statsB.cdp.evaluateMs)}ms ` +
+        `polls=${statsB.polls.pollCount} iters=${statsB.polls.pollIterations} ` +
+        `pollWall=${Math.round(statsB.polls.pollMs)}ms pollSleep=${statsB.polls.pollSleepMs}ms`,
+      data: statsB,
+    });
 
     if (testInfo.status !== 'passed' && testInfo.error) {
       try {
@@ -257,17 +361,6 @@ export const test = base.extend<TwoSimulatorFixtures>({
       } catch {
         // Don't let report generation fail the test teardown
       }
-    }
-
-    try {
-      await instance.cdp.close();
-    } catch {
-      // ignore
-    }
-    try {
-      await sim.terminate(udidB, BUNDLE_ID);
-    } catch {
-      // ignore
     }
   },
 });

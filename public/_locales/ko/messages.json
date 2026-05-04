@@ -1914,6 +1914,10 @@
     "message": "탐색기에서 보기",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "Midenscan에서 보기",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "진행 중",
     "englishSource": "In Progress"

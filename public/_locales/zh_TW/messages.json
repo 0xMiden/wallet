@@ -1914,6 +1914,10 @@
     "message": "在资源管理器上查看",
     "englishSource": "View on Explorer"
   },
+  "viewOnMidenscan": {
+    "message": "在 Midenscan 上查看",
+    "englishSource": "View on Midenscan"
+  },
   "inProgress": {
     "message": "进行中",
     "englishSource": "In Progress"

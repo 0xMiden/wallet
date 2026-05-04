@@ -26,17 +26,30 @@ interface IosWalletPageOpts {
  *   - `evaluate` and `screenshot` mirror Playwright's Page shape so the same
  *     `ScreenshotCapable` / `StateCaptureCapable` typing accepts both.
  */
+export interface PollStats {
+  pollCount: number;
+  pollIterations: number;
+  pollMs: number;
+  pollSleepMs: number;
+}
+
 export class IosWalletPage implements WalletPage {
   readonly udid: string;
   readonly bundleId: string;
   private cdp: CdpSession;
   private sim: SimulatorControl;
+  private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
     this.cdp = opts.cdp;
     this.sim = opts.sim;
     this.udid = opts.udid;
     this.bundleId = opts.bundleId;
+  }
+
+  /** Read poll stats snapshot. Includes CdpSession totals too. */
+  getStats(): { polls: PollStats; cdp: ReturnType<CdpSession['getStats']> } {
+    return { polls: { ...this.pollStats }, cdp: this.cdp.getStats() };
   }
 
   // ── Capability surfaces (matches Playwright Page shape) ─────────────────
@@ -459,26 +472,48 @@ export class IosWalletPage implements WalletPage {
   // ── Internals (DOM helpers wired through CDP) ───────────────────────────
 
   private async pollForSelector(selector: string, timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      // Catch eval errors (page reload mid-poll, inspector reattach race).
-      const found = await this.cdp
-        .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
-        .catch(() => false);
-      if (found) return;
-      await sleep(POLL_INTERVAL_MS);
+    const wallStart = Date.now();
+    let iterations = 0;
+    let totalSleepMs = 0;
+    try {
+      while (Date.now() - wallStart < timeoutMs) {
+        iterations++;
+        // Catch eval errors (page reload mid-poll, inspector reattach race).
+        const found = await this.cdp
+          .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
+          .catch(() => false);
+        if (found) return;
+        await sleep(POLL_INTERVAL_MS);
+        totalSleepMs += POLL_INTERVAL_MS;
+      }
+      throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
+    } finally {
+      this.pollStats.pollCount++;
+      this.pollStats.pollIterations += iterations;
+      this.pollStats.pollMs += Date.now() - wallStart;
+      this.pollStats.pollSleepMs += totalSleepMs;
     }
-    throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
   }
 
   private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
-      if (ok) return;
-      await sleep(POLL_INTERVAL_MS);
+    const wallStart = Date.now();
+    let iterations = 0;
+    let totalSleepMs = 0;
+    try {
+      while (Date.now() - wallStart < timeoutMs) {
+        iterations++;
+        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
+        if (ok) return;
+        await sleep(POLL_INTERVAL_MS);
+        totalSleepMs += POLL_INTERVAL_MS;
+      }
+      throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
+    } finally {
+      this.pollStats.pollCount++;
+      this.pollStats.pollIterations += iterations;
+      this.pollStats.pollMs += Date.now() - wallStart;
+      this.pollStats.pollSleepMs += totalSleepMs;
     }
-    throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
   }
 
   private async clickByText(tag: string, pattern: RegExp): Promise<void> {

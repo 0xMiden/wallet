@@ -5,35 +5,88 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const ALARM_NAME = 'miden-sync';
-const SYNC_TIMEOUT_MS = 25_000;
 
-let isSyncing = false;
+// syncState is capped aggressively. On testnet with slow RPC a single
+// syncState can legitimately take 5-25s; the previous 25s ceiling plus the
+// wasm-client mutex meant fetchBalances (triggered by the SelectToken TST
+// tile) could queue behind a sync long enough to exceed Playwright's 10s
+// click budget and cause UI timeouts under stress. 5s keeps the sync path
+// well below any UI click budget; if testnet RPC is genuinely slow, the
+// circuit breaker (below) trips and we back off rather than hammering.
+const SYNC_TIMEOUT_MS = 5_000;
 
-export async function doSync(): Promise<void> {
-  if (isSyncing) return;
-  isSyncing = true;
+// Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
+// a row we skip sync attempts for BACKOFF_MS, then allow one probe. A
+// successful sync resets the counter. Protects both the wasm client and the
+// RPC backend from being hammered when the network (or the node) is flapping.
+const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
+const BACKOFF_MS = 30_000;
 
+// Concurrent doSync() callers join the in-flight sync instead of being dropped.
+// The previous boolean-guard silently no-op'd concurrent calls, so a single stuck
+// sync made every triggerSync() during that window return without having synced.
+let inFlight: Promise<void> | null = null;
+
+// Circuit-breaker state. Module-level is fine — the SW process is the only
+// doSync caller in the extension path; mobile/desktop runs have one sync loop.
+let consecutiveSyncFailures = 0;
+let syncBackoffUntilMs = 0;
+
+export function doSync(): Promise<void> {
+  if (inFlight) return inFlight;
+  // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
+  // the backoff window. Returning resolved-void here keeps the existing contract
+  // for callers (triggerSync, alarm) that don't distinguish success from skip.
+  if (Date.now() < syncBackoffUntilMs) {
+    return Promise.resolve();
+  }
+  inFlight = runSync().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+async function runSync(): Promise<void> {
   try {
     // Skip if wallet not set up
     const exists = await Vault.isExist();
     if (!exists) return;
 
-    // [Lock 1] THE sync for the whole app
-    await withTimeout(
-      withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client) return;
-        await client.syncState();
-      }),
-      SYNC_TIMEOUT_MS
-    );
+    // [Lock 1] THE sync for the whole app. Bounded by SYNC_TIMEOUT_MS so it
+    // can't stall downstream consumers; a breach bumps the circuit-breaker
+    // counter and we continue (downstream read paths should still run so the
+    // UI gets whatever state is locally cached).
+    try {
+      await withTimeout(
+        withWasmClientLock(async () => {
+          const client = await getMidenClient();
+          if (!client) return;
+          await client.syncState();
+        }),
+        SYNC_TIMEOUT_MS
+      );
+      consecutiveSyncFailures = 0;
+    } catch (err) {
+      consecutiveSyncFailures++;
+      console.warn(
+        `[SyncManager] syncState failed (${consecutiveSyncFailures}/${MAX_CONSECUTIVE_SYNC_FAILURES}):`,
+        err
+      );
+      if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
+        syncBackoffUntilMs = Date.now() + BACKOFF_MS;
+        consecutiveSyncFailures = 0;
+        console.warn(`[SyncManager] circuit breaker open — skipping syncs for ${BACKOFF_MS}ms`);
+      }
+      // Continue to the downstream read path: the client may still have
+      // cached state from a prior successful sync worth surfacing.
+    }
 
     const intercom = getIntercom()!;
     const accountPubKey = await Vault.getCurrentAccountPublicKey();
@@ -163,14 +216,12 @@ export async function doSync(): Promise<void> {
     }
   } catch (err) {
     console.warn('[SyncManager] Sync error:', err);
-    // Always broadcast SyncCompleted so frontends don't get stuck with isSyncing=true
+    // Always broadcast SyncCompleted so frontends don't get stuck waiting.
     try {
       getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });
     } catch {
       // No frontends connected
     }
-  } finally {
-    isSyncing = false;
   }
 }
 

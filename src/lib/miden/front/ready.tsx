@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 
-import { DEFAULT_NETWORK, NETWORK_STORAGE_ID } from 'lib/miden-chain/constants';
 import { usePassiveStorage } from 'lib/miden/front/storage';
+import { DEFAULT_NETWORK, NETWORK_STORAGE_ID } from 'lib/miden-chain/constants';
 import { useWalletStore } from 'lib/store';
 
 import { MidenNetwork } from '../types';
