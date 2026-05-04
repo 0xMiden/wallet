@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         // Register custom plugins before super.onCreate
         registerPlugin(HardwareSecurityPlugin.class);
+        registerPlugin(HotKeyPlugin.class);
 
         super.onCreate(savedInstanceState);
         setupStatusBar();

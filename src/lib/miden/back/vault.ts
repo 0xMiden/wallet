@@ -1,6 +1,6 @@
 import { derivePath } from '@demox-labs/aleo-hd-key';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
-import { AuthSecretKey, SigningInputs, Word } from '@miden-sdk/miden-sdk/lazy';
+import { AuthSecretKey, PublicKey, Signature, SigningInputs, Word } from '@miden-sdk/miden-sdk/lazy';
 import * as Bip39 from 'bip39';
 
 import { getMessage } from 'lib/i18n';
@@ -15,6 +15,7 @@ import {
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
 import { isDesktop, isMobile } from 'lib/platform';
+import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount, WalletSettings } from 'lib/shared/types';
@@ -22,6 +23,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
+import type { CreatedGuardianKeys } from '../guardian/account';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -38,6 +40,7 @@ enum StorageEntity {
   MigrationLevel = 'migration',
   Mnemonic = 'mnemonic',
   AccAuthSecretKey = 'accauthsecretkey',
+  AccColdSecretKey = 'accouldsecretkey',
   AccAuthPubKey = 'accauthpubkey',
   AccPubKey = 'accpubkey',
   AccViewKey = 'accviewkey',
@@ -52,6 +55,9 @@ const checkStrgKey = createStorageKey(StorageEntity.Check);
 const mnemonicStrgKey = createStorageKey(StorageEntity.Mnemonic);
 const accPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccPubKey);
 const accAuthSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthSecretKey);
+// Mirror of cold-key blobs keyed by cold pubkey, separate from accAuthSecretKey
+// so role-aware signWord (Phase 3) can route hot vs cold by storage entity.
+const accColdSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccColdSecretKey);
 const accAuthPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthPubKey);
 const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey);
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
@@ -71,6 +77,27 @@ const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
     );
   };
 };
+
+/**
+ * Persist the hot ciphertext + cold mirror produced by createGuardianAccount,
+ * wrapping each blob under the vault key. Cold is also already in the SDK
+ * keystore via the standard insertKeyCallback path; the mirror under
+ * accColdSecretKeyStrgKey lets role-aware signWord (Phase 3) route hot vs
+ * cold by storage entity without touching the WASM keystore.
+ *
+ * Storage keys use the unprefixed signer-commitment hex (matching the
+ * WalletSigner convention everywhere else in the codebase).
+ */
+async function persistGuardianKeys(vaultKey: CryptoKey, keys: CreatedGuardianKeys) {
+  await encryptAndSaveMany(
+    [
+      [accAuthPubKeyStrgKey(keys.hotPublicKey), keys.hotPublicKey],
+      [accAuthSecretKeyStrgKey(keys.hotPublicKey), keys.hotCiphertext],
+      [accColdSecretKeyStrgKey(keys.coldPublicKey), keys.coldSecretKeyHex]
+    ],
+    vaultKey
+  );
+}
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
 
@@ -269,49 +296,63 @@ export class Vault {
         return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
       };
 
-      // Helper to get public key from commitment (needed for Guardian import)
-      const getPublicKeyForCommitment = async (pkc: string) => {
-        const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), vaultKey);
-        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(sk, 'hex')));
-        return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
-      };
-
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
-      const accPublicKey = await withWasmClientLock(async () => {
-        console.log('[Vault.spawn] Step 6: getting miden client...');
-        const midenClient = await getMidenClient(options);
-        console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
-        if (ownMnemonic && midenClient.network !== 'mock') {
-          try {
-            console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
-            return await midenClient.importAccountBySeed(walletType, walletSeed, signWordFn, getPublicKeyForCommitment);
-          } catch (e) {
-            // Guardian imports must not silently fall back: a failure here means the guardian lookup
-            // failed, and creating a fresh local account would leave the user with the wrong
-            // balance under their seed. Propagate so the UI can let them fix the URL or switch
-            // to public-account import.
-            if (walletType === WalletType.Guardian) {
-              throw e;
+      const created = await withWasmClientLock(
+        async (): Promise<{
+          accountId: string;
+          guardianKeys?: CreatedGuardianKeys;
+        }> => {
+          console.log('[Vault.spawn] Step 6: getting miden client...');
+          const midenClient = await getMidenClient(options);
+          console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
+
+          if (walletType === WalletType.Guardian) {
+            // Guardian: cold key derives from seed (HD-deterministic), hot is
+            // freshly generated via the secure-hot-key facade. Both branches
+            // surface the keys so vault can persist them under the vault envelope.
+            if (ownMnemonic && midenClient.network !== 'mock') {
+              console.log('[Vault.spawn] Step 8a: importing Guardian account from seed...');
+              const result = await midenClient.importGuardianAccountBySeed(walletSeed, signWordFn);
+              return { accountId: result.accountId, guardianKeys: result.keys };
             }
-            console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(walletType, walletSeed);
+            console.log('[Vault.spawn] Step 8b: syncing state then creating Guardian account...');
+            await midenClient.syncState();
+            const result = await midenClient.createGuardianMidenWallet(walletSeed);
+            return { accountId: result.accountId, guardianKeys: result.keys };
           }
-        } else {
+
+          if (ownMnemonic && midenClient.network !== 'mock') {
+            try {
+              console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
+              return {
+                accountId: await midenClient.importAccountBySeed(walletSeed)
+              };
+            } catch (e) {
+              console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
+              return { accountId: await midenClient.createMidenWallet(walletType, walletSeed) };
+            }
+          }
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           console.log('[Vault.spawn] Step 8b: syncing state...');
           await midenClient.syncState();
           console.log('[Vault.spawn] Step 9: creating miden wallet...');
-          return await midenClient.createMidenWallet(walletType, walletSeed);
+          return { accountId: await midenClient.createMidenWallet(walletType, walletSeed) };
         }
-      });
+      );
+
+      const accPublicKey = created.accountId;
 
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
         isPublic: false,
         type: walletType,
-        hdIndex: hdAccIndex
+        hdIndex: hdAccIndex,
+        ...(created.guardianKeys && {
+          hotPublicKey: created.guardianKeys.hotPublicKey,
+          coldPublicKey: created.guardianKeys.coldPublicKey
+        })
       };
       const newAccounts = [initialAccount];
 
@@ -324,6 +365,9 @@ export class Vault {
         ],
         vaultKey
       );
+      if (created.guardianKeys) {
+        await persistGuardianKeys(vaultKey, created.guardianKeys);
+      }
       await savePlain(currentAccPubKeyStrgKey, accPublicKey);
       await savePlain(ownMnemonicStrgKey, ownMnemonic ?? false);
 
@@ -389,7 +433,7 @@ export class Vault {
             throw new PublicError('Account from Miden Client not found in provided wallet accounts');
           }
           const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
-          const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
+          const secretKey = AuthSecretKey.ecdsaWithRNG(walletSeed);
           await midenClient.client.keystore.insert(account.id(), secretKey);
         }
       });
@@ -447,25 +491,37 @@ export class Vault {
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access
-      const walletId = await withWasmClientLock(async () => {
-        console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
-        const midenClient = await getMidenClient(options);
-        console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
-        if (isOwnMnemonic && walletType === WalletType.OnChain) {
-          try {
-            console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
-            return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
-          } catch (e) {
-            console.warn('Failed to import wallet from seed, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(walletType, walletSeed);
+      const created = await withWasmClientLock(
+        async (): Promise<{
+          accountId: string;
+          guardianKeys?: CreatedGuardianKeys;
+        }> => {
+          console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
+          const midenClient = await getMidenClient(options);
+          console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
+
+          if (walletType === WalletType.Guardian) {
+            console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
+            const result = await midenClient.createGuardianMidenWallet(walletSeed);
+            return { accountId: result.accountId, guardianKeys: result.keys };
           }
-        } else {
+
+          if (isOwnMnemonic && walletType === WalletType.OnChain) {
+            try {
+              console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
+              return { accountId: await midenClient.importPublicMidenWalletFromSeed(walletSeed) };
+            } catch (e) {
+              console.warn('Failed to import wallet from seed, creating new wallet instead', e);
+              return { accountId: await midenClient.createMidenWallet(walletType, walletSeed) };
+            }
+          }
           console.log('[Vault.createHDAccount] Step 8b: createMidenWallet');
           const id = await midenClient.createMidenWallet(walletType, walletSeed);
           console.log('[Vault.createHDAccount] Step 9: createMidenWallet returned', id);
-          return id;
+          return { accountId: id };
         }
-      });
+      );
+      const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
       const accName = name || getNewAccountName(allAccounts);
@@ -475,7 +531,11 @@ export class Vault {
         name: accName,
         publicKey: walletId,
         isPublic: walletType === WalletType.OnChain,
-        hdIndex: hdAccIndex
+        hdIndex: hdAccIndex,
+        ...(created.guardianKeys && {
+          hotPublicKey: created.guardianKeys.hotPublicKey,
+          coldPublicKey: created.guardianKeys.coldPublicKey
+        })
       };
 
       const newAllAcounts = concatAccount(allAccounts, newAccount);
@@ -488,6 +548,9 @@ export class Vault {
         ],
         this.vaultKey
       );
+      if (created.guardianKeys) {
+        await persistGuardianKeys(this.vaultKey, created.guardianKeys);
+      }
 
       return newAllAcounts;
     });
@@ -565,16 +628,35 @@ export class Vault {
     return Buffer.from(signature.serialize()).toString('hex');
   }
 
+  /**
+   * Sign a word with the key matching `publicKey`. Routes by storage entity:
+   * a Guardian account's `coldPublicKey` decrypts the cold blob from
+   * `accColdSecretKeyStrgKey` and signs in WASM; everything else loads the
+   * hot ciphertext from `accAuthSecretKeyStrgKey` and dispatches through the
+   * secure-hot-key facade — JS fallback today, SE/StrongBox unwrap on mobile
+   * once Phase 4 lands. Non-Guardian accounts that still keep a single key
+   * under `accAuthSecretKeyStrgKey` fall through the hot path: the JS
+   * fallback's deserialize+sign is identical to the previous implementation.
+   */
   async signWord(publicKey: string, wordHex: string): Promise<string> {
-    const word = Word.fromHex(wordHex);
-    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
+    const accounts = await this.fetchAccounts();
+    const isCold = accounts.some(acc => acc.coldPublicKey === publicKey);
+    console.log('signWord: isCold =', isCold, 'for publicKey =', publicKey);
+    if (isCold) {
+      const coldHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+        accColdSecretKeyStrgKey(publicKey),
+        this.vaultKey
+      );
+      const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
+      const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
+      return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+    }
+
+    const hotCiphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
       accAuthSecretKeyStrgKey(publicKey),
       this.vaultKey
     );
-    let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
-    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
-    const signature = wasmSecretKey.sign(word);
-    return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+    return secureHotKey.signHotDigest(hotCiphertext, wordHex);
   }
 
   async getPublicKeyForCommitment(pkc: string): Promise<string> {
