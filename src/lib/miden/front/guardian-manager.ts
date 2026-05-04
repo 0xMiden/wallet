@@ -40,16 +40,27 @@ export async function getOrCreateMultisigService(
   // GUARDIAN_URL_STORAGE_KEY here and evict on drift.
   const cached = guardianServiceCache.get(accountPublicKey);
   if (cached) {
-    const currentEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
-    if (cached.guardianEndpoint === currentEndpoint) return cached;
-    guardianServiceCache.delete(accountPublicKey);
+    try {
+      const currentEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+      if (cached.guardianEndpoint === currentEndpoint) return cached;
+      guardianServiceCache.delete(accountPublicKey);
+    } catch (error) {}
   }
-
+  console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
   // Verify this is a Guardian account
   const accounts = await provider.getAccounts();
   const account = accounts.find(acc => acc.publicKey === accountPublicKey);
   if (!account || account.type !== WalletType.Guardian) {
     throw new Error('Account is not a Guardian account');
+  }
+
+  console.log('[Guardian Manager] Found Guardian account in provider:', account);
+  // Phase 4: hot pubkey lives on the WalletAccount record (set at create
+  // time). A Guardian account without it is either a legacy Falcon record
+  // pre-Phase 1 or an in-flight migration mid-write — both are unsigned
+  // states that should fail loudly rather than silently fall back.
+  if (!account.hotPublicKey) {
+    throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
   }
 
   // Get the Account object from Miden client
@@ -63,10 +74,21 @@ export async function getOrCreateMultisigService(
     throw new Error('Account not found in local storage');
   }
 
-  const { commitment, publicKey } = await getSignerDetailsFromAccount(sdkAccount, provider.getPublicKeyForCommitment);
-  console.log('[Guardian Manager] Retrieved signer details - commitment:', commitment, 'publicKey:', publicKey);
+  const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
+  console.log(
+    '[Guardian Manager] Retrieved signer details - commitment:',
+    commitment,
+    'publicKey:',
+    account.hotPublicKey
+  );
+  console.log('[Guardian Manager] Initializing MultisigService with account and signer details...', provider.signWord);
   // Initialize MultisigService with the account, public key, commitment, and signWord function
-  const service = await MultisigService.init(sdkAccount, `0x${publicKey}`, `0x${commitment}`, provider.signWord);
+  const service = await MultisigService.init(
+    sdkAccount,
+    `0x${account.hotPublicKey}`,
+    `0x${commitment}`,
+    provider.signWord
+  );
 
   // Cache for future use
   guardianServiceCache.set(accountPublicKey, service);

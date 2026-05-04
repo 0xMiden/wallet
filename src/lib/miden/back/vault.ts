@@ -1,6 +1,6 @@
 import { derivePath } from '@demox-labs/aleo-hd-key';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
-import { AuthSecretKey, SigningInputs, Word } from '@miden-sdk/miden-sdk/lazy';
+import { AuthSecretKey, PublicKey, Signature, SigningInputs, Word } from '@miden-sdk/miden-sdk/lazy';
 import * as Bip39 from 'bip39';
 
 import { getMessage } from 'lib/i18n';
@@ -15,6 +15,7 @@ import {
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
 import { isDesktop, isMobile } from 'lib/platform';
+import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount, WalletSettings } from 'lib/shared/types';
@@ -295,13 +296,6 @@ export class Vault {
         return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
       };
 
-      // Helper to get public key from commitment (needed for Guardian import)
-      const getPublicKeyForCommitment = async (pkc: string) => {
-        const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), vaultKey);
-        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(sk, 'hex')));
-        return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
-      };
-
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const created = await withWasmClientLock(
@@ -319,11 +313,7 @@ export class Vault {
             // surface the keys so vault can persist them under the vault envelope.
             if (ownMnemonic && midenClient.network !== 'mock') {
               console.log('[Vault.spawn] Step 8a: importing Guardian account from seed...');
-              const result = await midenClient.importGuardianAccountBySeed(
-                walletSeed,
-                signWordFn,
-                getPublicKeyForCommitment
-              );
+              const result = await midenClient.importGuardianAccountBySeed(walletSeed, signWordFn);
               return { accountId: result.accountId, guardianKeys: result.keys };
             }
             console.log('[Vault.spawn] Step 8b: syncing state then creating Guardian account...');
@@ -336,12 +326,7 @@ export class Vault {
             try {
               console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
               return {
-                accountId: await midenClient.importAccountBySeed(
-                  walletType,
-                  walletSeed,
-                  signWordFn,
-                  getPublicKeyForCommitment
-                )
+                accountId: await midenClient.importAccountBySeed(walletSeed)
               };
             } catch (e) {
               console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
@@ -643,16 +628,35 @@ export class Vault {
     return Buffer.from(signature.serialize()).toString('hex');
   }
 
+  /**
+   * Sign a word with the key matching `publicKey`. Routes by storage entity:
+   * a Guardian account's `coldPublicKey` decrypts the cold blob from
+   * `accColdSecretKeyStrgKey` and signs in WASM; everything else loads the
+   * hot ciphertext from `accAuthSecretKeyStrgKey` and dispatches through the
+   * secure-hot-key facade — JS fallback today, SE/StrongBox unwrap on mobile
+   * once Phase 4 lands. Non-Guardian accounts that still keep a single key
+   * under `accAuthSecretKeyStrgKey` fall through the hot path: the JS
+   * fallback's deserialize+sign is identical to the previous implementation.
+   */
   async signWord(publicKey: string, wordHex: string): Promise<string> {
-    const word = Word.fromHex(wordHex);
-    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
+    const accounts = await this.fetchAccounts();
+    const isCold = accounts.some(acc => acc.coldPublicKey === publicKey);
+    console.log('signWord: isCold =', isCold, 'for publicKey =', publicKey);
+    if (isCold) {
+      const coldHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+        accColdSecretKeyStrgKey(publicKey),
+        this.vaultKey
+      );
+      const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
+      const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
+      return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+    }
+
+    const hotCiphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
       accAuthSecretKeyStrgKey(publicKey),
       this.vaultKey
     );
-    let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
-    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
-    const signature = wasmSecretKey.sign(word);
-    return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+    return secureHotKey.signHotDigest(hotCiphertext, wordHex);
   }
 
   async getPublicKeyForCommitment(pkc: string): Promise<string> {

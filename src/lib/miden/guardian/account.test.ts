@@ -92,30 +92,26 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
 }));
 
 describe('getSignerDetailsFromAccount', () => {
-  const getPublicKeyForCommitment = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
-    getPublicKeyForCommitment.mockResolvedValue('derived-pubkey');
   });
 
   const makeAccount = (entries: unknown) => ({
     storage: () => ({ getMapEntries: jest.fn(() => entries) })
   });
 
-  it('reads the first signer commitment and resolves the matching public key', async () => {
+  it("reads the first signer commitment from storage (the hot signer's slot)", async () => {
     const account = makeAccount([{ value: '0xcommit-first' }, { value: '0xcommit-second' }]);
 
-    const result = await getSignerDetailsFromAccount(account as never, getPublicKeyForCommitment);
+    const result = await getSignerDetailsFromAccount(account as never);
 
-    expect(result).toEqual({ commitment: 'commit-first', publicKey: 'derived-pubkey' });
-    expect(getPublicKeyForCommitment).toHaveBeenCalledWith('commit-first');
+    expect(result).toEqual({ commitment: 'commit-first' });
   });
 
   it('throws when the signer-public-keys slot is missing', async () => {
     const account = makeAccount(undefined);
 
-    await expect(getSignerDetailsFromAccount(account as never, getPublicKeyForCommitment)).rejects.toThrow(
+    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
       'No signer public keys found in account storage'
     );
   });
@@ -123,20 +119,19 @@ describe('getSignerDetailsFromAccount', () => {
   it('throws when the slot is present but empty', async () => {
     const account = makeAccount([]);
 
-    await expect(getSignerDetailsFromAccount(account as never, getPublicKeyForCommitment)).rejects.toThrow(
+    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
       'No signer commitments found in account storage'
     );
   });
 
   it('throws when the stored value has no bytes after the 0x prefix', async () => {
     // `.slice(2)` on '0x' yields an empty string — the `if (!commitment)` guard
-    // rejects instead of handing an empty hash to getPublicKeyForCommitment.
+    // rejects instead of returning a malformed entry.
     const account = makeAccount([{ value: '0x' }]);
 
-    await expect(getSignerDetailsFromAccount(account as never, getPublicKeyForCommitment)).rejects.toThrow(
+    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
       'Commitment not found in account storage'
     );
-    expect(getPublicKeyForCommitment).not.toHaveBeenCalled();
   });
 
   it('exposes the multisig storage slot names', () => {

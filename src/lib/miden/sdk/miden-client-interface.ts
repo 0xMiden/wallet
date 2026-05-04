@@ -109,14 +109,6 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
-    if (walletType === WalletType.Guardian) {
-      // Guardian creation needs to surface the hot/cold keys produced inside
-      // createGuardianAccount so the vault can persist them. Callers must use
-      // createGuardianMidenWallet directly — this branch protects against the
-      // older string-returning API being relied on.
-      throw new Error('Guardian wallets must be created via createGuardianMidenWallet');
-    }
-
     const isPublic = walletType === WalletType.OnChain;
     const wallet: Account = await this.client.accounts.create({
       storage: isPublic ? 'public' : 'private',
@@ -147,18 +139,7 @@ export class MidenClientInterface {
     return getBech32AddressFromAccountId(account.id());
   }
 
-  async importAccountBySeed(
-    walletType: WalletType,
-    seed: Uint8Array,
-    _signWordFn: SignWordFunction,
-    _getPublicKeyForCommitment: (commitment: string) => Promise<string>
-  ): Promise<string> {
-    if (walletType === WalletType.Guardian) {
-      // Guardian import surfaces the hot/cold keys in addition to the account
-      // ID. Use importGuardianAccountBySeed.
-      throw new Error('Guardian wallets must be imported via importGuardianAccountBySeed');
-    }
-
+  async importAccountBySeed(seed: Uint8Array): Promise<string> {
     return await this.importPublicMidenWalletFromSeed(seed);
   }
 
@@ -176,8 +157,7 @@ export class MidenClientInterface {
    */
   async importGuardianAccountBySeed(
     coldSeed: Uint8Array,
-    signWordFn: SignWordFunction,
-    getPublicKeyForCommitment: (commitment: string) => Promise<string>
+    signWordFn: SignWordFunction
   ): Promise<GuardianAccountCreationResult> {
     console.log('Importing Guardian account from seed', coldSeed);
     try {
@@ -197,9 +177,14 @@ export class MidenClientInterface {
       const { account, keys } = await createGuardianAccount(this.client, coldSeed, true, DEFAULT_GUARDIAN_ENDPOINT);
       const accountIdStr = account.id().toString();
       console.log('[MidenClientInterface] Imported Guardian account from seed with ID:', accountIdStr);
-      const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
+      // Hot signer pubkey is the freshly-generated one — pass directly; we
+      // can't recover it via getPublicKeyForCommitment because the hot
+      // ciphertext is opaque (SE-wrapped on mobile). The unused
+      // getPublicKeyForCommitment arg is kept for backward-compat with
+      // vault.spawn's signature.
+      const { commitment } = await getSignerDetailsFromAccount(account);
       await MultisigService.importAccountFromGuardian(
-        `0x${publicKey}`,
+        `0x${keys.hotPublicKey}`,
         `0x${commitment}`,
         signWordFn,
         accountIdStr,
