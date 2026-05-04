@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { MIN_PASSWORD_LENGTH, STRONG_PASSWORD_LENGTH } from 'app/constants';
+import { MIN_PASSWORD_LENGTH, PRIVACY_POLICY_URL, STRONG_PASSWORD_LENGTH, TERMS_OF_USE_URL } from 'app/constants';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
@@ -215,11 +215,11 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
         <p className="text-grey-600 text-xs text-center px-4">
           {t('byProceeding')}{' '}
-          <a target="_blank" href="https://www.miden.fi/terms" className="underline" rel="noreferrer">
+          <a target="_blank" href={TERMS_OF_USE_URL} className="underline" rel="noreferrer">
             {t('termsOfUsage')}
           </a>{' '}
           {t('andWord')}{' '}
-          <a target="_blank" href="https://www.miden.fi/privacy" className="underline" rel="noreferrer">
+          <a target="_blank" href={PRIVACY_POLICY_URL} className="underline" rel="noreferrer">
             {t('privacyPolicy')}
           </a>
           .

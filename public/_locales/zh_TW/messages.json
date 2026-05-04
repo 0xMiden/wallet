@@ -1083,6 +1083,15 @@
     "message": "其他",
     "englishSource": "Other"
   },
+  "billionFormat": {
+    "message": "$billion$B",
+    "englishSource": "$billion$B",
+    "placeholders": {
+      "billion": {
+        "content": "$1"
+      }
+    }
+  },
   "uploadFile": {
     "message": "上传文件",
     "englishSource": "Upload File"

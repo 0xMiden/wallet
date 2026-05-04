@@ -122,10 +122,14 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
 
 const ToggleBadge: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   const { t } = useTranslation();
+  // The disabled state previously used literal text-heading-gray/60 on bg-[#F2F2F2]
+  // — text-heading-gray flips to white in dark mode, so white-on-light-grey
+  // hid the "Off" label. text-text-muted + bg-input-bg both auto-flip and
+  // keep adequate contrast on both themes.
   return (
     <span
       className={`text-xs font-medium px-3 py-1 rounded-full ${
-        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
+        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-text-muted bg-input-bg'
       }`}
     >
       {enabled ? t('on') : t('off')}

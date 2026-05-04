@@ -236,7 +236,11 @@ const Toolbar: FC<ToolbarProps> = ({
               onClick={step ? onStepBack : onBack}
               testID={PageLayoutSelectors.BackButton}
             >
-              <Icon name={IconName.Close} fill={'black'} />
+              {/* fill="currentColor" lets the icon inherit text-black, which
+                  auto-flips to white in dark mode via the CSS theme tokens.
+                  A literal "black" stayed dark-on-dark and was nearly invisible
+                  on the transparent surface in dark theme (issue #219). */}
+              <Icon name={IconName.Close} fill="currentColor" />
             </Button>
           )}
         </div>

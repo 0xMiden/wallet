@@ -46,6 +46,7 @@ import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
 
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
@@ -175,14 +176,14 @@ const TAB_GROUPS: TabGroup[] = [
     titleI18nKey: 'about',
     tabs: [
       {
-        slug: '#',
+        slug: PRIVACY_POLICY_URL,
         titleI18nKey: 'privacyPolicy',
         Icon: PrivacyPolicyIcon,
         Component: () => null,
         linksOutsideOfWallet: true
       },
       {
-        slug: '#',
+        slug: TERMS_OF_USE_URL,
         titleI18nKey: 'termsOfService',
         Icon: TosIcon,
         Component: () => null,

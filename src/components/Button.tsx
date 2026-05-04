@@ -50,7 +50,10 @@ const propsPerButtonVariant = {
     color: 'text-black',
     disabledColor: 'text-grey-400',
     backgroundColor: 'bg-transparent',
-    hoverBackgroundColor: 'hover:bg-grey-50',
+    // bg-gray-50 maps to --color-surface-tertiary → #f3f3f3 / #333333 so the
+    // hover state stays readable when text-black auto-flips to white in dark.
+    // The previous bg-grey-50 was a literal #F3F3F3 → invisible white-on-light.
+    hoverBackgroundColor: 'hover:bg-gray-50',
     disabledBackgroundColor: 'bg-grey-200',
     iconColor: 'black',
     border: 'border-[#0000004D] border-[0.5px]'
