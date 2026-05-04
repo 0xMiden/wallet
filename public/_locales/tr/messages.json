@@ -338,6 +338,52 @@
     "message": "Hesap adı",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "örneğin Tasarruf",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1-16 karakter, boşluk veya kısa çizgiyle başlayamaz",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Aynı ada sahip hesap zaten mevcut",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Devam etmeden önce",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Özel anahtarınız bu hesabın tam kontrolünü, onu elinde bulunduran kişiye verir. Miden hesapları anahtarları değiştiremez, bu nedenle sızdırılan bir anahtar hesabın güvenliğini kalıcı olarak tehlikeye atar.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Bu anahtarın değiştirilemeyeceğini veya iptal edilemeyeceğini anlıyorum.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "İçe aktarılan hesaplar ( $importedCount$ ) bu dosyaya dahil edilmeyecektir. Bunları yedeklemek için, her özel anahtarı ayrı ayrı Ayarlar → Özel Anahtarı Göster bölümünden dışa aktarın.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Bu şifrelenmiş dosya şu şekilde dışa aktarıldı: $importedCount$ yedeklemenin parçası olmayan içe aktarılmış hesaplar. Bu hesaplar geri yüklenen cüzdanınızda görünmeyecek; onları yeniden eklemek için orijinal özel anahtarlarına ihtiyacınız olacak. Devam etmek için İçe Aktarmaya Devam Et'i tıklayın.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "İçe Aktarmaya Devam Et",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Hesap Adını Düzenle",
     "englishSource": "Edit Account Name"

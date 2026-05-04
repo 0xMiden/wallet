@@ -338,6 +338,52 @@
     "message": "Nome da conta",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "por exemplo Poupança",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "De 1 a 16 caracteres, não pode começar com espaço em branco ou hífen",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Já existe uma conta com o mesmo nome",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Antes de continuar",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Sua chave privada dá controle total desta conta a quem a possui. As contas Miden não podem alternar chaves, portanto, uma chave vazada compromete a conta permanentemente.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Entendo que esta chave não pode ser girada ou revogada.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Contas importadas ( $importedCount$ ) não será incluído neste arquivo. Para fazer backup deles, exporte cada chave privada individualmente em Configurações → Revelar chave privada.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Este arquivo criptografado foi exportado com $importedCount$ conta(s) importada(s) que não fazem parte do backup. Essas contas não aparecerão na sua carteira restaurada – você precisará das chaves privadas originais para adicioná-las novamente. Clique em Continuar importação para prosseguir.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Continuar importação",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Editar nome da conta",
     "englishSource": "Edit Account Name"

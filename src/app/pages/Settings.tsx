@@ -19,6 +19,8 @@ import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/languag
 import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
 import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
 import { ReactComponent as PrivacyPolicyIconOrange } from 'app/icons/settings/privacy-policy.svg';
+import { ReactComponent as SecretKeyIconDevnet } from 'app/icons/settings/secret-key-devnet.svg';
+import { ReactComponent as SecretKeyIconOrange } from 'app/icons/settings/secret-key.svg';
 import { ReactComponent as SeedPhraseIconDevnet } from 'app/icons/settings/seed-phrase-devnet.svg';
 import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-phrase.svg';
 import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
@@ -31,6 +33,7 @@ import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
+import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
@@ -55,12 +58,15 @@ const EncryptedWalletIcon = isDevnet ? EncryptedWalletIconDevnet : EncryptedWall
 const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
 const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
 const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
+const SecretKeyIcon = isDevnet ? SecretKeyIconDevnet : SecretKeyIconOrange;
 const SeedPhraseIcon = isDevnet ? SeedPhraseIconDevnet : SeedPhraseIconOrange;
 const TosIcon = isDevnet ? TosIconDevnet : TosIconOrange;
 
 type SettingsProps = {
   tabSlug?: string | null;
 };
+
+const RevealPrivateKey: FC = () => <RevealSecret reveal="private-key" />;
 
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English',
@@ -139,6 +145,13 @@ const TAB_GROUPS: TabGroup[] = [
         Component: RevealSeedPhraseFlow,
         testID: SettingsSelectors.RevealSeedPhraseButton,
         hasOwnLayout: true
+      },
+      {
+        slug: 'reveal-private-key',
+        titleI18nKey: 'revealPrivateKey',
+        Icon: SecretKeyIcon,
+        Component: RevealPrivateKey,
+        testID: SettingsSelectors.RevealPrivateKeyButton
       },
       {
         slug: 'encrypted-wallet-file',

@@ -97,6 +97,13 @@ export class MobileIntercomAdapter {
           mnemonic
         };
 
+      case WalletMessageType.RevealPrivateKeyRequest:
+        const privateKey = await Actions.revealPrivateKey((req as any).accountPublicKey, (req as any).password);
+        return {
+          type: WalletMessageType.RevealPrivateKeyResponse,
+          privateKey: privateKey ?? ''
+        };
+
       case WalletMessageType.RemoveAccountRequest:
         await Actions.removeAccount((req as any).accountPublicKey, (req as any).password);
         return {
@@ -110,9 +117,10 @@ export class MobileIntercomAdapter {
         };
 
       case WalletMessageType.ImportAccountRequest:
-        await Actions.importAccount((req as any).privateKey, (req as any).encPassword);
+        const importedAccountPublicKey = await Actions.importAccount((req as any).privateKey, (req as any).name);
         return {
-          type: WalletMessageType.ImportAccountResponse
+          type: WalletMessageType.ImportAccountResponse,
+          accountPublicKey: importedAccountPublicKey ?? ''
         };
 
       case WalletMessageType.UpdateSettingsRequest:

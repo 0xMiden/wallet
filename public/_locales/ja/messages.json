@@ -338,6 +338,52 @@
     "message": "アカウント名",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "例えば貯蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1 ～ 16 文字、空白またはハイフンで始めることはできません",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "同じ名前のアカウントがすでに存在します",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "続行する前に",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "秘密キーを保持している人は誰でも、このアカウントを完全に制御できます。 Miden アカウントはキーをローテーションできないため、キーが漏洩するとアカウントが永久に侵害されます。",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "このキーはローテーションまたは取り消しできないことを理解しています。",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "インポートされたアカウント ( $importedCount$ ) はこのファイルには含まれません。バックアップするには、[設定] → [秘密キーの公開] から各秘密キーを個別にエクスポートします。",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "この暗号化ファイルは次の方法でエクスポートされました。 $importedCount$ バックアップに含まれていないインポートされたアカウント。これらのアカウントは復元されたウォレットには表示されません。再追加するには元の秘密キーが必要です。 「インポートを続行」をクリックして続行します。",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "インポートを続行する",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "アカウント名の編集",
     "englishSource": "Edit Account Name"

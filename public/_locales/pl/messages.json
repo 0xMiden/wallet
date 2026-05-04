@@ -322,6 +322,52 @@
     "message": "Nazwa konta",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "np. Oszczędności",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1–16 znaków, nie może zaczynać się od spacji ani łącznika",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Konto o tej samej nazwie już istnieje",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Zanim będziesz kontynuować",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Twój klucz prywatny daje pełną kontrolę nad tym kontem każdemu, kto go posiada. Konta Miden nie mogą zmieniać kluczy, więc klucz, który wyciekł, trwale naraża konto na szwank.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Rozumiem, że tego klucza nie można obrócić ani unieważnić.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Zaimportowane konta ( $importedCount$ ) nie zostaną uwzględnione w tym pliku. Aby utworzyć kopię zapasową, wyeksportuj każdy klucz prywatny indywidualnie, wybierając Ustawienia → Pokaż klucz prywatny.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Ten zaszyfrowany plik został wyeksportowany za pomocą $importedCount$ zaimportowanych kont, które nie są częścią kopii zapasowej. Te konta nie pojawią się w przywróconym portfelu — będziesz potrzebować ich oryginalnych kluczy prywatnych, aby je ponownie dodać. Kliknij Kontynuuj import, aby kontynuować.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Kontynuuj importowanie",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Edytuj nazwę konta",
     "englishSource": "Edit Account Name"

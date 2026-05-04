@@ -338,6 +338,52 @@
     "message": "Название аккаунта",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "например Экономия",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "От 1 до 16 символов, не может начинаться с пробела или дефиса.",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Аккаунт с таким именем уже существует",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Прежде чем продолжить",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Ваш закрытый ключ дает полный контроль над этой учетной записью тому, кто ею владеет. Учетные записи Miden не могут менять ключи, поэтому утечка ключа навсегда ставит учетную запись под угрозу.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Я понимаю, что этот ключ нельзя повернуть или отозвать.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Импортированные аккаунты ( $importedCount$ ) не будет включен в этот файл. Чтобы создать их резервную копию, экспортируйте каждый закрытый ключ отдельно в меню «Настройки» → «Показать закрытый ключ».",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Этот зашифрованный файл был экспортирован с помощью $importedCount$ импортированные учетные записи, которые не являются частью резервной копии. Эти учетные записи не появятся в вашем восстановленном кошельке — для их повторного добавления вам понадобятся их оригинальные закрытые ключи. Нажмите «Продолжить импорт», чтобы продолжить.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Продолжить импорт",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Изменить имя учетной записи",
     "englishSource": "Edit Account Name"

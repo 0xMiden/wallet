@@ -338,6 +338,52 @@
     "message": "계정 이름",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "예를 들어 저금",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1~16자, 공백이나 하이픈으로 시작할 수 없습니다.",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "같은 이름의 계정이 이미 존재합니다.",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "계속하기 전에",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "귀하의 개인 키는 이 계정을 보유한 사람에게 이 계정에 대한 모든 권한을 부여합니다. Miden 계정은 키를 순환할 수 없으므로 유출된 키로 인해 계정이 영구적으로 손상됩니다.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "나는 이 키가 순환되거나 취소될 수 없다는 것을 이해합니다.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "가져온 계정( $importedCount$ )은 이 파일에 포함되지 않습니다. 백업하려면 설정 → 개인 키 공개에서 각 개인 키를 개별적으로 내보내세요.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "이 암호화된 파일은 다음으로 내보내졌습니다. $importedCount$ 백업의 일부가 아닌 가져온 계정. 해당 계정은 복원된 지갑에 나타나지 않습니다. 다시 추가하려면 원래 개인 키가 필요합니다. 계속하려면 가져오기 계속을 클릭하세요.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "계속 가져오기",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "계정 이름 수정",
     "englishSource": "Edit Account Name"

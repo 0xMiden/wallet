@@ -1,5 +1,6 @@
 import PQueue from 'p-queue';
 
+import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import {
   toFront,
@@ -38,12 +39,16 @@ import {
   waitForTransaction
 } from './dapp';
 
-const ACCOUNT_NAME_PATTERN = /^.{0,16}$/;
-
 // Lazy queue initialization: in the Vite SW build, module-scope init (init_actions)
 // may not complete because it transitively depends on dapp.ts which imports frontend
 // modules that hang in SW context. Making queues lazy ensures they're available on
 // first use regardless of whether init_actions completed.
+//
+// Note: despite the name, `_unlockQueue` doubles as a general
+// single-writer serializer for any mutation that reads the accounts
+// list and writes it back after a WASM round-trip (import, unlock).
+// Keeping both on the same queue means they implicitly serialize
+// against each other too, which is the safer default.
 let _dappQueue: PQueue | undefined;
 let _unlockQueue: PQueue | undefined;
 function getDappQueue() {
@@ -202,7 +207,7 @@ export function createHDAccount(walletType: WalletType, name?: string) {
     if (name) {
       name = name.trim();
       if (!ACCOUNT_NAME_PATTERN.test(name)) {
-        throw new Error('Invalid name. It should be: 1-16 characters, without special');
+        throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
       }
     }
 
@@ -222,7 +227,9 @@ export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
-export function revealPrivateKey(_accPublicKey: string, _password: string) {}
+export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
+  return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+}
 
 export function revealPublicKey(_accPublicKey: string) {}
 
@@ -233,7 +240,7 @@ export function editAccount(accPublicKey: string, name: string) {
   return withUnlocked(async ({ vault }) => {
     name = name.trim();
     if (!ACCOUNT_NAME_PATTERN.test(name)) {
-      throw new Error('Invalid name. It should be: 1-16 characters, without special');
+      throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
     }
 
     const updatedAccounts = await vault.editAccountName(accPublicKey, name);
@@ -242,7 +249,26 @@ export function editAccount(accPublicKey: string, name: string) {
   });
 }
 
-export function importAccount(_privateKey: string, _encPassword?: string) {}
+export function importAccount(privateKey: string, name?: string) {
+  // Serialize on the unlock queue: `importAccountFromPrivateKey` reads
+  // the accounts list, calls into WASM, then writes the updated list.
+  // Two concurrent imports would otherwise both read the stale list and
+  // the second write would drop the first account.
+  return withUnlocked(({ vault }) =>
+    getUnlockQueue().add(async () => {
+      if (name !== undefined) {
+        name = name.trim();
+        if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
+          throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+        }
+      }
+
+      const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+      accountsUpdated({ accounts });
+      return accounts[accounts.length - 1]!.publicKey;
+    })
+  );
+}
 
 export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}
 
