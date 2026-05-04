@@ -47,6 +47,13 @@ jest.mock('../sdk/helpers', () => ({
     typeof input === 'string' ? input : input && typeof input.toString === 'function' ? input.toString() : 'bech32-stub'
 }));
 
+const mockMarkConnectivityIssue = jest.fn();
+const mockClearReachabilityIssues = jest.fn();
+jest.mock('lib/miden/activity/connectivity-state', () => ({
+  markConnectivityIssue: (...args: unknown[]) => mockMarkConnectivityIssue(...args),
+  clearReachabilityIssues: () => mockClearReachabilityIssues()
+}));
+
 const mockClient = {
   syncState: jest.fn(async () => {}),
   getConsumableNotes: jest.fn(async () => [] as any[]),
@@ -299,6 +306,30 @@ describe('setupSyncManager', () => {
       'miden-sync',
       expect.objectContaining({ periodInMinutes: expect.any(Number) })
     );
+  });
+});
+
+describe('doSync — connectivity categorization', () => {
+  it('clears reachability issues on a successful sync', async () => {
+    mockClearReachabilityIssues.mockClear();
+    await doSync();
+    expect(mockClearReachabilityIssues).toHaveBeenCalled();
+  });
+
+  it('marks node category on a transport-shaped sync error', async () => {
+    mockMarkConnectivityIssue.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc error: deadline exceeded'));
+    await doSync();
+    expect(mockMarkConnectivityIssue).toHaveBeenCalled();
+    const arg = mockMarkConnectivityIssue.mock.calls[0]?.[0];
+    expect(['network', 'node']).toContain(arg);
+  });
+
+  it('does NOT mark connectivity for a semantic / non-transport error', async () => {
+    mockMarkConnectivityIssue.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new Error('something completely unrelated'));
+    await doSync();
+    expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
   });
 });
 

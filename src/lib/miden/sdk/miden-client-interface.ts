@@ -16,7 +16,8 @@ import {
   TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { addConnectivityIssue } from 'lib/miden/activity/connectivity-issues';
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
@@ -267,53 +268,29 @@ export class MidenClientInterface {
     const shouldDelegate = isMobile() ? true : delegateTransaction;
 
     try {
-      if (!shouldDelegate) {
-        return await fn(TransactionProver.newLocalProver());
-      }
-      return await fn(); // uses MidenClient's defaultProver (remote)
+      const result = !shouldDelegate ? await fn(TransactionProver.newLocalProver()) : await fn(); // uses MidenClient's defaultProver (remote)
+      // A successful prover call (whether local or remote) means the prover
+      // pathway the wallet actually uses is healthy. If we'd previously
+      // marked the prover as down, clear it now — the old design never
+      // cleared and the banner pinned forever after a single transient 502.
+      clearConnectivityIssue('prover');
+      return result;
     } catch (err) {
-      // Fallback to local prover on desktop only
-      if (shouldDelegate && !isMobile()) {
-        // Only mark a connectivity issue if the error actually looks network-related.
-        // Semantic WASM-client errors (e.g. "note has already been consumed", "invalid
-        // transaction request") are thrown before any prover RPC happens and must NOT
-        // trip the connectivity banner — the network is fine, the request is just bad.
+      if (shouldDelegate) {
+        // The remote prover path failed. Whether or not we can fall back
+        // locally (we can't on mobile), the user-facing surface should know
+        // remote proving is unavailable. Only categorize transport-shaped
+        // errors so we don't trip the banner on semantic WASM errors
+        // (e.g. "note has already been consumed").
         if (isLikelyNetworkError(err)) {
-          addConnectivityIssue();
+          markConnectivityIssue('prover');
         }
-        return await fn(TransactionProver.newLocalProver());
+        if (!isMobile()) {
+          // Desktop: silently fall back to local proving.
+          return await fn(TransactionProver.newLocalProver());
+        }
       }
       throw err;
     }
   }
-}
-
-/**
- * Heuristic: does this error look like something a local-prover retry could plausibly
- * recover from? Keep the match deliberately conservative — false positives (marking a
- * semantic error as connectivity) are worse than false negatives (missing a real network
- * blip), because the banner persists until the user dismisses it.
- *
- * We match on: fetch/abort/timeout plumbing, HTTP 5xx wording, and tonic-web-wasm-client's
- * transport-layer error surface. We DO NOT match on "invalid transaction request" / "has
- * already been consumed" / other WASM-client validation messages that bubble up from
- * `execute_transaction` before any RPC is attempted.
- */
-function isLikelyNetworkError(err: unknown): boolean {
-  const message = (err as { message?: string } | null | undefined)?.message ?? String(err ?? '');
-  const lower = message.toLowerCase();
-  if (lower.includes('invalid transaction request')) return false;
-  if (lower.includes('has already been consumed')) return false;
-  if (lower.includes('failed to fetch')) return true;
-  if (lower.includes('networkerror')) return true;
-  if (lower.includes('network error')) return true;
-  if (lower.includes('load failed')) return true; // Safari fetch failure
-  if (lower.includes('aborted') || lower.includes('abort')) return true;
-  if (lower.includes('timeout') || lower.includes('timed out')) return true;
-  if (lower.includes('connection')) return true;
-  if (/\b5\d{2}\b/.test(message)) return true; // 500, 502, 503, 504 etc
-  if (lower.includes('status code')) return true;
-  if (lower.includes('transport error')) return true; // tonic-web-wasm-client
-  if (lower.includes('rpc error')) return true;
-  return false;
 }
