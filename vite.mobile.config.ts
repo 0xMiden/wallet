@@ -134,8 +134,13 @@ export default defineConfig({
       output: {
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name].[hash].js',
-        assetFileNames: 'static/[name].[hash][extname]',
-        inlineDynamicImports: true
+        assetFileNames: 'static/[name].[hash][extname]'
+        // NB: inlineDynamicImports was true here, but rolldown-vite (Vite 8)
+        // emits non-async arrow wrappers around inlined TLA-using modules
+        // (e.g. @miden-sdk/miden-sdk/lazy → `(()=>{ await _V() })`), which
+        // JavaScriptCore rejects with "SyntaxError: Unexpected identifier
+        // '_V'". Letting dynamic imports stay as real chunks keeps the TLA
+        // contained to module-level where the runtime supports it.
       }
     }
   },
