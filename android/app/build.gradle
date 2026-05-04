@@ -65,6 +65,10 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
     // Biometric authentication for hardware security
     implementation 'androidx.biometric:biometric:1.1.0'
+    // secp256k1 ECDSA + Keccak-256 for the Guardian hot-key signing path
+    // (HotKeyPlugin). Keystore wraps the 32-byte k256 secret with RSA-OAEP;
+    // BouncyCastle handles everything outside the Keystore boundary.
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
 }
 
 apply from: 'capacitor.build.gradle'

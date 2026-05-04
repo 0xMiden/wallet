@@ -70,6 +70,12 @@
 -keep class com.niceforyou.capacitor.barcodescanner.** { *; }
 -keep class com.google.mlkit.vision.barcode.** { *; }
 
+# BouncyCastle (secp256k1 + Keccak-256) — used by HotKeyPlugin for the
+# Guardian hot-key signing path. Keep the low-level crypto + asn1 classes
+# we touch reflectively via JCE provider lookup paths.
+-keep class org.bouncycastle.** { *; }
+-keep class com.miden.wallet.HotKeyPlugin { *; }
+
 # Don't warn about missing classes in optional dependencies
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
