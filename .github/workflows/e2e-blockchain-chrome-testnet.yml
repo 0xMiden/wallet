@@ -1,23 +1,13 @@
-name: E2E Blockchain (Chrome, testnet)
+name: E2E Blockchain (Chrome, testnet) — Nightly
 
-# Chrome extension blockchain-backed E2E suite against testnet.
-# Runs on every push to main AND nightly at 04:00 UTC.
-#
-# Split out from the multi-network workflow so the testnet network-monitor
-# card can pin to a single workflow id (its symmetric devnet counterpart
-# lives in `e2e-blockchain-chrome-devnet.yml`). Each network is now
-# independently merge-required / monitorable.
-#
-# NOTE: with this split the previous "AT LEAST ONE network passed"
-# merge-tolerance is no longer enforced inside a workflow. If you want
-# that tolerance preserved at the merge gate, configure branch protection
-# to NOT require both workflows; the on-dashboard signal handles the
-# day-to-day visibility.
+# Chrome extension blockchain-backed E2E suite against testnet — NIGHTLY only.
+# Push-on-main coverage (with the OR-tolerance gate across both networks)
+# lives in `e2e-blockchain-chrome.yml`; this workflow exists per-network
+# so the testnet network-monitor card can pin to a single workflow id
+# without contention from push runs. Symmetric devnet sibling:
+# `e2e-blockchain-chrome-devnet.yml`.
 
 on:
-  push:
-    branches:
-      - main
   schedule:
     - cron: '0 4 * * *'
   workflow_dispatch: {}
