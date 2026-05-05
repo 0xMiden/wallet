@@ -58,6 +58,10 @@ export enum WalletMessageType {
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
   SignWordRequest = 'SIGN_WORD_REQUEST',
   SignWordResponse = 'SIGN_WORD_RESPONSE',
+  PersistNewHotKeyRequest = 'PERSIST_NEW_HOT_KEY_REQUEST',
+  PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
+  SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
+  SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -489,6 +493,27 @@ export interface SignWordResponse extends WalletMessageBase {
   signature: string;
 }
 
+export interface PersistNewHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.PersistNewHotKeyRequest;
+  newHotPubKey: string;
+  newHotCiphertext: string;
+}
+
+export interface PersistNewHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.PersistNewHotKeyResponse;
+}
+
+export interface SwapHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.SwapHotKeyRequest;
+  accountPublicKey: string;
+  oldHotPubKey: string;
+  newHotPubKey: string;
+}
+
+export interface SwapHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.SwapHotKeyResponse;
+}
+
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.GetPublicKeyForCommitmentRequest;
   commitment: string;
@@ -699,6 +724,8 @@ export type WalletRequest =
   | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
+  | PersistNewHotKeyRequest
+  | SwapHotKeyRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -749,6 +776,8 @@ export type WalletResponse =
   | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse
+  | PersistNewHotKeyResponse
+  | SwapHotKeyResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse

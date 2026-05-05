@@ -3,15 +3,21 @@ import {
   Multisig,
   MultisigClient,
   GuardianHttpClient,
+  buildUpdateSignersTransactionRequest,
+  executeForSummary,
   type ProposalMetadata,
   type TransactionProposal,
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import * as secureHotKey from 'lib/secure-hot-key';
+import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
+import type { WalletAccount } from 'lib/shared/types';
 
+import { getSignerDetailsFromAccount } from './account';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
@@ -59,6 +65,28 @@ export class MultisigService {
       console.log('Error initializing MultisigService:', error);
       throw error;
     }
+  }
+
+  /**
+   * Build a transient cold-bound MultisigService for ops that must be cold-signed
+   * (switch_guardian co-sign and replace_hot_key). The cold commitment is read
+   * from on-chain storage via getSignerDetailsFromAccount(_, true) — order
+   * convention `[hot, cold]` is preserved across rotations because
+   * createReplaceHotKeyProposal uses an in-place swap target list.
+   *
+   * Caller is expected to drop the returned service immediately after use so
+   * cold key material doesn't outlive the operation.
+   */
+  static async buildColdMultisigService(
+    account: Account,
+    walletAccount: WalletAccount,
+    signWordFn: SignWordFunction
+  ): Promise<MultisigService> {
+    if (!walletAccount.coldPublicKey) {
+      throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
+    }
+    const { commitment } = await getSignerDetailsFromAccount(account, true);
+    return MultisigService.init(account, `0x${walletAccount.coldPublicKey}`, `0x${commitment}`, signWordFn);
   }
 
   static async importAccountFromGuardian(
@@ -136,10 +164,19 @@ export class MultisigService {
       proposalType: 'unknown',
       description: 'Custom transaction'
     };
-
     const proposal = await this.multisig.createProposal(nonce, txSummaryBase64, metadata);
 
     return proposal;
+  }
+
+  /**
+   * Sign a proposal with this service's bound signer. Used by switch_guardian's
+   * cold co-sign path where cold contributes a signature without driving the
+   * follow-up createTransactionProposalRequest call (hot does that).
+   * Sigs accumulate on the Guardian server keyed by proposal id.
+   */
+  async signProposal(id: string): Promise<void> {
+    await this.multisig.signProposal(id);
   }
 
   async signAndExecuteProposal(id: string): Promise<void> {
@@ -148,7 +185,8 @@ export class MultisigService {
   }
 
   async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
-    await this.multisig.signProposal(id);
+    const singedProposal = await this.multisig.signProposal(id);
+    console.log('Signed proposal, creating transaction request with id:', singedProposal.signatures);
     return await this.multisig.createTransactionProposalRequest(id);
   }
 
@@ -192,7 +230,7 @@ export class MultisigService {
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
       const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
-      const { commitment } = await newGuardian.getPubkey();
+      const { commitment } = await newGuardian.getPubkey('ecdsa');
       const proposal = await this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment);
       await this.multisig.createProposal(proposal.nonce, proposal.txSummary, proposal.metadata);
       console.log('Created switch-guardian proposal with new endpoint:', newGuardianEndpoint);
@@ -201,6 +239,61 @@ export class MultisigService {
       console.log('Error creating switch-guardian proposal:', error);
       throw error;
     }
+  }
+
+  /**
+   * Build a proposal that replaces this account's hot signer in-place. Mints a
+   * fresh hot key via the secureHotKey facade and constructs an `update_signers`
+   * proposal whose target list is `[newHotCommit, coldCommit]` (preserving the
+   * `[hot, cold]` ordering convention so getSignerDetailsFromAccount keeps
+   * working post-rotation).
+   *
+   * Bypasses the SDK's createAddSignerProposal/createRemoveSignerProposal
+   * convenience wrappers (those compute different target lists). At execution
+   * time, multisig.ts's buildTransactionRequestFromMetadata treats all three
+   * `update_signers` variants identically and uses metadata.targetSignerCommitments
+   * directly — so labeling this as 'add_signer' is cosmetic.
+   *
+   * Sign + submit this proposal with a cold-bound MultisigService — replacing
+   * the hot key cannot itself require the hot key (recovery-friendly). Default
+   * threshold for update_signers is 1, so cold alone satisfies it.
+   *
+   * Caller is responsible for persisting `newHot.ciphertext` BEFORE submitting
+   * the resulting tx (see initiateReplaceHotKeyTransaction).
+   */
+  async createReplaceHotKeyProposal(account: Account): Promise<{ proposal: Proposal; newHot: GeneratedHotKey }> {
+    const newHot = await secureHotKey.generateHotKey();
+    const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
+    const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
+    const targetSignerCommitments = [ensure0x(newHot.commitmentHex), ensure0x(coldCommitRaw)];
+    const targetThreshold = this.multisig.threshold;
+
+    const webClient = (await getMidenClient()).client;
+    const { request, salt } = await withWasmClientLock(async () =>
+      buildUpdateSignersTransactionRequest(webClient, targetThreshold, targetSignerCommitments, {
+        signatureScheme: 'ecdsa'
+      })
+    );
+    const summary = await withWasmClientLock(async () => executeForSummary(webClient, this.accountId, request));
+    const summaryBase64 = u8ToB64(summary.serialize());
+    console.log(
+      'Executed transaction for summary',
+      summaryBase64,
+      'with target signer commitments',
+      targetSignerCommitments
+    );
+    const metadata: ProposalMetadata = {
+      proposalType: 'add_signer',
+      targetThreshold,
+      targetSignerCommitments,
+      saltHex: salt.toHex(),
+      requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
+      description: 'Replace device (hot) signer'
+    };
+
+    const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
+    console.log('Created replace-hot-key proposal:', proposal.id);
+    return { proposal, newHot };
   }
 
   /**

@@ -6,8 +6,6 @@ import {
   AccountStorageMode,
   AccountType,
   AuthSecretKey,
-  PublicKey,
-  Signature,
   SigningInputs,
   Word
 } from '@miden-sdk/miden-sdk/lazy';
@@ -20,6 +18,7 @@ import {
   fetchAndDecryptOneWithLegacyFallBack,
   getPlain,
   isStored,
+  removeMany,
   savePlain
 } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
@@ -77,6 +76,7 @@ const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
     const pubKeyHex = Buffer.from(key).toString('hex');
+    console.log('Inserting key with pubKeyHex', pubKeyHex);
     const secretKeyHex = Buffer.from(secretKey).toString('hex');
     await encryptAndSaveMany(
       [
@@ -703,6 +703,61 @@ export class Vault {
     });
   }
 
+  /**
+   * Persist a freshly-minted hot key blob produced by createReplaceHotKeyProposal.
+   * Called BEFORE the rotation tx is submitted so the new ciphertext is durable
+   * even if the app dies after submit but before complete — the on-chain account
+   * state determines which hotPublicKey is canonical, and `swapHotKey` (called
+   * from completeReplaceHotKeyTransaction) reconciles the WalletAccount pointer
+   * against it. Old hot stays valid until rotation lands so this is idempotent.
+   */
+  async persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {
+    return withError('Failed to persist new hot key', async () => {
+      await encryptAndSaveMany(
+        [
+          [accAuthPubKeyStrgKey(newHotPubKey), newHotPubKey],
+          [accAuthSecretKeyStrgKey(newHotPubKey), newHotCiphertext]
+        ],
+        this.vaultKey
+      );
+    });
+  }
+
+  /**
+   * Finalize a hot-key rotation: update WalletAccount.hotPublicKey for the
+   * Guardian account and remove the previous hot ciphertext. On mobile we also
+   * release the SE/StrongBox wrapper key for the old ciphertext via
+   * secureHotKey.deleteHotKey — best-effort, not fatal if it fails (the JS
+   * fallback's deleteHotKey is a no-op anyway).
+   */
+  async swapHotKey(accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) {
+    return withError('Failed to swap hot key', async () => {
+      const allAccounts = await this.fetchAccounts();
+      if (!allAccounts.some(acc => acc.publicKey === accountPublicKey)) {
+        throw new PublicError('Account not found');
+      }
+
+      try {
+        const oldCiphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
+          accAuthSecretKeyStrgKey(oldHotPubKey),
+          this.vaultKey
+        );
+        await secureHotKey.deleteHotKey(oldCiphertext);
+      } catch (e) {
+        console.warn('swapHotKey: failed to release old native key (non-fatal):', e);
+      }
+
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)]);
+
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
   async updateSettings(settings: Partial<WalletSettings>) {
     return withError('Failed to update settings', async () => {
       const current = await this.fetchSettings();
@@ -741,6 +796,7 @@ export class Vault {
   }
 
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
+    console.log('signTransaction: publicKey', publicKey);
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
       accAuthSecretKeyStrgKey(publicKey),
       this.vaultKey
@@ -771,8 +827,13 @@ export class Vault {
         accColdSecretKeyStrgKey(publicKey),
         this.vaultKey
       );
+      console.log('Sign word for cold key, got coldHex =', coldHex);
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
       const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
+      console.log(
+        'Cold signature generated, signature.serialize() =',
+        Buffer.from(signature.serialize()).toString('hex')
+      );
       return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
     }
 

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
+import GuardianReplaceHotKey from 'app/templates/GuardianReplaceHotKey';
 import {
   initiateSwitchGuardianTransaction,
   requestSWTransactionProcessing,
@@ -133,6 +134,10 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
           </div>
         )}
       </form>
+
+      <hr className="my-6" />
+
+      <GuardianReplaceHotKey onClose={onClose} />
     </div>
   );
 };

@@ -55,6 +55,16 @@ export const buildMultisigStorageSlots = jest.fn();
 export const buildGuardianStorageSlots = jest.fn();
 export const storageLayoutBuilder = jest.fn();
 
+// Update-signers + summary builders used by createReplaceHotKeyProposal. The
+// real implementations touch WASM; tests mock-or-spy as needed.
+export const buildUpdateSignersTransactionRequest = jest.fn(async () => ({
+  request: { kind: 'update-signers-request' },
+  salt: { toHex: () => 'salt-hex' }
+}));
+export const executeForSummary = jest.fn(async () => ({
+  serialize: () => new Uint8Array([0xab])
+}));
+
 export class StorageLayoutBuilder {
   constructor(..._args: unknown[]) {}
 }

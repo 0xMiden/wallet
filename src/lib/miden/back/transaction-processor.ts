@@ -77,6 +77,16 @@ const vaultGuardianProvider: GuardianAccountProvider = {
     return withUnlocked(async ({ vault }) => {
       return await vault.signWord(publicKey, wordHex);
     });
+  },
+  persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
+    return withUnlocked(async ({ vault }) => {
+      await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
+    });
+  },
+  swapHotKey: async (accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) => {
+    return withUnlocked(async ({ vault }) => {
+      await vault.swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey);
+    });
   }
 };
 

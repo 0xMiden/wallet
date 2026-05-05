@@ -304,6 +304,18 @@ export function signWord(publicKey: string, wordHex: string) {
   });
 }
 
+export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {
+  return withUnlocked(async ({ vault }) => {
+    await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
+  });
+}
+
+export function swapHotKey(accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) {
+  return withUnlocked(async ({ vault }) => {
+    await vault.swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey);
+  });
+}
+
 export function getPublicKeyForCommitment(commitment: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.getPublicKeyForCommitment(commitment);

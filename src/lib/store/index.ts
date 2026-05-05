@@ -306,6 +306,25 @@ export const useWalletStore = create<WalletStore>()(
       return res.signature;
     },
 
+    persistNewHotKey: async (newHotPubKey, newHotCiphertext) => {
+      const res = await request({
+        type: WalletMessageType.PersistNewHotKeyRequest,
+        newHotPubKey,
+        newHotCiphertext
+      });
+      assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
+    },
+
+    swapHotKey: async (accountPublicKey, oldHotPubKey, newHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey,
+        oldHotPubKey,
+        newHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
+    },
+
     getPublicKeyForCommitment: async commitment => {
       const res = await request({
         type: WalletMessageType.GetPublicKeyForCommitmentRequest,

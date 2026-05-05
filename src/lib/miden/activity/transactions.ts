@@ -22,6 +22,7 @@ import {
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
+  ReplaceHotKeyTransaction,
   SendTransaction,
   SwitchGuardianTransaction,
   Transaction,
@@ -368,6 +369,77 @@ export const initiateSwitchGuardianTransaction = async (
   const dbTransaction = new SwitchGuardianTransaction(accountId, newGuardianEndpoint, delegateTransaction);
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
+};
+
+/**
+ * Queue a replace-hot-key transaction for a Guardian account. The new hot key
+ * is generated lazily inside `generateGuardianTransaction` (so the cold service
+ * + secureHotKey facade are only touched once we're actually processing the
+ * tx) and persisted to the vault BEFORE submission. Cold-signed; default
+ * `update_signers` threshold (1) means cold alone satisfies on-chain.
+ */
+export const initiateReplaceHotKeyTransaction = async (
+  accountId: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!(await isGuardianAccount(accountId, guardianProvider))) {
+    throw new Error('Replace hot key is only supported for Guardian accounts');
+  }
+  const dbTransaction = new ReplaceHotKeyTransaction(accountId, delegateTransaction);
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+export const completeReplaceHotKeyTransaction = async (
+  tx: ReplaceHotKeyTransaction,
+  result: TransactionResult,
+  guardianProvider: GuardianAccountProvider
+) => {
+  try {
+    const executedTx = result.executedTransaction();
+    const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
+    if (!newHotPublicKey) {
+      throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
+    }
+
+    // Resolve the OLD hot pubkey from the WalletAccount snapshot taken before
+    // generateGuardianTransaction wrote the new hot ciphertext to vault. The
+    // record may already reflect the new key on a retry — guard accordingly.
+    const allAccounts = await guardianProvider.getAccounts();
+    const accountRecord = allAccounts.find(a => a.publicKey === tx.accountId);
+    if (!accountRecord) {
+      throw new Error(`Account ${tx.accountId} not found in provider during complete`);
+    }
+    const oldHotPublicKey = accountRecord.hotPublicKey;
+    if (!oldHotPublicKey) {
+      throw new Error(`Account ${tx.accountId} has no hotPublicKey to rotate`);
+    }
+
+    if (oldHotPublicKey !== newHotPublicKey) {
+      if (!guardianProvider.swapHotKey) {
+        throw new Error('swapHotKey not implemented in this provider');
+      }
+      await guardianProvider.swapHotKey(tx.accountId, oldHotPublicKey, newHotPublicKey);
+    }
+    // Drop the cached MultisigService — its bound hot signer is now stale.
+    clearGuardianServiceFor(tx.accountId);
+
+    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      displayMessage: 'Device key rotated',
+      transactionId: executedTx.id().toHex(),
+      completedAt: Math.floor(Date.now() / 1000),
+      resultBytes: result.serialize()
+    });
+  } catch (error) {
+    console.error('Error completing replace-hot-key transaction:', error);
+    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
+      displayMessage: 'Failed to rotate device key',
+      completedAt: Math.floor(Date.now() / 1000),
+      resultBytes: result.serialize(),
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 };
 
 export const completeSwitchGuardianTransaction = async (
@@ -761,6 +833,7 @@ export const generateTransaction = async (
     type: transaction.type,
     accountId: transaction.accountId
   });
+
   // Route Guardian accounts through Guardian service
   if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
     try {
@@ -829,6 +902,10 @@ const generateGuardianTransaction = async (
   const multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
 
   let proposalResult: Proposal;
+  // The signing service for the FINAL signAndCreateTransactionRequest call.
+  // Defaults to hot. replace-hot-key flips it to a transient cold service
+  // because the hot key being replaced cannot itself authorize the rotation.
+  let signingService: MultisigService = multisigService;
 
   switch (transaction.type) {
     case 'send': {
@@ -851,6 +928,43 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
+    case 'replace-hot-key': {
+      const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+      if (!walletAccount) {
+        throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
+      }
+      const sdkAccount = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        return midenClient.getAccount(transaction.accountId);
+      });
+      if (!sdkAccount) {
+        throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
+      }
+      const coldService = await MultisigService.buildColdMultisigService(
+        sdkAccount,
+        walletAccount,
+        guardianProvider.signWord
+      );
+      const { proposal, newHot } = await coldService.createReplaceHotKeyProposal(sdkAccount);
+      if (!guardianProvider.persistNewHotKey) {
+        throw new Error('persistNewHotKey not implemented in this provider');
+      }
+      // Persist the new hot ciphertext BEFORE submitting. Old hot stays valid
+      // until the on-chain rotation lands so this is idempotent. If the app
+      // dies between submit and complete, the new ciphertext is on disk and
+      // complete reconciles against the on-chain state.
+      await guardianProvider.persistNewHotKey(newHot.publicKeyHex, newHot.ciphertext);
+      // Stash the new pubkey on the in-memory transaction AND in dexie so
+      // complete (which may run after a process restart) can find it.
+      const rTx = transaction as ReplaceHotKeyTransaction;
+      rTx.extraInputs = { ...(rTx.extraInputs ?? {}), newHotPublicKey: newHot.publicKeyHex };
+      await Repo.transactions.where({ id: transaction.id }).modify(t => {
+        t.extraInputs = rTx.extraInputs;
+      });
+      proposalResult = proposal;
+      signingService = coldService;
+      break;
+    }
     // case 'execute':
     // default: {
     // // For custom transactions, get TransactionSummary and create a custom proposal
@@ -871,10 +985,37 @@ const generateGuardianTransaction = async (
 
   // Sign and execute the proposal
   await setTransactionStage(transaction.id, 'signing-proposal');
-  const tr = await multisigService.signAndCreateTransactionRequest(proposalResult.id);
-  console.log('Created transaction request from proposal, submitting to Miden client');
+
+  // switch_guardian is on-chain threshold-2 (set at create time via
+  // procedureThresholds). Hot's signAndCreateTransactionRequest below
+  // contributes one sig; we add the cold sig here. Sigs accumulate on the
+  // Guardian server keyed by proposal id so order doesn't matter, and the
+  // transient cold service is dropped at scope exit.
+  if (transaction.type === 'switch-guardian') {
+    const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === transaction.accountId);
+    if (!walletAccount) {
+      throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
+    }
+    const sdkAccount = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      return midenClient.getAccount(transaction.accountId);
+    });
+    if (!sdkAccount) {
+      throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
+    }
+    const coldService = await MultisigService.buildColdMultisigService(
+      sdkAccount,
+      walletAccount,
+      guardianProvider.signWord
+    );
+    await coldService.signProposal(proposalResult.id);
+  }
+
+  const tr = await signingService.signAndCreateTransactionRequest(proposalResult.id);
+  console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+      console.log('Signing transaction request with external callback');
       const keyString = Buffer.from(publicKey).toString('hex');
       const signingInputsString = Buffer.from(signingInputs).toString('hex');
       return await signCallback(keyString, signingInputsString);
@@ -883,20 +1024,27 @@ const generateGuardianTransaction = async (
 
   await setTransactionStage(transaction.id, 'submitting');
   const transactionResult = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient(options);
-    console.log('Submitting transaction request to Miden client');
-    const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
-      prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
-    });
-    console.log('Transaction request submitted, waiting for result');
-    return result;
+    try {
+      const midenClient = await getMidenClient(options);
+      const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
+        prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+      });
+      return result;
+    } catch (error) {
+      console.error('Error during transaction submission or execution', { error });
+      throw error;
+    }
   });
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
   // without this wait finalizeGuardianSwitch would serialize the pre-switch
   // account and register that stale state with the new guardian.
-  if (transaction.type === 'switch-guardian') {
+  // For replace-hot-key, we wait so the WalletAccount.hotPublicKey swap in
+  // complete only happens once the on-chain rotation is final — otherwise a
+  // resync could race with stale on-chain state and pick the wrong canonical
+  // hot pubkey.
+  if (transaction.type === 'switch-guardian' || transaction.type === 'replace-hot-key') {
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
@@ -917,6 +1065,14 @@ const generateGuardianTransaction = async (
         transaction as SwitchGuardianTransaction,
         transactionResult,
         multisigService
+      );
+      break;
+    case 'replace-hot-key':
+      console.log('Completing replace-hot-key transaction');
+      await completeReplaceHotKeyTransaction(
+        transaction as ReplaceHotKeyTransaction,
+        transactionResult,
+        guardianProvider
       );
       break;
     // case 'execute':

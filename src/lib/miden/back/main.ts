@@ -213,6 +213,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature
       };
+    case WalletMessageType.PersistNewHotKeyRequest:
+      await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
+      return {
+        type: WalletMessageType.PersistNewHotKeyResponse
+      };
+    case WalletMessageType.SwapHotKeyRequest:
+      await Actions.swapHotKey(req.accountPublicKey, req.oldHotPubKey, req.newHotPubKey);
+      return {
+        type: WalletMessageType.SwapHotKeyResponse
+      };
     case WalletMessageType.GetPublicKeyForCommitmentRequest:
       const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
       return {

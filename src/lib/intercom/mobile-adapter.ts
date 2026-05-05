@@ -148,6 +148,20 @@ export class MobileIntercomAdapter {
         };
       }
 
+      case WalletMessageType.PersistNewHotKeyRequest: {
+        await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
+        return {
+          type: WalletMessageType.PersistNewHotKeyResponse
+        };
+      }
+
+      case WalletMessageType.SwapHotKeyRequest: {
+        await Actions.swapHotKey(req.accountPublicKey, req.oldHotPubKey, req.newHotPubKey);
+        return {
+          type: WalletMessageType.SwapHotKeyResponse
+        };
+      }
+
       case WalletMessageType.GetPublicKeyForCommitmentRequest: {
         const publicKey = await Actions.getPublicKeyForCommitment(req.commitment);
         return {

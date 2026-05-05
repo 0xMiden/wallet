@@ -11,6 +11,8 @@
  *    type prefix (currently hardcoded as 0x01).
  */
 
+import * as nativePlugin from './nativePlugin';
+
 const mockGenerateHotKey = jest.fn();
 const mockSignWithHotKey = jest.fn();
 const mockDeleteHotKey = jest.fn();
@@ -37,8 +39,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     deserialize: (bytes: Uint8Array) => publicKeyDeserialize(bytes)
   }
 }));
-
-import * as nativePlugin from './nativePlugin';
 
 beforeEach(() => {
   jest.clearAllMocks();

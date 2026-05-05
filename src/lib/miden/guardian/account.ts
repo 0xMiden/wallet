@@ -41,18 +41,20 @@ export interface CreatedGuardianAccount {
  * Convention: `signerCommitments: [hot, cold]` per createGuardianAccount —
  * so `mapEntries[0]` is the hot signer's commitment.
  */
-export async function getSignerDetailsFromAccount(account: Account): Promise<{ commitment: string }> {
+export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
   const mapEntries = account.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
   console.log('Signer public keys map entries:', mapEntries);
   if (!mapEntries) {
     throw new Error('No signer public keys found in account storage');
   }
 
-  if (!mapEntries[0]) {
+  const index = getCold ? 1 : 0;
+
+  if (!mapEntries[index]) {
     throw new Error('No signer commitments found in account storage');
   }
 
-  const commitment = mapEntries[0].value.slice(2);
+  const commitment = mapEntries[index].value.slice(2);
   if (!commitment) {
     throw new Error('Commitment not found in account storage');
   }

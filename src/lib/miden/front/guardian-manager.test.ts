@@ -87,7 +87,12 @@ describe('guardian-manager', () => {
       expect(result).toBe(service);
       // The publicKey arg comes from WalletAccount.hotPublicKey (not from
       // getSignerDetailsFromAccount anymore), prefixed with `0x`.
-      expect(mockMultisigServiceInit).toHaveBeenCalledWith(expect.anything(), `0x${HOT_PK}`, '0xabc', provider.signWord);
+      expect(mockMultisigServiceInit).toHaveBeenCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord
+      );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
       mockMultisigServiceInit.mockClear();

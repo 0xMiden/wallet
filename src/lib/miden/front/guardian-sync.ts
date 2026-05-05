@@ -12,7 +12,11 @@ import { getOrCreateMultisigService, type GuardianAccountProvider } from './guar
 export const zustandProvider: GuardianAccountProvider = {
   getAccounts: async () => useWalletStore.getState().accounts,
   getPublicKeyForCommitment: (commitment: string) => useWalletStore.getState().getPublicKeyForCommitment(commitment),
-  signWord: (publicKey: string, wordHex: string) => useWalletStore.getState().signWord(publicKey, wordHex)
+  signWord: (publicKey: string, wordHex: string) => useWalletStore.getState().signWord(publicKey, wordHex),
+  persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
+    useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
+  swapHotKey: (accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) =>
+    useWalletStore.getState().swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey)
 };
 
 /**
