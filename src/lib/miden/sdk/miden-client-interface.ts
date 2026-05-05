@@ -25,6 +25,7 @@ import {
   getNoteTransportUrl
 } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
+import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
@@ -98,11 +99,19 @@ export class MidenClientInterface {
     this.client.terminate();
   }
 
-  async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
+  async createMidenWallet(
+    walletType: WalletType,
+    seed?: Uint8Array,
+    auth?: AuthScheme
+  ): Promise<string> {
     const isPublic = walletType === WalletType.OnChain;
     const wallet: Account = await this.client.accounts.create({
       storage: isPublic ? 'public' : 'private',
-      seed
+      seed,
+      // Forward `auth` only when explicitly set so the SDK default (still
+      // Falcon, matching the historical wallet default) governs any
+      // path that hasn't been migrated to choose a scheme.
+      ...(auth ? { auth } : {})
     });
     return getBech32AddressFromAccountId(wallet.id());
   }
@@ -113,8 +122,17 @@ export class MidenClientInterface {
     return getBech32AddressFromAccountId(wallet.id());
   }
 
-  async importPublicMidenWalletFromSeed(seed: Uint8Array) {
-    const account = await this.client.accounts.import({ seed });
+  async importPublicMidenWalletFromSeed(seed: Uint8Array, auth?: AuthScheme) {
+    // The SDK reconstructs the account from `seed` + `auth` (default Falcon
+    // when omitted). For the wallet's mnemonic-restore path the caller
+    // PROBES with each known auth scheme to find which account id actually
+    // exists on chain — see `Vault.spawn`. Forwarding `auth` only when
+    // explicitly provided keeps any other call site behaving exactly as
+    // before.
+    const account = await this.client.accounts.import({
+      seed,
+      ...(auth ? { auth } : {})
+    });
     return getBech32AddressFromAccountId(account.id());
   }
 

@@ -130,7 +130,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     ...base,
     AuthSecretKey: {
       deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
-      rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' }))
+      rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' })),
+      // ECDSA constructor used by `authSecretKeyFromSeed` when the
+      // restored WalletAccount records authScheme='ecdsa'. Mirror the
+      // shape of the falcon mock — only the marker differs.
+      ecdsaWithRNG: jest.fn(() => ({ __marker: 'ecdsa-secret' }))
     },
     SigningInputs: { deserialize: jest.fn(() => ({})) },
     Word: { deserialize: jest.fn(() => ({})) },
@@ -635,12 +639,43 @@ describe('Vault.spawn', () => {
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalled();
   });
 
-  it('falls back to createMidenWallet when importPublicMidenWalletFromSeed throws during spawn', async () => {
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error('boom'));
+  it('falls back to createMidenWallet when both import probes (falcon, ecdsa) fail during spawn', async () => {
+    // Vault.spawn now probes both auth schemes during mnemonic restore.
+    // Use mockRejectedValue (not Once) so every probe sees a rejection
+    // and the create-fallback branch is reached.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error('boom'));
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('fallback-pk');
     const vault = await Vault.spawn('pw', VALID_MNEMONIC, true);
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fallback-pk');
+    // Both schemes were probed (falcon first, ecdsa second).
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+  });
+
+  it('picks the second probe scheme when the first scheme has no on-chain account', async () => {
+    // Probe order is [falcon, ecdsa]. Falcon probe fails, ecdsa succeeds —
+    // the resulting account is stamped with authScheme='ecdsa'.
+    mockMidenClient.importPublicMidenWalletFromSeed
+      .mockRejectedValueOnce(new Error('no falcon account at this seed'))
+      .mockResolvedValueOnce('ecdsa-pk-xyz');
+    const vault = await Vault.spawn('pw', VALID_MNEMONIC, true);
+    expect(vault).toBeInstanceOf(Vault);
+    expect(await Vault.getCurrentAccountPublicKey()).toBe('ecdsa-pk-xyz');
+    // create-fallback NOT reached.
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+    // Stored scheme reflects the probe that succeeded.
+    const accounts = await vault.fetchAccounts();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.authScheme).toBe('ecdsa');
+  });
+
+  it('picks falcon (legacy) when the falcon probe finds an account first', async () => {
+    mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('falcon-pk-abc');
+    const vault = await Vault.spawn('pw', VALID_MNEMONIC, true);
+    expect(await Vault.getCurrentAccountPublicKey()).toBe('falcon-pk-abc');
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    const accounts = await vault.fetchAccounts();
+    expect(accounts[0]!.authScheme).toBe('falcon');
   });
 
   it('skips importPublicMidenWalletFromSeed when the client network is "mock"', async () => {
@@ -728,6 +763,52 @@ describe('Vault.spawnFromMidenClient', () => {
     mockMidenClient.getAccounts.mockRejectedValueOnce(new Error('wasm failed'));
     await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
   });
+
+  it('re-derives ECDSA secret keys for accounts whose authScheme is "ecdsa"', async () => {
+    // The keystore-insert call must receive the ECDSA-marker secret produced
+    // by AuthSecretKey.ecdsaWithRNG, not the falcon one. Confirms the
+    // restore path picks the right derivation function based on the stored
+    // scheme, which is the contract that prevents post-migration encrypted-
+    // file restores from corrupting an account's signing key.
+    const fakeAcc = { id: () => 'pk-ecdsa' as any, isFaucet: () => false, isNetwork: () => false };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
+
+    await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      {
+        publicKey: 'pk-ecdsa',
+        name: 'A',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa'
+      }
+    ]);
+
+    // Last keystore insert receives the secret produced by ecdsaWithRNG —
+    // the falcon constructor must not have been called for this account.
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
+    const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
+    expect((insertedSecret as any).__marker).toBe('ecdsa-secret');
+  });
+
+  it('falls back to falcon-derivation for legacy WalletAccount entries with no authScheme', async () => {
+    // Pre-migration WalletAccount records have no `authScheme` field;
+    // the restore path must treat missing as falcon to preserve the
+    // historical behavior. Confirms the LEGACY_AUTH_SCHEME default.
+    const fakeAcc = { id: () => 'pk-legacy' as any, isFaucet: () => false, isNetwork: () => false };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(fakeAcc);
+
+    await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      // No authScheme field — the legacy shape.
+      { publicKey: 'pk-legacy', name: 'Legacy', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+    ]);
+
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
+    const insertedSecret = mockKeystoreInsert.mock.calls[0]![1];
+    expect((insertedSecret as any).__marker).toBe('rpo-falcon-secret');
+  });
 });
 
 describe('Vault.importAccountFromPrivateKey', () => {
@@ -753,8 +834,28 @@ describe('Vault.importAccountFromPrivateKey', () => {
       type: WalletType.OnChain,
       hdIndex: -1
     });
+    // Mocked secret key has no scheme accessors → detectAuthScheme falls
+    // through to the legacy default. Mirrors how a pre-migration Falcon
+    // hex key behaves on import.
+    expect(imported.authScheme).toBe('falcon');
     expect(mockAccountsInsert).toHaveBeenCalledWith({ account: expect.any(Object) });
     expect(mockKeystoreInsert).toHaveBeenCalled();
+  });
+
+  it('stamps authScheme="ecdsa" when the imported key exposes the ECDSA accessor', async () => {
+    // Mock a deserialized AuthSecretKey that responds to the ECDSA scheme
+    // probe (`getEcdsaK256KeccakSecretKeyAsFelts`) without throwing —
+    // mirrors the WASM-side behavior for an ECDSA-encoded private key.
+    mockAuthSecretKeyDeserialize.mockReturnValueOnce({
+      sign: jest.fn(),
+      signData: jest.fn(),
+      getEcdsaK256KeccakSecretKeyAsFelts: jest.fn(() => [])
+    } as any);
+
+    const vault = await seedVault('pw');
+    const accounts = await vault.importAccountFromPrivateKey(VALID_HEX, 'My ECDSA Import');
+
+    expect(accounts[1]!.authScheme).toBe('ecdsa');
   });
 
   it('auto-generates a fresh name when the user does not supply one', async () => {

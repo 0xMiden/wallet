@@ -264,12 +264,33 @@ export interface ReadyWalletState extends WalletState {
   currentAccount: WalletAccount;
 }
 
+/**
+ * Auth scheme an account uses for signing.
+ *
+ * Mirrors `@miden-sdk/miden-sdk` `AuthSchemeType` ("falcon" | "ecdsa").
+ *
+ * Optional on stored `WalletAccount` records. Records written before this
+ * field existed have it absent on read; consumers MUST treat missing as
+ * `"falcon"` (the historical wallet default). This preserves restore +
+ * sign behavior 1:1 for pre-migration wallets while letting new accounts
+ * be stamped with the new default ("ecdsa").
+ *
+ * Miden accounts cannot rotate auth, so this field is fixed at account
+ * creation time and never mutated.
+ */
+export type AuthScheme = 'falcon' | 'ecdsa';
+
 export interface WalletAccount {
   publicKey: string;
   name: string;
   isPublic: boolean;
   type: WalletType;
   hdIndex: number;
+  /**
+   * Auth scheme this account was created with. See {@link AuthScheme} for
+   * the missing-on-read → `"falcon"` legacy interpretation.
+   */
+  authScheme?: AuthScheme;
 }
 
 export interface WalletNetwork {
