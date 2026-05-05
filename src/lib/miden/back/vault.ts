@@ -24,8 +24,67 @@ import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
 import { isDesktop, isMobile } from 'lib/platform';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
-import { WalletAccount, WalletSettings } from 'lib/shared/types';
+import { AuthScheme, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
+
+// AUTH SCHEME POLICY
+// ============================================================================
+//
+// New accounts created post-migration default to ECDSA. Pre-migration
+// `WalletAccount` records have no `authScheme` field on read; we treat
+// missing as Falcon (the historical wallet default) so existing wallets
+// — including encrypted-file backups produced before this change —
+// keep restoring + signing exactly as before.
+//
+// Miden accounts cannot rotate auth, so a created account's scheme is
+// fixed for life. Restore paths MUST therefore pass the stored scheme
+// (or the legacy default) through to the SDK; mnemonic-only restore
+// (no per-account metadata) probes both schemes against the chain to
+// find the user's actual on-chain identity.
+
+/** Scheme stamped on every NEW account this wallet creates. */
+const NEW_ACCOUNT_AUTH_SCHEME: AuthScheme = 'ecdsa';
+
+/**
+ * Falcon was the wallet default before this migration shipped.
+ * `WalletAccount` records persisted before this change have no
+ * `authScheme` field; on read, treat missing as Falcon.
+ */
+const LEGACY_AUTH_SCHEME: AuthScheme = 'falcon';
+
+/** Schemes the mnemonic-restore probe walks, in order of historical likelihood. */
+const RESTORE_PROBE_SCHEMES: readonly AuthScheme[] = ['falcon', 'ecdsa'] as const;
+
+/** Returns the auth scheme for an account, applying the legacy fallback. */
+const getAccountAuthScheme = (account: WalletAccount): AuthScheme =>
+  account.authScheme ?? LEGACY_AUTH_SCHEME;
+
+/**
+ * Derives an `AuthSecretKey` from a mnemonic-derived seed under the given
+ * scheme. Used by restore paths to repopulate the keystore for accounts
+ * whose secret keys can be regenerated from the mnemonic.
+ */
+const authSecretKeyFromSeed = (scheme: AuthScheme, seed: Uint8Array): AuthSecretKey =>
+  scheme === 'ecdsa'
+    ? AuthSecretKey.ecdsaWithRNG(seed)
+    : AuthSecretKey.rpoFalconWithRNG(seed);
+
+/**
+ * Detects the scheme of an `AuthSecretKey` deserialized from raw hex.
+ *
+ * The SDK's `AuthSecretKey` doesn't expose a `kind()` accessor, but its
+ * `getEcdsaK256KeccakSecretKeyAsFelts` / `getRpoFalcon512SecretKeyAsFelts`
+ * methods throw on type mismatch. Try the cheap ECDSA path first; falling
+ * back to Falcon is correct for any pre-migration imported key.
+ */
+const detectAuthScheme = (key: AuthSecretKey): AuthScheme => {
+  try {
+    key.getEcdsaK256KeccakSecretKeyAsFelts();
+    return 'ecdsa';
+  } catch {
+    return 'falcon';
+  }
+};
 
 import { compareAccountIds } from '../activity/utils';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -251,24 +310,38 @@ export class Vault {
       const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
-      const accPublicKey = await withWasmClientLock(async () => {
+      const { accPublicKey, accAuthScheme } = await withWasmClientLock(async () => {
         console.log('[Vault.spawn] Step 6: getting miden client...');
         const midenClient = await getMidenClient(options);
         console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
         if (ownMnemonic && midenClient.network !== 'mock') {
-          try {
-            console.log('[Vault.spawn] Step 8a: importing wallet from seed...');
-            return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
-          } catch (e) {
-            console.error('Failed to import wallet from seed in spawn, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+          // Mnemonic restore. Probe each known auth scheme — the user's
+          // real on-chain account at hdIndex=0 was created under exactly
+          // one of them, but we have no metadata to tell us which. Falcon
+          // first because every wallet shipped before this migration used
+          // Falcon as the default; ECDSA second so post-migration
+          // restorers work too. If neither probe finds an on-chain match
+          // the user's mnemonic is "fresh" — fall through to a brand-new
+          // create with the new ECDSA default.
+          for (const scheme of RESTORE_PROBE_SCHEMES) {
+            try {
+              console.log(`[Vault.spawn] Step 8a: probing ${scheme} import...`);
+              const id = await midenClient.importPublicMidenWalletFromSeed(walletSeed, scheme);
+              return { accPublicKey: id, accAuthScheme: scheme };
+            } catch {
+              // probe miss; try next scheme
+            }
           }
+          console.warn('[Vault.spawn] no on-chain account at hdIndex=0 under any scheme; creating fresh');
+          const id = await midenClient.createMidenWallet(WalletType.OnChain, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
+          return { accPublicKey: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
         } else {
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           console.log('[Vault.spawn] Step 8b: syncing state...');
           await midenClient.syncState();
           console.log('[Vault.spawn] Step 9: creating miden wallet...');
-          return await midenClient.createMidenWallet(WalletType.OnChain, walletSeed);
+          const id = await midenClient.createMidenWallet(WalletType.OnChain, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
+          return { accPublicKey: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
         }
       });
 
@@ -277,7 +350,8 @@ export class Vault {
         name: 'Miden Account 1',
         isPublic: true,
         type: WalletType.OnChain,
-        hdIndex: hdAccIndex
+        hdIndex: hdAccIndex,
+        authScheme: accAuthScheme
       };
       const newAccounts = [initialAccount];
 
@@ -362,14 +436,17 @@ export class Vault {
           }
           if (walletAccount.hdIndex < 0) {
             // Belt-and-suspenders: an imported account's key is NOT
-            // derivable from the mnemonic. Writing `rpoFalconWithRNG`
-            // output into the keystore under its account id would
+            // derivable from the mnemonic. Writing a freshly-generated
+            // secret into the keystore under its account id would
             // overwrite any preserved real secret with a garbage key
             // the vault can never sign with. Skip.
             continue;
           }
           const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
-          const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
+          // Each WalletAccount carries the auth scheme it was created
+          // under (legacy entries default to Falcon). Re-derive the
+          // matching secret key so the keystore entry signs correctly.
+          const secretKey = authSecretKeyFromSeed(getAccountAuthScheme(walletAccount), walletSeed);
           await midenClient.client.keystore.insert(account.id(), secretKey);
         }
       });
@@ -431,18 +508,28 @@ export class Vault {
         insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
 
-      // Wrap WASM client operations in a lock to prevent concurrent access
+      // Wrap WASM client operations in a lock to prevent concurrent access.
+      // We create the new account under NEW_ACCOUNT_AUTH_SCHEME (ECDSA
+      // post-migration). On the import-from-seed retry path we also pass
+      // the new scheme — that path only fires for own-mnemonic wallets
+      // re-deriving an account that was ALREADY created elsewhere by this
+      // wallet, so the scheme has to match what we'd produce on a fresh
+      // create. Wallets that pre-date this migration won't hit the import
+      // path here because their mnemonic restore goes through `Vault.spawn`
+      // (which probes both schemes); this `createHDAccount` path is for
+      // creating NEW accounts in an already-restored wallet.
+      const newScheme: AuthScheme = NEW_ACCOUNT_AUTH_SCHEME;
       const walletId = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient(options);
         if (isOwnMnemonic && walletType === WalletType.OnChain) {
           try {
-            return await midenClient.importPublicMidenWalletFromSeed(walletSeed);
+            return await midenClient.importPublicMidenWalletFromSeed(walletSeed, newScheme);
           } catch (e) {
             console.warn('Failed to import wallet from seed, creating new wallet instead', e);
-            return await midenClient.createMidenWallet(walletType, walletSeed);
+            return await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
           }
         } else {
-          return await midenClient.createMidenWallet(walletType, walletSeed);
+          return await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
         }
       });
 
@@ -453,7 +540,8 @@ export class Vault {
         name: accName,
         publicKey: walletId,
         isPublic: walletType === WalletType.OnChain,
-        hdIndex: hdAccIndex
+        hdIndex: hdAccIndex,
+        authScheme: newScheme
       };
 
       const newAllAcounts = concatAccount(allAccounts, newAccount);
@@ -508,7 +596,7 @@ export class Vault {
         insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
 
-      const publicKey = await withWasmClientLock(async () => {
+      const { publicKey, importedAuthScheme } = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient(options);
         let secretKey: AuthSecretKey;
         try {
@@ -516,6 +604,8 @@ export class Vault {
         } catch {
           throw new PublicError('Invalid private key');
         }
+
+        const detectedScheme = detectAuthScheme(secretKey);
 
         const builder = new AccountBuilder(new Uint8Array(32).fill(0))
           .accountType(AccountType.RegularAccountImmutableCode)
@@ -527,7 +617,10 @@ export class Vault {
         await midenClient.client.accounts.insert({ account });
         await midenClient.client.keystore.insert(account.id(), secretKey);
 
-        return getBech32AddressFromAccountId(account.id());
+        return {
+          publicKey: getBech32AddressFromAccountId(account.id()),
+          importedAuthScheme: detectedScheme
+        };
       });
 
       // Re-read the accounts list AFTER the WASM lock released. The
@@ -544,7 +637,12 @@ export class Vault {
         name: accName,
         isPublic: true,
         type: WalletType.OnChain,
-        hdIndex: -1
+        hdIndex: -1,
+        // Imported accounts inherit the scheme of the supplied private
+        // key (Falcon-encoded keys → falcon, ECDSA-encoded → ecdsa).
+        // Detected via the SDK's per-scheme accessors that throw on
+        // type mismatch — see `detectAuthScheme`.
+        authScheme: importedAuthScheme
       };
 
       const newAllAccounts = concatAccount(allAccounts, newAccount);
