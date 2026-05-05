@@ -1,0 +1,123 @@
+name: E2E Blockchain (Chrome, testnet)
+
+# Chrome extension blockchain-backed E2E suite against testnet.
+# Runs on every push to main AND nightly at 04:00 UTC.
+#
+# Split out from the multi-network workflow so the testnet network-monitor
+# card can pin to a single workflow id (its symmetric devnet counterpart
+# lives in `e2e-blockchain-chrome-devnet.yml`). Each network is now
+# independently merge-required / monitorable.
+#
+# NOTE: with this split the previous "AT LEAST ONE network passed"
+# merge-tolerance is no longer enforced inside a workflow. If you want
+# that tolerance preserved at the merge gate, configure branch protection
+# to NOT require both workflows; the on-dashboard signal handles the
+# day-to-day visibility.
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write  # for the schedule-only failure-issue step below
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chrome-testnet:
+    name: Chrome E2E (testnet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: testnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run blockchain E2E (testnet)
+        run: xvfb-run -a yarn test:e2e:blockchain:testnet
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-e2e-testnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Auto-create a tracking issue when the SCHEDULED nightly fails. Push
+  # failures stay visible on the merge commit + Actions tab and don't need
+  # an issue (PR context already covers them); only the nightly cadence —
+  # which has no PR context — gets an issue so a red night doesn't rot
+  # silently.
+  nightly-failure-issue:
+    name: Open issue on nightly failure
+    needs: chrome-testnet
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `Nightly Chrome E2E (testnet) failed — ${today}`;
+            const body = [
+              `Nightly run [\`${context.runId}\`](${runUrl}) failed on testnet.`,
+              ``,
+              `Workflow: \`${context.workflow}\``,
+              `Commit: \`${context.sha}\``,
+              ``,
+              `<sub>Auto-created by \`e2e-blockchain-chrome-testnet.yml\` on schedule failure.</sub>`,
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['ci-failure', 'nightly-e2e', 'testnet'],
+            });

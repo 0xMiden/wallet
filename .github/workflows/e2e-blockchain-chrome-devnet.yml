@@ -1,0 +1,131 @@
+name: E2E Blockchain (Chrome, devnet)
+
+# Chrome extension blockchain-backed E2E suite against devnet.
+# Runs on every push to main AND nightly at 04:00 UTC.
+#
+# Split out from the multi-network workflow so the devnet network-monitor
+# card can pin to a single workflow id (its symmetric testnet counterpart
+# lives in `e2e-blockchain-chrome-testnet.yml`). Each network is now
+# independently merge-required / monitorable.
+#
+# NOTE: with this split the previous "AT LEAST ONE network passed"
+# merge-tolerance is no longer enforced inside a workflow. If you want
+# that tolerance preserved at the merge gate, configure branch protection
+# to NOT require both workflows; the on-dashboard signal handles the
+# day-to-day visibility.
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write  # for the schedule-only failure-issue step below
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chrome-devnet:
+    name: Chrome E2E (devnet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: devnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      # cargo is needed to install miden-client-cli from crates.io on first run.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        # Cache key follows the root package.json so a SDK version bump
+        # (or any other root-level dep change) naturally invalidates — the
+        # CLI is installed version-matched to @miden-sdk/miden-sdk by
+        # helpers/miden-cli.ts.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Pre-install the miden-client-cli so the cold-cache ~7 min cargo
+      # compile happens in its own step, not inside Playwright's 5-min
+      # per-test timeout. `cargo install` is a no-op on warm cache.
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run blockchain E2E (devnet)
+        run: xvfb-run -a yarn test:e2e:blockchain:devnet
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-e2e-devnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Auto-create a tracking issue when the SCHEDULED nightly fails. Push
+  # failures stay visible on the merge commit + Actions tab and don't need
+  # an issue (PR context already covers them); only the nightly cadence —
+  # which has no PR context — gets an issue so a red night doesn't rot
+  # silently.
+  nightly-failure-issue:
+    name: Open issue on nightly failure
+    needs: chrome-devnet
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `Nightly Chrome E2E (devnet) failed — ${today}`;
+            const body = [
+              `Nightly run [\`${context.runId}\`](${runUrl}) failed on devnet.`,
+              ``,
+              `Workflow: \`${context.workflow}\``,
+              `Commit: \`${context.sha}\``,
+              ``,
+              `<sub>Auto-created by \`e2e-blockchain-chrome-devnet.yml\` on schedule failure.</sub>`,
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['ci-failure', 'nightly-e2e', 'devnet'],
+            });
