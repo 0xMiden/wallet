@@ -312,7 +312,13 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
 
 export function swapHotKey(accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) {
   return withUnlocked(async ({ vault }) => {
-    await vault.swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey);
+    const updated = await vault.swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey);
+    // Push the updated WalletAccount[] into the Effector store so the
+    // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
+    // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
+    // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
+    // re-binds against the old hot key.
+    accountsUpdated(updated);
   });
 }
 
