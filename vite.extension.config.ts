@@ -217,6 +217,9 @@ const sharedDefine = {
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
+  'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(
+    process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'false'
+  ),
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };
 
@@ -318,7 +321,11 @@ export default defineConfig({
         fullpage: resolve(__dirname, 'fullpage.html'),
         confirm: resolve(__dirname, 'confirm.html'),
         options: resolve(__dirname, 'options.html'),
-        sidepanel: resolve(__dirname, 'sidepanel.html')
+        sidepanel: resolve(__dirname, 'sidepanel.html'),
+        // Offscreen prover (chrome.offscreen.createDocument target). Hidden
+        // doc the SW spawns so it can run a wasm-bindgen-rayon thread pool
+        // (SWs can't spawn Workers themselves). See src/offscreen/main.ts.
+        offscreen: resolve(__dirname, 'offscreen.html')
         // NOTE: background is built separately via vite.background.config.ts
         // because it needs inlineDynamicImports (import() is banned in SWs).
         // Content scripts (contentScript, addToWindow) are built separately
@@ -350,6 +357,12 @@ export default defineConfig({
   },
 
   resolve: {
+    // See vite.background.config.ts comment — same reason: the mt-wasm SDK
+    // is symlinked, and we need module resolution to walk through the
+    // symlink path (where the wallet's node_modules is reachable) rather
+    // than the real path (where peer packages like vite-plugin-node-polyfills
+    // aren't installed).
+    preserveSymlinks: true,
     alias: {
       ...sharedAlias,
       // Ensure consistent React instance across all imports

@@ -2,6 +2,7 @@ import {
   Account,
   AccountFile,
   exportStore,
+  getWasmOrThrow,
   importStore,
   InputNoteRecord,
   InputNoteState,
@@ -18,6 +19,7 @@ import {
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
@@ -29,7 +31,20 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
+import { yieldWasmClientLock } from './miden-client';
 import { ConsumeTransaction, SendTransaction } from '../db/types';
+
+/**
+ * Feature flag: when true, local proving is dispatched to a
+ * `chrome.offscreen` document with a wasm-bindgen-rayon thread pool
+ * (~3-4× faster than the SW's single-threaded prove on a 10-core machine).
+ * When false (default), proving stays on the SDK's bundled call inside the
+ * SW — same path as before mt-wasm landed. Set MIDEN_USE_OFFSCREEN_PROVING=true
+ * at build time to enable. Only the chrome target ships an offscreen doc;
+ * other browsers + mobile fall through to the bundled path automatically
+ * (see isOffscreenAvailable).
+ */
+const USE_OFFSCREEN_PROVING = process.env.MIDEN_USE_OFFSCREEN_PROVING === 'true';
 
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
@@ -198,6 +213,27 @@ export class MidenClientInterface {
     }
 
     return this.withProverFallback(async prover => {
+      if (this.shouldUseOffscreenProver(prover)) {
+        return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
+          const senderId = resolveAccountId(wasm, accountId);
+          const receiverId = resolveAccountId(wasm, secondaryAccountId);
+          const tokenId = resolveAccountId(wasm, faucetId);
+          const nt = noteType === 'private' ? wasm.NoteType.Private : wasm.NoteType.Public;
+          const request: TransactionRequest = await inner.newSendTransactionRequest(
+            senderId,
+            receiverId,
+            tokenId,
+            nt,
+            BigInt(amount),
+            reclaimAfter ?? null,
+            null
+          );
+          // newSendTransactionRequest consumed senderId by value; allocate
+          // a fresh AccountId for executeTransaction (also by-value).
+          const senderIdForExec = resolveAccountId(wasm, accountId);
+          return { accountId: senderIdForExec, request };
+        });
+      }
       const { result } = await this.client.transactions.send({
         account: accountId,
         to: secondaryAccountId,
@@ -215,6 +251,27 @@ export class MidenClientInterface {
     const { accountId, noteId } = transaction;
 
     return this.withProverFallback(async prover => {
+      if (this.shouldUseOffscreenProver(prover)) {
+        return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
+          // The bundled `transactions.consume` accepts string note IDs and
+          // internally calls `getInputNote` to resolve to Note objects.
+          // We do that ourselves via the proxied inner. `getInputNote`
+          // returns an InputNoteRecord; the WASM `newConsumeTransactionRequest`
+          // takes Note[] (via the wasm.NoteArray helper).
+          const inputNoteRecord = await inner.getInputNote(noteId);
+          if (!inputNoteRecord) {
+            throw new Error(`Note ${noteId} not found in store`);
+          }
+          // InputNoteRecord exposes `.note()` returning the underlying
+          // Note. Stock SDK's TransactionsResource does the same thing.
+          const note: Note = inputNoteRecord.note();
+          const noteArray = new wasm.NoteArray();
+          noteArray.push(note);
+          const request: TransactionRequest = await inner.newConsumeTransactionRequest(noteArray);
+          const acctId = resolveAccountId(wasm, accountId);
+          return { accountId: acctId, request };
+        });
+      }
       const { result } = await this.client.transactions.consume({
         account: accountId,
         notes: [noteId],
@@ -232,9 +289,79 @@ export class MidenClientInterface {
     const transactionRequest = TransactionRequest.deserialize(requestBytes);
 
     return this.withProverFallback(async prover => {
+      if (this.shouldUseOffscreenProver(prover)) {
+        return await this.proveLocallyViaOffscreen(async wasm => {
+          // `inner.executeTransaction` consumes both args by value. We get a
+          // fresh deserialization of the same bytes so we don't share a
+          // moved-from TransactionRequest with anything outside this scope.
+          const request = TransactionRequest.deserialize(requestBytes);
+          const acctId = resolveAccountId(wasm, accountId);
+          return { accountId: acctId, request };
+        });
+      }
       const { result } = await this.client.transactions.submit(accountId, transactionRequest, { prover });
       return result;
     }, delegateTransaction);
+  }
+
+  /**
+   * Decide whether this prove call should be dispatched to the offscreen
+   * document or stay on the SDK's bundled path inside the SW. Returns true
+   * iff: the build opted into offscreen proving (MIDEN_USE_OFFSCREEN_PROVING),
+   * the host environment exposes chrome.offscreen (Chrome MV3 only — Firefox
+   * + Safari don't), AND the prover is local (delegated/remote stays on
+   * the SDK's bundled path since it's just an RPC).
+   *
+   * Any false → prove runs on the SW's WASM instance (single-threaded but
+   * still produces correct proofs). Lets us ship the offscreen path off by
+   * default and turn it on per-build, with a clean fallback for browsers
+   * that don't support the offscreen API at all.
+   */
+  private shouldUseOffscreenProver(prover: TransactionProver | undefined): boolean {
+    if (!USE_OFFSCREEN_PROVING) return false;
+    if (!isOffscreenAvailable()) return false;
+    if (!prover) return false;
+    return isLocalProver(prover);
+  }
+
+  /**
+   * Run execute → offscreen prove → submit → apply for a transaction whose
+   * `(accountId, request)` is built by the caller. Splits the SDK's bundled
+   * pipeline so the prove step can execute in a chrome.offscreen document
+   * where the rayon thread pool actually has threads to run on.
+   *
+   * Around the offscreen call we use `yieldWasmClientLock` to release the
+   * SW's WASM client mutex — the prove happens on a separate WASM instance
+   * in the offscreen doc, so background sync can run during the ~10s wait
+   * without contending. Without this, sync's 10s timeout fires roughly
+   * once per prove and surfaces a "can't reach node" toast.
+   */
+  private async proveLocallyViaOffscreen(
+    buildExecuteArgs: (wasm: any, inner: any) => Promise<{ accountId: any; request: TransactionRequest }>
+  ): Promise<TransactionResult> {
+    try {
+      const wasm = await getWasmOrThrow();
+      const innerGetter = (this.client as unknown as { _getInnerWebClient?: () => any })._getInnerWebClient;
+      if (typeof innerGetter !== 'function') {
+        throw new Error('_getInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
+      }
+      const inner = innerGetter.call(this.client);
+      const { accountId, request } = await buildExecuteArgs(wasm, inner);
+      const txResult: TransactionResult = await inner.executeTransaction(accountId, request);
+      const txResultBytes = txResult.serialize();
+      // Yield the SW's WASM lock during the offscreen prove (~10s), since
+      // the offscreen doc has its own WASM instance and we're not touching
+      // the SW client. Reacquired automatically before submit + apply.
+      const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
+      const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
+      const height = await inner.submitProvenTransaction(proven, txResult);
+      await inner.applyTransaction(txResult, height);
+      console.log(`[mt-offscreen-prove] tx_completed prove_ms=${durationMs.toFixed(0)}`);
+      return txResult;
+    } catch (err) {
+      console.error('[mt-offscreen-prove] FAILED', err);
+      throw err;
+    }
   }
 
   async exportDb() {
@@ -293,4 +420,40 @@ export class MidenClientInterface {
       throw err;
     }
   }
+}
+
+/**
+ * `TransactionProver` exposes `serialize()` returning a descriptor like
+ * `"local"` or `"remote|<endpoint>[|<timeout_ms>]"` (per the SDK's wasm-bindgen
+ * docstring). Used to decide whether a given prover is the local one — in
+ * which case we route the prove step through the offscreen document for
+ * multi-threading — vs. a remote one — which stays on the SDK's bundled
+ * path since it's just an RPC.
+ */
+function isLocalProver(prover: TransactionProver): boolean {
+  try {
+    return (prover as unknown as { serialize: () => string }).serialize() === 'local';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Mirror of the SDK's `resolveAccountRef` (js/utils.js) — converts a string
+ * account identifier (hex or bech32) into the wasm-bindgen `AccountId` type
+ * that lower-level methods like `executeTransaction` and
+ * `newSendTransactionRequest` consume. The wallet stores account IDs as
+ * bech32 (`mtst1...` for testnet), but in places (URL params, dApp inputs)
+ * a `0x`-prefixed hex form may also appear, so handle both.
+ *
+ * Note: each call returns a freshly-allocated `AccountId`. Multiple
+ * wasm-bindgen WASM methods CONSUME their `AccountId` argument
+ * (e.g. `newSendTransactionRequest` and `executeTransaction` both move
+ * the value), so callers must allocate one per consume site.
+ */
+function resolveAccountId(wasm: any, ref: string): any {
+  if (ref.startsWith('0x') || ref.startsWith('0X')) {
+    return wasm.AccountId.fromHex(ref);
+  }
+  return wasm.AccountId.fromBech32(ref);
 }

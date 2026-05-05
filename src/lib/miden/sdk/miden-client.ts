@@ -110,6 +110,31 @@ export async function withWasmClientLock<T>(operation: () => Promise<T>): Promis
 }
 
 /**
+ * Temporarily release the WASM client mutex while running `operation`, then
+ * reacquire it before resolving. Caller MUST currently hold the lock.
+ *
+ * Use this when a lock-holding flow does long, genuinely-non-WASM-client
+ * work — for example, awaiting an offscreen-document prover. Without
+ * yielding, sync (which contends on this same mutex) gets blocked for the
+ * full prove duration and surfaces a "can't reach node" toast on its
+ * timeout. With the yield, sync runs while the prove is happening in the
+ * other context, which is fine because the offscreen doc has its own WASM
+ * instance and isn't touching the SW's client.
+ *
+ * Safety: the operation must NOT touch the WASM client (any wasm-bindgen
+ * call, MidenClient method, etc.). It's only safe to use for I/O-bound
+ * waits on workloads that don't share state with the SW's WASM instance.
+ */
+export async function yieldWasmClientLock<T>(operation: () => Promise<T>): Promise<T> {
+  wasmClientMutex.release();
+  try {
+    return await operation();
+  } finally {
+    await wasmClientMutex.acquire();
+  }
+}
+
+/**
  * Queue a low-priority operation to run when the WASM client is idle.
  * Use this for background tasks like metadata prefetching that shouldn't
  * block or delay critical operations.

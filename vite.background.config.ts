@@ -269,6 +269,14 @@ export default defineConfig({
   },
 
   resolve: {
+    // The mt-wasm SDK is symlinked into node_modules/@miden-sdk/miden-sdk for
+    // local dev. With preserveSymlinks=false (Vite default), Rolldown resolves
+    // the SDK file through the symlink to its real path (web-sdk worktree),
+    // and then can't find peer-of-the-wallet packages like
+    // `vite-plugin-node-polyfills/shims/global` because that package is only
+    // installed in the wallet's node_modules, not in the SDK's. Keeping the
+    // symlink path makes module resolution find the wallet's node_modules.
+    preserveSymlinks: true,
     alias: {
       lib: resolve(__dirname, 'src/lib'),
       app: resolve(__dirname, 'src/app'),
@@ -287,6 +295,13 @@ export default defineConfig({
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
+    // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
+    // route. Default off — set MIDEN_USE_OFFSCREEN_PROVING=true at build
+    // time to enable. Falls through to single-threaded SW prove if false
+    // OR if the runtime doesn't expose chrome.offscreen.
+    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(
+      process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'false'
+    ),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
   }
 });
