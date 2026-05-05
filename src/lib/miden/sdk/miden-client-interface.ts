@@ -20,6 +20,7 @@ import {
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
+import { getSpeculationManager, type SpeculationParams } from 'lib/miden/back/speculation-manager';
 import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
@@ -220,25 +221,26 @@ export class MidenClientInterface {
 
     return this.withProverFallback(async prover => {
       if (this.shouldUseOffscreenProver(prover)) {
-        return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
-          const senderId = resolveAccountId(wasm, accountId);
-          const receiverId = resolveAccountId(wasm, secondaryAccountId);
-          const tokenId = resolveAccountId(wasm, faucetId);
-          const nt = noteType === 'private' ? wasm.NoteType.Private : wasm.NoteType.Public;
-          const request: TransactionRequest = await inner.newSendTransactionRequest(
-            senderId,
-            receiverId,
-            tokenId,
-            nt,
-            BigInt(amount),
-            reclaimAfter ?? null,
-            null
-          );
-          // newSendTransactionRequest consumed senderId by value; allocate
-          // a fresh AccountId for executeTransaction (also by-value).
-          const senderIdForExec = resolveAccountId(wasm, accountId);
-          return { accountId: senderIdForExec, request };
-        });
+        // SpeculationParams MUST hash identically to whatever the popup
+        // sent in SPECULATE_SEND_REQUEST so the cache hits. We skip the
+        // cache when reclaimAfter is set (block-height drift between
+        // speculate-time and commit-time would invalidate the cached
+        // reclaim height — corner case, easier to skip than handle).
+        const cacheParams: SpeculationParams | undefined =
+          reclaimAfter == null
+            ? {
+                accountId,
+                recipientAccountId: secondaryAccountId,
+                faucetId,
+                noteType: noteType === 'private' ? 'private' : 'public',
+                amount: BigInt(amount)
+              }
+            : undefined;
+        return await this.proveLocallyViaOffscreen(
+          (wasm, inner) =>
+            buildSendExecuteArgs(wasm, inner, accountId, secondaryAccountId, faucetId, noteType, amount, reclaimAfter),
+          cacheParams
+        );
       }
       const { result } = await this.client.transactions.send({
         account: accountId,
@@ -251,6 +253,53 @@ export class MidenClientInterface {
       });
       return result;
     }, dbTransaction.delegateTransaction);
+  }
+
+  /**
+   * Run execute + offscreen prove for the given speculation params, return
+   * the serialized bytes WITHOUT submitting or applying. The wallet's
+   * SpeculationManager calls this when the user is on the review screen
+   * and we want to pre-prove for likely-confirm. The returned bytes get
+   * cached and consumed by `proveLocallyViaOffscreen` on actual submit
+   * (skipping a full re-execute + re-prove).
+   *
+   * Caveat: this DOES touch the SW's WASM client (executeTransaction
+   * mutates account state). If the user backs out of review, the
+   * speculation's effects on the SW's account state are discarded only
+   * because we never submit/apply — the executed-but-not-applied state
+   * sits in the TransactionResult bytes. submitProvenTransaction +
+   * applyTransaction are what actually persist; without them the
+   * speculation has zero on-chain or local-DB effect.
+   */
+  async executeAndProveForSpeculation(params: SpeculationParams) {
+    if (!isOffscreenAvailable()) {
+      throw new Error('executeAndProveForSpeculation called without chrome.offscreen available');
+    }
+    const wasm = await getWasmOrThrow();
+    const innerGetter = (this.client as unknown as { _getInnerWebClient?: () => any })._getInnerWebClient;
+    if (typeof innerGetter !== 'function') {
+      throw new Error('_getInnerWebClient missing on linked SDK');
+    }
+    const inner = innerGetter.call(this.client);
+    const { accountId, request } = await buildSendExecuteArgs(
+      wasm,
+      inner,
+      params.accountId,
+      params.recipientAccountId,
+      params.faucetId,
+      params.noteType,
+      params.amount.toString(),
+      undefined
+    );
+    const txResult: TransactionResult = await inner.executeTransaction(accountId, request);
+    const txResultBytes = txResult.serialize();
+    const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
+    console.log(`[speculation] pre-proved tx in ${durationMs.toFixed(0)}ms`);
+    return {
+      paramsHash: speculationParamsHash(params),
+      txResultBytes,
+      provenBytes: new Uint8Array(provenBytes)
+    };
   }
 
   async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
@@ -343,7 +392,8 @@ export class MidenClientInterface {
    * once per prove and surfaces a "can't reach node" toast.
    */
   private async proveLocallyViaOffscreen(
-    buildExecuteArgs: (wasm: any, inner: any) => Promise<{ accountId: any; request: TransactionRequest }>
+    buildExecuteArgs: (wasm: any, inner: any) => Promise<{ accountId: any; request: TransactionRequest }>,
+    cacheParams?: SpeculationParams
   ): Promise<TransactionResult> {
     try {
       const wasm = await getWasmOrThrow();
@@ -352,6 +402,25 @@ export class MidenClientInterface {
         throw new Error('_getInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
       }
       const inner = innerGetter.call(this.client);
+
+      // Speculation cache hit path: if the popup pre-proved this exact tx
+      // while the user was on the review screen, the SpeculationManager
+      // has the result. Skip execute + prove and go straight to submit +
+      // apply (~250ms total instead of ~10s). consumeCacheHit removes
+      // the entry so a stale result can't be reused.
+      if (cacheParams) {
+        const mgr = getSpeculationManager();
+        const hit = mgr?.consumeCacheHit(cacheParams);
+        if (hit) {
+          const txResult: TransactionResult = wasm.TransactionResult.deserialize(hit.txResultBytes);
+          const proven = wasm.ProvenTransaction.deserialize(hit.provenBytes);
+          const height = await inner.submitProvenTransaction(proven, txResult);
+          await inner.applyTransaction(txResult, height);
+          console.log('[mt-offscreen-prove] tx_completed via_speculation=true');
+          return txResult;
+        }
+      }
+
       const { accountId, request } = await buildExecuteArgs(wasm, inner);
       const txResult: TransactionResult = await inner.executeTransaction(accountId, request);
       const txResultBytes = txResult.serialize();
@@ -442,6 +511,57 @@ function isLocalProver(prover: TransactionProver): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Build the `(accountId, request)` tuple for a send transaction's execute
+ * step, used by both the actual `sendTransaction` flow and the
+ * speculation flow. Keeping this in a single function means the
+ * Speculation params and the real-send params produce IDENTICAL
+ * TransactionRequest WASM objects, which is what the cache hit relies on.
+ *
+ * Note: WASM-bindgen value-consumption is real here. `newSendTransactionRequest`
+ * consumes `senderId` by value; we allocate a fresh `AccountId` for the
+ * subsequent `executeTransaction`. Don't refactor this to share AccountIds
+ * across calls without re-checking the wasm-bindgen ownership semantics.
+ */
+async function buildSendExecuteArgs(
+  wasm: any,
+  inner: any,
+  senderAccountId: string,
+  recipientAccountId: string,
+  faucetId: string,
+  noteType: NoteType | string,
+  amount: string | bigint,
+  reclaimAfter: number | undefined
+): Promise<{ accountId: any; request: TransactionRequest }> {
+  const senderId = resolveAccountId(wasm, senderAccountId);
+  const receiverId = resolveAccountId(wasm, recipientAccountId);
+  const tokenId = resolveAccountId(wasm, faucetId);
+  // noteType arrives as either an SDK enum (real send) or a literal
+  // 'public'/'private' string (speculation). Handle both.
+  const isPrivate = noteType === 'private' || (typeof noteType === 'object' && noteType === wasm.NoteType.Private);
+  const nt = isPrivate ? wasm.NoteType.Private : wasm.NoteType.Public;
+  const request: TransactionRequest = await inner.newSendTransactionRequest(
+    senderId,
+    receiverId,
+    tokenId,
+    nt,
+    typeof amount === 'string' ? BigInt(amount) : amount,
+    reclaimAfter ?? null,
+    null
+  );
+  const senderIdForExec = resolveAccountId(wasm, senderAccountId);
+  return { accountId: senderIdForExec, request };
+}
+
+/**
+ * Hash speculation params into a stable string. MUST stay in sync with
+ * the hashParams impl inside SpeculationManager — both sides need the
+ * same key for cache-hit detection.
+ */
+function speculationParamsHash(p: SpeculationParams): string {
+  return [p.accountId, p.recipientAccountId, p.faucetId, p.noteType, p.amount.toString()].join('|');
 }
 
 /**

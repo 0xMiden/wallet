@@ -10,6 +10,8 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { stringToBigInt } from 'lib/i18n/numbers';
 import {
   initiateSendTransaction,
+  requestSpeculateInvalidate,
+  requestSpeculateSend,
   requestSWTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
@@ -64,8 +66,7 @@ const validations = {
     .string()
     .required()
     .test('is-valid-address', 'Invalid address', value => isValidMidenAddress(value)),
-  recallBlocks: yup.number(),
-  delegateTransaction: yup.boolean().required()
+  recallBlocks: yup.number()
 };
 
 const validationSchema = yup.object().shape(validations).required();
@@ -76,7 +77,7 @@ export interface SendManagerProps {
 }
 
 export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) => {
-  const { navigateTo, goBack, cardStack } = useNavigator();
+  const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
   const { fullPage, sidePanel } = useAppEnv();
@@ -158,7 +159,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       sharePrivately: true,
       recipientAddress: undefined,
       recallBlocks: undefined,
-      delegateTransaction: delegateEnabled,
       token: undefined
     },
     resolver: yupResolver(validationSchema) as any
@@ -169,7 +169,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     register('sharePrivately');
     register('recipientAddress');
     register('recallBlocks');
-    register('delegateTransaction');
     register('token');
   }, [register]);
 
@@ -177,8 +176,53 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const sharePrivately = watch('sharePrivately');
   const recipientAddress = watch('recipientAddress');
   const recallBlocks = watch('recallBlocks');
-  const delegateTransaction = watch('delegateTransaction');
   const token = watch('token');
+  // delegateTransaction is now driven exclusively by the global setting in
+  // General Settings — the per-send toggle was removed because mt-wasm +
+  // offscreen-doc proving makes local proving fast enough that the per-tx
+  // escape hatch isn't worth the UI surface. Read fresh on each render so
+  // a settings change while the send flow is open takes effect.
+  const delegateTransaction = delegateEnabled;
+
+  // Speculative pre-prove: when the review screen activates, kick off
+  // execute + offscreen prove in the SW for the current form params, so by
+  // the time the user clicks Confirm the proof is already done. Cache lives
+  // in SW memory keyed by params hash; consumed by
+  // MidenClientInterface.proveLocallyViaOffscreen on actual submit.
+  // Invalidated on review-screen exit (back button, route change).
+  //
+  // Gates:
+  //   - feature flag MIDEN_USE_SPECULATIVE_PROVING
+  //   - extension context only (intercom doesn't exist on mobile/desktop)
+  //   - global setting must be local proving (delegate path is just an RPC)
+  //   - all required form params are valid
+  //   - skip when recallBlocks is set (block-height drift between
+  //     speculate-time and commit-time would invalidate the cached
+  //     reclaim height — corner case, easier to skip than handle)
+  useEffect(() => {
+    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
+    if (!isExtension()) return;
+    if (delegateEnabled) return; // delegated proving — no point speculating
+    if (activeRoute?.name !== SendFlowStep.ReviewTransaction) return;
+    if (!publicKey || !recipientAddress || !token || !amount) return;
+    if (recallBlocks) return;
+    let amountBig: bigint;
+    try {
+      amountBig = stringToBigInt(amount, token.decimals);
+    } catch {
+      return;
+    }
+    requestSpeculateSend({
+      accountId: publicKey,
+      recipientAccountId: recipientAddress,
+      faucetId: token.id,
+      noteType: sharePrivately ? 'private' : 'public',
+      amount: amountBig
+    });
+    return () => {
+      requestSpeculateInvalidate();
+    };
+  }, [activeRoute?.name, delegateEnabled, publicKey, recipientAddress, token, amount, sharePrivately, recallBlocks]);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -384,7 +428,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               amount={amount || ''}
               recipientAddress={recipientAddress || ''}
               sharePrivately={sharePrivately}
-              delegateTransaction={delegateTransaction}
               recallBlocks={recallBlocks}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
@@ -421,7 +464,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               token={token?.name || ''}
               recipientAddress={recipientAddress}
               sharePrivately={sharePrivately}
-              delegateTransaction={delegateTransaction}
               recallBlocks={recallBlocks}
               recallTime={recallTime}
               recallDate={recallDate}
@@ -449,7 +491,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       onAmountChange,
       onAction,
       sharePrivately,
-      delegateTransaction,
       recallBlocks,
       goToStep,
       handleSubmit,

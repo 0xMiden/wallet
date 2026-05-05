@@ -307,9 +307,14 @@ export default defineConfig({
     // always uses the bundled SDK path. Even if it somehow were true, the
     // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
     // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
-    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(
-      process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'
-    ),
+    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
+    // Speculative pre-prove: when the user reaches the review screen, the
+    // popup tells the SW to start proving with the form params so the proof
+    // is ready by the time they click Confirm. Default ON for desktop chrome
+    // (gated further on !delegateEnabled at runtime). Mobile config pins
+    // this false — speculation has nothing to dispatch to without
+    // chrome.offscreen anyway, but the explicit pin makes intent clear.
+    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
   }
 });
