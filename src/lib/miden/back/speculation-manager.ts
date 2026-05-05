@@ -26,6 +26,7 @@
 //     (its result will be discarded when it finishes; CPU is already in flight).
 
 import type { MidenClientInterface } from '../sdk/miden-client-interface';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 export interface SpeculationParams {
   accountId: string;
@@ -135,7 +136,16 @@ export class SpeculationManager {
 
   private async executeAndProve(params: SpeculationParams): Promise<void> {
     const client = await this.getClient();
-    const entry = await client.executeAndProveForSpeculation(params);
+    // MUST wrap in withWasmClientLock. executeAndProveForSpeculation does
+    // `inner.executeTransaction(...)` (touches SW WASM, requires the lock for
+    // serialization) and then `yieldWasmClientLock(() => proveViaOffscreen(...))`
+    // around the offscreen prove. yieldWasmClientLock assumes the caller
+    // currently holds the lock — it does release() → operation() → acquire().
+    // Without the wrapper, release() spuriously pops queue waiters and
+    // acquire() at the end leaves the lock permanently held by us when this
+    // function returns, deadlocking every subsequent withWasmClientLock
+    // (including the user's actual send-on-Confirm).
+    const entry = await withWasmClientLock(() => client.executeAndProveForSpeculation(params));
     // If we were marked stale while running, throw away the result.
     if (this.active?.stale) return;
     this.completed = entry;
