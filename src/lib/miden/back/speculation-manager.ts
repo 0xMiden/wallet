@@ -27,6 +27,7 @@
 
 import type { MidenClientInterface } from '../sdk/miden-client-interface';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { abortSpeculativeProve } from './offscreen-prover';
 
 export interface SpeculationParams {
   accountId: string;
@@ -74,8 +75,20 @@ export class SpeculationManager {
     if (this.completed?.paramsHash === hash) return; // already cached
     if (this.active && !this.active.stale && this.active.paramsHash === hash) return; // already running
 
-    // Mark any stale active.
-    if (this.active) this.active.stale = true;
+    // Mark any stale active and try to abort its in-flight prove. Without
+    // the abort, the rayon-WASM prove would grind to completion (~6s of
+    // wasted CPU) before runNext picks up the new pending. Aborting
+    // terminates the offscreen doc, rejecting the in-flight prove's
+    // sendMessage promise — runNext sees the active promise resolve (the
+    // executeAndProve catch swallows) and immediately promotes pending to
+    // active, which respawns the doc (~300ms cost) and starts the new
+    // prove. abortSpeculativeProve bails silently if a non-speculative
+    // prove is also in flight (real send), so the user's actual tx is
+    // never interrupted.
+    if (this.active) {
+      this.active.stale = true;
+      void abortSpeculativeProve();
+    }
 
     // Replace pending — newer params win.
     this.pending = params;
@@ -92,7 +105,12 @@ export class SpeculationManager {
    * to discard speculation (e.g. delegate setting flipped on mid-review).
    */
   invalidate(): void {
-    if (this.active) this.active.stale = true;
+    if (this.active) {
+      this.active.stale = true;
+      // Same rationale as speculate(): kill the in-flight prove rather
+      // than letting it burn CPU on a result we'll discard.
+      void abortSpeculativeProve();
+    }
     this.pending = null;
     this.completed = null;
   }
@@ -109,6 +127,62 @@ export class SpeculationManager {
     const entry = this.completed;
     this.completed = null;
     return entry;
+  }
+
+  /**
+   * Synchronous peek: is there an in-flight (active or pending) speculation
+   * whose params match? Used by `proveLocallyViaOffscreen` on cache miss to
+   * decide whether to wait — if there's nothing matching in flight, fall
+   * through to a fresh execute + prove immediately. Stale active is treated
+   * as no-match because its result will be discarded when it finishes.
+   */
+  hasInFlightMatching(params: SpeculationParams): boolean {
+    const hash = hashParams(params);
+    if (this.active && !this.active.stale && this.active.paramsHash === hash) return true;
+    if (this.pending && hashParams(this.pending) === hash) return true;
+    return false;
+  }
+
+  /**
+   * Wait until either a matching cached entry is available or the manager
+   * has definitively moved past `params` (active finished, pending dropped,
+   * etc.). After this resolves, the caller should call `consumeCacheHit`
+   * to claim the result; if it returns null the speculation either failed
+   * or was made stale, and the caller should fall through to fresh prove.
+   *
+   * Loops: a `pending` matching `params` might be promoted to `active`
+   * while we wait on the current active. We re-evaluate after each await
+   * step until we either see a matching `completed` or there's nothing
+   * more to wait for.
+   *
+   * IMPORTANT: the caller MUST NOT hold the WASM client lock during this
+   * await — speculation's `executeAndProveForSpeculation` acquires the
+   * same lock to do its execute step. Wrap the call in
+   * `yieldWasmClientLock` if the caller holds the lock (which
+   * `proveLocallyViaOffscreen` does).
+   */
+  async awaitMatching(params: SpeculationParams): Promise<void> {
+    const hash = hashParams(params);
+    while (true) {
+      if (this.completed?.paramsHash === hash) return;
+      const active = this.active;
+      if (active && !active.stale && active.paramsHash === hash) {
+        await active.promise;
+        continue;
+      }
+      if (this.pending && hashParams(this.pending) === hash) {
+        if (active) {
+          await active.promise;
+        } else {
+          // pending exists but runNext hasn't picked it up yet; yield to
+          // the event loop so the microtask scheduling that promotes
+          // pending → active can run.
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        continue;
+      }
+      return;
+    }
   }
 
   private async runNext(): Promise<void> {

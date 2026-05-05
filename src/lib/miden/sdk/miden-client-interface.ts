@@ -293,7 +293,13 @@ export class MidenClientInterface {
     );
     const txResult: TransactionResult = await inner.executeTransaction(accountId, request);
     const txResultBytes = txResult.serialize();
-    const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
+    // Tag as speculative so SpeculationManager.abortSpeculativeProve() can
+    // terminate the offscreen doc to interrupt this prove if the user's
+    // form params change before it finishes. Non-speculative proves bump
+    // a counter that blocks the abort path — they must run to completion.
+    const { provenBytes, durationMs } = await yieldWasmClientLock(() =>
+      proveViaOffscreen(txResultBytes, null, { speculative: true })
+    );
     console.log(`[speculation] pre-proved tx in ${durationMs.toFixed(0)}ms`);
     return {
       paramsHash: speculationParamsHash(params),
@@ -410,9 +416,24 @@ export class MidenClientInterface {
       // has the result. Skip execute + prove and go straight to submit +
       // apply (~250ms total instead of ~10s). consumeCacheHit removes
       // the entry so a stale result can't be reused.
+      //
+      // Cache-miss-but-in-flight: if a matching speculation is currently
+      // executing/proving (user clicked Confirm before it finished), wait
+      // for it instead of doing a duplicate execute + prove. We yield the
+      // WASM client lock during the wait — speculation's
+      // executeAndProveForSpeculation also takes that lock, so without
+      // yielding we'd deadlock with whoever holds it (i.e. ourselves).
       if (cacheParams) {
         const mgr = getSpeculationManager();
-        const hit = mgr?.consumeCacheHit(cacheParams);
+        let hit = mgr?.consumeCacheHit(cacheParams);
+        if (!hit && mgr?.hasInFlightMatching(cacheParams)) {
+          const tWait = performance.now();
+          await yieldWasmClientLock(() => mgr.awaitMatching(cacheParams));
+          hit = mgr.consumeCacheHit(cacheParams);
+          console.log(
+            `[mt-offscreen-prove] awaited in-flight speculation ${(performance.now() - tWait).toFixed(0)}ms hit=${!!hit}`
+          );
+        }
         if (hit) {
           const txResult: TransactionResult = wasm.TransactionResult.deserialize(hit.txResultBytes);
           const proven = wasm.ProvenTransaction.deserialize(hit.provenBytes);
