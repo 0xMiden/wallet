@@ -14,7 +14,7 @@ jest.mock('./offscreen-prover', () => ({
   abortSpeculativeProve: (...args: unknown[]) => mockAbort(...args)
 }));
 
-const mockWithWasmClientLock = jest.fn(async <T,>(op: () => Promise<T>) => op());
+const mockWithWasmClientLock = jest.fn(async <T>(op: () => Promise<T>) => op());
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (op: () => Promise<unknown>) => mockWithWasmClientLock(op)
 }));

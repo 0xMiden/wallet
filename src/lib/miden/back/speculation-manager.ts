@@ -25,9 +25,8 @@
 //   - SPECULATE_INVALIDATE clears the cache and marks any active as stale
 //     (its result will be discarded when it finishes; CPU is already in flight).
 
-import { withWasmClientLock } from '../sdk/miden-client';
 import { abortSpeculativeProve } from './offscreen-prover';
-
+import { withWasmClientLock } from '../sdk/miden-client';
 import type { MidenClientInterface } from '../sdk/miden-client-interface';
 
 export interface SpeculationParams {

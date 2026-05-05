@@ -10,11 +10,7 @@
  * module-scope `lifecycleQueue` and `nonSpeculativeProveCount` start clean.
  */
 
-type OnMessageListener = (
-  msg: any,
-  sender: any,
-  sendResponse: (response?: any) => void
-) => boolean | undefined;
+type OnMessageListener = (msg: any, sender: any, sendResponse: (response?: any) => void) => boolean | undefined;
 
 interface FakeChromeRuntime {
   sendMessage: jest.Mock;
@@ -53,9 +49,7 @@ function installChromeMock(opts: { withOffscreen?: boolean; withHasDocument?: bo
           fakeChrome.runtime.onMessage.listeners.push(listener);
         }),
         removeListener: jest.fn((listener: OnMessageListener) => {
-          fakeChrome.runtime.onMessage.listeners = fakeChrome.runtime.onMessage.listeners.filter(
-            l => l !== listener
-          );
+          fakeChrome.runtime.onMessage.listeners = fakeChrome.runtime.onMessage.listeners.filter(l => l !== listener);
         })
       }
     }

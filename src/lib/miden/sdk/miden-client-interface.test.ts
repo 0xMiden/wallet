@@ -530,12 +530,14 @@ describe('MidenClientInterface', () => {
       }
     });
 
-    function buildOffscreenStubs(opts: {
-      cacheHit?: { txResultBytes: Uint8Array; provenBytes: Uint8Array; paramsHash: string } | null;
-      hasInFlightMatching?: boolean;
-      awaitMatching?: () => Promise<void>;
-      proveViaOffscreen?: jest.Mock;
-    } = {}) {
+    function buildOffscreenStubs(
+      opts: {
+        cacheHit?: { txResultBytes: Uint8Array; provenBytes: Uint8Array; paramsHash: string } | null;
+        hasInFlightMatching?: boolean;
+        awaitMatching?: () => Promise<void>;
+        proveViaOffscreen?: jest.Mock;
+      } = {}
+    ) {
       const consumeCacheHit = jest.fn(() => opts.cacheHit ?? null);
       const hasInFlightMatching = jest.fn(() => opts.hasInFlightMatching ?? false);
       const awaitMatching = jest.fn(opts.awaitMatching ?? (async () => {}));
@@ -559,7 +561,7 @@ describe('MidenClientInterface', () => {
         })
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T,>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
 
       return { consumeCacheHit, hasInFlightMatching, awaitMatching, proveViaOffscreen };
@@ -676,7 +678,7 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => ({ consumeCacheHit, hasInFlightMatching, awaitMatching })
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T,>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
       const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -937,7 +939,7 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => null
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T,>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id)
@@ -977,7 +979,7 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => null
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T,>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id)
@@ -1038,7 +1040,7 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => null
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T,>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id)
@@ -1075,11 +1077,7 @@ describe('MidenClientInterface', () => {
       // otherwise → fromBech32.
       expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
       expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xrecipient');
-      expect(proveViaOffscreen).toHaveBeenCalledWith(
-        expect.any(Uint8Array),
-        null,
-        { speculative: true }
-      );
+      expect(proveViaOffscreen).toHaveBeenCalledWith(expect.any(Uint8Array), null, { speculative: true });
     });
   });
 });
