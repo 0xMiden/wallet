@@ -338,6 +338,52 @@
     "message": "帳戶名稱",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "例如储蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1–16 个字符，不能以空格或连字符开头",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "同名帐户已存在",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "在继续之前",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "您的私钥可以让持有该账户的人完全控制该账户。 Miden 帐户无法轮换密钥，因此泄露的密钥会永久危害该帐户。",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "我了解此密钥无法轮换或撤销。",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "导入账户（ $importedCount$ ) 不会包含在此文件中。要备份它们，请从“设置”→“显示私钥”单独导出每个私钥。",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "该加密文件的导出方式为 $importedCount$ 导入的帐户不属于备份的一部分。这些帐户不会出现在您恢复的钱包中 - 您需要它们的原始私钥才能重新添加它们。单击继续导入以继续。",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "继续导入",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "编辑账户名称",
     "englishSource": "Edit Account Name"
@@ -1118,6 +1164,15 @@
   "other": {
     "message": "其他",
     "englishSource": "Other"
+  },
+  "billionFormat": {
+    "message": "$billion$B",
+    "englishSource": "$billion$B",
+    "placeholders": {
+      "billion": {
+        "content": "$1"
+      }
+    }
   },
   "uploadFile": {
     "message": "上传文件",
@@ -2317,6 +2372,46 @@
   "walletMayBeOffline": {
     "message": "钱包可能离线或不同步。",
     "englishSource": "Wallet may be offline or out of sync."
+  },
+  "connectivityNetworkTitle": {
+    "message": "您似乎处于离线状态",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "检查您的互联网连接，然后重试。",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "无法到达 Miden 节点",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "该节点可能已关闭或负载过重。您的余额可能已过期。",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "证明服务不可用",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "交易将使用本地证明，直到服务恢复。",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "重新连接",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "正在尝试恢复您的连接。",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "再试一次",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "重试同步",
+    "englishSource": "Retry sync"
   },
   "noteConsumedSuccessfully": {
     "message": "您的note已成功消耗。",

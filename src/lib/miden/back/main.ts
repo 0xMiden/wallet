@@ -158,12 +158,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     //     type: WalletMessageType.RevealViewKeyResponse,
     //     viewKey
     //   };
-    // case WalletMessageType.RevealPrivateKeyRequest:
-    //   const privateKey = await Actions.revealPrivateKey(req.accountPublicKey, req.password);
-    //   return {
-    //     type: WalletMessageType.RevealPrivateKeyResponse,
-    //     privateKey
-    //   };
+    case WalletMessageType.RevealPrivateKeyRequest:
+      const privateKey = await Actions.revealPrivateKey(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.RevealPrivateKeyResponse,
+        privateKey: privateKey ?? ''
+      };
     case WalletMessageType.RevealMnemonicRequest:
       const mnemonic = await Actions.revealMnemonic(req.password);
       return {
@@ -181,9 +181,10 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.EditAccountResponse
       };
     case WalletMessageType.ImportAccountRequest:
-      await Actions.importAccount(req.privateKey, req.encPassword);
+      const importedAccountPublicKey = await Actions.importAccount(req.privateKey, req.name);
       return {
-        type: WalletMessageType.ImportAccountResponse
+        type: WalletMessageType.ImportAccountResponse,
+        accountPublicKey: importedAccountPublicKey ?? ''
       };
     // case WalletMessageType.ImportWatchOnlyAccountRequest:
     //   await Actions.importWatchOnlyAccount(req.viewKey);

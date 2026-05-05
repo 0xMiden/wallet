@@ -99,6 +99,13 @@ export class MobileIntercomAdapter {
         };
       }
 
+      case WalletMessageType.RevealPrivateKeyRequest:
+        const privateKey = await Actions.revealPrivateKey((req as any).accountPublicKey, (req as any).password);
+        return {
+          type: WalletMessageType.RevealPrivateKeyResponse,
+          privateKey: privateKey ?? ''
+        };
+
       case WalletMessageType.RemoveAccountRequest:
         await Actions.removeAccount(req.accountPublicKey, req.password);
         return {
@@ -111,11 +118,13 @@ export class MobileIntercomAdapter {
           type: WalletMessageType.EditAccountResponse
         };
 
-      case WalletMessageType.ImportAccountRequest:
-        await Actions.importAccount(req.privateKey, req.encPassword);
+      case WalletMessageType.ImportAccountRequest: {
+        const importedAccountPublicKey = await Actions.importAccount(req.privateKey, req.name);
         return {
-          type: WalletMessageType.ImportAccountResponse
+          type: WalletMessageType.ImportAccountResponse,
+          accountPublicKey: importedAccountPublicKey ?? ''
         };
+      }
 
       case WalletMessageType.UpdateSettingsRequest:
         await Actions.updateSettings(req.settings);

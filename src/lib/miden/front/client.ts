@@ -47,6 +47,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
+  const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
+  const storeImportAccount = useWalletStore(s => s.importAccount);
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
@@ -135,6 +137,20 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       return storeRevealMnemonic(password);
     },
     [storeRevealMnemonic]
+  );
+
+  const revealPrivateKey = useCallback(
+    async (accountPublicKey: string, password?: string) => {
+      return storeRevealPrivateKey(accountPublicKey, password);
+    },
+    [storeRevealPrivateKey]
+  );
+
+  const importAccount = useCallback(
+    async (privateKey: string, name?: string) => {
+      return storeImportAccount(privateKey, name);
+    },
+    [storeImportAccount]
   );
 
   const updateSettings = useCallback(
@@ -248,9 +264,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   // will wire them up when the features land.
   const decryptCiphertexts = useCallback(async (_accPublicKey: string, _ciphertexts: string[]) => {}, []);
   const revealViewKey = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
-  const revealPrivateKey = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
   const removeAccount = useCallback(async (_accountPublicKey: string, _password: string) => {}, []);
-  const importAccount = useCallback(async (_privateKey: string, _encPassword?: string) => {}, []);
   const importWatchOnlyAccount = useCallback(async (_viewKey: string) => {}, []);
   const importMnemonicAccount = useCallback(
     async (_mnemonic: string, _password?: string, _derivationPath?: string) => {},

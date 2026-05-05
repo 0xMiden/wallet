@@ -6,6 +6,12 @@ export type DecryptedWalletFile = {
   midenClientDbContent: string;
   walletDbContent: string;
   accounts: WalletAccount[];
+  // Number of imported accounts (hdIndex < 0) the exporter stripped
+  // from `accounts` because the file format doesn't carry raw private
+  // keys. Surfaced on the import side so the restoring user isn't
+  // silently surprised by missing accounts. Optional for backwards
+  // compatibility with files produced before this field existed.
+  omittedImportedAccountCount?: number;
 };
 
 export type EncryptedWalletFile = {

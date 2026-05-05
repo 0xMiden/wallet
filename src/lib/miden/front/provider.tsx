@@ -1,9 +1,17 @@
 import React, { FC, useEffect, useMemo } from 'react';
 
+import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
+
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import {
+  DEFAULT_NETWORK,
+  MIDEN_NETWORK_ENDPOINTS,
+  MIDEN_PROVING_ENDPOINTS,
+  getNoteTransportUrl
+} from 'lib/miden-chain/constants';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
@@ -61,18 +69,38 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     initializeClient();
   }, []);
 
+  // Build the SDK MidenProvider config from the same network-selection source
+  // (DEFAULT_NETWORK / MIDEN_NETWORK_ENDPOINTS / MIDEN_PROVING_ENDPOINTS /
+  // getNoteTransportUrl) used by MidenClientInterface.create(), so the React
+  // SDK's client and the wallet's own backend client always agree on which
+  // network they're talking to. autoSyncInterval is disabled here because the
+  // wallet drives sync itself (extension SW + useSyncTrigger on mobile) — we
+  // only need the SDK's MidenContext populated so hooks like useImportStore /
+  // useConsume can resolve, not a second auto-sync loop.
+  const sdkConfig = useMemo(
+    () => ({
+      rpcUrl: MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!,
+      noteTransportUrl: getNoteTransportUrl(DEFAULT_NETWORK),
+      prover: MIDEN_PROVING_ENDPOINTS.get(DEFAULT_NETWORK),
+      autoSyncInterval: 0
+    }),
+    []
+  );
+
   return (
     <WalletStoreProvider>
       <MidenContextProvider>
-        <ConditionalProviders>{children}</ConditionalProviders>
-        {/*
-          TransactionProgressModal is rendered here (outside ConditionalProviders)
-          to prevent it from being remounted when the 'ready' state changes.
-          This fixes a bug where the modal wouldn't appear on the first transaction
-          because the component was remounting during the ready state transition.
-          The component handles platform check internally.
-        */}
-        <TransactionProgressModal />
+        <SdkMidenProvider config={sdkConfig}>
+          <ConditionalProviders>{children}</ConditionalProviders>
+          {/*
+            TransactionProgressModal is rendered here (outside ConditionalProviders)
+            to prevent it from being remounted when the 'ready' state changes.
+            This fixes a bug where the modal wouldn't appear on the first transaction
+            because the component was remounting during the ready state transition.
+            The component handles platform check internally.
+          */}
+          <TransactionProgressModal />
+        </SdkMidenProvider>
       </MidenContextProvider>
     </WalletStoreProvider>
   );

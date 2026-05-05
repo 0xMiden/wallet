@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -28,6 +28,18 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   const { t } = useTranslation();
   const { revealMnemonic, accounts } = useMidenContext();
 
+  // Imported accounts (hdIndex < 0) can't be reconstructed from the
+  // mnemonic — their auth key is the raw hex the user pasted in. The
+  // encrypted-file format doesn't carry raw secrets, so emitting them
+  // here would produce an unrestorable account on the other side
+  // (`Vault.spawnFromMidenClient` would either throw or fill the
+  // keystore with mnemonic-derived garbage). Filter them out so the
+  // restore path sees a consistent list; users are told in the
+  // changelog and via `Settings → Reveal Private Key` that imported
+  // keys need to be backed up separately.
+  const exportableAccounts = useMemo(() => accounts.filter(a => a.hdIndex >= 0), [accounts]);
+  const omittedImportedCount = accounts.length - exportableAccounts.length;
+
   const getExportFile = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
     const midenClientDbDump = await withWasmClientLock(async () => {
@@ -42,7 +54,8 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       seedPhrase,
       midenClientDbContent: midenClientDbDump as string,
       walletDbContent: walletDbDump,
-      accounts
+      accounts: exportableAccounts,
+      omittedImportedAccountCount: omittedImportedCount
     };
 
     const salt = generateSalt();
@@ -94,7 +107,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
-  }, [walletPassword, filePassword, fileName, revealMnemonic, t, accounts]);
+  }, [walletPassword, filePassword, fileName, revealMnemonic, t, exportableAccounts, omittedImportedCount]);
 
   useEffect(() => {
     getExportFile();
@@ -122,6 +135,11 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
             <p>{t('encryptedWalletFileExportedDesc1')}</p>
             <p className="font-bold pt-5">{t('encryptedWalletFileExportedDesc2')}</p>
             <p className="pt-5">{t('encryptedWalletFileExportedDesc3')}</p>
+            {omittedImportedCount > 0 && (
+              <p className="pt-5 text-sm text-red-600">
+                {t('encryptedFileImportedAccountsOmitted', { importedCount: String(omittedImportedCount) })}
+              </p>
+            )}
           </div>
         </div>
       </div>

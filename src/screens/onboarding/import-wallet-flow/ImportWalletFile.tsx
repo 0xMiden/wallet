@@ -26,6 +26,17 @@ type WalletFile = EncryptedWalletFile & {
   name: string;
 };
 
+// A staged payload that's decrypted successfully and is waiting on the
+// user to acknowledge the "imported accounts were stripped" notice
+// before the final onSubmit. Null when no decryption has succeeded yet
+// OR when the decrypted file carried zero omitted imported accounts (in
+// which case the flow proceeds without a second click).
+type PendingRestore = {
+  seedPhrase: string;
+  walletAccounts: WalletAccount[];
+  omittedImportedAccountCount: number;
+};
+
 // TODO: This needs to move forward in the onboarding steps, likely needs some sort of next thing feature
 export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ className, onSubmit }) => {
   const { t } = useTranslation();
@@ -34,6 +45,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
   const [walletFile, setWalletFile] = useState<WalletFile | null>(null);
   const [isWrongPassword, setIsWrongPassword] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore | null>(null);
 
   const {
     watch,
@@ -48,10 +60,18 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
 
   const handleClear = () => {
     setWalletFile(null);
+    setPendingRestore(null);
   };
 
   const handleImportSubmit = async () => {
     if (!walletFile || !onSubmit) return;
+
+    // Second click of a two-step confirmation: decryption already
+    // happened, user has now acknowledged the omitted-accounts notice.
+    if (pendingRestore) {
+      onSubmit(pendingRestore.seedPhrase, pendingRestore.walletAccounts);
+      return;
+    }
 
     try {
       const passKey = await generateKey(filePassword);
@@ -79,9 +99,20 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       const walletDbContent = decryptedWallet.walletDbContent;
       const seedPhrase = decryptedWallet.seedPhrase;
       const walletAccounts = decryptedWallet.accounts;
+      const omittedImportedAccountCount = decryptedWallet.omittedImportedAccountCount ?? 0;
 
       await importStore(midenClientDbContent, 'miden-wallet');
       await importDb(walletDbContent);
+
+      // Mirror the export-side warning on the restore side: if the
+      // exporter stripped imported accounts, surface the count here
+      // and require an explicit second click before completing the
+      // restore. Otherwise the user would silently discover the
+      // accounts are missing after the fact.
+      if (omittedImportedAccountCount > 0) {
+        setPendingRestore({ seedPhrase, walletAccounts, omittedImportedAccountCount });
+        return;
+      }
 
       onSubmit(seedPhrase, walletAccounts);
     } catch (error) {
@@ -217,7 +248,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         </div>
       )}
 
-      {walletFile != null && (
+      {walletFile != null && pendingRestore == null && (
         <div className="flex flex-col w-[360px]">
           <p className="text-sm text-black my-3">{t('enterDecryptionPassword')}</p>
           <FormField
@@ -236,14 +267,22 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         </div>
       )}
 
+      {pendingRestore != null && (
+        <div className="w-[360px] mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {t('encryptedFileImportedAccountsOmittedRestoreNotice', {
+            importedCount: String(pendingRestore.omittedImportedAccountCount)
+          })}
+        </div>
+      )}
+
       <div className="mt-auto w-full pt-4">
         <FormSubmitButton
           loading={isSubmitting}
           className="w-full text-base"
           style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
-          disabled={!isValid || !walletFile}
+          disabled={pendingRestore != null ? false : !isValid || !walletFile}
         >
-          {t('import')}
+          {pendingRestore != null ? t('continueImport') : t('import')}
         </FormSubmitButton>
       </div>
     </form>

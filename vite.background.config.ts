@@ -76,6 +76,36 @@ export default defineConfig({
           // Strip TLA for ESM module SW compatibility
           chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
 
+          // Reconnect the lazy `getVault()` accessor in actions.ts and
+          // sync-manager.ts to the auto-generated `vault.ts` ESM factory.
+          //
+          // Why this is needed: the cold-start race (#212) is fixed by
+          // calling the vault module's init factory (`init_vault`) before
+          // touching `Vault.isExist()`. But because the lazy accessor calls
+          // `init_vault()` directly in source (with `@ts-expect-error`),
+          // Rolldown sees a free `init_vault` identifier in the bundle and
+          // renames the auto-generated factory to `init_vault$1` to avoid
+          // the collision. Result: the source-level `init_vault()` calls
+          // resolve to `undefined` at runtime — worse than the original
+          // race (a hard ReferenceError instead of a soft "not yet inited"
+          // throw).
+          //
+          // Fix: post-bundle, alias the renamed factory back to
+          // `init_vault` via a top-level `var init_vault = init_vault$1;`
+          // declaration injected right after the factory's definition.
+          // Idempotent under multiple Rolldown collision rounds — if
+          // `init_vault$1` is absent (no collision happened) this is a
+          // no-op.
+          if (/var init_vault\$1 = __esmMin/.test(chunk.code)) {
+            // Append the alias at the very end of the chunk. `var` is
+            // hoisted, so `init_vault` is declared (as undefined) at the
+            // top of the script, and the assignment runs after the
+            // factory is defined. By the time any `getVault()` lazy
+            // accessor fires (always after some async hop), `init_vault`
+            // resolves to the factory.
+            chunk.code += '\nvar init_vault = init_vault$1;\n';
+          }
+
           // Break circular init deadlocks in the Zustand store (init_store) chain.
           // init_store → init_fetchBalances → (init_prices, init_assets, ...) → init_store
           // Many frontend modules await init_store, creating circular deadlocks when
@@ -196,11 +226,11 @@ export default defineConfig({
                 'async function processRequest'
               ].join('\n')
             );
-            // processRequest awaits inits for any request except GetStateRequest/SyncRequest
-            // (those are handled early via getFrontState's Idle fallback)
+            // processRequest awaits inits for any request except GET_STATE_REQUEST
+            // SYNC_REQUEST removed from bypass - it should now properly wait for init
             chunk.code = chunk.code.replace(
               /async function processRequest\(req[^)]*\)\s*\{/,
-              '$&\n  if (req?.type !== "GET_STATE_REQUEST" && req?.type !== "SYNC_REQUEST") { await __initsReady; }'
+              '$&\n  if (req?.type !== "GET_STATE_REQUEST") { await __initsReady; }'
             );
           }
         }

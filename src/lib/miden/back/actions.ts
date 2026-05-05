@@ -1,5 +1,6 @@
 import PQueue from 'p-queue';
 
+import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import {
   toFront,
@@ -38,12 +39,16 @@ import {
   waitForTransaction
 } from './dapp';
 
-const ACCOUNT_NAME_PATTERN = /^.{0,16}$/;
-
 // Lazy queue initialization: in the Vite SW build, module-scope init (init_actions)
 // may not complete because it transitively depends on dapp.ts which imports frontend
 // modules that hang in SW context. Making queues lazy ensures they're available on
 // first use regardless of whether init_actions completed.
+//
+// Note: despite the name, `_unlockQueue` doubles as a general
+// single-writer serializer for any mutation that reads the accounts
+// list and writes it back after a WASM round-trip (import, unlock).
+// Keeping both on the same queue means they implicitly serialize
+// against each other too, which is the safer default.
 let _dappQueue: PQueue | undefined;
 let _unlockQueue: PQueue | undefined;
 function getDappQueue() {
@@ -55,9 +60,35 @@ function getUnlockQueue() {
   return _unlockQueue;
 }
 
+// Service worker cold-start race: in the Vite SW build, top-level await is
+// stripped so the `vault.ts` ESM module factory (`init_vault`) may not have
+// completed when this module is first reached. Awaiting the factory directly
+// is idempotent (subsequent calls resolve immediately) and guarantees the
+// `Vault` binding is populated before we touch it.
+//
+// `init_vault` is injected into the bundle by Vite's ESM transform — it is
+// not a source-level symbol. We must NOT add a source-level `init_vault`
+// binding (e.g. `declare const init_vault`) because Rolldown would rename
+// the auto-generated factory to `init_vault$1` to avoid the collision, and
+// our call would then resolve to `undefined` at runtime. The vite plugin
+// emits a top-level `var init_vault = init_vault$1;` alias so the lookup
+// below resolves correctly in the SW bundle. In Jest (no bundle transform)
+// the symbol is undefined and we skip the factory call — the module is
+// already fully evaluated by the test runner.
+let _vault: typeof Vault | null = null;
+async function getVault() {
+  if (!_vault) {
+    // @ts-expect-error init_vault is injected by Vite's SW bundle transform
+    if (typeof init_vault === 'function') await init_vault();
+    _vault = Vault;
+  }
+  return _vault;
+}
+
 export async function init() {
   console.log('[Actions.init] Starting...');
-  const vaultExist = await Vault.isExist();
+  const vault = await getVault(); // wait for vault initialization
+  const vaultExist = await vault.isExist();
   console.log('[Actions.init] Vault exists:', vaultExist);
   inited(vaultExist);
   console.log('[Actions.init] Called inited()');
@@ -85,8 +116,9 @@ export async function getFrontState(): Promise<WalletState> {
 
 export async function isDAppEnabled() {
   const storage = getStorageProvider();
+  const vault = await getVault();
   const bools = await Promise.all([
-    Vault.isExist(),
+    vault.isExist(),
     (async () => {
       const key = MidenSharedStorageKey.DAppEnabled;
       const items = await storage.get([key]);
@@ -183,7 +215,7 @@ export function createHDAccount(walletType: WalletType, name?: string) {
     if (name) {
       name = name.trim();
       if (!ACCOUNT_NAME_PATTERN.test(name)) {
-        throw new Error('Invalid name. It should be: 1-16 characters, without special');
+        throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
       }
     }
 
@@ -203,7 +235,9 @@ export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
-export function revealPrivateKey(_accPublicKey: string, _password: string) {}
+export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
+  return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+}
 
 export function revealPublicKey(_accPublicKey: string) {}
 
@@ -214,7 +248,7 @@ export function editAccount(accPublicKey: string, name: string) {
   return withUnlocked(async ({ vault }) => {
     name = name.trim();
     if (!ACCOUNT_NAME_PATTERN.test(name)) {
-      throw new Error('Invalid name. It should be: 1-16 characters, without special');
+      throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
     }
 
     const updatedAccounts = await vault.editAccountName(accPublicKey, name);
@@ -223,7 +257,26 @@ export function editAccount(accPublicKey: string, name: string) {
   });
 }
 
-export function importAccount(_privateKey: string, _encPassword?: string) {}
+export function importAccount(privateKey: string, name?: string) {
+  // Serialize on the unlock queue: `importAccountFromPrivateKey` reads
+  // the accounts list, calls into WASM, then writes the updated list.
+  // Two concurrent imports would otherwise both read the stale list and
+  // the second write would drop the first account.
+  return withUnlocked(({ vault }) =>
+    getUnlockQueue().add(async () => {
+      if (name !== undefined) {
+        name = name.trim();
+        if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
+          throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+        }
+      }
+
+      const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+      accountsUpdated({ accounts });
+      return accounts[accounts.length - 1]!.publicKey;
+    })
+  );
+}
 
 export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}
 

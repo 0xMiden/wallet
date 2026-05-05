@@ -1,6 +1,8 @@
 import browser from 'webextension-polyfill';
 
 import { getMessage } from 'lib/i18n';
+import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
@@ -10,6 +12,12 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+
+// `init_vault` is the ESM module factory for `./vault`, injected by Vite's
+// SW bundle transform. We must NOT add a source-level binding (e.g.
+// `declare const init_vault`) because Rolldown would rename the factory to
+// `init_vault$1` to avoid the collision, breaking the lazy accessor at
+// runtime. The @ts-expect-error below is the intended escape hatch.
 
 const ALARM_NAME = 'miden-sync';
 
@@ -39,6 +47,19 @@ let inFlight: Promise<void> | null = null;
 let consecutiveSyncFailures = 0;
 let syncBackoffUntilMs = 0;
 
+// Lazy Vault initialization to prevent service worker cold-start race.
+// See actions.ts:getVault for the full explanation. In Jest, `init_vault`
+// is undefined; the typeof guard skips the factory call.
+let _vault: typeof Vault | null = null;
+async function getVault() {
+  if (!_vault) {
+    // @ts-expect-error init_vault is injected by Vite's SW bundle transform
+    if (typeof init_vault === 'function') await init_vault();
+    _vault = Vault;
+  }
+  return _vault;
+}
+
 export function doSync(): Promise<void> {
   if (inFlight) return inFlight;
   // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
@@ -56,7 +77,8 @@ export function doSync(): Promise<void> {
 async function runSync(): Promise<void> {
   try {
     // Skip if wallet not set up
-    const exists = await Vault.isExist();
+    const vault = await getVault();
+    const exists = await vault.isExist();
     if (!exists) return;
 
     // [Lock 1] THE sync for the whole app. Bounded by SYNC_TIMEOUT_MS so it
@@ -73,12 +95,26 @@ async function runSync(): Promise<void> {
         SYNC_TIMEOUT_MS
       );
       consecutiveSyncFailures = 0;
+      // Sync went through end-to-end: the user has connectivity AND the
+      // node is responding. Clear any active reachability category. We
+      // don't touch `prover` — that's a separate service with separate
+      // health and is owned by withProverFallback.
+      clearReachabilityIssues();
     } catch (err) {
       consecutiveSyncFailures++;
       console.warn(
         `[SyncManager] syncState failed (${consecutiveSyncFailures}/${MAX_CONSECUTIVE_SYNC_FAILURES}):`,
         err
       );
+      // Categorize the sync failure as network (browser is offline) or
+      // node (we can reach the open net but the Miden RPC didn't answer).
+      // Skip semantic / non-transport errors so a malformed-response bug
+      // in the SDK doesn't masquerade as connectivity. Suppressing the
+      // synthetic `Sync timeout` from withTimeout is intentional —
+      // timeouts are themselves transport-shaped.
+      if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
+        markConnectivityIssue(classifySyncError(err));
+      }
       if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
         syncBackoffUntilMs = Date.now() + BACKOFF_MS;
         consecutiveSyncFailures = 0;
@@ -89,7 +125,8 @@ async function runSync(): Promise<void> {
     }
 
     const intercom = getIntercom()!;
-    const accountPubKey = await Vault.getCurrentAccountPublicKey();
+    const vault2 = await getVault();
+    const accountPubKey = await vault2.getCurrentAccountPublicKey();
 
     if (accountPubKey) {
       // [Lock 2] Read notes + vault assets from warm WASM client
