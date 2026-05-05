@@ -308,18 +308,17 @@ export class MidenClientInterface {
     return this.withProverFallback(async prover => {
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
-          // The bundled `transactions.consume` accepts string note IDs and
-          // internally calls `getInputNote` to resolve to Note objects.
-          // We do that ourselves via the proxied inner. `getInputNote`
-          // returns an InputNoteRecord; the WASM `newConsumeTransactionRequest`
-          // takes Note[] (via the wasm.NoteArray helper).
+          // The bundled `transactions.consume` resolves string note IDs via
+          // `inner.getInputNote(...)` and unwraps to `Note` via `.toNote()`
+          // (NOT `.note()` — `note` is not a method on InputNoteRecord).
+          // Mirror that exactly. Then ship the resulting Note(s) to the
+          // WASM-bindgen `newConsumeTransactionRequest`, which takes the
+          // wasm.NoteArray helper rather than a JS array.
           const inputNoteRecord = await inner.getInputNote(noteId);
           if (!inputNoteRecord) {
             throw new Error(`Note ${noteId} not found in store`);
           }
-          // InputNoteRecord exposes `.note()` returning the underlying
-          // Note. Stock SDK's TransactionsResource does the same thing.
-          const note: Note = inputNoteRecord.note();
+          const note: Note = inputNoteRecord.toNote();
           const noteArray = new wasm.NoteArray();
           noteArray.push(note);
           const request: TransactionRequest = await inner.newConsumeTransactionRequest(noteArray);
