@@ -309,19 +309,22 @@ export class MidenClientInterface {
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
           // The bundled `transactions.consume` resolves string note IDs via
-          // `inner.getInputNote(...)` and unwraps to `Note` via `.toNote()`
-          // (NOT `.note()` — `note` is not a method on InputNoteRecord).
-          // Mirror that exactly. Then ship the resulting Note(s) to the
-          // WASM-bindgen `newConsumeTransactionRequest`, which takes the
-          // wasm.NoteArray helper rather than a JS array.
+          // `inner.getInputNote(...)` and unwraps to `Note` via `.toNote()`,
+          // then passes a plain JS array `Note[]` to
+          // `newConsumeTransactionRequest`. wasm-bindgen converts the
+          // array to Vec<Note> internally — DO NOT use `wasm.NoteArray`
+          // here. wasm.NoteArray is a different wasm-bindgen type (a
+          // pre-built Vec<Note> handle); the request builder accepts the
+          // JS array form, and passing the typed-array handle silently
+          // produces a tx with zero input notes (the prove succeeds, then
+          // completeConsumeTransaction trips on `inputNotes().notes()[0]`
+          // being undefined).
           const inputNoteRecord = await inner.getInputNote(noteId);
           if (!inputNoteRecord) {
             throw new Error(`Note ${noteId} not found in store`);
           }
           const note: Note = inputNoteRecord.toNote();
-          const noteArray = new wasm.NoteArray();
-          noteArray.push(note);
-          const request: TransactionRequest = await inner.newConsumeTransactionRequest(noteArray);
+          const request: TransactionRequest = await inner.newConsumeTransactionRequest([note]);
           const acctId = resolveAccountId(wasm, accountId);
           return { accountId: acctId, request };
         });
