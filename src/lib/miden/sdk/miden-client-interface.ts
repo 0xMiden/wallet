@@ -37,12 +37,18 @@ import { ConsumeTransaction, SendTransaction } from '../db/types';
 /**
  * Feature flag: when true, local proving is dispatched to a
  * `chrome.offscreen` document with a wasm-bindgen-rayon thread pool
- * (~3-4× faster than the SW's single-threaded prove on a 10-core machine).
- * When false (default), proving stays on the SDK's bundled call inside the
- * SW — same path as before mt-wasm landed. Set MIDEN_USE_OFFSCREEN_PROVING=true
- * at build time to enable. Only the chrome target ships an offscreen doc;
- * other browsers + mobile fall through to the bundled path automatically
- * (see isOffscreenAvailable).
+ * (~3.5× faster than the SW's single-threaded prove on a 10-core machine).
+ *
+ * **Default ON for desktop chrome builds** (vite.background.config.ts and
+ * vite.extension.config.ts default the env to `'true'`). Mobile builds
+ * (vite.mobile.config.ts) hardcode this to `'false'` because Capacitor /
+ * WKWebView / Android WebView don't expose `chrome.offscreen` — the
+ * runtime guard `isOffscreenAvailable()` would also fall through, but
+ * fixing the build-time constant lets dead-code elimination drop the
+ * offscreen import entirely from the mobile bundle.
+ *
+ * Opt out per-build (e.g. to bisect a regression suspected to live in
+ * the offscreen path) with `MIDEN_USE_OFFSCREEN_PROVING=false`.
  */
 const USE_OFFSCREEN_PROVING = process.env.MIDEN_USE_OFFSCREEN_PROVING === 'true';
 

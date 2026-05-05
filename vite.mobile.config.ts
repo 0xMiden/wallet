@@ -163,6 +163,13 @@ export default defineConfig({
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    // Mobile (Capacitor / WKWebView / Android WebView) cannot use the
+    // chrome.offscreen path — that API only exists in Chrome MV3 extensions.
+    // Force the flag false at build time so a stray shell env never opts
+    // mobile into a code path it can't run. The runtime guard
+    // (isOffscreenAvailable) also catches it, but pinning the build-time
+    // constant lets dead-code elimination drop the offscreen import entirely.
+    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify('false'),
     'process.browser': 'true',
     global: 'globalThis'
   }

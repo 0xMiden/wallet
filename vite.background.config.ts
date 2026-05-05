@@ -296,11 +296,19 @@ export default defineConfig({
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
-    // route. Default off — set MIDEN_USE_OFFSCREEN_PROVING=true at build
-    // time to enable. Falls through to single-threaded SW prove if false
-    // OR if the runtime doesn't expose chrome.offscreen.
+    // route. Default ON for desktop chrome builds — empirically ~3.5x
+    // faster (40s -> 11s) on a 10-core machine with Falcon-512 accounts
+    // and produces correctly-verifying proofs. Set
+    // MIDEN_USE_OFFSCREEN_PROVING=false at build time to opt out (e.g. to
+    // bisect a regression suspected to be in the offscreen path).
+    //
+    // Mobile (vite.mobile.config.ts) does NOT define this env, so its
+    // runtime value is undefined and the `=== 'true'` check fails — mobile
+    // always uses the bundled SDK path. Even if it somehow were true, the
+    // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
+    // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(
-      process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'false'
+      process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'
     ),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
   }
