@@ -1,0 +1,300 @@
+name: Inject linked web-sdk PR
+description: >
+  If the current PR's body contains a "Web SDK PR: #N" marker, clone the
+  linked web-sdk PR's head branch, build the @miden-sdk/miden-sdk and
+  @miden-sdk/react packages from source, and rewrite the wallet's
+  package.json to point at the local builds via `file:` deps. Runs only on
+  `pull_request` events (silent no-op on `push`). On the first run per
+  PR (when `comment: true`), posts a sticky comment describing what was
+  patched. Fails fast if the linked PR is closed without merge.
+
+  Marker syntax (anywhere in the body, first match wins):
+    Web SDK PR: #1234
+    Web SDK PR: 0xMiden/web-sdk#1234        (cross-repo / forks)
+
+  This action keeps package.json clean on disk for committers — they
+  never need to hand-edit a `file:` dep. Local-dev parity is provided
+  by scripts/dev-with-web-sdk-pr.sh, which writes the same patch under a
+  marker block you can clear with --clear.
+
+  Mirrors web-sdk's `inject-linked-client-pr` action; the differences are
+  (1) the marker name, (2) the dep injection target (package.json vs.
+  Cargo.toml), and (3) the build step (the SDK packages must be built
+  from source for the wallet to consume them via `file:`, since the
+  wallet's pinned npm version doesn't include any unpublished changes).
+
+inputs:
+  github-token:
+    description: Token for gh CLI calls (defaults to GITHUB_TOKEN).
+    required: false
+    default: ${{ github.token }}
+  comment:
+    description: >
+      Whether to post/update a sticky PR comment summarizing the patch.
+      Default false: this action is typically called from many yarn-using
+      jobs in the same workflow run, and posting the same comment from
+      each is wasteful. Pass `comment: true` from exactly one designated
+      job per workflow run (conventionally the first one that runs
+      yarn install). The sticky-comment header dedups across calls, so
+      over-firing is correct but spammy.
+    required: false
+    default: "false"
+
+outputs:
+  patched:
+    description: "true if a patch was injected, false otherwise."
+    value: ${{ steps.parse.outputs.patched }}
+  web_sdk_pr:
+    description: The linked web-sdk PR number, or empty.
+    value: ${{ steps.parse.outputs.num }}
+  web_sdk_repo:
+    description: The linked PR's repo (owner/repo), or empty.
+    value: ${{ steps.parse.outputs.repo }}
+  web_sdk_head_sha:
+    description: The linked PR's head SHA, or empty.
+    value: ${{ steps.parse.outputs.head_sha }}
+
+runs:
+  using: composite
+  steps:
+    - id: parse
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        set -euo pipefail
+
+        # Skip on push / schedule / workflow_dispatch.
+        if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
+          echo "patched=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=inject-linked-web-sdk-pr::Skipping on event=$EVENT_NAME (only pull_request triggers patch injection)."
+          exit 0
+        fi
+
+        if [ -z "${PR_NUMBER:-}" ]; then
+          echo "patched=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=inject-linked-web-sdk-pr::No PR number in event payload."
+          exit 0
+        fi
+
+        body=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""')
+
+        # Marker: "Web SDK PR:" optionally followed by "<owner>/<repo>" then "#N".
+        # Anchored to start-of-line (with leading whitespace allowed) so a
+        # casual mention in prose ("see Web SDK PR: #134") doesn't accidentally
+        # trigger the patch — the marker has to be on its own line.
+        # First match wins; case-insensitive.
+        marker=$(printf '%s' "$body" \
+          | grep -ioE '^[[:space:]]*Web SDK PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+' \
+          | head -1 || true)
+        if [ -z "$marker" ]; then
+          echo "patched=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        repo=$(printf '%s' "$marker" | grep -oE '[0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+' | head -1 || echo "0xMiden/web-sdk")
+        num=$(printf '%s' "$marker" | grep -oE '[0-9]+$')
+
+        # Resolve head + state.
+        meta=$(gh api "repos/${repo}/pulls/${num}" \
+          --jq '"\(.head.repo.owner.login)\t\(.head.repo.name)\t\(.head.ref)\t\(.head.sha)\t\(.state)\t\(.merged)"' 2>/dev/null \
+          || { echo "::error title=inject-linked-web-sdk-pr::Failed to fetch ${repo}#${num}. Does the PR exist? Is GH_TOKEN scoped to read it?"; exit 1; })
+
+        IFS=$'\t' read -r head_owner head_repo head_ref head_sha state merged <<< "$meta"
+
+        # Closed without merge → loud failure. (A merged PR is acceptable —
+        # it just means the linked branch may be stale; the local build
+        # still uses the head sha which still exists.)
+        state_lc=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')
+        if [ "$state_lc" != "open" ] && [ "$merged" != "true" ]; then
+          {
+            echo "## ❌ Linked web-sdk PR is closed without merge"
+            echo
+            echo "PR description marker: \`Web SDK PR: ${repo}#${num}\`"
+            echo
+            echo "[\`${repo}#${num}\`](https://github.com/${repo}/pull/${num}) is in state \`${state}\` (not merged)."
+            echo
+            echo "Either re-open the linked PR, point \`Web SDK PR:\` at a different one, or remove the marker (the wallet will install the published @miden-sdk/miden-sdk version pinned in package.json)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Linked PR closed::${repo}#${num} is closed without merge."
+          exit 1
+        fi
+
+        echo "patched=true" >> "$GITHUB_OUTPUT"
+        echo "repo=${repo}" >> "$GITHUB_OUTPUT"
+        echo "num=${num}" >> "$GITHUB_OUTPUT"
+        echo "head_owner=${head_owner}" >> "$GITHUB_OUTPUT"
+        echo "head_repo=${head_repo}" >> "$GITHUB_OUTPUT"
+        echo "head_ref=${head_ref}" >> "$GITHUB_OUTPUT"
+        echo "head_sha=${head_sha}" >> "$GITHUB_OUTPUT"
+        echo "state=${state}" >> "$GITHUB_OUTPUT"
+        echo "merged=${merged}" >> "$GITHUB_OUTPUT"
+
+    - if: steps.parse.outputs.patched == 'true'
+      shell: bash
+      env:
+        REPO: ${{ steps.parse.outputs.repo }}
+        NUM: ${{ steps.parse.outputs.num }}
+        HEAD_OWNER: ${{ steps.parse.outputs.head_owner }}
+        HEAD_REPO: ${{ steps.parse.outputs.head_repo }}
+        HEAD_REF: ${{ steps.parse.outputs.head_ref }}
+        HEAD_SHA: ${{ steps.parse.outputs.head_sha }}
+        MERGED: ${{ steps.parse.outputs.merged }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        # Where the linked web-sdk PR's head gets built. Runner-local; the
+        # path becomes the file: dep target in the wallet's package.json.
+        SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
+
+        # Clone shallow. The wallet only consumes the built JS+WASM
+        # output of two packages (@miden-sdk/miden-sdk and @miden-sdk/react)
+        # so we don't need full history.
+        echo "::group::Clone ${HEAD_OWNER}/${HEAD_REPO}@${HEAD_REF}"
+        rm -rf "$SDK_DIR"
+        git clone --depth 1 --branch "${HEAD_REF}" \
+          "https://github.com/${HEAD_OWNER}/${HEAD_REPO}.git" "$SDK_DIR"
+        echo "::endgroup::"
+
+        # Sanity-check the SHA.
+        actual_sha=$(git -C "$SDK_DIR" rev-parse HEAD)
+        if [ "$actual_sha" != "$HEAD_SHA" ]; then
+          echo "::warning::Head SHA drifted: expected ${HEAD_SHA}, got ${actual_sha}. Building against ${actual_sha}."
+        fi
+
+        # Install + build the SDK packages from source. We need both
+        # @miden-sdk/miden-sdk (the WASM SDK) and @miden-sdk/react (which
+        # has its own dist/). The wallet may also depend on
+        # @miden-sdk/vite-plugin transitively but it's lighter — it'll
+        # install fine via pnpm's workspace install.
+        echo "::group::Install web-sdk deps"
+        cd "$SDK_DIR"
+        # Use pnpm to match web-sdk's package manager. corepack is the
+        # preferred way to invoke a versioned pnpm; fall back to npx.
+        if command -v corepack >/dev/null 2>&1; then
+          corepack enable >/dev/null 2>&1 || true
+          PNPM="corepack pnpm"
+        elif command -v pnpm >/dev/null 2>&1; then
+          PNPM="pnpm"
+        else
+          npm install -g pnpm@9 >/dev/null
+          PNPM="pnpm"
+        fi
+        $PNPM install --frozen-lockfile
+        echo "::endgroup::"
+
+        # Build the WASM SDK in fast mode (skips wasm-opt and the MT
+        # variant unless you set MIDEN_FAST_BUILD=false). Wallet's CI
+        # only consumes built dist/, so the fast profile is fine.
+        # MIDEN_FAST_BUILD=true also skips the MT build per
+        # web-sdk's `build-mt-conditional` script — but the wallet
+        # uses the MT subpath. So we explicitly run BOTH variants.
+        echo "::group::Build @miden-sdk/miden-sdk (ST + MT)"
+        cd "$SDK_DIR/crates/web-client"
+        # Run the full build (both ST and MT) without MIDEN_FAST_BUILD's
+        # MT-skip; we DO use MIDEN_FAST_BUILD=true elsewhere in the build
+        # to avoid wasm-opt's 1-2 min cost. The pinned scripts handle
+        # ordering; we just don't set the env flag that skips MT.
+        $PNPM run build
+        echo "::endgroup::"
+
+        echo "::group::Build @miden-sdk/react"
+        cd "$SDK_DIR/packages/react-sdk"
+        $PNPM run build
+        echo "::endgroup::"
+
+        # Now patch the wallet's package.json to depend on the local
+        # builds via `file:` URIs. Yarn 1 supports file: deps natively
+        # (copies the dir into node_modules at install time), and
+        # `yarn.lock` updates accordingly.
+        echo "::group::Rewrite wallet package.json"
+        wallet_root=$(git rev-parse --show-toplevel)
+        cd "$wallet_root"
+        node <<EOF
+        const fs = require('fs');
+        const path = require('path');
+        const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        const sdkPath = "${SDK_DIR}/crates/web-client";
+        const reactPath = "${SDK_DIR}/packages/react-sdk";
+        const targets = {
+          '@miden-sdk/miden-sdk': 'file:' + sdkPath,
+          '@miden-sdk/react': 'file:' + reactPath,
+        };
+        const orig = {};
+        for (const [k, v] of Object.entries(targets)) {
+          if (pkg.dependencies && pkg.dependencies[k] !== undefined) {
+            orig[k] = pkg.dependencies[k];
+            pkg.dependencies[k] = v;
+          }
+          if (pkg.devDependencies && pkg.devDependencies[k] !== undefined) {
+            orig['(dev) ' + k] = pkg.devDependencies[k];
+            pkg.devDependencies[k] = v;
+          }
+        }
+        // Clear yarn resolutions for these scopes so yarn can't pin to the
+        // pre-injection version through a transitive resolution.
+        if (pkg.resolutions) {
+          for (const k of Object.keys(pkg.resolutions)) {
+            if (k.includes('@miden-sdk')) {
+              orig['(resolution) ' + k] = pkg.resolutions[k];
+              delete pkg.resolutions[k];
+            }
+          }
+        }
+        fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+        console.log('Original deps replaced:', JSON.stringify(orig, null, 2));
+        EOF
+        echo "::endgroup::"
+
+        # Surface the patch state in the job summary regardless of comment-on/off.
+        {
+          echo "## 🔗 Linked web-sdk PR injected"
+          echo
+          echo "| Field | Value |"
+          echo "|---|---|"
+          echo "| Marker | \`Web SDK PR: ${REPO}#${NUM}\` |"
+          echo "| Head | \`${HEAD_OWNER}/${HEAD_REPO}@${HEAD_REF}\` |"
+          echo "| Pin | \`${HEAD_SHA}\` |"
+          echo "| Build path | \`${SDK_DIR}\` |"
+          echo "| Merged upstream | \`${MERGED}\` |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # Comment lifecycle (only fires when comment=true, by convention from a
+    # single designated job per workflow run):
+    #   - patched=true → upsert the sticky comment via the same `header`,
+    #     so re-runs UPDATE the existing comment in place (no duplicates).
+    #   - patched=false → DELETE any prior comment with the same header.
+    # The comment step is decorative — if it fails (missing pull-requests:
+    # write permission, transient API blip, etc.) we don't want to abort
+    # the build. Surface as a notice and continue.
+    - if: inputs.comment == 'true' && steps.parse.outputs.patched == 'true'
+      continue-on-error: true
+      uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
+      with:
+        header: linked-web-sdk-pr
+        message: |
+          🔗 **Linked web-sdk PR**: [`${{ steps.parse.outputs.repo }}#${{ steps.parse.outputs.num }}`](https://github.com/${{ steps.parse.outputs.repo }}/pull/${{ steps.parse.outputs.num }})
+
+          | Field | Value |
+          |---|---|
+          | Patched at | `${{ steps.parse.outputs.head_owner }}/${{ steps.parse.outputs.head_repo }}@${{ steps.parse.outputs.head_ref }}` |
+          | Pin (head sha) | `${{ steps.parse.outputs.head_sha }}` |
+          | Upstream state | `${{ steps.parse.outputs.state }}` (merged: `${{ steps.parse.outputs.merged }}`) |
+
+          This run is testing against the linked PR's head — `@miden-sdk/miden-sdk` and `@miden-sdk/react` are built from source and installed via `file:` deps. The published wallet artifact will use the canonical npm-pinned versions; CI on `main` does **not** auto-patch.
+
+          Local-dev parity:
+          ```
+          scripts/dev-with-web-sdk-pr.sh ${{ steps.parse.outputs.num }}    # apply the same patch locally
+          scripts/dev-with-web-sdk-pr.sh --clear                            # remove it before commit
+          ```
+
+    - if: inputs.comment == 'true' && steps.parse.outputs.patched != 'true'
+      continue-on-error: true
+      uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
+      with:
+        header: linked-web-sdk-pr
+        delete: true

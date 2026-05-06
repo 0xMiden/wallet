@@ -1,0 +1,179 @@
+name: Linked web-sdk PR ready
+
+# Mergeability gate for wallet PRs that carry a `Web SDK PR: #N` marker.
+#
+# The auto-patch action (.github/actions/inject-linked-web-sdk-pr) makes
+# the wallet PR's CI build green against the linked web-sdk PR's head by
+# building @miden-sdk/miden-sdk and @miden-sdk/react from source and
+# installing them via `file:` deps. But the *published* wallet, after
+# merge, builds from canonical npm refs:
+#
+#   - PRs targeting `main` install `@miden-sdk/miden-sdk = "X.Y.Z"` from
+#     npm. After merge, main's CI is red until web-sdk publishes a
+#     release that includes the linked PR's commit.
+#
+# This workflow keeps a check status on the wallet PR that goes green
+# only when the linked web-sdk PR has reached the right state for the
+# target branch:
+#   - `main` target → linked PR must be merged AND released to npm at a
+#                      version satisfying the wallet's @miden-sdk/miden-sdk
+#                      pin. Approximated via the latest GitHub release
+#                      tag (web-sdk's auto-release-main.yml creates one
+#                      on every merge to main that bumps a package
+#                      version).
+#
+# Until that's true, the check stays pending — branch protection can be
+# configured to require this check, blocking merge.
+#
+# Mirrors web-sdk's `check-linked-client-pr.yml` (which gates web-sdk
+# PRs against linked miden-client PRs). Differences from that file:
+#   - Marker name: "Web SDK PR" not "Client PR".
+#   - Default linked repo: `0xMiden/web-sdk` not `0xMiden/miden-client`.
+#   - Status context: `linked-web-sdk-pr-ready`.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  # Re-evaluate on a schedule so the check goes green when upstream
+  # catches up (web-sdk PR merges and a release tag covers it), without
+  # requiring a push to this PR.
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+  pull-requests: read
+  # The gate posts a custom commit status named `linked-web-sdk-pr-ready`
+  # via POST /repos/.../statuses/$sha. That endpoint requires
+  # `statuses: write`, NOT `checks: write` (which is for the check-runs
+  # API on a different endpoint). Without this scope the status POSTs
+  # silently 403 and the readiness verdict never lands on the commit.
+  statuses: write
+  checks: write
+
+concurrency:
+  group: linked-web-sdk-pr-ready @ ${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scheduled-fanout:
+    # The schedule trigger fires once per repo; we need to fan out across
+    # every open PR that carries a Web SDK PR marker so each gets its
+    # check re-evaluated. On `pull_request` events we skip this and run
+    # `gate` directly with the event's PR.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    outputs:
+      prs: ${{ steps.list.outputs.prs }}
+    steps:
+      - id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" \
+            --state open --search 'in:body "Web SDK PR:"' \
+            --json number --jq 'map(.number)')
+          echo "prs=${prs:-[]}" >> "$GITHUB_OUTPUT"
+
+  gate:
+    needs: [scheduled-fanout]
+    if: |
+      always() &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'schedule' && needs.scheduled-fanout.outputs.prs != '[]'))
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ github.event_name == 'schedule' && fromJSON(needs.scheduled-fanout.outputs.prs) || fromJSON(format('[{0}]', github.event.pull_request.number)) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Evaluate linked-web-sdk-pr readiness for PR #${{ matrix.pr }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ matrix.pr }}
+        run: |
+          set -euo pipefail
+
+          # body is multi-line arbitrary text; can't pack into a
+          # `read`-friendly tab-separated row alongside other fields.
+          # Pull base_ref + state separately as a tab-separated single row.
+          body=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUM" --jq '.body // ""')
+          IFS=$'\t' read -r base_ref state <<<"$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUM" \
+            --jq '"\(.base.ref)\t\(.state)"')"
+
+          # Skip closed PRs entirely.
+          if [ "$state" != "open" ] && [ "$state" != "OPEN" ]; then
+            echo "PR #$PR_NUM is $state — skipping."
+            exit 0
+          fi
+
+          # Parse marker; absent → check passes (no gate needed).
+          marker=$(printf '%s' "$body" | grep -ioE '^[[:space:]]*Web SDK PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+' | head -1 || true)
+          if [ -z "$marker" ]; then
+            echo "No Web SDK PR marker on PR #$PR_NUM — check passes."
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUM --jq .head.sha)" \
+              -X POST -f state=success \
+              -f context="linked-web-sdk-pr-ready" \
+              -f description="No linked web-sdk PR — nothing to gate."
+            exit 0
+          fi
+
+          repo=$(printf '%s' "$marker" | grep -oE '[0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+' | head -1 || echo "0xMiden/web-sdk")
+          num=$(printf '%s' "$marker" | grep -oE '[0-9]+$')
+          head_sha=$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUM --jq .head.sha)
+
+          # Pull the upstream PR's state. Tab-separated for parity with
+          # the rest of the pipeline, even though neither field has whitespace.
+          IFS=$'\t' read -r merged merge_commit_sha <<<"$(gh api "repos/$repo/pulls/$num" --jq '"\(.merged)\t\(.merge_commit_sha // "")"')"
+
+          set_status() {
+            local s="$1" desc="$2"
+            # No `>/dev/null` — let gh API failures surface (e.g. on
+            # missing `statuses: write` perms) instead of being swallowed.
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$head_sha" -X POST \
+              -f state="$s" \
+              -f context="linked-web-sdk-pr-ready" \
+              -f description="$desc" \
+              -f target_url="https://github.com/${repo}/pull/${num}"
+          }
+
+          # Step 1: linked PR must be merged.
+          if [ "$merged" != "true" ]; then
+            set_status pending "Linked ${repo}#${num} not merged yet."
+            echo "::notice::Gate PENDING — ${repo}#${num} not merged yet."
+            exit 0
+          fi
+
+          # Step 2: target-branch-specific readiness.
+          case "$base_ref" in
+            main)
+              # main-target → require web-sdk to have a published release
+              # whose tag commit reaches merge_commit_sha. Approximated
+              # via the latest GitHub release tag — web-sdk's
+              # auto-release-main.yml creates a release on every merge
+              # to main that bumps a package version.
+              latest_tag=$(gh api repos/$repo/releases/latest --jq .tag_name 2>/dev/null || echo "")
+              if [ -z "$latest_tag" ]; then
+                set_status pending "Linked ${repo}#${num} merged; no release tag visible on ${repo} yet."
+                exit 0
+              fi
+              latest_tag_sha=$(gh api repos/$repo/git/ref/tags/$latest_tag --jq .object.sha 2>/dev/null || echo "")
+              if [ -z "$latest_tag_sha" ] || [ -z "$merge_commit_sha" ]; then
+                set_status pending "Could not resolve tag SHA for ${repo}@${latest_tag}."
+                exit 0
+              fi
+              status_field=$(gh api "repos/$repo/compare/${merge_commit_sha}...${latest_tag_sha}" --jq .status)
+              case "$status_field" in
+                ahead|identical) set_status success "Linked ${repo}#${num} included in release ${latest_tag}." ;;
+                *)               set_status pending "Linked ${repo}#${num} merged; not yet in a ${repo} release (latest: ${latest_tag})." ;;
+              esac
+              ;;
+            *)
+              # Unknown target branch (feature branch, dev, etc.) — pass
+              # through. The wallet uses many target branches; this gate
+              # only meaningfully applies to PRs into main.
+              set_status success "Base branch '${base_ref}' has no readiness rule."
+              ;;
+          esac
