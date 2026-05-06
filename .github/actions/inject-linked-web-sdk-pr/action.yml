@@ -228,8 +228,17 @@ runs:
         # builds via `file:` URIs. Yarn 1 supports file: deps natively
         # (copies the dir into node_modules at install time), and
         # `yarn.lock` updates accordingly.
+        #
+        # IMPORTANT: use `$GITHUB_WORKSPACE` to find the wallet root, NOT
+        # `git rev-parse --show-toplevel`. Our CWD here is inside the
+        # cloned SDK repo, so rev-parse would return the SDK root and
+        # we'd silently mutate the SDK's package.json (which doesn't have
+        # `@miden-sdk/miden-sdk` as a top-level dep, so the rewrite
+        # would be a no-op and the wallet's CI would build against its
+        # original npm-pinned version — exactly what the marker is
+        # supposed to override).
         echo "::group::Rewrite wallet package.json"
-        wallet_root=$(git rev-parse --show-toplevel)
+        wallet_root="$GITHUB_WORKSPACE"
         cd "$wallet_root"
         node <<EOF
         const fs = require('fs');
