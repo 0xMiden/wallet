@@ -203,19 +203,20 @@ runs:
         $PNPM install --frozen-lockfile
         echo "::endgroup::"
 
-        # Build the WASM SDK in fast mode (skips wasm-opt and the MT
-        # variant unless you set MIDEN_FAST_BUILD=false). Wallet's CI
-        # only consumes built dist/, so the fast profile is fine.
-        # MIDEN_FAST_BUILD=true also skips the MT build per
-        # web-sdk's `build-mt-conditional` script — but the wallet
-        # uses the MT subpath. So we explicitly run BOTH variants.
-        echo "::group::Build @miden-sdk/miden-sdk (ST + MT)"
+        # Build the WASM SDK in fast mode (skips wasm-opt's 1-2 min
+        # post-link pass, switches LTO off + codegen-units=16 via the
+        # `release-fast` cargo profile). Wallet CI only consumes the
+        # built dist/ for testing, never publishes it, so the fast
+        # profile is correct here. Without this, the full release
+        # build with wasm-opt -O3 takes ~15-20 min — ~3-5x what we
+        # need.
+        #
+        # We do NOT skip the MT variant: post the cleanup commit that
+        # dropped scripts/build-mt-conditional.js, `pnpm run build`
+        # always builds both variants regardless of MIDEN_FAST_BUILD.
+        echo "::group::Build @miden-sdk/miden-sdk (ST + MT, fast profile)"
         cd "$SDK_DIR/crates/web-client"
-        # Run the full build (both ST and MT) without MIDEN_FAST_BUILD's
-        # MT-skip; we DO use MIDEN_FAST_BUILD=true elsewhere in the build
-        # to avoid wasm-opt's 1-2 min cost. The pinned scripts handle
-        # ordering; we just don't set the env flag that skips MT.
-        $PNPM run build
+        MIDEN_FAST_BUILD=true $PNPM run build
         echo "::endgroup::"
 
         echo "::group::Build @miden-sdk/react"
