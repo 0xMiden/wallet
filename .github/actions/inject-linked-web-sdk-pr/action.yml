@@ -287,7 +287,13 @@ runs:
     # The comment step is decorative — if it fails (missing pull-requests:
     # write permission, transient API blip, etc.) we don't want to abort
     # the build. Surface as a notice and continue.
-    - if: inputs.comment == 'true' && steps.parse.outputs.patched == 'true'
+    #
+    # `always()` keeps the comment posting even when the SDK-build step
+    # above failed. The comment surfaces the marker / linked-PR info so
+    # the user can see what we *tried* to test against — useful precisely
+    # in the broken-build case, when they need to decide between fixing
+    # the marker, fixing the linked PR, or removing the marker.
+    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched == 'true'
       continue-on-error: true
       uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
       with:
@@ -309,7 +315,7 @@ runs:
           scripts/dev-with-web-sdk-pr.sh --clear                            # remove it before commit
           ```
 
-    - if: inputs.comment == 'true' && steps.parse.outputs.patched != 'true'
+    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched != 'true'
       continue-on-error: true
       uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
       with:
