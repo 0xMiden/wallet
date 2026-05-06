@@ -1169,6 +1169,51 @@ Transactions flow through these states in `ITransactionStatus`:
 3. `Completed` (2) - Successfully finished
 4. `Failed` (3) - Error occurred
 
+## Linked Web SDK PR (cross-repo CI)
+
+The wallet's CI can be pointed at an unpublished `@miden-sdk/miden-sdk`
+or `@miden-sdk/react` branch by including a marker in the wallet PR's
+description:
+
+```
+Web SDK PR: #134
+```
+
+Or cross-repo:
+
+```
+Web SDK PR: 0xMiden/web-sdk#134
+```
+
+When the marker is present, every yarn-using job in `.github/workflows/pr.yml`
+runs `.github/actions/inject-linked-web-sdk-pr` BEFORE its `yarn install`
+step. The action clones the linked web-sdk PR, builds
+`@miden-sdk/miden-sdk` + `@miden-sdk/react` from source, and rewrites
+this repo's `package.json` to consume them via `file:` deps (runner-local
+mutation, never committed).
+
+A separate workflow (`check-linked-web-sdk-pr.yml`) posts a custom
+status named `linked-web-sdk-pr-ready` that's `pending` until the linked
+web-sdk PR is merged AND a release tag covering its merge commit is
+visible. Branch protection on `main` should require this status before
+allowing the wallet PR to merge — that's the gate that prevents the
+wallet from landing while it depends on an unpublished web-sdk change.
+
+Local-dev parity:
+
+```bash
+scripts/dev-with-web-sdk-pr.sh             # auto-detect from current PR body
+scripts/dev-with-web-sdk-pr.sh 134         # use web-sdk#134
+scripts/dev-with-web-sdk-pr.sh --clear     # restore the published versions
+```
+
+The `lefthook.yml` pre-commit hooks block committing the patched state
+(state file `.linked-web-sdk-pr.json` or `file:` SDK deps in
+package.json). Lefthook isn't auto-installed by `yarn install` — opt in
+once with `pnpm dlx lefthook install` if you want the guard.
+
+Mirrors web-sdk's `Client PR: #N` pattern (`.github/actions/inject-linked-client-pr`).
+
 ## Important Notes
 
 - **Never push without explicit request.** Creating commits is fine, but never run `git push` unless the user explicitly asks.

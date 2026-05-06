@@ -1,0 +1,55 @@
+# Lefthook config — local dev hygiene hooks.
+# Docs: https://lefthook.dev/configuration/
+#
+# Lefthook is OPTIONAL for the wallet — it's not auto-installed by
+# `yarn install`. Developers who want the pre-commit guard run
+# `pnpm dlx lefthook install` (or `yarn dlx`) once.
+#
+# The hook below guards against accidentally committing the patched
+# state file written by `scripts/dev-with-web-sdk-pr.sh` (and the
+# corresponding `file:` deps in package.json). That patch is meant for
+# local-dev / CI only — it pins @miden-sdk/miden-sdk + @miden-sdk/react
+# to a feature branch on github via local file-system paths, which would
+# obviously not work for any other developer or for a published wallet
+# build.
+
+pre-commit:
+  commands:
+    # Guard against committing the linked-web-sdk-pr state marker.
+    # See scripts/dev-with-web-sdk-pr.sh for the corresponding apply path.
+    no-linked-web-sdk-pr-state:
+      run: |
+        if [ -f .linked-web-sdk-pr.json ]; then
+          cat <<MSG >&2
+        ❌ .linked-web-sdk-pr.json is present in the repo.
+
+        That file is the apply-time state marker for
+        scripts/dev-with-web-sdk-pr.sh — it indicates package.json has
+        been mutated to point @miden-sdk/miden-sdk + @miden-sdk/react at
+        a local web-sdk PR build. Don't commit it; the patched
+        package.json wouldn't work for anyone else.
+
+        Clear before committing:
+          scripts/dev-with-web-sdk-pr.sh --clear
+
+        If you want CI to test against a linked web-sdk PR, add
+        'Web SDK PR: #<number>' to the wallet PR description instead —
+        the .github/actions/inject-linked-web-sdk-pr action does the
+        same patch at run-time without needing it committed.
+        MSG
+          exit 1
+        fi
+    # Same check on package.json — catches the case where the state
+    # file was deleted by hand but package.json still has file: deps.
+    no-linked-web-sdk-pr-file-deps:
+      glob: "package.json"
+      run: |
+        if grep -qE '"@miden-sdk/(miden-sdk|react)":[[:space:]]*"file:' package.json; then
+          cat <<MSG >&2
+        ❌ package.json has @miden-sdk/* deps pinned to local file: paths.
+
+        Run scripts/dev-with-web-sdk-pr.sh --clear to restore the
+        published versions before committing.
+        MSG
+          exit 1
+        fi
