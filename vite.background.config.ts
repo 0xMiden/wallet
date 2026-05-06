@@ -285,10 +285,10 @@ export default defineConfig({
       screens: resolve(__dirname, 'src/screens'),
       utils: resolve(__dirname, 'src/utils'),
       // Service worker context: Chrome extension manifest declares
-      // COOP=`same-origin` + COEP=`require-corp`, so SAB is available in
-      // the SW. Use the multi-threaded SDK build (paired with the
+      // COOP=`same-origin` + COEP=`require-corp`, so SAB is available
+      // in the SW. Use the multi-threaded SDK build (paired with the
       // chrome.offscreen prover document) for ~3-5× faster proving.
-      // See vite.extension.config.ts for the same alias on UI pages.
+      // See vite.extension.config.ts for full rationale.
       '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy'
     }
   },

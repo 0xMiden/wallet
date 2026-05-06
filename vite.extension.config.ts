@@ -367,13 +367,17 @@ export default defineConfig({
       // Chrome extension pages get cross-origin isolation from the
       // manifest's declared COOP=`same-origin` + COEP=`require-corp`,
       // so we use the multi-threaded SDK build for ~3-5× faster proving.
-      // Alias both the wallet's own `@miden-sdk/miden-sdk/lazy` imports
-      // AND any transitive imports from `@miden-sdk/react`'s `lazy.mjs`
-      // to the `/mt/lazy` subpath, so the bundle pulls in only the MT
-      // WASM (not a duplicate ST + MT pair). Mobile (vite.mobile.config.ts)
-      // deliberately omits this alias because Capacitor / WKWebView /
-      // Android WebView don't expose cross-origin isolation — mobile
-      // uses delegated proving and the ST WASM is what loads.
+      // Aliases the wallet's own `@miden-sdk/miden-sdk/lazy` imports to
+      // `/mt/lazy`. The wallet's `@miden-sdk/react/lazy` imports are
+      // NOT aliased here — instead, vite catches their transitive SDK
+      // imports through this same alias, so the React-SDK bundle ends
+      // up wired to the MT WASM via the same path. Once `@miden-sdk/react`
+      // ships its own /mt/lazy subpath (web-sdk follow-up), this can be
+      // upgraded to a direct React-SDK alias for a cleaner dependency
+      // graph. Mobile (vite.mobile.config.ts) deliberately omits the
+      // alias because Capacitor / WKWebView / Android WebView don't
+      // expose cross-origin isolation — mobile uses delegated proving
+      // and the ST WASM is what loads.
       '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy',
       // Ensure consistent React instance across all imports
       react: resolve(__dirname, 'node_modules/react'),

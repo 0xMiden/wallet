@@ -55,7 +55,9 @@ export default {
     // - `@miden-sdk/miden-sdk/mt`      (eager + MT)
     // - `@miden-sdk/miden-sdk/mt/lazy` (lazy + MT)
     '^@miden-sdk/miden-sdk(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/wasmMock.js',
-    '^@miden-sdk/react(/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts'
+    // React SDK now also has /mt and /mt/lazy subpaths matching the
+    // underlying SDK's MT variants. Tests mock all four identically.
+    '^@miden-sdk/react(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts'
   },
   testEnvironment: 'jsdom',
   transform: {
