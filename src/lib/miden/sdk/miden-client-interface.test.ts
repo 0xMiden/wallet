@@ -583,7 +583,7 @@ describe('MidenClientInterface', () => {
       };
     }
 
-    function buildClientWithInner(inner: any, fakeWasm: any, network = 'testnet') {
+    function buildClientWithInner(inner: any, fakeWasm: any) {
       const fakeMidenClient = buildFakeMidenClient();
       // The proveLocallyViaOffscreen path reads the inner WebClient via
       // `_getInnerWebClient` — attach a tracker so the test can assert

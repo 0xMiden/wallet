@@ -9,7 +9,7 @@
  * state transitions deterministically.
  */
 
-const mockAbort = jest.fn(async () => false);
+const mockAbort = jest.fn<Promise<boolean>, unknown[]>(async () => false);
 jest.mock('./offscreen-prover', () => ({
   abortSpeculativeProve: (...args: unknown[]) => mockAbort(...args)
 }));
