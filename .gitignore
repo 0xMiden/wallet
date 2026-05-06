@@ -69,3 +69,10 @@ android/app/*.jks
 ios/App/build/
 sdk-debug/
 /test-results-ios
+
+# Linked web-sdk PR state marker — written by
+# scripts/dev-with-web-sdk-pr.sh / .github/actions/inject-linked-web-sdk-pr
+# (see CLAUDE.md "Linked Web SDK PR" section). Holds the original
+# package.json deps so --clear can restore them. Lefthook also blocks
+# committing this file or `file:` deps it implies.
+.linked-web-sdk-pr.json

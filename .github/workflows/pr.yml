@@ -11,6 +11,10 @@ on:
 
 permissions:
   contents: read
+  # Required by .github/actions/inject-linked-web-sdk-pr's sticky comment
+  # step. Only the `ci` job opts into posting (`comment: true`), but
+  # workflow-level perms apply to all jobs.
+  pull-requests: write
 
 jobs:
   translations:
@@ -29,6 +33,14 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 22
+
+      # If the PR description carries a "Web SDK PR: #N" marker, this
+      # builds @miden-sdk/miden-sdk + @miden-sdk/react from the linked
+      # web-sdk PR and rewrites package.json to consume them via file:
+      # deps. Silent no-op when no marker. comment=false: the `ci` job
+      # is the designated comment-poster.
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
 
       - name: Run Install
         uses: borales/actions-yarn@v4
@@ -71,6 +83,14 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 22
+
+      # Designated comment-poster: this is the most prominent job (runs
+      # ESLint + TS + tests + build:chrome + Playwright E2E) so the
+      # sticky linked-web-sdk-pr comment lives on its run summary.
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          comment: 'true'
 
       - name: Run Install
         uses: borales/actions-yarn@v4
@@ -123,6 +143,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+
       - name: Run Install
         uses: borales/actions-yarn@v4
         with:
@@ -149,8 +172,21 @@ jobs:
           node-version: 22
           cache: yarn
 
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        # When the inject action has rewritten package.json, --frozen-lockfile
+        # would fail because yarn.lock no longer matches the new file: deps.
+        # Skip the frozen flag conditionally: if the action patched, fall
+        # back to a normal install which will update yarn.lock in-place.
+        # On runs without a Web SDK PR marker, --frozen-lockfile stays on.
+        run: |
+          if [ -f .linked-web-sdk-pr.json ] || grep -qE '"@miden-sdk/(miden-sdk|react)":[[:space:]]*"file:' package.json; then
+            yarn install
+          else
+            yarn install --frozen-lockfile
+          fi
 
       - name: Check i18n compliance
         run: yarn lint:i18n
