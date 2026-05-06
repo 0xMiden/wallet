@@ -288,7 +288,8 @@ export default defineConfig({
       // COOP=`same-origin` + COEP=`require-corp`, so SAB is available
       // in the SW. Use the multi-threaded SDK build (paired with the
       // chrome.offscreen prover document) for ~3-5× faster proving.
-      // See vite.extension.config.ts for full rationale.
+      // Depends on `@miden-sdk/miden-sdk` ≥ 0.14.5 — see
+      // vite.extension.config.ts for full notes.
       '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy'
     }
   },

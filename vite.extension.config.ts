@@ -369,15 +369,17 @@ export default defineConfig({
       // so we use the multi-threaded SDK build for ~3-5× faster proving.
       // Aliases the wallet's own `@miden-sdk/miden-sdk/lazy` imports to
       // `/mt/lazy`. The wallet's `@miden-sdk/react/lazy` imports are
-      // NOT aliased here — instead, vite catches their transitive SDK
-      // imports through this same alias, so the React-SDK bundle ends
-      // up wired to the MT WASM via the same path. Once `@miden-sdk/react`
-      // ships its own /mt/lazy subpath (web-sdk follow-up), this can be
-      // upgraded to a direct React-SDK alias for a cleaner dependency
-      // graph. Mobile (vite.mobile.config.ts) deliberately omits the
-      // alias because Capacitor / WKWebView / Android WebView don't
-      // expose cross-origin isolation — mobile uses delegated proving
-      // and the ST WASM is what loads.
+      // not aliased — instead, vite catches their transitive SDK imports
+      // through this same alias, so the React-SDK bundle ends up wired
+      // to the MT WASM via the same path. Mobile (vite.mobile.config.ts)
+      // deliberately omits the alias because Capacitor / WKWebView /
+      // Android WebView don't expose cross-origin isolation — mobile
+      // uses delegated proving and the ST WASM is what loads.
+      //
+      // Depends on `@miden-sdk/miden-sdk` ≥ 0.14.5 (web-sdk PR #134) for
+      // the `/mt/lazy` subpath. Wallet's pin is still 0.14.4 because
+      // 0.14.5 isn't published yet — bump after that PR ships and the
+      // build:chrome step turns green.
       '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy',
       // Ensure consistent React instance across all imports
       react: resolve(__dirname, 'node_modules/react'),
