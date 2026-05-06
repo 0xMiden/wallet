@@ -512,9 +512,10 @@ describe('MidenClientInterface', () => {
   // returns true. We mock `isOffscreenAvailable` to true and stub the
   // proveViaOffscreen + speculation manager + WASM lock surfaces.
   //
-  // The mock client carries `_getInnerWebClient` returning a stub `inner`
-  // that captures executeTransaction / submitProvenTransaction /
-  // applyTransaction calls so we can assert the right pipeline pieces ran.
+  // The mock client carries `_withInnerWebClient` running its callback
+  // against a stub `inner` that captures executeTransaction /
+  // submitProvenTransaction / applyTransaction calls so we can assert the
+  // right pipeline pieces ran.
   describe('proveLocallyViaOffscreen', () => {
     const ORIGINAL_OFFSCREEN_FLAG = process.env.MIDEN_USE_OFFSCREEN_PROVING;
 
@@ -585,10 +586,11 @@ describe('MidenClientInterface', () => {
 
     function buildClientWithInner(inner: any, fakeWasm: any) {
       const fakeMidenClient = buildFakeMidenClient();
-      // The proveLocallyViaOffscreen path reads the inner WebClient via
-      // `_getInnerWebClient` — attach a tracker so the test can assert
-      // submitProvenTransaction + applyTransaction were called in order.
-      (fakeMidenClient as any)._getInnerWebClient = () => inner;
+      // The proveLocallyViaOffscreen path runs its critical sections via
+      // `_withInnerWebClient(fn)` — install a stub that runs `fn` against
+      // a tracker so the test can assert submitProvenTransaction +
+      // applyTransaction were called in order.
+      (fakeMidenClient as any)._withInnerWebClient = async (fn: any) => fn(inner);
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...fakeWasm,
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
@@ -964,7 +966,7 @@ describe('MidenClientInterface', () => {
       ).rejects.toThrow(/without chrome.offscreen available/);
     });
 
-    it('throws when _getInnerWebClient is missing on the client', async () => {
+    it('throws when _withInnerWebClient is missing on the client', async () => {
       const fakeWasm = {
         TransactionResult: { deserialize: jest.fn() },
         ProvenTransaction: { deserialize: jest.fn() },
@@ -996,7 +998,7 @@ describe('MidenClientInterface', () => {
       }));
 
       const fakeMidenClient = buildFakeMidenClient();
-      // No _getInnerWebClient attached.
+      // No _withInnerWebClient attached.
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
@@ -1008,7 +1010,7 @@ describe('MidenClientInterface', () => {
           noteType: 'public',
           amount: 100n
         })
-      ).rejects.toThrow(/_getInnerWebClient missing/);
+      ).rejects.toThrow(/_withInnerWebClient missing/);
     });
 
     it('returns serialized cache entry on success', async () => {
@@ -1057,7 +1059,7 @@ describe('MidenClientInterface', () => {
       }));
 
       const fakeMidenClient = buildFakeMidenClient();
-      (fakeMidenClient as any)._getInnerWebClient = () => inner;
+      (fakeMidenClient as any)._withInnerWebClient = async (fn: any) => fn(inner);
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 

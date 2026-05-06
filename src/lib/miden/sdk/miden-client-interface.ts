@@ -276,22 +276,28 @@ export class MidenClientInterface {
       throw new Error('executeAndProveForSpeculation called without chrome.offscreen available');
     }
     const wasm = await getWasmOrThrow();
-    const innerGetter = (this.client as unknown as { _getInnerWebClient?: () => any })._getInnerWebClient;
-    if (typeof innerGetter !== 'function') {
-      throw new Error('_getInnerWebClient missing on linked SDK');
+    const withInner = (this.client as unknown as {
+      _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+    })._withInnerWebClient;
+    if (typeof withInner !== 'function') {
+      throw new Error('_withInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
     }
-    const inner = innerGetter.call(this.client);
-    const { accountId, request } = await buildSendExecuteArgs(
-      wasm,
-      inner,
-      params.accountId,
-      params.recipientAccountId,
-      params.faucetId,
-      params.noteType,
-      params.amount.toString(),
-      undefined
-    );
-    const txResult: TransactionResult = await inner.executeTransaction(accountId, request);
+    // Build args + execute under the SDK's serialization lock. The lock is
+    // released between this block and the offscreen prove so background sync
+    // can run during the ~10s prove wait.
+    const txResult = await withInner.call(this.client, async (inner: any) => {
+      const { accountId, request } = await buildSendExecuteArgs(
+        wasm,
+        inner,
+        params.accountId,
+        params.recipientAccountId,
+        params.faucetId,
+        params.noteType,
+        params.amount.toString(),
+        undefined
+      );
+      return (await inner.executeTransaction(accountId, request)) as TransactionResult;
+    }) as TransactionResult;
     const txResultBytes = txResult.serialize();
     // Tag as speculative so SpeculationManager.abortSpeculativeProve() can
     // terminate the offscreen doc to interrupt this prove if the user's
@@ -405,11 +411,12 @@ export class MidenClientInterface {
   ): Promise<TransactionResult> {
     try {
       const wasm = await getWasmOrThrow();
-      const innerGetter = (this.client as unknown as { _getInnerWebClient?: () => any })._getInnerWebClient;
-      if (typeof innerGetter !== 'function') {
-        throw new Error('_getInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
+      const withInner = (this.client as unknown as {
+        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+      })._withInnerWebClient;
+      if (typeof withInner !== 'function') {
+        throw new Error('_withInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
       }
-      const inner = innerGetter.call(this.client);
 
       // Speculation cache hit path: if the popup pre-proved this exact tx
       // while the user was on the review screen, the SpeculationManager
@@ -435,25 +442,38 @@ export class MidenClientInterface {
           );
         }
         if (hit) {
-          const txResult: TransactionResult = wasm.TransactionResult.deserialize(hit.txResultBytes);
-          const proven = wasm.ProvenTransaction.deserialize(hit.provenBytes);
-          const height = await inner.submitProvenTransaction(proven, txResult);
-          await inner.applyTransaction(txResult, height);
+          const result = (await withInner.call(this.client, async (inner: any) => {
+            const txResult: TransactionResult = wasm.TransactionResult.deserialize(hit.txResultBytes);
+            const proven = wasm.ProvenTransaction.deserialize(hit.provenBytes);
+            const height = await inner.submitProvenTransaction(proven, txResult);
+            await inner.applyTransaction(txResult, height);
+            return txResult;
+          })) as TransactionResult;
           console.log('[mt-offscreen-prove] tx_completed via_speculation=true');
-          return txResult;
+          return result;
         }
       }
 
-      const { accountId, request } = await buildExecuteArgs(wasm, inner);
-      const txResult: TransactionResult = await inner.executeTransaction(accountId, request);
+      // Build args + execute under the SDK lock. We hold the lock here, drop
+      // it for the offscreen prove (~10s wait, separate WASM instance — no
+      // shared state), then re-acquire it for submit + apply. Returning the
+      // TransactionResult handle out of the first block is safe: it's a
+      // wasm-bindgen reference, alive as long as the JS reference exists,
+      // and the next block re-uses it without a fresh WASM call.
+      const txResult = (await withInner.call(this.client, async (inner: any) => {
+        const { accountId, request } = await buildExecuteArgs(wasm, inner);
+        return (await inner.executeTransaction(accountId, request)) as TransactionResult;
+      })) as TransactionResult;
       const txResultBytes = txResult.serialize();
-      // Yield the SW's WASM lock during the offscreen prove (~10s), since
-      // the offscreen doc has its own WASM instance and we're not touching
-      // the SW client. Reacquired automatically before submit + apply.
+      // Yield the SW's WASM lock during the offscreen prove. The SDK's
+      // _withInnerWebClient lock is already released here (we left the
+      // first block), so background sync can run.
       const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
-      const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
-      const height = await inner.submitProvenTransaction(proven, txResult);
-      await inner.applyTransaction(txResult, height);
+      await withInner.call(this.client, async (inner: any) => {
+        const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
+        const height = await inner.submitProvenTransaction(proven, txResult);
+        await inner.applyTransaction(txResult, height);
+      });
       console.log(`[mt-offscreen-prove] tx_completed prove_ms=${durationMs.toFixed(0)}`);
       return txResult;
     } catch (err) {
