@@ -89,6 +89,14 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
   { rpcBaseURL: 'http://localhost:57291', id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
 ];
 
+export const MIDEN_GUARDIAN_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://stg-guardian.openzeppelin.com']
+]);
+
+export const DEFAULT_GUARDIAN_ENDPOINT =
+  MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK) ?? 'https://stg-guardian.openzeppelin.com';
+
 /**
  * Returns the SDK NetworkId for the current DEFAULT_NETWORK.
  */

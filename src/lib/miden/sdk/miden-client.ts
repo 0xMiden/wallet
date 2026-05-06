@@ -204,7 +204,9 @@ const midenClientSingleton = new MidenClientSingleton();
  */
 export async function getMidenClient(options?: MidenClientCreateOptions): Promise<MidenClientInterface> {
   if (options) {
-    return await midenClientSingleton.getInstanceWithOptions(options);
+    const client = await midenClientSingleton.getInstanceWithOptions(options);
+    return client;
   }
-  return await midenClientSingleton.getInstance();
+  const client = await midenClientSingleton.getInstance();
+  return client;
 }

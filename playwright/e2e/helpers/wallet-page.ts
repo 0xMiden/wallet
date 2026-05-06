@@ -218,6 +218,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('input[placeholder="Enter password again"]').first().fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
+    // Recovery method step. The create flow now forks into "Guardian" (the
+    // default) and "Fully Private" (off-chain). Guardian needs a live backend
+    // we don't stand up in E2E, so pick Fully Private.
+    await this.selectCreateRecoveryMethod();
+
     // Wait for "Your wallet is ready" confirmation screen.
     // Note: this text appears IMMEDIATELY when the confirmation page renders,
     // BEFORE the wallet is actually created. The actual creation happens when
@@ -364,6 +369,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('input[placeholder="Enter password again"]').first().fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
+    // Recovery method step for seed-phrase imports. Picks "Import public
+    // account" so we don't need a guardian backend.
+    await this.selectImportRecoveryMethod();
+
     // Confirmation
     await expect(this.page.getByText(/your wallet is ready/i)).toBeVisible();
     await this.page.getByRole('button', { name: /get started/i }).click();
@@ -371,6 +380,30 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     const address = await this.getAccountAddress();
     return { address };
+  }
+
+  /**
+   * Pick "Fully Private" on the create-wallet recovery-method screen and
+   * click Continue. Guardian-backed accounts need a live guardian endpoint
+   * which isn't part of the E2E harness.
+   */
+  private async selectCreateRecoveryMethod(): Promise<void> {
+    const heading = this.page.getByRole('heading', { name: /set up account recovery/i });
+    await heading.waitFor({ timeout: 15_000 });
+    // Click the "Fully Private" card to switch selection away from the Guardian default.
+    await this.page.getByText(/fully private/i).first().click();
+    await this.page.getByRole('button', { name: /continue/i }).click();
+  }
+
+  /**
+   * Pick "Import public account" on the import-recovery-method screen and
+   * click Continue.
+   */
+  private async selectImportRecoveryMethod(): Promise<void> {
+    const screen = this.page.getByTestId('import-recovery-method');
+    await screen.waitFor({ timeout: 15_000 });
+    await screen.getByText(/import public account/i).click();
+    await this.page.getByRole('button', { name: /continue/i }).click();
   }
 
   // ── Address ───────────────────────────────────────────────────────────────

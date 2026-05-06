@@ -28,6 +28,7 @@ import { ReviewTransaction } from './ReviewTransaction';
 import { SelectToken } from './SelectToken';
 import { SendDetails } from './SendDetails';
 import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
+import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
   {
@@ -94,7 +95,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         id: contact.publicKey,
         name: contact.name,
         isOwned: true,
-        contactType: contact.isPublic ? ('public' as const) : ('private' as const)
+        contactType: contact.isPublic ? ('public' as const) : ('private' as const),
+        isGuardian: contact.type === WalletType.Guardian
       }));
 
     const externalContacts: Contact[] = addressBookContacts

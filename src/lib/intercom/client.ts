@@ -132,19 +132,15 @@ export class IntercomClient implements IIntercomClient {
   private portReady: Promise<void>;
 
   constructor() {
-    console.log('[IntercomClient] Creating extension intercom client');
     this.reqId = 0;
     this.portReady = this.initPort();
   }
 
   private async initPort() {
     try {
-      console.log('[IntercomClient] Initializing port...');
       const browser = await getBrowser();
       this.port = this.buildPort(browser);
-      console.log('[IntercomClient] Port initialized successfully');
     } /* c8 ignore start -- port init errors untestable with mock getBrowser */ catch (error) {
-      console.error('[IntercomClient] Failed to initialize port:', error);
       throw error;
     } /* c8 ignore stop */
   }

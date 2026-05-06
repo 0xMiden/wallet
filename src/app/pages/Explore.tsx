@@ -14,6 +14,7 @@ import {
 } from 'lib/miden/activity';
 import { setFaucetIdSetting, useAccount, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -73,7 +74,7 @@ const Explore: FC = () => {
       requestSWTransactionProcessing();
     } else {
       // Process auto-consume transactions silently in the background (no modal/tab)
-      startBackgroundTransactionProcessing(signTransaction);
+      startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
     }
   }, [
     midenNotes,

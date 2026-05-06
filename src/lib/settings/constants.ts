@@ -14,3 +14,5 @@ export const THEME_STORAGE_KEY = 'theme_setting';
 export type ThemeSetting = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export const DEFAULT_THEME: ThemeSetting = 'system';
+
+export const GUARDIAN_URL_STORAGE_KEY = 'guardian_url_setting';
