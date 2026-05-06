@@ -165,6 +165,23 @@ runs:
           echo "::warning::Head SHA drifted: expected ${HEAD_SHA}, got ${actual_sha}. Building against ${actual_sha}."
         fi
 
+        # Pre-install the SDK's pinned Rust toolchain BEFORE the first
+        # cargo invocation. The wallet's CI runners are Node-only and
+        # don't have nightly + wasm32 + rust-src installed, so when
+        # `pnpm run build` invokes `cargo +nightly ... --target
+        # wasm32-unknown-unknown -Z build-std=...`, rustup auto-installs
+        # nightly mid-invocation and rollup-plugin-rust catches rustup's
+        # progress output as stderr (mistaking it for the build error).
+        # `rustup show` inside the SDK dir reads the rust-toolchain.toml
+        # and force-installs the pinned channel + components + targets
+        # synchronously, so subsequent cargo calls see a fully-ready
+        # toolchain.
+        echo "::group::Install Rust toolchain pinned by web-sdk's rust-toolchain.toml"
+        cd "$SDK_DIR"
+        rustup show
+        cd -
+        echo "::endgroup::"
+
         # Install + build the SDK packages from source. We need both
         # @miden-sdk/miden-sdk (the WASM SDK) and @miden-sdk/react (which
         # has its own dist/). The wallet may also depend on
