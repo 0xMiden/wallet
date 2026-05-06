@@ -92,7 +92,7 @@ const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
   signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([1, 2, 3])) })),
   publicKey: mockPublicKey
 }));
-const mockWordFromHex = jest.fn(() => ({ __wordMarker: 'word' }));
+const mockWordFromHex = jest.fn((_hex: string) => ({ __wordMarker: 'word' }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
