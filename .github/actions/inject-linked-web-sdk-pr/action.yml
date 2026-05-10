@@ -182,6 +182,16 @@ runs:
         cd -
         echo "::endgroup::"
 
+        # Stable wasm32 std for the SDK's ST rollup path. Web-sdk's
+        # rollup.config.js sets RUSTUP_TOOLCHAIN=stable when
+        # MIDEN_BUILD_VARIANT=st (only nightly is needed for MT — see
+        # 0xMiden/web-sdk@40587c5d). Without stable's wasm32 std, the
+        # ST cargo build dies with "can't find crate for `std`".
+        echo "::group::Install stable + wasm32 target for the ST rollup path"
+        rustup install stable --no-self-update
+        rustup target add wasm32-unknown-unknown --toolchain stable
+        echo "::endgroup::"
+
         # Install + build the SDK packages from source. We need both
         # @miden-sdk/miden-sdk (the WASM SDK) and @miden-sdk/react (which
         # has its own dist/). The wallet may also depend on
