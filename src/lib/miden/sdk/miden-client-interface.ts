@@ -276,16 +276,18 @@ export class MidenClientInterface {
       throw new Error('executeAndProveForSpeculation called without chrome.offscreen available');
     }
     const wasm = await getWasmOrThrow();
-    const withInner = (this.client as unknown as {
-      _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-    })._withInnerWebClient;
+    const withInner = (
+      this.client as unknown as {
+        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+      }
+    )._withInnerWebClient;
     if (typeof withInner !== 'function') {
       throw new Error('_withInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
     }
     // Build args + execute under the SDK's serialization lock. The lock is
     // released between this block and the offscreen prove so background sync
     // can run during the ~10s prove wait.
-    const txResult = await withInner.call(this.client, async (inner: any) => {
+    const txResult = (await withInner.call(this.client, async (inner: any) => {
       const { accountId, request } = await buildSendExecuteArgs(
         wasm,
         inner,
@@ -297,7 +299,7 @@ export class MidenClientInterface {
         undefined
       );
       return (await inner.executeTransaction(accountId, request)) as TransactionResult;
-    }) as TransactionResult;
+    })) as TransactionResult;
     const txResultBytes = txResult.serialize();
     // Tag as speculative so SpeculationManager.abortSpeculativeProve() can
     // terminate the offscreen doc to interrupt this prove if the user's
@@ -411,9 +413,11 @@ export class MidenClientInterface {
   ): Promise<TransactionResult> {
     try {
       const wasm = await getWasmOrThrow();
-      const withInner = (this.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      })._withInnerWebClient;
+      const withInner = (
+        this.client as unknown as {
+          _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+        }
+      )._withInnerWebClient;
       if (typeof withInner !== 'function') {
         throw new Error('_withInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
       }
