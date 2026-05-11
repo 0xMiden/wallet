@@ -51,10 +51,10 @@ export async function getOrCreateMultisigService(
   if (!account || account.type !== WalletType.Guardian) {
     throw new Error('Account is not a Guardian account');
   }
-  // Phase 4: hot pubkey lives on the WalletAccount record (set at create
-  // time). A Guardian account without it is either a legacy Falcon record
-  // pre-Phase 1 or an in-flight migration mid-write — both are unsigned
-  // states that should fail loudly rather than silently fall back.
+  // Hot pubkey lives on the WalletAccount record (set at create time). A
+  // Guardian account without it is either a legacy single-Falcon-key record
+  // (pre-migration) or an in-flight write that crashed mid-create — both are
+  // unsigned states that should fail loudly rather than silently fall back.
   if (!account.hotPublicKey) {
     throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
   }

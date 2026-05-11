@@ -33,6 +33,10 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
   const { t } = useTranslation();
   const { endpoint: currentEndpoint, refresh: refreshCurrentEndpoint } = useCurrentGuardianEndpoint();
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  // Two-stage submit: first click validates + enters confirming, second click fires the tx.
+  // Mirrors GuardianReplaceHotKey's cold-signing confirmation since switch_guardian also
+  // requires the cold key (co-signed by the current guardian).
+  const [confirming, setConfirming] = useState(false);
 
   const {
     register,
@@ -57,6 +61,11 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
       clearErrors();
       setSubmitSuccess(false);
 
+      if (!confirming) {
+        setConfirming(true);
+        return;
+      }
+
       try {
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
@@ -74,6 +83,7 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         }
 
         setSubmitSuccess(true);
+        setConfirming(false);
         reset({ guardianEndpoint: '' });
         // Pull the new endpoint back from storage so the "Current guardian"
         // display reflects the switch on platforms without storage-change events.
@@ -83,7 +93,7 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         setError('guardianEndpoint', { type: 'manual', message });
       }
     },
-    [clearErrors, currentAccount, currentEndpoint, isSubmitting, refreshCurrentEndpoint, reset, setError, t]
+    [clearErrors, confirming, currentAccount, currentEndpoint, isSubmitting, refreshCurrentEndpoint, reset, setError, t]
   );
 
   return (
@@ -109,8 +119,15 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
           onChange={() => {
             clearErrors();
             if (submitSuccess) setSubmitSuccess(false);
+            // Editing the endpoint after confirming invalidates the confirmation:
+            // drop back to the form-entry stage so the user re-acknowledges the new value.
+            if (confirming) setConfirming(false);
           }}
         />
+
+        {confirming && !isSubmitting && !submitSuccess && (
+          <div className="text-xs text-heading-gray mb-3 select-text">{t('switchGuardianConfirmation')}</div>
+        )}
 
         <FormSubmitButton
           className="capitalize w-full justify-center mt-6"
@@ -125,7 +142,7 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
             paddingBottom: '12px'
           }}
         >
-          {t('switchGuardian')}
+          {confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
         </FormSubmitButton>
 
         {submitSuccess && (

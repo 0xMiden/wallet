@@ -152,7 +152,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     ...base,
     AuthSecretKey: {
       deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
-      rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' }))
+      ecdsaWithRNG: jest.fn(() => ({ __marker: 'ecdsa-secret' }))
     },
     SigningInputs: { deserialize: jest.fn(() => ({})) },
     Word: { deserialize: jest.fn(() => ({})) },

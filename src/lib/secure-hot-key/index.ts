@@ -1,12 +1,12 @@
 /**
  * Platform-abstraction facade for the Guardian "hot" signing key.
  *
- * Hot keys live outside the WASM keystore. On mobile (Phase 4) they will be
- * ECIES-wrapped under a per-account P-256 key in Secure Enclave / StrongBox
- * and unwrapped only inside a native plugin during a biometric prompt. On
- * extension and desktop (Phase 5) the JS fallback serializes an
- * `AuthSecretKey.ecdsaWithRNG(...)` blob and relies on the surrounding vault
- * envelope for at-rest protection.
+ * Hot keys live outside the WASM keystore. On mobile, they are wrapped under
+ * a per-account hardware-backed key (iOS Secure Enclave via ECIES, Android
+ * Keystore/StrongBox via RSA-OAEP) and unwrapped only inside a native plugin
+ * during a biometric prompt. On extension and desktop, the JS fallback
+ * serializes an `AuthSecretKey.ecdsaWithRNG(...)` blob and relies on the
+ * surrounding vault envelope for at-rest protection.
  *
  * Callers should never need to know which path executed: all three operations
  * take/return strings.

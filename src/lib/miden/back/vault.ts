@@ -450,7 +450,7 @@ export class Vault {
           }
           if (walletAccount.hdIndex < 0) {
             // Belt-and-suspenders: an imported account's key is NOT
-            // derivable from the mnemonic. Writing `rpoFalconWithRNG`
+            // derivable from the mnemonic. Writing `ecdsaWithRNG`
             // output into the keystore under its account id would
             // overwrite any preserved real secret with a garbage key
             // the vault can never sign with. Skip.

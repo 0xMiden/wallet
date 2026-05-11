@@ -148,7 +148,7 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   createConsumeNotesProposal: jest.fn(async () => ({ kind: 'consume' })),
   createProposal: jest.fn(async () => ({ kind: 'custom', id: 'proposal-id' })),
   createTransactionProposalRequest: jest.fn(async () => 'tx-req'),
-  signProposal: jest.fn(async () => {}),
+  signProposal: jest.fn(async () => ({ signatures: [] })),
   executeProposal: jest.fn(async () => {}),
   syncState: jest.fn(async () => {}),
   getConsumableNotes: jest.fn(async () => ['note-a']),

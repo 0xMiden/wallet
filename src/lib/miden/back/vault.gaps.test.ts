@@ -99,7 +99,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     ...base,
     AuthSecretKey: {
       deserialize: (bytes: Uint8Array) => mockAuthSecretKeyDeserialize(bytes),
-      rpoFalconWithRNG: jest.fn(() => ({ __marker: 'rpo-falcon-secret' }))
+      ecdsaWithRNG: jest.fn(() => ({ __marker: 'ecdsa-secret' }))
     },
     SigningInputs: { deserialize: jest.fn(() => ({})) },
     Word: { deserialize: jest.fn(() => ({})), fromHex: (h: string) => mockWordFromHex(h) },
@@ -285,27 +285,41 @@ describe('Vault.spawn: preserved guardian URL', () => {
 });
 
 describe('Vault.spawn: Guardian import helpers', () => {
-  it('exercises signWordFn / getPublicKeyForCommitment when ownMnemonic + Guardian path runs', async () => {
-    // Wire the mocked client so its importAccountBySeed actually invokes the
-    // helpers we need to cover. Helpers read from the (post-callback) keystore,
-    // so we also have to make insertKeyCallback fire before invocation.
+  it('exercises the signWordFn helper when ownMnemonic + Guardian path runs', async () => {
+    // Wire the mocked client so its importGuardianAccountBySeed invokes the
+    // signWordFn helper closure defined inside Vault.spawn, and returns the
+    // 3-key Guardian shape (hot ciphertext + cold secret-key hex) so vault
+    // can call persistGuardianKeys without crashing.
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
     sdk.getMidenClient = jest.fn(async (options: any) => ({
-      createMidenWallet: async (_t: any, _s: Uint8Array) => 'guardian-pk',
-      importAccountBySeed: async (
-        _walletType: any,
+      createGuardianMidenWallet: async (_seed: Uint8Array) => ({
+        accountId: 'guardian-pk',
+        keys: {
+          hotPublicKey: 'aa'.repeat(33),
+          hotCiphertext: 'cf'.repeat(64),
+          coldPublicKey: 'bb'.repeat(33),
+          coldSecretKeyHex: 'dd'.repeat(32)
+        }
+      }),
+      importGuardianAccountBySeed: async (
         _seed: Uint8Array,
-        signWordFn: (pk: string, hex: string) => Promise<string>,
-        getPubKeyFn: (pkc: string) => Promise<string>
+        signWordFn: (pk: string, hex: string) => Promise<string>
       ) => {
-        // Simulate the WASM client persisting an auth-secret first, then asking
-        // the wallet to sign + look up its commitment public key — the two
-        // helper closures defined inside Vault.spawn.
+        // Simulate the WASM client persisting an auth-secret via the
+        // insertKeyCallback that Vault.spawn passes to the SDK, then invoke
+        // signWordFn so the helper closure inside Vault.spawn gets exercised.
         await options.insertKeyCallback(new Uint8Array([0xaa, 0xbb]), new Uint8Array([0x01, 0x02, 0x03, 0x04]));
         await signWordFn('aabb', '0xdeadbeef');
-        await getPubKeyFn('aabb');
-        return 'guardian-pk';
+        return {
+          accountId: 'guardian-pk',
+          keys: {
+            hotPublicKey: 'aa'.repeat(33),
+            hotCiphertext: 'cf'.repeat(64),
+            coldPublicKey: 'bb'.repeat(33),
+            coldSecretKeyHex: 'dd'.repeat(32)
+          }
+        };
       },
       getAccounts: async () => [],
       getAccount: async () => null,

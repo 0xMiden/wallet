@@ -102,8 +102,9 @@ export async function createGuardianAccount(
     const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
     // Hot key — random, held outside the SDK keystore. On extension/desktop
-    // this is the JS fallback (serialized AuthSecretKey hex); on mobile this
-    // will be ECIES-wrapped under SE/StrongBox once Phase 4 lands.
+    // this is the JS fallback (serialized AuthSecretKey hex); on mobile it is
+    // wrapped under SE (iOS) or Keystore/StrongBox (Android) inside the native
+    // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
 
     // Get Guardian endpoint and initialize client

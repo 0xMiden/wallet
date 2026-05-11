@@ -219,7 +219,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined })),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -263,7 +263,7 @@ describe('generateTransaction — Guardian routing', () => {
     const result = makeResult();
     const multisigService = {
       createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined })),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -311,7 +311,7 @@ describe('generateTransaction — Guardian routing', () => {
         proposal: { id: 'prop-switch' },
         newEndpoint: 'https://new.guardian'
       })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined })),
       finalizeGuardianSwitch: jest.fn(async () => {}),
       sync: jest.fn(async () => {})
     };
@@ -381,7 +381,7 @@ describe('generateTransaction — Guardian routing', () => {
         proposal: { id: 'prop-replace' },
         newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
       })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) }))
+      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined }))
     };
     mockBuildColdMultisigService.mockResolvedValue(coldService);
 

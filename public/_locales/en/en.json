@@ -381,6 +381,8 @@
   "newGuardianEndpoint": "New Guardian Endpoint",
   "switchGuardian": "Switch Guardian",
   "switchGuardianDescription": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal.",
+  "switchGuardianConfirmation": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?",
+  "confirmSwitchGuardian": "Confirm switch",
   "switchingGuardian": "Switching guardian...",
   "guardianSwitched": "Guardian switched successfully.",
   "guardianEndpointUnchanged": "That's already your current guardian.",
