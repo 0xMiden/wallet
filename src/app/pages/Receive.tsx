@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import FormField from 'app/atoms/FormField';
 import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
@@ -345,6 +346,33 @@ export const Receive: React.FC<ReceiveProps> = () => {
         : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   const [isQRSheetOpen, setIsQRSheetOpen] = useState(false);
+
+  // On mobile, morph the native navbar OUT while the QR sheet
+  // covers the bottom of the screen — they'd otherwise fight for
+  // the same real estate. The navbar morph is a Swift spring
+  // animation on the native UIWindow; the `data-drawer-open` body
+  // attribute drives a matching CSS morph for parked-dApp bubbles
+  // (see main.css). Morphs back IN when the sheet closes. The
+  // unmount cleanup re-morphs in case the page unmounts mid-open
+  // (e.g. swipe-back), so nothing is stranded off-screen on the
+  // next page. Same pattern as Settings (Settings.tsx).
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (isQRSheetOpen) {
+      document.body.setAttribute('data-drawer-open', '');
+      InAppBrowser.morphNavbarOut().catch(() => {});
+    } else {
+      document.body.removeAttribute('data-drawer-open');
+      InAppBrowser.morphNavbarIn().catch(() => {});
+    }
+    return () => {
+      if (!isMobile()) return;
+      if (isQRSheetOpen) {
+        document.body.removeAttribute('data-drawer-open');
+        InAppBrowser.morphNavbarIn().catch(() => {});
+      }
+    };
+  }, [isQRSheetOpen]);
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
