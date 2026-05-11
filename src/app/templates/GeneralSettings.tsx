@@ -86,15 +86,13 @@ const GeneralSettings: FC = () => {
         />
       )}
 
-      {!mobile && (
-        <SettingToggle
-          checked={delegateEnabled}
-          onChange={handleDelegateChange}
-          name="delegateEnabled"
-          testID={GeneralSettingsSelectors.DelegateToggle}
-          title={t('delegateProofSettings')}
-        />
-      )}
+      <SettingToggle
+        checked={delegateEnabled}
+        onChange={handleDelegateChange}
+        name="delegateEnabled"
+        testID={GeneralSettingsSelectors.DelegateToggle}
+        title={t('delegateProofSettings')}
+      />
 
       <SettingToggle
         checked={consumeEnabled}
