@@ -123,7 +123,14 @@ export class MidenClientInterface {
             sign: options.signCallback!
           }
         : undefined,
-      proverUrl: MIDEN_PROVING_ENDPOINTS.get(network)
+      proverUrl: MIDEN_PROVING_ENDPOINTS.get(network),
+      // On mobile we hand the SDK a `CallbackProver` that routes prove calls
+      // through the native Rust prover via a Capacitor plugin. The default
+      // WebClient worker shim serializes the prover via `.serialize()` —
+      // a format with no encoding for the callback variant — and silently
+      // downgrades it to `"local"`, running an in-worker WASM ST prover and
+      // bypassing our native bridge. Opt out so the callback survives.
+      useWorker: !isMobile()
     });
 
     return new MidenClientInterface(midenClient, network);
