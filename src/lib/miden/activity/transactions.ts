@@ -889,24 +889,18 @@ const generateGuardianTransaction = async (
   await setTransactionStage(transaction.id, 'creating-proposal');
 
   let proposalResult: Proposal;
-  // Hot-bound MultisigService is needed for every transaction type EXCEPT
-  // replace-hot-key — that flow predates a usable local hot key (post-recovery
-  // initial activation) and operates cold-only via buildColdMultisigService.
-  // Lazy-loaded so post-recovery accounts (no hotPublicKey yet) can still
-  // execute the rotation that gives them one.
-  let multisigService: MultisigService | null = null;
-  // The signing service for the FINAL signAndCreateTransactionRequest call.
-  // Defaults to the hot service. replace-hot-key flips it to a transient cold
-  // service because the hot key being replaced cannot itself authorize the
-  // rotation.
-  let signingService: MultisigService;
+  // The service that creates the proposal AND issues the final
+  // signAndCreateTransactionRequest. Hot-bound for every type except
+  // replace-hot-key, which is cold-bound because the hot key being replaced
+  // cannot authorize its own rotation. The hot-bound path is also the only
+  // one cached by guardian-manager; the cold service here is transient.
+  let service: MultisigService;
 
   switch (transaction.type) {
     case 'send': {
       const sendTx = transaction as SendTransaction;
-      multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      signingService = multisigService;
-      proposalResult = await multisigService.createSendProposal(
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await service.createSendProposal(
         sendTx.secondaryAccountId,
         sendTx.faucetId,
         BigInt(sendTx.amount)
@@ -915,16 +909,14 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      signingService = multisigService;
-      proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await service.createConsumeNotesProposal([consumeTx.noteId]);
       break;
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
-      multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      signingService = multisigService;
-      const { proposal } = await multisigService.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      const { proposal } = await service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
       proposalResult = proposal;
       break;
     }
@@ -940,12 +932,8 @@ const generateGuardianTransaction = async (
       if (!sdkAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
-      const coldService = await MultisigService.buildColdMultisigService(
-        sdkAccount,
-        walletAccount,
-        guardianProvider.signWord
-      );
-      const { proposal, newHot } = await coldService.createReplaceHotKeyProposal(sdkAccount);
+      service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);
       if (!guardianProvider.persistNewHotKey) {
         throw new Error('persistNewHotKey not implemented in this provider');
       }
@@ -962,7 +950,6 @@ const generateGuardianTransaction = async (
         t.extraInputs = rTx.extraInputs;
       });
       proposalResult = proposal;
-      signingService = coldService;
       break;
     }
     // case 'execute':
@@ -1011,7 +998,7 @@ const generateGuardianTransaction = async (
     await coldService.signProposal(proposalResult.id);
   }
 
-  const tr = await signingService.signAndCreateTransactionRequest(proposalResult.id);
+  const tr = await service.signAndCreateTransactionRequest(proposalResult.id);
   console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -1061,14 +1048,7 @@ const generateGuardianTransaction = async (
       break;
     case 'switch-guardian':
       console.log('Completing switch guardian transaction');
-      if (!multisigService) {
-        throw new Error('multisigService missing during switch-guardian completion');
-      }
-      await completeSwitchGuardianTransaction(
-        transaction as SwitchGuardianTransaction,
-        transactionResult,
-        multisigService
-      );
+      await completeSwitchGuardianTransaction(transaction as SwitchGuardianTransaction, transactionResult, service);
       break;
     case 'replace-hot-key':
       console.log('Completing replace-hot-key transaction');
@@ -1083,11 +1063,13 @@ const generateGuardianTransaction = async (
     //   await completeCustomTransaction(transaction, transactionResult);
     //   break;
   }
-  console.log('Transaction generation complete, syncing multisig service');
-  // replace-hot-key invalidated its cached service via clearGuardianServiceFor —
-  // the next consumer re-inits with the new hot pubkey. No sync needed here.
-  if (multisigService) {
-    await multisigService.sync();
+  // Sync the cached hot service so the next consumer sees post-tx state.
+  // Skip for replace-hot-key: that path's service is a transient cold one,
+  // and the cached hot service was invalidated in completeReplaceHotKeyTransaction
+  // via clearGuardianServiceFor — next access re-inits with the new hot pubkey.
+  if (transaction.type !== 'replace-hot-key') {
+    console.log('Transaction generation complete, syncing multisig service');
+    await service.sync();
   }
 };
 
