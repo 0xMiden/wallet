@@ -9,6 +9,8 @@
  * in jest without a real native bridge.
  */
 
+import { buildNativeProverCallback } from './native-prover-mobile';
+
 const proveMock = jest.fn();
 const isMobileMock = jest.fn(() => true);
 
@@ -21,8 +23,6 @@ jest.mock('@miden/native-prover', () => ({
 jest.mock('lib/platform', () => ({
   isMobile: () => isMobileMock()
 }));
-
-import { buildNativeProverCallback } from './native-prover-mobile';
 
 describe('buildNativeProverCallback', () => {
   beforeEach(() => {

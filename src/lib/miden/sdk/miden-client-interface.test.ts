@@ -408,11 +408,12 @@ describe('MidenClientInterface', () => {
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
         // Should not throw despite the frozen array — the catch swallows it.
-        await client.consumeNoteId({
+        const result = await client.consumeNoteId({
           accountId: 'acc-id',
           noteId: 'note-1',
           type: 'consume'
         } as any);
+        expect(result).toBe(fakeTransactionResult);
       });
     } finally {
       if (prevFlag === undefined) {
@@ -560,9 +561,9 @@ describe('MidenClientInterface', () => {
       });
 
       const markers = (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__ ?? [];
-      expect(
-        markers.some(l => /consumeNoteId SDK consume THREW.*TestKernelError.*kernel exec failed/.test(l))
-      ).toBe(true);
+      expect(markers.some(l => /consumeNoteId SDK consume THREW.*TestKernelError.*kernel exec failed/.test(l))).toBe(
+        true
+      );
     } finally {
       if (prevFlag === undefined) {
         delete process.env.MIDEN_E2E_TEST;
