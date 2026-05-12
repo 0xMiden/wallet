@@ -83,12 +83,6 @@ export class CdpSession {
         const cb = this.pending.get(msg.id);
         if (cb) {
           this.pending.delete(msg.id);
-          // CodeQL flags this as an unvalidated dynamic method call, but
-          // `cb` is a Promise resolver we stashed ourselves in `send()`
-          // below — there's no path for an attacker to install an
-          // arbitrary function here. Test-harness only; never bundled
-          // into the production app.
-          // lgtm[js/unvalidated-dynamic-method-call]
           cb(msg);
         }
       } else if (msg.method) {
@@ -114,12 +108,6 @@ export class CdpSession {
   async eval<T = unknown>(body: string): Promise<T> {
     const start = Date.now();
     try {
-      // CodeQL flags this template literal as code injection, but `body`
-      // is hardcoded test-harness JS (caller-controlled at write time,
-      // not derived from untrusted input). The IIFE wrap is required
-      // because CDP's `Runtime.evaluate` takes an expression, not a
-      // function body. Test-only; never bundled into the production app.
-      // lgtm[js/bad-code-sanitization]
       const expression = `(function(){${body}})()`;
       const res = await this.send('Runtime.evaluate', {
         expression,
