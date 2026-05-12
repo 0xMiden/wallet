@@ -288,7 +288,7 @@ export class MultisigService {
       });
 
       const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);
-      const { commitment } = await nextGuardian.getPubkey();
+      const { commitment } = await nextGuardian.getPubkey('ecdsa');
 
       this.multisig.setGuardianClient(nextGuardian);
       this.multisig.guardianPublicKey = commitment;
