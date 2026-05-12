@@ -156,7 +156,7 @@ export class MobileIntercomAdapter {
       }
 
       case WalletMessageType.SwapHotKeyRequest: {
-        await Actions.swapHotKey(req.accountPublicKey, req.oldHotPubKey, req.newHotPubKey);
+        await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
         return {
           type: WalletMessageType.SwapHotKeyResponse
         };

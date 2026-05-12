@@ -15,17 +15,25 @@ export const zustandProvider: GuardianAccountProvider = {
   signWord: (publicKey: string, wordHex: string) => useWalletStore.getState().signWord(publicKey, wordHex),
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
-  swapHotKey: (accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) =>
-    useWalletStore.getState().swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey)
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>
+    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey)
 };
 
 /**
  * Sync Guardian state for all Guardian accounts. Called from AutoSync after chain
  * state sync (frontend context only — uses the Zustand-backed provider).
+ *
+ * Accounts flagged `requiresHotKeyRotation` (adopted via recovery, hot key not
+ * yet activated) are skipped — `getOrCreateMultisigService` binds against the
+ * hot signer and throws on missing `hotPublicKey`. The Activate Device Key
+ * banner is the user's path to flip that flag; once swapped, the next sync
+ * cycle picks the account up normally.
  */
 export async function syncGuardianAccounts(): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
-  const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian);
+  const guardianAccounts = accounts.filter(
+    acc => acc.type === WalletType.Guardian && !acc.requiresHotKeyRotation
+  );
 
   if (guardianAccounts.length === 0) return;
 

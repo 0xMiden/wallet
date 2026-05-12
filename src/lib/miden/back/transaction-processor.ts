@@ -83,9 +83,9 @@ const vaultGuardianProvider: GuardianAccountProvider = {
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
-  swapHotKey: async (accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) => {
+  swapHotKey: async (accountPublicKey: string, newHotPubKey: string) => {
     return withUnlocked(async ({ vault }) => {
-      await vault.swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey);
+      await vault.swapHotKey(accountPublicKey, newHotPubKey);
     });
   }
 };

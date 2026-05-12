@@ -538,102 +538,14 @@ describe('MidenClientInterface', () => {
       expect(fakeMidenClient.accounts.import).toHaveBeenCalledWith({ seed: expect.any(Uint8Array) });
     });
 
-    it('importGuardianAccountBySeed creates the account locally and re-hydrates state from the guardian', async () => {
-      const fakeMidenClient = buildFakeMidenClient();
-      const keys = {
-        hotPublicKey: 'hot-pub',
-        coldPublicKey: 'cold-pub',
-        hotCiphertext: 'hot-ct',
-        coldSecretKeyHex: 'cold-sk'
-      };
-      const createGuardianAccount = jest.fn(async () => ({
-        account: { id: () => ({ toString: () => 'guardian-acc-id' }) },
-        keys
-      }));
-      const getSignerDetailsFromAccount = jest.fn(async () => ({ commitment: 'abc' }));
-      const importAccountFromGuardian = jest.fn(async () => {});
-
-      jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
-      }));
-      jest.doMock('screens/onboarding/types', () => ({
-        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
-      }));
-      jest.doMock('../guardian/account', () => ({
-        createGuardianAccount,
-        getSignerDetailsFromAccount
-      }));
-      jest.doMock('../guardian/index', () => ({
-        MultisigService: { importAccountFromGuardian }
-      }));
-      jest.doMock('lib/miden-chain/constants', () => ({
-        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
-      }));
-      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-        addConnectivityIssue: jest.fn()
-      }));
-
-      const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-
-      const signWordFn = jest.fn(async () => '0xsig');
-      const result = await client.importGuardianAccountBySeed(new Uint8Array([1, 2, 3, 4]), signWordFn);
-
-      expect(createGuardianAccount).toHaveBeenCalledWith(
-        fakeMidenClient,
-        expect.any(Uint8Array),
-        true,
-        'https://default.guardian.test'
-      );
-      expect(getSignerDetailsFromAccount).toHaveBeenCalled();
-      // Hot pubkey passed to the guardian comes from `keys.hotPublicKey`
-      // (freshly generated), not from getSignerDetailsFromAccount anymore.
-      expect(importAccountFromGuardian).toHaveBeenCalledWith(
-        '0xhot-pub',
-        '0xabc',
-        signWordFn,
-        'guardian-acc-id',
-        fakeMidenClient
-      );
-      expect(result).toEqual({ accountId: 'guardian-acc-id', keys });
-    });
-
-    it('importGuardianAccountBySeed: wraps underlying errors in a "Failed to import Guardian account from seed" message', async () => {
-      const fakeMidenClient = buildFakeMidenClient();
-
-      jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id)
-      }));
-      jest.doMock('screens/onboarding/types', () => ({
-        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
-      }));
-      jest.doMock('../guardian/account', () => ({
-        createGuardianAccount: jest.fn(async () => {
-          throw new Error('guardian down');
-        }),
-        getSignerDetailsFromAccount: jest.fn()
-      }));
-      jest.doMock('../guardian/index', () => ({
-        MultisigService: { importAccountFromGuardian: jest.fn() }
-      }));
-      jest.doMock('lib/miden-chain/constants', () => ({
-        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
-      }));
-      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
-        addConnectivityIssue: jest.fn()
-      }));
-
-      const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
-
-      await expect(
-        client.importGuardianAccountBySeed(
-          new Uint8Array([1]),
-          jest.fn(async () => '0xsig'),
-          jest.fn(async () => 'pk')
-        )
-      ).rejects.toThrow('Failed to import Guardian account from seed');
-    });
+    // importGuardianAccountBySeed was removed in Phase 8 — replaced by the
+    // atomic recoverGuardianAccountsBySeed orchestrator that does lookup +
+    // adopt + cold-signed `replace_signer` rotation in one step. The
+    // orchestrator's end-to-end behavior depends on the guardian SDK,
+    // secureHotKey facade, and on-chain proving — covered by the manual
+    // devnet smoke in the Phase 8 plan rather than a fully-mocked unit
+    // test. Phase 9 will add comprehensive coverage with a faked
+    // MultisigClient.
   });
 
   describe('withProverFallback connectivity-state categorization', () => {

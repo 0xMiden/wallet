@@ -403,25 +403,13 @@ export const completeReplaceHotKeyTransaction = async (
       throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
     }
 
-    // Resolve the OLD hot pubkey from the WalletAccount snapshot taken before
-    // generateGuardianTransaction wrote the new hot ciphertext to vault. The
-    // record may already reflect the new key on a retry — guard accordingly.
-    const allAccounts = await guardianProvider.getAccounts();
-    const accountRecord = allAccounts.find(a => a.publicKey === tx.accountId);
-    if (!accountRecord) {
-      throw new Error(`Account ${tx.accountId} not found in provider during complete`);
+    if (!guardianProvider.swapHotKey) {
+      throw new Error('swapHotKey not implemented in this provider');
     }
-    const oldHotPublicKey = accountRecord.hotPublicKey;
-    if (!oldHotPublicKey) {
-      throw new Error(`Account ${tx.accountId} has no hotPublicKey to rotate`);
-    }
-
-    if (oldHotPublicKey !== newHotPublicKey) {
-      if (!guardianProvider.swapHotKey) {
-        throw new Error('swapHotKey not implemented in this provider');
-      }
-      await guardianProvider.swapHotKey(tx.accountId, oldHotPublicKey, newHotPublicKey);
-    }
+    // Vault.swapHotKey resolves the previous hot pubkey from the persisted
+    // WalletAccount and is idempotent: if the record already reflects
+    // `newHotPublicKey` (retry), the cleanup branch is a no-op.
+    await guardianProvider.swapHotKey(tx.accountId, newHotPublicKey);
     // Drop the cached MultisigService — its bound hot signer is now stale.
     clearGuardianServiceFor(tx.accountId);
 
@@ -899,17 +887,25 @@ const generateGuardianTransaction = async (
   // so surfacing "Creating proposal" immediately is more honest than
   // leaving the label stuck on "Sending transaction".
   await setTransactionStage(transaction.id, 'creating-proposal');
-  const multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
 
   let proposalResult: Proposal;
+  // Hot-bound MultisigService is needed for every transaction type EXCEPT
+  // replace-hot-key — that flow predates a usable local hot key (post-recovery
+  // initial activation) and operates cold-only via buildColdMultisigService.
+  // Lazy-loaded so post-recovery accounts (no hotPublicKey yet) can still
+  // execute the rotation that gives them one.
+  let multisigService: MultisigService | null = null;
   // The signing service for the FINAL signAndCreateTransactionRequest call.
-  // Defaults to hot. replace-hot-key flips it to a transient cold service
-  // because the hot key being replaced cannot itself authorize the rotation.
-  let signingService: MultisigService = multisigService;
+  // Defaults to the hot service. replace-hot-key flips it to a transient cold
+  // service because the hot key being replaced cannot itself authorize the
+  // rotation.
+  let signingService: MultisigService;
 
   switch (transaction.type) {
     case 'send': {
       const sendTx = transaction as SendTransaction;
+      multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      signingService = multisigService;
       proposalResult = await multisigService.createSendProposal(
         sendTx.secondaryAccountId,
         sendTx.faucetId,
@@ -919,11 +915,15 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
+      multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      signingService = multisigService;
       proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
       break;
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
+      multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      signingService = multisigService;
       const { proposal } = await multisigService.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
       proposalResult = proposal;
       break;
@@ -1061,6 +1061,9 @@ const generateGuardianTransaction = async (
       break;
     case 'switch-guardian':
       console.log('Completing switch guardian transaction');
+      if (!multisigService) {
+        throw new Error('multisigService missing during switch-guardian completion');
+      }
       await completeSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         transactionResult,
@@ -1081,7 +1084,11 @@ const generateGuardianTransaction = async (
     //   break;
   }
   console.log('Transaction generation complete, syncing multisig service');
-  await multisigService.sync();
+  // replace-hot-key invalidated its cached service via clearGuardianServiceFor —
+  // the next consumer re-inits with the new hot pubkey. No sync needed here.
+  if (multisigService) {
+    await multisigService.sync();
+  }
 };
 
 export const cancelTransaction = async (transaction: Transaction, error: any) => {

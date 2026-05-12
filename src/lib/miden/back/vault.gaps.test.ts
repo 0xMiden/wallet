@@ -284,15 +284,24 @@ describe('Vault.spawn: preserved guardian URL', () => {
   });
 });
 
-describe('Vault.spawn: Guardian import helpers', () => {
-  it('exercises the signWordFn helper when ownMnemonic + Guardian path runs', async () => {
-    // Wire the mocked client so its importGuardianAccountBySeed invokes the
-    // signWordFn helper closure defined inside Vault.spawn, and returns the
-    // 3-key Guardian shape (hot ciphertext + cold secret-key hex) so vault
-    // can call persistGuardianKeys without crashing.
+describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
+  it('persists every account returned by recoverGuardianAccountsBySeed with requiresHotKeyRotation=true', async () => {
+    // recoverGuardianAccountsBySeed adopts each on-chain account locally
+    // (no rotation — the user activates the hot key explicitly via the
+    // post-recovery banner). Vault.spawn must round-trip the array, persist
+    // only the cold mirror per account, and flag each WalletAccount with
+    // requiresHotKeyRotation so the banner picks it up.
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
-    sdk.getMidenClient = jest.fn(async (options: any) => ({
+    sdk.getMidenClient = jest.fn(async (_options: any) => ({
+      recoverGuardianAccountsBySeed: async (_deriveColdSeed: any, _endpoint: string) => [
+        {
+          accountId: 'guardian-pk',
+          hdIndex: 0,
+          coldPublicKey: 'bb'.repeat(33),
+          coldSecretKeyHex: 'dd'.repeat(32)
+        }
+      ],
       createGuardianMidenWallet: async (_seed: Uint8Array) => ({
         accountId: 'guardian-pk',
         keys: {
@@ -302,25 +311,6 @@ describe('Vault.spawn: Guardian import helpers', () => {
           coldSecretKeyHex: 'dd'.repeat(32)
         }
       }),
-      importGuardianAccountBySeed: async (
-        _seed: Uint8Array,
-        signWordFn: (pk: string, hex: string) => Promise<string>
-      ) => {
-        // Simulate the WASM client persisting an auth-secret via the
-        // insertKeyCallback that Vault.spawn passes to the SDK, then invoke
-        // signWordFn so the helper closure inside Vault.spawn gets exercised.
-        await options.insertKeyCallback(new Uint8Array([0xaa, 0xbb]), new Uint8Array([0x01, 0x02, 0x03, 0x04]));
-        await signWordFn('aabb', '0xdeadbeef');
-        return {
-          accountId: 'guardian-pk',
-          keys: {
-            hotPublicKey: 'aa'.repeat(33),
-            hotCiphertext: 'cf'.repeat(64),
-            coldPublicKey: 'bb'.repeat(33),
-            coldSecretKeyHex: 'dd'.repeat(32)
-          }
-        };
-      },
       getAccounts: async () => [],
       getAccount: async () => null,
       syncState: async () => {},

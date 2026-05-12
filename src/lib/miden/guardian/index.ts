@@ -1,4 +1,4 @@
-import { Account, MidenClient, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { Account, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import {
   Multisig,
   MultisigClient,
@@ -87,35 +87,6 @@ export class MultisigService {
     }
     const { commitment } = await getSignerDetailsFromAccount(account, true);
     return MultisigService.init(account, `0x${walletAccount.coldPublicKey}`, `0x${commitment}`, signWordFn);
-  }
-
-  static async importAccountFromGuardian(
-    publicKey: string,
-    signerCommitment: string,
-    signWordFn: SignWordFunction,
-    accountId: string,
-    webClient: MidenClient
-  ) {
-    console.log('Importing account from Guardian with accountId:', accountId);
-    const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
-    console.log('Using Guardian endpoint:', guardianEndpoint);
-    const guardian = new GuardianHttpClient(guardianEndpoint);
-    const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-    guardian.setSigner(signer);
-    try {
-      const { stateJson } = await guardian.getState(accountId);
-      const accountBase64 = stateJson.data;
-      const binaryString = atob(accountBase64);
-      const accountBytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        accountBytes[i] = binaryString.charCodeAt(i);
-      }
-      const account = Account.deserialize(accountBytes);
-      await webClient.accounts.insert({ account, overwrite: true });
-    } catch (error) {
-      console.log('Error fetching account state from Guardian:', error);
-      throw error;
-    }
   }
 
   /**

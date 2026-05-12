@@ -146,7 +146,7 @@ export interface WalletActions {
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string) => Promise<string>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey: (accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) => Promise<void>;
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 

@@ -283,6 +283,11 @@ export interface WalletAccount {
   // produced before the migration; consumers should treat absence as "not 3-key".
   hotPublicKey?: string;
   coldPublicKey?: string;
+  // True for Guardian accounts adopted via seed-phrase recovery — the on-chain
+  // hot signer's secret is unrecoverable, so the wallet defers replacement to
+  // a user-triggered rotation (banner on the home view). Cleared by Vault.swapHotKey
+  // once the cold+guardian-signed update_signers tx lands on-chain.
+  requiresHotKeyRotation?: boolean;
 }
 
 export interface WalletNetwork {
@@ -506,7 +511,6 @@ export interface PersistNewHotKeyResponse extends WalletMessageBase {
 export interface SwapHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyRequest;
   accountPublicKey: string;
-  oldHotPubKey: string;
   newHotPubKey: string;
 }
 

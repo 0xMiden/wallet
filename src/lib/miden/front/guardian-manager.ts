@@ -32,7 +32,7 @@ export interface GuardianAccountProvider {
   // path runs only inside the SW-side transaction processor where the
   // vault-backed provider implements them.
   persistNewHotKey?: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
-  swapHotKey?: (accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) => Promise<void>;
+  swapHotKey?: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
 }
 
 /**

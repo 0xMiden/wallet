@@ -44,10 +44,16 @@ const mockCreateGuardianMidenWallet = jest.fn(async (_seed: Uint8Array) => ({
   accountId: 'guardian-acc-1',
   keys: GUARDIAN_KEYS_FIXTURE
 }));
-const mockImportGuardianAccountBySeed = jest.fn(async (_seed: Uint8Array, _signWord: any, _getPub: any) => ({
-  accountId: 'guardian-acc-imported',
-  keys: GUARDIAN_KEYS_FIXTURE
-}));
+const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _endpoint: string) => [
+  {
+    accountId: 'guardian-acc-imported',
+    hdIndex: 0,
+    hotPublicKey: GUARDIAN_KEYS_FIXTURE.hotPublicKey,
+    coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
+    hotCiphertext: GUARDIAN_KEYS_FIXTURE.hotCiphertext,
+    coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
+  }
+]);
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
@@ -64,8 +70,8 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   // tests keep asserting on it.
   importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
   createGuardianMidenWallet: (...args: unknown[]) => mockCreateGuardianMidenWallet(...(args as [Uint8Array])),
-  importGuardianAccountBySeed: (...args: unknown[]) =>
-    mockImportGuardianAccountBySeed(...(args as [Uint8Array, any, any])),
+  recoverGuardianAccountsBySeed: (...args: unknown[]) =>
+    mockRecoverGuardianAccountsBySeed(...(args as [any, string])),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
@@ -86,7 +92,7 @@ const mockMidenClient = {
   createMidenWallet: mockCreateMidenWallet,
   importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
   createGuardianMidenWallet: mockCreateGuardianMidenWallet,
-  importGuardianAccountBySeed: mockImportGuardianAccountBySeed,
+  recoverGuardianAccountsBySeed: mockRecoverGuardianAccountsBySeed,
   getAccounts: mockGetAccounts,
   getAccount: mockGetAccount,
   syncState: mockSyncState,
@@ -262,10 +268,14 @@ beforeEach(() => {
     accountId: 'guardian-acc-1',
     keys: GUARDIAN_KEYS_FIXTURE
   });
-  mockMidenClient.importGuardianAccountBySeed.mockResolvedValue({
-    accountId: 'guardian-acc-imported',
-    keys: GUARDIAN_KEYS_FIXTURE
-  });
+  mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValue([
+    {
+      accountId: 'guardian-acc-imported',
+      hdIndex: 0,
+      coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
+      coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
+    }
+  ]);
   mockMidenClient.getAccounts.mockResolvedValue([]);
   mockMidenClient.getAccount.mockResolvedValue(null);
   mockMidenClient.syncState.mockResolvedValue(undefined);
@@ -1074,13 +1084,14 @@ describe('Vault hardware branches', () => {
     await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
-  it('Vault.spawn propagates importGuardianAccountBySeed failures (no silent fallback)', async () => {
-    // The Guardian import path must NOT fall back to createGuardianMidenWallet — otherwise
-    // a silently-recreated account would leave the user with an empty balance
-    // under their seed. The branch rethrows, wrapped as a PublicError by withError.
+  it('Vault.spawn propagates recoverGuardianAccountsBySeed failures (no silent fallback)', async () => {
+    // The Guardian recovery path must NOT fall back to createGuardianMidenWallet —
+    // otherwise a silently-recreated account would leave the user with an empty
+    // balance under their seed. The branch rethrows, wrapped as a PublicError by
+    // withError.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.importGuardianAccountBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
+    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
 
     await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true)).rejects.toThrow(
       PublicError

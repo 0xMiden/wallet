@@ -5,7 +5,6 @@
  *   - proposal builders (send, consume, custom)
  *   - signAndExecute / signAndCreateTransactionRequest
  *   - sync retry on "nonce too low", including exhaustion
- *   - importAccountFromGuardian happy + error path
  *   - createSwitchGuardianProposal + finalizeGuardianSwitch
  *
  * All external collaborators are stubbed to keep tests hermetic.
@@ -318,53 +317,10 @@ describe('MultisigService', () => {
     });
   });
 
-  describe('importAccountFromGuardian', () => {
-    const signWordFn = jest.fn(async () => 'sig');
-
-    beforeEach(() => {
-      guardianConfig.setSigner.mockReset();
-      guardianConfig.getState.mockReset();
-    });
-
-    it('fetches state, base64-decodes into Account, and inserts into the webClient', async () => {
-      const webClient = {
-        accounts: { insert: jest.fn(async () => {}) }
-      };
-      const stateBase64 = Buffer.from('hello').toString('base64');
-      guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
-      const fakeAccount = { id: () => ({ toString: () => 'acc' }) };
-      mockAccountDeserialize.mockReturnValueOnce(fakeAccount);
-
-      await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
-
-      expect(guardianConfig.setSigner).toHaveBeenCalled();
-      expect(mockAccountDeserialize).toHaveBeenCalled();
-      expect(webClient.accounts.insert).toHaveBeenCalledWith({ account: fakeAccount, overwrite: true });
-    });
-
-    it('re-throws when the guardian state fetch fails', async () => {
-      const webClient = { accounts: { insert: jest.fn() } };
-      guardianConfig.getState.mockRejectedValueOnce(new Error('404'));
-
-      await expect(
-        MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never)
-      ).rejects.toThrow('404');
-      expect(webClient.accounts.insert).not.toHaveBeenCalled();
-    });
-
-    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage has no URL', async () => {
-      // Exercises the `|| DEFAULT_GUARDIAN_ENDPOINT` branch on the endpoint lookup.
-      const webClient = { accounts: { insert: jest.fn(async () => {}) } };
-      mockFetchFromStorage.mockResolvedValueOnce(undefined);
-      const stateBase64 = Buffer.from('hi').toString('base64');
-      guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
-      mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'x' }) });
-
-      await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
-
-      expect(webClient.accounts.insert).toHaveBeenCalled();
-    });
-  });
+  // importAccountFromGuardian was removed in Phase 8 — the recovery flow
+  // (lookup + adopt + cold-signed rotation) lives end-to-end in
+  // MidenClientInterface.recoverGuardianAccountsBySeed and no longer needs
+  // a separate guardian-state-fetch helper on MultisigService.
 
   describe('init', () => {
     it('loads the Multisig for an existing account and returns a configured service', async () => {

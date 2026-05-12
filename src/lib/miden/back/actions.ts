@@ -310,9 +310,9 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
   });
 }
 
-export function swapHotKey(accountPublicKey: string, oldHotPubKey: string, newHotPubKey: string) {
+export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {
   return withUnlocked(async ({ vault }) => {
-    const updated = await vault.swapHotKey(accountPublicKey, oldHotPubKey, newHotPubKey);
+    const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
     // Push the updated WalletAccount[] into the Effector store so the
     // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
     // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next

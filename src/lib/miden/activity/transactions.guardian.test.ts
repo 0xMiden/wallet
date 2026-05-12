@@ -345,7 +345,7 @@ describe('generateTransaction — Guardian routing', () => {
       } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
-      provider
+      provider as never
     );
 
     // The switch-guardian path must build the proposal, cold co-signs first
@@ -354,6 +354,9 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian');
     expect(mockBuildColdMultisigService).toHaveBeenCalled();
     expect(coldService.signProposal).toHaveBeenCalledWith('prop-switch');
+    // After the multisigService/signingService consolidation, the hot service IS
+    // the only service for non-replace-hot-key types — it drives the final
+    // signAndCreateTransactionRequest.
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch');
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
@@ -409,7 +412,7 @@ describe('generateTransaction — Guardian routing', () => {
       { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
       jest.fn(async () => new Uint8Array([1])),
       false,
-      provider
+      provider as never
     );
 
     expect(coldService.createReplaceHotKeyProposal).toHaveBeenCalled();
@@ -485,7 +488,7 @@ describe('completeReplaceHotKeyTransaction', () => {
     txStore.length = 0;
   });
 
-  it('swaps WalletAccount.hotPublicKey via the provider, drops the cached service, and marks the row Completed', async () => {
+  it('calls swapHotKey with the new hot pubkey, drops the cached service, and marks the row Completed', async () => {
     const tx = new ReplaceHotKeyTransaction('acc-1', false);
     tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
@@ -500,7 +503,10 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
 
-    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'old-hot-pub', 'new-hot-pub');
+    // The vault resolves the previous hot from the persisted WalletAccount —
+    // the caller passes only newHotPubKey. Vault.swapHotKey handles the
+    // idempotent case (old === new) internally.
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
@@ -508,12 +514,12 @@ describe('completeReplaceHotKeyTransaction', () => {
     expect(row.displayMessage).toBe('Device key rotated');
   });
 
-  it('skips the swap when the recorded new hot already matches the WalletAccount (idempotent retry)', async () => {
+  it('still calls swapHotKey even when the row already reflects new hot (vault handles idempotency)', async () => {
     const tx = new ReplaceHotKeyTransaction('acc-1', false);
     tx.extraInputs = { newHotPublicKey: 'already-rotated' };
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
-    const swapHotKey = jest.fn();
+    const swapHotKey = jest.fn(async () => {});
     const provider = {
       getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'already-rotated', coldPublicKey: 'cold' }],
       getPublicKeyForCommitment: async () => 'pk',
@@ -523,7 +529,8 @@ describe('completeReplaceHotKeyTransaction', () => {
 
     await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
 
-    expect(swapHotKey).not.toHaveBeenCalled();
+    // Idempotency moved into Vault.swapHotKey — the caller always invokes it.
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'already-rotated');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
