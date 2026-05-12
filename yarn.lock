@@ -2260,28 +2260,25 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.14.4":
-  version "0.14.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.4.tgz#be7496e6d2622b7f478768972f9896536db154cb"
-  integrity sha512-Qt+3NfGRCyHP5zcD+m9bBqQz01zuAwZRUBkls09mi+tOPVT17sFWKLglQEtKdr3gPAFHLwz2Ja4Hp4adUKfLuA==
+"@miden-sdk/miden-sdk@file:../web-sdk/crates/web-client":
+  version "0.14.6"
   dependencies:
-    "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
     glob "^11.0.0"
 
-"@miden-sdk/react@0.14.4":
-  version "0.14.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.4.tgz#6bb6e05572f6a4a63806e580bffc6156658e52f4"
-  integrity sha512-ASTcH1nge7hgH9OcV22nb1nrB9ccdkTsgVIioY+6y2wt0NcnTwu9RGrq8heJu4VyPcnl0g0LVFPcubvkmzXyjw==
+"@miden-sdk/react@file:../web-sdk/packages/react-sdk":
+  version "0.14.6"
   dependencies:
     zustand "^5.0.0"
 
-"@miden-sdk/vite-plugin@0.14.4":
-  version "0.14.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/vite-plugin/-/vite-plugin-0.14.4.tgz#b6d4b45f60120c2c65ba5afdf47cef9ec7e8077d"
-  integrity sha512-E9y0dJVsrWzgoB06y9+8MibOjzoS37apBwbTa9AEloaFPPOxsJnlrprZG2dbm2xwhc3HQNzVRI9NkJ1ijFpALQ==
+"@miden-sdk/vite-plugin@file:../web-sdk/packages/vite-plugin":
+  version "0.14.5"
 
 "@miden/dapp-browser@link:./packages/dapp-browser":
+  version "0.0.0"
+  uid ""
+
+"@miden/native-prover@link:./packages/native-prover":
   version "0.0.0"
   uid ""
 
@@ -2656,15 +2653,7 @@
     estree-walker "^2.0.2"
     magic-string "^0.30.3"
 
-"@rollup/plugin-typescript@^12.3.0":
-  version "12.3.0"
-  resolved "https://registry.yarnpkg.com/@rollup/plugin-typescript/-/plugin-typescript-12.3.0.tgz#cc51b830973bc14c9456fe6532f322f2a40f5f12"
-  integrity sha512-7DP0/p7y3t67+NabT9f8oTBFE6gGkto4SA6Np2oudYmZE/m1dt8RB0SjL1msMxFpLo631qjRCcBlAbq1ml/Big==
-  dependencies:
-    "@rollup/pluginutils" "^5.1.0"
-    resolve "^1.22.1"
-
-"@rollup/pluginutils@^5.0.1", "@rollup/pluginutils@^5.1.0", "@rollup/pluginutils@^5.3.0":
+"@rollup/pluginutils@^5.0.1", "@rollup/pluginutils@^5.3.0":
   version "5.3.0"
   resolved "https://registry.yarnpkg.com/@rollup/pluginutils/-/pluginutils-5.3.0.tgz#57ba1b0cbda8e7a3c597a4853c807b156e21a7b4"
   integrity sha512-5EdhGZtnu3V88ces7s53hhfK5KSASnJZv8Lulpc04cWO3REESroJXg73DFsOmgbU2BhwV0E20bu2IDZb3VKW4Q==

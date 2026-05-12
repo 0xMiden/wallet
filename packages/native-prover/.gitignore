@@ -1,0 +1,10 @@
+# Cargo build dirs for the Rust JNI bridge — never commit. The shipped
+# artifacts are the prebuilt .so files under android/src/main/jniLibs/,
+# not the intermediate cargo output.
+android/rust-bridge/target/
+
+# Node modules at the plugin root (created by `pnpm install` inside the
+# package). The plugin's TypeScript output (`dist/`) IS committed because
+# Capacitor consumers (the wallet) read from there directly via a `link:`
+# dep, but transitive deps should not be.
+node_modules/

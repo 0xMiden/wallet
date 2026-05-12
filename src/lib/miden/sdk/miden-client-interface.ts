@@ -33,7 +33,24 @@ import { WalletType } from 'screens/onboarding/types';
 import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
+import { buildNativeProverCallback } from './native-prover-mobile';
 import { ConsumeTransaction, SendTransaction } from '../db/types';
+
+// TEMPORARY (mobile-MT test): persist prove-timing markers into a global
+// array so the E2E run can poll them via CDP eval even if console capture
+// fails. Remove with the rest of the prove-timing tracing.
+function recordProveTiming(message: string): void {
+  const line = `[prove-timing] ${message}`;
+  // eslint-disable-next-line no-console
+  console.log(line);
+  try {
+    const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
+    if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
+    g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
+  } catch {
+    // ignore — non-global context (web worker etc.)
+  }
+}
 
 /**
  * Feature flag: when true, local proving is dispatched to a
@@ -319,7 +336,9 @@ export class MidenClientInterface {
   async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
     const { accountId, noteId } = transaction;
 
+    recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
     return this.withProverFallback(async prover => {
+      recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
           // The bundled `transactions.consume` resolves string note IDs via
@@ -343,11 +362,13 @@ export class MidenClientInterface {
           return { accountId: acctId, request };
         });
       }
+      recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
       const { result } = await this.client.transactions.consume({
         account: accountId,
         notes: [noteId],
         prover
       });
+      recordProveTiming('consumeNoteId SDK consume returned');
       return result;
     }, transaction.delegateTransaction);
   }
@@ -513,11 +534,29 @@ export class MidenClientInterface {
     fn: (prover?: TransactionProver) => Promise<T>,
     delegateTransaction?: boolean
   ): Promise<T> {
-    // On mobile, always delegate and never fallback to local
-    const shouldDelegate = isMobile() ? true : delegateTransaction;
+    recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
+    const shouldDelegate = delegateTransaction === true;
+
+    // Mobile builds prove via the native iOS / Android Capacitor plugin
+    // (@miden/native-prover) instead of WASM. iOS WKWebView can't be made
+    // crossOriginIsolated under Capacitor 8, so the MT WASM bundle can't
+    // instantiate; rather than fall back to (very slow) ST WASM, we
+    // route to a native Rust prover linked into the app. Same wire
+    // format as RemoteTransactionProver — bytes in, bytes out — so the
+    // SDK dispatch path is unchanged downstream.
+    const localProverFactory = (): TransactionProver => {
+      if (isMobile()) {
+        return TransactionProver.newCallbackProver(buildNativeProverCallback());
+      }
+      return TransactionProver.newLocalProver();
+    };
 
     try {
-      const result = !shouldDelegate ? await fn(TransactionProver.newLocalProver()) : await fn(); // uses MidenClient's defaultProver (remote)
+      const t0 = performance.now();
+      const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
+      const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
+      const durationMs = (performance.now() - t0).toFixed(1);
+      recordProveTiming(`path=${pathLabel} duration_ms=${durationMs} platform=${isMobile() ? 'mobile' : 'desktop'}`);
       // A successful prover call (whether local or remote) means the prover
       // pathway the wallet actually uses is healthy. If we'd previously
       // marked the prover as down, clear it now — the old design never
@@ -527,17 +566,24 @@ export class MidenClientInterface {
     } catch (err) {
       if (shouldDelegate) {
         // The remote prover path failed. Whether or not we can fall back
-        // locally (we can't on mobile), the user-facing surface should know
-        // remote proving is unavailable. Only categorize transport-shaped
-        // errors so we don't trip the banner on semantic WASM errors
-        // (e.g. "note has already been consumed").
+        // locally, the user-facing surface should know remote proving is
+        // unavailable. Only categorize transport-shaped errors so we
+        // don't trip the banner on semantic WASM errors (e.g. "note has
+        // already been consumed").
         if (isLikelyNetworkError(err)) {
           markConnectivityIssue('prover');
         }
-        if (!isMobile()) {
-          // Desktop: silently fall back to local proving.
-          return await fn(TransactionProver.newLocalProver());
-        }
+        // Fall back to the local path. On mobile this is the native
+        // Rust prover; on desktop / extension it's the WASM local prover.
+        recordProveTiming('delegate failed, retrying with local prover');
+        const t0 = performance.now();
+        const result = await fn(localProverFactory());
+        recordProveTiming(
+          `path=${isMobile() ? 'native-mobile-fallback' : 'local-fallback'} duration_ms=${(
+            performance.now() - t0
+          ).toFixed(1)}`
+        );
+        return result;
       }
       throw err;
     }

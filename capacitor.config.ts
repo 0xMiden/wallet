@@ -5,10 +5,13 @@ const config: CapacitorConfig = {
   appName: 'Miden Wallet',
   webDir: 'dist/mobile',
   server: {
-    // Use HTTP scheme on both platforms to allow network requests from WASM workers
-    // Note: This is for development/testnet only. Production should use HTTPS throughout.
+    // Android keeps `http://localhost` so WASM workers can do gRPC fetches.
+    // iOS uses Capacitor's default `capacitor://localhost` because Capacitor 8
+    // rejects `iosScheme: 'http'` (WKWebView.handlesURLScheme('http') is true,
+    // and InstanceDescriptor.normalize() silently resets to 'capacitor').
+    // Mobile prove uses the native @miden/native-prover plugin, so we do not
+    // need cross-origin isolation in the WebView.
     androidScheme: 'http',
-    iosScheme: 'http',
     cleartext: true
   },
   plugins: {

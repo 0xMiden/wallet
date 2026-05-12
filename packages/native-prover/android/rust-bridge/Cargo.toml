@@ -1,0 +1,40 @@
+[package]
+name = "miden-native-prover-jni"
+description = "JNI bridge for the native Miden transaction prover. Android-only; compiles to a cdylib loaded by the Kotlin Capacitor plugin (com.miden.nativeprover.MidenNativeProverPlugin)."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+# `cdylib` produces a `.so` that Android's `System.loadLibrary` can dlopen.
+# JNI lookup expects `Java_<package>_<class>_<method>` symbol naming, which
+# this crate exports via `pub extern "system" fn Java_..._proveNative`.
+crate-type = ["cdylib"]
+
+# Standalone package — not part of any workspace.
+[workspace]
+
+[dependencies]
+miden-client = { version = "0.14.8", default-features = false, features = ["std"] }
+miden-protocol = { version = "0.14", default-features = false, features = ["std"] }
+# `concurrent` gives us miden-prover/concurrent transitively (rayon-backed
+# parallel proving). Cascading via miden-tx instead of miden-client because
+# miden-client 0.14.8's `concurrent` feature exists but pulls in the
+# whole transport stack we don't need.
+miden-tx = { version = "0.14.5", default-features = false, features = ["std", "concurrent"] }
+futures-executor = { version = "0.3", default-features = false, features = ["std"] }
+
+# JNI binding crate. Only depended on here because this lib is
+# Android-Java-specific; the canonical miden-mobile-prover crate (in
+# web-sdk) stays pure C ABI and Java-agnostic.
+jni = { version = "0.21", default-features = false }
+
+# wasm32-getrandom escape hatch isn't needed here — JNI lib runs on
+# android targets, has the standard getrandom backend.
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

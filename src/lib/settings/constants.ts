@@ -1,5 +1,9 @@
 export const DELEGATE_PROOF_STORAGE_KEY = 'delegate_proof_setting_key';
-export const DEFAULT_DELEGATE_PROOF = true;
+// TEMPORARY (mobile-MT test): flipped to false so the iOS E2E send-receive
+// run exercises the local-prove path. Restore to `true` before merging the
+// mobile-MT PR; the production default stays "delegate to remote" so
+// existing users see no behavior change. See plan: precious-twirling-parasol.md.
+export const DEFAULT_DELEGATE_PROOF = false;
 
 export const AUTO_CLOSE_STORAGE_KEY = 'auto_close_setting';
 export const DEFAULT_AUTO_CLOSE = true;

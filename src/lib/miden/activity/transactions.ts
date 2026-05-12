@@ -671,16 +671,39 @@ export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
+  // DIAGNOSTIC tracing for the iOS send-tx pre-sync hang. Mirrors the
+  // recordProveTiming pattern in miden-client-interface.ts. Remove when
+  // the hang is understood and fixed.
+  const dtag = (msg: string) => {
+    const line = `[prove-timing] [generateTransaction:${transaction.type}:${transaction.id}] ${msg}`;
+    // eslint-disable-next-line no-console
+    console.log(line);
+    try {
+      const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
+      if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
+      g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
+    } catch {
+      // ignore
+    }
+  };
+  dtag('entered');
+
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
   // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
   // catch block which cancels the transaction — this is intentional fail-fast behavior,
   // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
+  dtag('about to acquire withWasmClientLock for syncState');
   await withWasmClientLock(async () => {
+    dtag('acquired lock for syncState; calling getMidenClient');
     const midenClient = await getMidenClient();
+    dtag('got midenClient; calling syncState');
+    const _t = performance.now();
     await midenClient.syncState();
+    dtag(`syncState returned in ${(performance.now() - _t).toFixed(0)}ms`);
   });
+  dtag('released syncState lock');
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
@@ -697,7 +720,9 @@ export const generateTransaction = async (
   };
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply)
+  dtag('about to acquire withWasmClientLock for tx dispatch');
   const result = await withWasmClientLock(async () => {
+    dtag('acquired tx lock; calling midenClient dispatch');
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
@@ -713,6 +738,7 @@ export const generateTransaction = async (
         );
     }
   });
+  dtag('tx dispatch completed');
 
   switch (transaction.type) {
     case 'send':
