@@ -370,11 +370,20 @@ export class MidenClientInterface {
         });
       }
       recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
-      const { result } = await this.client.transactions.consume({
-        account: accountId,
-        notes: [noteId],
-        prover
-      });
+      let result;
+      try {
+        const r = await this.client.transactions.consume({
+          account: accountId,
+          notes: [noteId],
+          prover
+        });
+        result = r.result;
+      } catch (err) {
+        recordProveTiming(
+          `consumeNoteId SDK consume THREW: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
+        );
+        throw err;
+      }
       recordProveTiming('consumeNoteId SDK consume returned');
       return result;
     }, transaction.delegateTransaction);
