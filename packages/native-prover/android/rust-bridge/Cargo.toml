@@ -17,12 +17,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 miden-client = { version = "0.14.8", default-features = false, features = ["std"] }
-miden-protocol = { version = "=0.14.5", default-features = false, features = ["std"] }
+miden-protocol = { version = "0.14", default-features = false, features = ["std"] }
 # `concurrent` gives us miden-prover/concurrent transitively (rayon-backed
 # parallel proving). Cascading via miden-tx instead of miden-client because
 # miden-client 0.14.8's `concurrent` feature exists but pulls in the
 # whole transport stack we don't need.
-miden-tx = { version = "=0.14.5", default-features = false, features = ["std", "concurrent"] }
+miden-tx = { version = "0.14.5", default-features = false, features = ["std", "concurrent"] }
 futures-executor = { version = "0.3", default-features = false, features = ["std"] }
 
 # JNI binding crate. Only depended on here because this lib is
