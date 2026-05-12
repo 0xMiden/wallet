@@ -478,7 +478,9 @@ describe('MidenClientInterface', () => {
     // CallbackProver routed through the native-prover plugin, not a
     // LocalProver. Mocks isMobile + native-prover plugin + TransactionProver
     // so the branch is reachable from jsdom without a real Capacitor host.
-    const newCallbackProver = jest.fn(() => 'callback-prover-instance');
+    const newCallbackProver = jest.fn(
+      (_callback: (input: Uint8Array) => Promise<Uint8Array>) => 'callback-prover-instance'
+    );
     const newLocalProver = jest.fn(() => 'should-not-be-called');
     const nativeProverPlugin = { prove: jest.fn() };
 
@@ -517,7 +519,9 @@ describe('MidenClientInterface', () => {
     expect(newCallbackProver).toHaveBeenCalledTimes(1);
     expect(newLocalProver).not.toHaveBeenCalled();
     // ...and forwards a function (the callback closure) into it.
-    expect(typeof newCallbackProver.mock.calls[0][0]).toBe('function');
+    const firstCall = newCallbackProver.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    expect(typeof firstCall![0]).toBe('function');
 
     // The SDK then receives that closure-wrapping prover instance.
     const lastConsumeArgs = consume.mock.calls.at(-1)?.[0];
