@@ -103,8 +103,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       const wasmSdk = sdk as any;
       const txResultBytes = b64ToBytes(msg.txResultB64 as string);
       const txResult = wasmSdk.TransactionResult.deserialize(txResultBytes);
+      // SDK 0.14.6+: TransactionProver.deserialize is async (the "gpu"
+      // descriptor re-acquires a wgpu::Device, which is async). For "local"
+      // and "remote|..." descriptors the call is still effectively sync but
+      // returns a Promise — must be awaited.
       const proverObj = msg.proverDescriptor
-        ? wasmSdk.TransactionProver.deserialize(msg.proverDescriptor)
+        ? await wasmSdk.TransactionProver.deserialize(msg.proverDescriptor)
         : wasmSdk.TransactionProver.newLocalProver();
       const t = performance.now();
       const proven = await getProver().proveTransactionWithProver(txResult, proverObj);
