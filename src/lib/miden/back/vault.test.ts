@@ -3,6 +3,7 @@
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
 import * as Passworder from 'lib/miden/passworder';
+import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
@@ -48,9 +49,7 @@ const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _
   {
     accountId: 'guardian-acc-imported',
     hdIndex: 0,
-    hotPublicKey: GUARDIAN_KEYS_FIXTURE.hotPublicKey,
     coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
-    hotCiphertext: GUARDIAN_KEYS_FIXTURE.hotCiphertext,
     coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
   }
 ]);
@@ -85,6 +84,18 @@ jest.mock('../sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
   runWhenClientIdle: () => {}
+}));
+
+// Mock the secure-hot-key facade so reveal/swap paths don't try to deserialize
+// real AuthSecretKey blobs out of fake ciphertexts. Tests set the resolved
+// value per case via the captured mock fns.
+const mockRevealHotKey = jest.fn(async (_ciphertext: string) => 'reveal-stub');
+const mockDeleteHotKey = jest.fn(async (_ciphertext: string) => {});
+jest.mock('lib/secure-hot-key', () => ({
+  revealHotKey: (...a: unknown[]) => mockRevealHotKey(...(a as [string])),
+  deleteHotKey: (...a: unknown[]) => mockDeleteHotKey(...(a as [string])),
+  generateHotKey: jest.fn(),
+  signHotDigest: jest.fn()
 }));
 
 // Unified handle used by tests — matches the old mockMidenClient API.
@@ -206,6 +217,9 @@ const keys = {
   accPubKey: (pk: string) => `${ck('accpubkey')}_${pk}`,
   accAuthSecretKey: (pk: string) => `${ck('accauthsecretkey')}_${pk}`,
   accAuthPubKey: (pk: string) => `${ck('accauthpubkey')}_${pk}`,
+  // NOTE: the vault's StorageEntity.AccColdSecretKey value is 'accouldsecretkey'
+  // (typo preserved for storage compatibility with existing wallets).
+  accColdSecretKey: (pk: string) => `${ck('accouldsecretkey')}_${pk}`,
   currentAccPubKey: ck('curraccpubkey'),
   accounts: ck('accounts'),
   ownMnemonic: ck('ownmnemonic'),
@@ -592,6 +606,142 @@ describe('Vault.revealPrivateKey', () => {
   it('rejects with PublicError when no secret key is stored for the account', async () => {
     await seedVault('pw');
     await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.revealHotKey', () => {
+  it('unwraps the hot ciphertext via the secure-hot-key facade and returns plaintext hex', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    // Persist a Guardian WalletAccount with hotPublicKey + the wrapped ciphertext
+    // exactly the way Vault.spawn's createGuardianMidenWallet path would.
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex'
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [account]],
+        [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT']
+      ],
+      vaultKey
+    );
+    mockRevealHotKey.mockResolvedValueOnce('deadbeef');
+
+    const secret = await Vault.revealHotKey('guardian-acc-1', 'pw');
+
+    expect(mockRevealHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+    expect(secret).toBe('deadbeef');
+  });
+
+  it('rejects when the account is not a Guardian account', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'acc-1',
+      name: 'OnChain 1',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0
+    };
+    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
+
+    await expect(Vault.revealHotKey('acc-1', 'pw')).rejects.toThrow(PublicError);
+  });
+
+  it('rejects when the Guardian account has no activated hot key (post-recovery, pre-banner)', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-recovered',
+      name: 'Guardian Recovered',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      coldPublicKey: 'cold-pub-hex',
+      requiresHotKeyRotation: true
+    };
+    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
+
+    await expect(Vault.revealHotKey('guardian-recovered', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.revealGuardianKeys', () => {
+  it('returns coldPrivateKey + coldPublicKey + hotPublicKey for an activated Guardian account', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex'
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [account]],
+        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX']
+      ],
+      vaultKey
+    );
+
+    const result = await Vault.revealGuardianKeys('guardian-acc-1', 'pw');
+
+    expect(result).toEqual({
+      coldPrivateKey: 'COLD_SECRET_HEX',
+      coldPublicKey: 'cold-pub-hex',
+      hotPublicKey: 'hot-pub-hex'
+    });
+  });
+
+  it('returns hotPublicKey undefined for a recovered Guardian account whose hot key is not yet activated', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-recovered',
+      name: 'Guardian Recovered',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      coldPublicKey: 'cold-pub-hex',
+      requiresHotKeyRotation: true
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [account]],
+        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX']
+      ],
+      vaultKey
+    );
+
+    const result = await Vault.revealGuardianKeys('guardian-recovered', 'pw');
+
+    expect(result.coldPrivateKey).toBe('COLD_SECRET_HEX');
+    expect(result.coldPublicKey).toBe('cold-pub-hex');
+    expect(result.hotPublicKey).toBeUndefined();
+  });
+
+  it('rejects when called on a non-Guardian account', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'acc-1',
+      name: 'OnChain 1',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0
+    };
+    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
+
+    await expect(Vault.revealGuardianKeys('acc-1', 'pw')).rejects.toThrow(PublicError);
   });
 });
 

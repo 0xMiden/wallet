@@ -65,9 +65,12 @@ class HotKeyPlugin : Plugin() {
         private val HALF_N: BigInteger = SECP256K1.n.shiftRight(1)
     }
 
+    private enum class PendingOp { SIGN, REVEAL }
+
     private var pendingCall: PluginCall? = null
     private var pendingPayload: ByteArray? = null
     private var pendingDigest: ByteArray? = null
+    private var pendingOp: PendingOp? = null
 
     @PluginMethod
     fun generateHotKey(call: PluginCall) {
@@ -165,10 +168,51 @@ class HotKeyPlugin : Plugin() {
             pendingCall = call
             pendingPayload = payload
             pendingDigest = digestBytes
-            promptForBiometric(cipher)
+            pendingOp = PendingOp.SIGN
+            promptForBiometric(cipher, "Sign transaction")
         } catch (e: Exception) {
             Log.e(TAG, "signWithHotKey failed: ${e.message}", e)
             call.reject("Hot-key sign failed: ${e.message}")
+        }
+    }
+
+    /// Unwrap the hot-key secret inside the Keystore (triggers BiometricPrompt)
+    /// and return the raw 32-byte secp256k1 secret as hex. Used by Settings →
+    /// Reveal Hot Key. Same OAEP unwrap path as `signWithHotKey`, minus the
+    /// signing step. The unwrapped secret is zeroed before returning.
+    @PluginMethod
+    fun revealHotKey(call: PluginCall) {
+        Log.d(TAG, "revealHotKey called")
+
+        val ciphertext = call.getString("ciphertext")
+        if (ciphertext == null) {
+            call.reject("Missing 'ciphertext' parameter")
+            return
+        }
+
+        try {
+            val (alias, payload) = parseCiphertext(ciphertext)
+
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+            keyStore.load(null)
+            val privateKey = keyStore.getKey(alias, null) as? PrivateKey
+            if (privateKey == null) {
+                Log.e(TAG, "revealHotKey: Keystore key not found at $alias")
+                call.reject("Hot-key Keystore key not found", "KEY_NOT_FOUND")
+                return
+            }
+
+            val cipher = Cipher.getInstance(OAEP_TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, privateKey, oaepParams())
+
+            pendingCall = call
+            pendingPayload = payload
+            pendingDigest = null
+            pendingOp = PendingOp.REVEAL
+            promptForBiometric(cipher, "Reveal device key")
+        } catch (e: Exception) {
+            Log.e(TAG, "revealHotKey failed: ${e.message}", e)
+            call.reject("Hot-key reveal failed: ${e.message}")
         }
     }
 
@@ -203,7 +247,7 @@ class HotKeyPlugin : Plugin() {
 
     // -- Biometric prompt + post-auth sign ------------------------------------
 
-    private fun promptForBiometric(cipher: Cipher) {
+    private fun promptForBiometric(cipher: Cipher, subtitle: String) {
         val activity = activity as? FragmentActivity
         if (activity == null) {
             failPending("Activity not available")
@@ -213,16 +257,18 @@ class HotKeyPlugin : Plugin() {
         val executor = ContextCompat.getMainExecutor(context)
         val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                Log.d(TAG, "Biometric authentication succeeded for hot-key sign")
+                Log.d(TAG, "Biometric authentication succeeded for hot-key op")
                 val cryptoCipher = result.cryptoObject?.cipher
                 val payload = pendingPayload
                 val digest = pendingDigest
+                val op = pendingOp
                 val pendingCallLocal = pendingCall
                 pendingCall = null
                 pendingPayload = null
                 pendingDigest = null
+                pendingOp = null
 
-                if (cryptoCipher == null || payload == null || digest == null || pendingCallLocal == null) {
+                if (cryptoCipher == null || payload == null || op == null || pendingCallLocal == null) {
                     pendingCallLocal?.reject("Cipher not available after authentication")
                     return
                 }
@@ -234,14 +280,29 @@ class HotKeyPlugin : Plugin() {
                         pendingCallLocal.reject("Unwrapped hot-key has wrong length")
                         return
                     }
-                    val signatureHex = signRecoverable(unwrapped, digest)
-                    val res = JSObject()
-                    res.put("signatureHex", signatureHex)
-                    Log.d(TAG, "signWithHotKey success")
-                    pendingCallLocal.resolve(res)
+                    when (op) {
+                        PendingOp.SIGN -> {
+                            if (digest == null) {
+                                pendingCallLocal.reject("Hot-key sign post-auth: missing digest")
+                                return
+                            }
+                            val signatureHex = signRecoverable(unwrapped, digest)
+                            val res = JSObject()
+                            res.put("signatureHex", signatureHex)
+                            Log.d(TAG, "signWithHotKey success")
+                            pendingCallLocal.resolve(res)
+                        }
+                        PendingOp.REVEAL -> {
+                            val secretKeyHex = unwrapped.toHex()
+                            val res = JSObject()
+                            res.put("secretKeyHex", secretKeyHex)
+                            Log.d(TAG, "revealHotKey success")
+                            pendingCallLocal.resolve(res)
+                        }
+                    }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Hot-key sign post-auth failed: ${e.message}", e)
-                    pendingCallLocal.reject("Hot-key sign failed: ${e.message}")
+                    Log.e(TAG, "Hot-key post-auth failed: ${e.message}", e)
+                    pendingCallLocal.reject("Hot-key operation failed: ${e.message}")
                 } finally {
                     unwrapped?.let { zero(it) }
                 }
@@ -253,6 +314,7 @@ class HotKeyPlugin : Plugin() {
                 pendingCall = null
                 pendingPayload = null
                 pendingDigest = null
+                pendingOp = null
                 when (errorCode) {
                     BiometricPrompt.ERROR_USER_CANCELED,
                     BiometricPrompt.ERROR_NEGATIVE_BUTTON ->
@@ -271,7 +333,7 @@ class HotKeyPlugin : Plugin() {
         // no negative button (DEVICE_CREDENTIAL forbids it).
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Miden Wallet")
-            .setSubtitle("Sign transaction")
+            .setSubtitle(subtitle)
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or
                     BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -289,6 +351,7 @@ class HotKeyPlugin : Plugin() {
         pendingCall = null
         pendingPayload = null
         pendingDigest = null
+        pendingOp = null
         pendingCallLocal?.reject(msg)
     }
 

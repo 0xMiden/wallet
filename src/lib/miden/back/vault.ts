@@ -21,9 +21,9 @@ import {
   removeMany,
   savePlain
 } from 'lib/miden/back/safe-storage';
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -115,11 +115,7 @@ async function persistGuardianKeys(vaultKey: CryptoKey, keys: CreatedGuardianKey
  * is generated at recovery time — the user activates one explicitly via the
  * post-recovery banner, which fires `initiateReplaceHotKeyTransaction`.
  */
-async function persistRecoveredGuardianColdKey(
-  vaultKey: CryptoKey,
-  coldPublicKey: string,
-  coldSecretKeyHex: string
-) {
+async function persistRecoveredGuardianColdKey(vaultKey: CryptoKey, coldPublicKey: string, coldSecretKeyHex: string) {
   await encryptAndSaveMany([[accColdSecretKeyStrgKey(coldPublicKey), coldSecretKeyHex]], vaultKey);
 }
 export class Vault {
@@ -403,7 +399,11 @@ export class Vault {
           await persistGuardianKeys(vaultKey, c.guardianKeys);
         }
         if (c.recoveredCold) {
-          await persistRecoveredGuardianColdKey(vaultKey, c.recoveredCold.coldPublicKey, c.recoveredCold.coldSecretKeyHex);
+          await persistRecoveredGuardianColdKey(
+            vaultKey,
+            c.recoveredCold.coldPublicKey,
+            c.recoveredCold.coldSecretKeyHex
+          );
         }
       }
       await savePlain(currentAccPubKeyStrgKey, initialAccounts[0]!.publicKey);
@@ -786,9 +786,7 @@ export class Vault {
       }
 
       const newAllAccounts = allAccounts.map(acc =>
-        acc.publicKey === accountPublicKey
-          ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false }
-          : acc
+        acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false } : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
 
@@ -953,6 +951,74 @@ export class Vault {
         throw new PublicError('Private key not found for this account');
       }
       return secretKeyHex;
+    });
+  }
+
+  /**
+   * Reveal the raw secp256k1 hot secret for a 3-key Guardian account. Unwraps
+   * the platform-specific ciphertext via the secure-hot-key facade — on mobile
+   * this triggers a biometric prompt (the password arg authenticates the vault
+   * BEFORE the SE/StrongBox unwrap fires). Returns 64-char hex.
+   *
+   * Looks up the account by bech32 publicKey (the WalletAccount.publicKey
+   * field). Throws on non-Guardian accounts and on Guardian accounts whose
+   * `hotPublicKey` is not yet set (post-recovery, pre-banner-activation).
+   */
+  static async revealHotKey(accountPublicKey: string, password?: string): Promise<string> {
+    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+    return withError('Failed to reveal hot key', async () => {
+      const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
+      const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      if (account.type !== WalletType.Guardian || !account.hotPublicKey) {
+        throw new PublicError('Hot key is only available for activated Guardian accounts');
+      }
+      const ciphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
+        accAuthSecretKeyStrgKey(account.hotPublicKey),
+        vaultKey
+      );
+      if (!ciphertext) {
+        throw new PublicError('Hot key ciphertext not found');
+      }
+      return await secureHotKey.revealHotKey(ciphertext);
+    });
+  }
+
+  /**
+   * Reveal the cold private key + both public keys for a 3-key Guardian
+   * account. Cold is the recovery material (HD-derived from the mnemonic and
+   * mirrored under `accColdSecretKey<coldPublicKey>` by `persistGuardianKeys`
+   * / `persistRecoveredGuardianColdKey`). The hot private is NOT included —
+   * use `revealHotKey` for that.
+   */
+  static async revealGuardianKeys(
+    accountPublicKey: string,
+    password?: string
+  ): Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }> {
+    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+    return withError('Failed to reveal guardian keys', async () => {
+      const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
+      const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      if (account.type !== WalletType.Guardian || !account.coldPublicKey) {
+        throw new PublicError('Not a Guardian account');
+      }
+      const coldPrivateKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
+        accColdSecretKeyStrgKey(account.coldPublicKey),
+        vaultKey
+      );
+      if (!coldPrivateKey) {
+        throw new PublicError('Cold key not found');
+      }
+      return {
+        coldPrivateKey,
+        coldPublicKey: account.coldPublicKey,
+        hotPublicKey: account.hotPublicKey
+      };
     });
   }
 

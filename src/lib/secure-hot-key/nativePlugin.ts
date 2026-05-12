@@ -49,6 +49,13 @@ export async function deleteHotKey(ciphertext: string): Promise<void> {
   await HotKey.deleteHotKey({ ciphertext });
 }
 
+export async function revealHotKey(ciphertext: string): Promise<string> {
+  assertMobile();
+
+  const { secretKeyHex } = await HotKey.revealHotKey({ ciphertext });
+  return secretKeyHex;
+}
+
 async function commitmentFromPublicKeyHex(publicKeyHex: string): Promise<string> {
   const { PublicKey } = await import('@miden-sdk/miden-sdk/lazy');
   const raw = Buffer.from(publicKeyHex, 'hex');

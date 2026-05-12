@@ -69,7 +69,13 @@ type SettingsProps = {
   tabSlug?: string | null;
 };
 
-const RevealPrivateKey: FC = () => <RevealSecret reveal="private-key" />;
+const RevealPrivateKey: FC = () => {
+  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
+  const isGuardian = currentAccountType === WalletType.Guardian;
+  return <RevealSecret reveal={isGuardian ? 'guardian-keys' : 'private-key'} />;
+};
+
+const RevealHotKey: FC = () => <RevealSecret reveal="hot-key" />;
 
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English',
@@ -102,6 +108,10 @@ type Tab = {
   isDrawer?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
+  // Hide on Guardian accounts whose hot key is not yet activated (post-recovery,
+  // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
+  // set on the WalletAccount or it'll fail immediately on the vault lookup.
+  requiresActivatedHotKey?: boolean;
 };
 
 type TabGroup = {
@@ -156,6 +166,15 @@ const TAB_GROUPS: TabGroup[] = [
         Icon: SecretKeyIcon,
         Component: RevealPrivateKey,
         testID: SettingsSelectors.RevealPrivateKeyButton
+      },
+      {
+        slug: 'reveal-hot-key',
+        titleI18nKey: 'revealHotKey',
+        Icon: SecretKeyIcon,
+        Component: RevealHotKey,
+        testID: SettingsSelectors.RevealHotKeyButton,
+        guardianOnly: true,
+        requiresActivatedHotKey: true
       },
       {
         slug: 'encrypted-wallet-file',
@@ -244,7 +263,15 @@ const HIDDEN_TABS: Tab[] = [
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
+  const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
+  const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
+
+  const tabIsVisible = (tab: Tab) => {
+    if (tab.guardianOnly && !isGuardianAccount) return false;
+    if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
+    return true;
+  };
 
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
   // the Guardian Settings entry at all (menu, drawer, or routable page).
@@ -252,14 +279,14 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     () =>
       TAB_GROUPS.map(group => ({
         ...group,
-        tabs: group.tabs.filter(tab => !tab.guardianOnly || isGuardianAccount)
+        tabs: group.tabs.filter(tabIsVisible)
       })).filter(group => group.tabs.length > 0),
-    [isGuardianAccount]
+    [isGuardianAccount, hasActivatedHotKey]
   );
 
   const allTabs = useMemo(
-    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tab => !tab.guardianOnly || isGuardianAccount)],
-    [tabGroups, isGuardianAccount]
+    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tabIsVisible)],
+    [tabGroups, isGuardianAccount, hasActivatedHotKey]
   );
 
   const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);

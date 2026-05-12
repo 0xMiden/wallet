@@ -34,3 +34,14 @@ export async function signHotDigest(ciphertext: string, wordHex: string): Promis
 export async function deleteHotKey(ciphertext: string): Promise<void> {
   return impl().deleteHotKey(ciphertext);
 }
+
+/**
+ * Unwrap the hot ciphertext and return the raw 32-byte secp256k1 secret hex.
+ * On mobile this fires a biometric prompt (same SE/StrongBox unwrap path as
+ * `signHotDigest`, minus the actual signing step). On extension/desktop the
+ * JS fallback decodes the serialized `AuthSecretKey` and strips the 1-byte
+ * scheme prefix so the format matches the native return.
+ */
+export async function revealHotKey(ciphertext: string): Promise<string> {
+  return impl().revealHotKey(ciphertext);
+}

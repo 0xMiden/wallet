@@ -27,7 +27,8 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "generateHotKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signWithHotKey", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "deleteHotKey", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "deleteHotKey", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "revealHotKey", returnType: CAPPluginReturnPromise)
     ]
 
     @objc func generateHotKey(_ call: CAPPluginCall) {
@@ -276,6 +277,83 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
 
         os_log("[HotKey] signWithHotKey success", log: logger, type: .debug)
         call.resolve(["signatureHex": signatureHex])
+    }
+
+    /// Unwrap the hot-key secret inside the SE (triggers Face ID) and return
+    /// the raw 32-byte secp256k1 secret as hex. Used by Settings → Reveal Hot
+    /// Key. Same SE/ECIES unwrap path as `signWithHotKey`, minus the actual
+    /// signing step. The unwrapped secret is zeroed before returning.
+    @objc func revealHotKey(_ call: CAPPluginCall) {
+        os_log("[HotKey] revealHotKey called", log: logger, type: .debug)
+
+        guard let ciphertext = call.getString("ciphertext") else {
+            call.reject("Missing 'ciphertext' parameter")
+            return
+        }
+
+        let parts = ciphertext.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let payload = Data(base64Encoded: String(parts[1])) else {
+            call.reject("Malformed hot-key ciphertext")
+            return
+        }
+        let fullTag = kHotKeyTagPrefix + String(parts[0])
+        guard let fullTagData = fullTag.data(using: .utf8) else {
+            call.reject("Failed to encode hot-key tag")
+            return
+        }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: fullTagData,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecReturnRef as String: true
+        ]
+        var keyRef: CFTypeRef?
+        let lookupStatus = SecItemCopyMatching(query as CFDictionary, &keyRef)
+        guard lookupStatus == errSecSuccess, let foundKey = keyRef else {
+            os_log("[HotKey] revealHotKey: SE key not found %{public}d", log: logger, type: .error, lookupStatus)
+            if lookupStatus == errSecUserCanceled {
+                call.reject("Authentication cancelled", "USER_CANCELLED")
+            } else if lookupStatus == errSecAuthFailed {
+                call.reject("Authentication failed", "AUTH_FAILED")
+            } else {
+                call.reject("Hot-key SE key not found: \(lookupStatus)")
+            }
+            return
+        }
+        let sePrivateKey = foundKey as! SecKey
+
+        var decError: Unmanaged<CFError>?
+        guard var unwrapped = SecKeyCreateDecryptedData(
+            sePrivateKey,
+            .eciesEncryptionStandardX963SHA256AESGCM,
+            payload as CFData,
+            &decError
+        ) as Data? else {
+            let nsError = decError?.takeRetainedValue() as? NSError
+            let msg = nsError?.localizedDescription ?? "unknown"
+            os_log("[HotKey] revealHotKey decrypt failed: %{public}@", log: logger, type: .error, msg)
+            if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.userCancel.rawValue {
+                call.reject("Authentication cancelled", "USER_CANCELLED")
+            } else if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.authenticationFailed.rawValue {
+                call.reject("Authentication failed", "AUTH_FAILED")
+            } else {
+                call.reject("Failed to unwrap hot-key secret: \(msg)")
+            }
+            return
+        }
+        guard unwrapped.count == 32 else {
+            zeroBytes(&unwrapped)
+            call.reject("Unwrapped hot-key has wrong length")
+            return
+        }
+
+        let secretKeyHex = unwrapped.map { String(format: "%02x", $0) }.joined()
+        zeroBytes(&unwrapped)
+
+        os_log("[HotKey] revealHotKey success", log: logger, type: .debug)
+        call.resolve(["secretKeyHex": secretKeyHex])
     }
 
     /// Delete the per-account SE hot key. Idempotent — a missing key resolves

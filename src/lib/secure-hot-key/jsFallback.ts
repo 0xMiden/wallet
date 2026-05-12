@@ -44,3 +44,14 @@ export async function deleteHotKey(_ciphertext: string): Promise<void> {
   // No-op in the JS fallback: the vault-wrapped blob is removed by the caller
   // when it deletes the account record. There's no native handle to release.
 }
+
+/**
+ * Decode the serialized AuthSecretKey ciphertext and return the raw 32-byte
+ * secp256k1 secret hex (drops the 1-byte scheme prefix). Matches the native
+ * plugins' return shape so the facade hands callers a platform-agnostic hex
+ * string.
+ */
+export async function revealHotKey(ciphertext: string): Promise<string> {
+  const sk = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(ciphertext, 'hex')));
+  return Buffer.from(sk.serialize().slice(1)).toString('hex');
+}

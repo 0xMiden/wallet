@@ -16,11 +16,13 @@ import * as nativePlugin from './nativePlugin';
 const mockGenerateHotKey = jest.fn();
 const mockSignWithHotKey = jest.fn();
 const mockDeleteHotKey = jest.fn();
+const mockRevealHotKey = jest.fn();
 jest.mock('./hotKeyPlugin', () => ({
   HotKey: {
     generateHotKey: (...a: unknown[]) => mockGenerateHotKey(...a),
     signWithHotKey: (...a: unknown[]) => mockSignWithHotKey(...a),
-    deleteHotKey: (...a: unknown[]) => mockDeleteHotKey(...a)
+    deleteHotKey: (...a: unknown[]) => mockDeleteHotKey(...a),
+    revealHotKey: (...a: unknown[]) => mockRevealHotKey(...a)
   }
 }));
 
@@ -102,6 +104,15 @@ const sharedForwardingSpec = (label: 'iOS' | 'Android', setPlatform: () => void)
 
       expect(mockDeleteHotKey).toHaveBeenCalledWith({ ciphertext: 'tag:payload' });
     });
+
+    it('revealHotKey forwards ciphertext and returns the native secretKeyHex unchanged', async () => {
+      mockRevealHotKey.mockResolvedValue({ secretKeyHex: 'aa'.repeat(32) });
+
+      const secret = await nativePlugin.revealHotKey('tag:payload');
+
+      expect(mockRevealHotKey).toHaveBeenCalledWith({ ciphertext: 'tag:payload' });
+      expect(secret).toBe('aa'.repeat(32));
+    });
   });
 };
 
@@ -122,11 +133,13 @@ describe('secure-hot-key nativePlugin (non-mobile guard)', () => {
   it.each([
     ['generateHotKey', () => nativePlugin.generateHotKey()],
     ['signHotDigest', () => nativePlugin.signHotDigest('tag:payload', '0x00')],
-    ['deleteHotKey', () => nativePlugin.deleteHotKey('tag:payload')]
+    ['deleteHotKey', () => nativePlugin.deleteHotKey('tag:payload')],
+    ['revealHotKey', () => nativePlugin.revealHotKey('tag:payload')]
   ])('%s rejects when invoked outside iOS/Android', async (_name, op) => {
     await expect(op()).rejects.toThrow('outside iOS/Android');
     expect(mockGenerateHotKey).not.toHaveBeenCalled();
     expect(mockSignWithHotKey).not.toHaveBeenCalled();
     expect(mockDeleteHotKey).not.toHaveBeenCalled();
+    expect(mockRevealHotKey).not.toHaveBeenCalled();
   });
 });

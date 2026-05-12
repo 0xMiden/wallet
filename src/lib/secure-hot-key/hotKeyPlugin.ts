@@ -17,6 +17,11 @@ export interface HotKeyPlugin {
   signWithHotKey(options: { ciphertext: string; digestHex: string }): Promise<{ signatureHex: string }>;
 
   deleteHotKey(options: { ciphertext: string }): Promise<void>;
+
+  // Unwraps the SE/StrongBox-wrapped secret and returns the raw 32-byte
+  // secp256k1 secret hex. Triggers a biometric prompt on both platforms,
+  // identical UX to `signWithHotKey`. Used by Settings → Reveal Hot Key.
+  revealHotKey(options: { ciphertext: string }): Promise<{ secretKeyHex: string }>;
 }
 
 export const HotKey = registerPlugin<HotKeyPlugin>('HotKey');

@@ -10,7 +10,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { syncGuardianAccounts, zustandProvider } from './guardian-sync';
 
 const storeState: {
-  accounts: Array<{ publicKey: string; type: WalletType }>;
+  accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean }>;
   getPublicKeyForCommitment: jest.Mock;
   signWord: jest.Mock;
 } = {

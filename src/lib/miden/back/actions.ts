@@ -239,6 +239,14 @@ export function revealPrivateKey(accPubKeyCommitment: string, password?: string)
   return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
 }
 
+export function revealHotKey(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+}
+
+export function revealGuardianKeys(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealGuardianKeys(accountPublicKey, password));
+}
+
 export function revealPublicKey(_accPublicKey: string) {}
 
 export function removeAccount(_accPublicKey: string, _password: string) {}
