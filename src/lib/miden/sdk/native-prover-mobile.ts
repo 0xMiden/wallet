@@ -4,7 +4,13 @@ import { isMobile } from 'lib/platform';
 // Local prove-timing recorder — mirrors the one in miden-client-interface.ts.
 // Writes to globalThis.__PROVE_TIMINGS__ so the E2E harness can poll for
 // markers even when console.log doesn't surface through the bridge.
+// No-op outside the E2E build (`MIDEN_E2E_TEST=true`) to keep production
+// devtools console quiet — the per-step logs are useful for harness
+// observability but pure noise for normal users.
+const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
+
 function recordProveTiming(message: string): void {
+  if (!PROVE_TIMING_ENABLED) return;
   const line = `[prove-timing] [native-cb] ${message}`;
   // eslint-disable-next-line no-console
   console.log(line);

@@ -39,7 +39,13 @@ import { ConsumeTransaction, SendTransaction } from '../db/types';
 // TEMPORARY (mobile-MT test): persist prove-timing markers into a global
 // array so the E2E run can poll them via CDP eval even if console capture
 // fails. Remove with the rest of the prove-timing tracing.
+// E2E-build only. The per-step prove-timing markers are useful for the
+// Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
+// machine) but pure noise in normal users' devtools.
+const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
+
 function recordProveTiming(message: string): void {
+  if (!PROVE_TIMING_ENABLED) return;
   const line = `[prove-timing] ${message}`;
   // eslint-disable-next-line no-console
   console.log(line);
