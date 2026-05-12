@@ -234,6 +234,11 @@ runs:
         $PNPM run build
         echo "::endgroup::"
 
+        echo "::group::Build @miden-sdk/vite-plugin"
+        cd "$SDK_DIR/packages/vite-plugin"
+        $PNPM run build
+        echo "::endgroup::"
+
         # Now patch the wallet's package.json to depend on the local
         # builds via `file:` URIs. Yarn 1 supports file: deps natively
         # (copies the dir into node_modules at install time), and
@@ -256,9 +261,11 @@ runs:
         const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
         const sdkPath = "${SDK_DIR}/crates/web-client";
         const reactPath = "${SDK_DIR}/packages/react-sdk";
+        const vitePluginPath = "${SDK_DIR}/packages/vite-plugin";
         const targets = {
           '@miden-sdk/miden-sdk': 'file:' + sdkPath,
           '@miden-sdk/react': 'file:' + reactPath,
+          '@miden-sdk/vite-plugin': 'file:' + vitePluginPath,
         };
         const orig = {};
         for (const [k, v] of Object.entries(targets)) {
