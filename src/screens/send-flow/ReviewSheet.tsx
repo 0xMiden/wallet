@@ -14,7 +14,6 @@ export interface ReviewSheetProps {
   toAddress: string;
   recallBlocks?: string;
   sharePrivately: boolean;
-  delegateTransaction: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -27,7 +26,6 @@ export const ReviewSheet: React.FC<ReviewSheetProps> = ({
   toAddress,
   recallBlocks,
   sharePrivately,
-  delegateTransaction,
   onCancel,
   onConfirm
 }) => {
@@ -67,10 +65,6 @@ export const ReviewSheet: React.FC<ReviewSheetProps> = ({
             <div className="flex justify-between">
               <span className="text-sm text-grey-600">{t('privatePayment')}</span>
               <span className="text-sm">{sharePrivately ? t('yes') : t('no')}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-grey-600">{t('delegateProving')}</span>
-              <span className="text-sm">{delegateTransaction ? t('yes') : t('no')}</span>
             </div>
           </div>
 

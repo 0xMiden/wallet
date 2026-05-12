@@ -150,20 +150,50 @@ runs:
         # path becomes the file: dep target in the wallet's package.json.
         SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
 
-        # Clone shallow. The wallet only consumes the built JS+WASM
-        # output of two packages (@miden-sdk/miden-sdk and @miden-sdk/react)
-        # so we don't need full history.
-        echo "::group::Clone ${HEAD_OWNER}/${HEAD_REPO}@${HEAD_REF}"
+        # Fetch the linked PR's head by SHA, not by branch. Branches on
+        # the upstream repo are typically auto-deleted when the PR merges,
+        # which makes `git clone --branch X` fail from that moment on
+        # ("Remote branch X not found in upstream"). Commit objects in
+        # the upstream's reflog/dangling state are still reachable to
+        # `git fetch <sha>` because GitHub enables
+        # `uploadpack.allowAnySHA1InWant` by default, so a SHA-fetch
+        # survives the branch's deletion. This is what makes the action's
+        # docstring claim "merged PR is acceptable" actually true.
+        echo "::group::Fetch ${HEAD_OWNER}/${HEAD_REPO}@${HEAD_SHA:0:8} (PR was on ${HEAD_REF})"
         rm -rf "$SDK_DIR"
-        git clone --depth 1 --branch "${HEAD_REF}" \
-          "https://github.com/${HEAD_OWNER}/${HEAD_REPO}.git" "$SDK_DIR"
+        mkdir -p "$SDK_DIR"
+        git -C "$SDK_DIR" init -q
+        git -C "$SDK_DIR" remote add origin "https://github.com/${HEAD_OWNER}/${HEAD_REPO}.git"
+        git -C "$SDK_DIR" fetch --depth 1 origin "${HEAD_SHA}"
+        git -C "$SDK_DIR" checkout --detach FETCH_HEAD
         echo "::endgroup::"
 
-        # Sanity-check the SHA.
-        actual_sha=$(git -C "$SDK_DIR" rev-parse HEAD)
-        if [ "$actual_sha" != "$HEAD_SHA" ]; then
-          echo "::warning::Head SHA drifted: expected ${HEAD_SHA}, got ${actual_sha}. Building against ${actual_sha}."
-        fi
+        # Pre-install the SDK's pinned Rust toolchain BEFORE the first
+        # cargo invocation. The wallet's CI runners are Node-only and
+        # don't have nightly + wasm32 + rust-src installed, so when
+        # `pnpm run build` invokes `cargo +nightly ... --target
+        # wasm32-unknown-unknown -Z build-std=...`, rustup auto-installs
+        # nightly mid-invocation and rollup-plugin-rust catches rustup's
+        # progress output as stderr (mistaking it for the build error).
+        # `rustup show` inside the SDK dir reads the rust-toolchain.toml
+        # and force-installs the pinned channel + components + targets
+        # synchronously, so subsequent cargo calls see a fully-ready
+        # toolchain.
+        echo "::group::Install Rust toolchain pinned by web-sdk's rust-toolchain.toml"
+        cd "$SDK_DIR"
+        rustup show
+        cd -
+        echo "::endgroup::"
+
+        # Stable wasm32 std for the SDK's ST rollup path. Web-sdk's
+        # rollup.config.js sets RUSTUP_TOOLCHAIN=stable when
+        # MIDEN_BUILD_VARIANT=st (only nightly is needed for MT — see
+        # 0xMiden/web-sdk@40587c5d). Without stable's wasm32 std, the
+        # ST cargo build dies with "can't find crate for `std`".
+        echo "::group::Install stable + wasm32 target for the ST rollup path"
+        rustup install stable --no-self-update
+        rustup target add wasm32-unknown-unknown --toolchain stable
+        echo "::endgroup::"
 
         # Install + build the SDK packages from source. We need both
         # @miden-sdk/miden-sdk (the WASM SDK) and @miden-sdk/react (which
@@ -186,19 +216,20 @@ runs:
         $PNPM install --frozen-lockfile
         echo "::endgroup::"
 
-        # Build the WASM SDK in fast mode (skips wasm-opt and the MT
-        # variant unless you set MIDEN_FAST_BUILD=false). Wallet's CI
-        # only consumes built dist/, so the fast profile is fine.
-        # MIDEN_FAST_BUILD=true also skips the MT build per
-        # web-sdk's `build-mt-conditional` script — but the wallet
-        # uses the MT subpath. So we explicitly run BOTH variants.
-        echo "::group::Build @miden-sdk/miden-sdk (ST + MT)"
+        # Build the WASM SDK in fast mode (skips wasm-opt's 1-2 min
+        # post-link pass, switches LTO off + codegen-units=16 via the
+        # `release-fast` cargo profile). Wallet CI only consumes the
+        # built dist/ for testing, never publishes it, so the fast
+        # profile is correct here. Without this, the full release
+        # build with wasm-opt -O3 takes ~15-20 min — ~3-5x what we
+        # need.
+        #
+        # We do NOT skip the MT variant: post the cleanup commit that
+        # dropped scripts/build-mt-conditional.js, `pnpm run build`
+        # always builds both variants regardless of MIDEN_FAST_BUILD.
+        echo "::group::Build @miden-sdk/miden-sdk (ST + MT, fast profile)"
         cd "$SDK_DIR/crates/web-client"
-        # Run the full build (both ST and MT) without MIDEN_FAST_BUILD's
-        # MT-skip; we DO use MIDEN_FAST_BUILD=true elsewhere in the build
-        # to avoid wasm-opt's 1-2 min cost. The pinned scripts handle
-        # ordering; we just don't set the env flag that skips MT.
-        $PNPM run build
+        MIDEN_FAST_BUILD=true $PNPM run build
         echo "::endgroup::"
 
         echo "::group::Build @miden-sdk/react"
@@ -210,8 +241,17 @@ runs:
         # builds via `file:` URIs. Yarn 1 supports file: deps natively
         # (copies the dir into node_modules at install time), and
         # `yarn.lock` updates accordingly.
+        #
+        # IMPORTANT: use `$GITHUB_WORKSPACE` to find the wallet root, NOT
+        # `git rev-parse --show-toplevel`. Our CWD here is inside the
+        # cloned SDK repo, so rev-parse would return the SDK root and
+        # we'd silently mutate the SDK's package.json (which doesn't have
+        # `@miden-sdk/miden-sdk` as a top-level dep, so the rewrite
+        # would be a no-op and the wallet's CI would build against its
+        # original npm-pinned version — exactly what the marker is
+        # supposed to override).
         echo "::group::Rewrite wallet package.json"
-        wallet_root=$(git rev-parse --show-toplevel)
+        wallet_root="$GITHUB_WORKSPACE"
         cd "$wallet_root"
         node <<EOF
         const fs = require('fs');
@@ -270,7 +310,13 @@ runs:
     # The comment step is decorative — if it fails (missing pull-requests:
     # write permission, transient API blip, etc.) we don't want to abort
     # the build. Surface as a notice and continue.
-    - if: inputs.comment == 'true' && steps.parse.outputs.patched == 'true'
+    #
+    # `always()` keeps the comment posting even when the SDK-build step
+    # above failed. The comment surfaces the marker / linked-PR info so
+    # the user can see what we *tried* to test against — useful precisely
+    # in the broken-build case, when they need to decide between fixing
+    # the marker, fixing the linked PR, or removing the marker.
+    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched == 'true'
       continue-on-error: true
       uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
       with:
@@ -292,7 +338,7 @@ runs:
           scripts/dev-with-web-sdk-pr.sh --clear                            # remove it before commit
           ```
 
-    - if: inputs.comment == 'true' && steps.parse.outputs.patched != 'true'
+    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched != 'true'
       continue-on-error: true
       uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
       with:
