@@ -2,6 +2,10 @@
 
 ## 1.14.4 (TBD)
 
+### Fixes
+
+* [FIX][mobile] Mobile sync no longer hangs on WKWebView. The SDK's Web Worker shim runs every `client.*` call (including `syncState()`) inside a worker, but WKWebView Workers can't complete a gRPC-web fetch — so the very first auto-sync after wallet creation would hang forever, leaving `isSyncing: true` and `lastSyncedAt` frozen, with newly-minted public notes never surfacing in the Receive screen. Wallet now passes `useWorker: false` to `MidenClient.create` on mobile (the option lands in `@miden-sdk/miden-sdk@0.14.9` from web-sdk#149), so the SDK runs in the main thread on mobile (mirroring the pre-0.14.4 behavior). Desktop / Chrome extension keep `useWorker: true` (the Worker shim is fine there). Web SDK PR: #149.
+
 ### Features
 
 * [FEATURE][ci] **Linked Web SDK PR pattern.** Wallet PRs that depend on an unpublished `@miden-sdk/miden-sdk` or `@miden-sdk/react` change can now include `Web SDK PR: #N` in the description. CI's new `.github/actions/inject-linked-web-sdk-pr` action clones the linked web-sdk PR, builds the SDK packages from source, and rewrites `package.json` to consume them via `file:` deps — so the wallet PR's CI builds against the actual upstream change without requiring it to publish first. A separate `check-linked-web-sdk-pr.yml` workflow keeps a `linked-web-sdk-pr-ready` commit status pending until the linked PR is merged AND a web-sdk release tag covering its merge commit is published, with a 15-min cron re-evaluation so the gate auto-flips green without re-pushing. Local-dev parity via `scripts/dev-with-web-sdk-pr.sh` (with `--clear`); a new `lefthook.yml` pre-commit hook blocks committing the patched state. Mirrors web-sdk's existing `Client PR: #N` pattern. See "Linked Web SDK PR (cross-repo CI)" in CLAUDE.md for full details. (#231)

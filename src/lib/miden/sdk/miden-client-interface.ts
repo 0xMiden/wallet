@@ -106,7 +106,23 @@ export class MidenClientInterface {
             sign: options.signCallback!
           }
         : undefined,
-      proverUrl: MIDEN_PROVING_ENDPOINTS.get(network)
+      proverUrl: MIDEN_PROVING_ENDPOINTS.get(network),
+      // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt
+      // out of the SDK's Web-Worker shim. The shim spawns a worker that
+      // owns its own WASM instance and runs every client method (including
+      // `syncState()`) inside the worker — and WKWebView Workers cannot do
+      // gRPC-web fetch (documented in `mobile-wasm-main-thread.md` memory).
+      // The symptom on main: useSyncTrigger calls `client.syncState()`,
+      // it dispatches to the worker, the worker hangs forever, the
+      // wallet's `lastSyncedAt` freezes at the initial sync, no
+      // consumable notes ever surface, `claim_wallet_a` times out at
+      // `triggerNavbarAction` (no Claim-All action ever registered).
+      // Empirically verified in run 25779923813 via the iOS-side
+      // console-capture + isSyncing/msSinceLastSync diagnostic — sync was
+      // `isSyncing: true` with `msSinceLastSync: 184s` at failure time.
+      // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
+      // (web-sdk PR #149).
+      useWorker: !isMobile()
     });
 
     return new MidenClientInterface(midenClient, network);
