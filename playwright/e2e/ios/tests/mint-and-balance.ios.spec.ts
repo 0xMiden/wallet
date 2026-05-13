@@ -12,6 +12,7 @@ test.describe('Faucet Minting and Balance', () => {
   }) => {
     let addressA: string;
     let addressB: string;
+    let faucetId: string;
 
     await steps.step('create_wallets', async () => {
       const a = await walletA.createNewWallet();
@@ -25,7 +26,7 @@ test.describe('Faucet Minting and Balance', () => {
     });
 
     await steps.step('deploy_faucet', async () => {
-      const faucetId = await midenCli.createFaucet();
+      faucetId = await midenCli.createFaucet();
       expect(faucetId).toBeTruthy();
       timeline.emit({
         category: 'blockchain_state',
@@ -46,8 +47,15 @@ test.describe('Faucet Minting and Balance', () => {
     // chrome.storage.local; mobile has no equivalent, so claim explicitly
     // before checking balance. See CLAUDE.md "E2E iOS Simulator Test
     // Harness" → "Empirical Status".
+    //
+    // We pass `faucetId` into claimAllNotes so the iOS POM can pre-inject
+    // synthetic metadata for the custom faucet — the wallet's
+    // `attachMetadataToNotes` would otherwise drop the note because the
+    // SDK's metadata RPC fails for this faucet's on-chain procedure
+    // layout. Chrome's claimAllNotes does the same workaround by reading
+    // notes out of `chrome.storage.local` (which mobile doesn't have).
     await steps.step('claim_wallet_a', async () => {
-      await walletA.claimAllNotes(180_000);
+      await walletA.claimAllNotes(180_000, [faucetId!]);
     });
 
     await steps.step('verify_balance_wallet_a', async () => {
@@ -65,7 +73,7 @@ test.describe('Faucet Minting and Balance', () => {
     });
 
     await steps.step('claim_wallet_b', async () => {
-      await walletB.claimAllNotes(180_000);
+      await walletB.claimAllNotes(180_000, [faucetId!]);
     });
 
     await steps.step('verify_balance_wallet_b', async () => {

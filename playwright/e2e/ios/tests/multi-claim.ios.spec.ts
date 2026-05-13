@@ -11,6 +11,7 @@ test.describe('Multi-Note Claiming', () => {
     timeline,
   }) => {
     let addressA: string;
+    let faucetId: string;
 
     await steps.step('create_wallet', async () => {
       const a = await walletA.createNewWallet();
@@ -21,7 +22,7 @@ test.describe('Multi-Note Claiming', () => {
 
     await steps.step('deploy_faucet', async () => {
       await midenCli.init();
-      await midenCli.createFaucet();
+      faucetId = await midenCli.createFaucet();
     });
 
     await steps.step('mint_note_1', async () => {
@@ -45,7 +46,7 @@ test.describe('Multi-Note Claiming', () => {
     await steps.step('claim_all_notes', async () => {
       // 3 notes × ~90s/claim on simulator = ~4–5 min worst case; give it
       // 7 min of headroom.
-      await walletA.claimAllNotes(420_000);
+      await walletA.claimAllNotes(420_000, [faucetId!]);
     });
 
     await steps.step('sync_and_verify_total_balance', async () => {
