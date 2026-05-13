@@ -285,10 +285,34 @@ export class IosWalletPage implements WalletPage {
     // after this resolves.
     await this.triggerNavbarAction(120_000);
 
+    // TEMPORARY (mobile-MT test): periodically dump
+    // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
+    // see prove path + duration even when Console.messageAdded doesn't
+    // route console.log. Plain stdout via console.log so they show in
+    // the playwright test log.
+    let lastProveTimingIdx = 0;
+    const pumpProveTimings = async () => {
+      try {
+        const fresh = await this.cdp.eval<string[]>(
+          `var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${lastProveTimingIdx});`
+        );
+        if (Array.isArray(fresh) && fresh.length > 0) {
+          lastProveTimingIdx += fresh.length;
+          for (const line of fresh) {
+            // eslint-disable-next-line no-console
+            console.log(`[prove-timing] ${line}`);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       await this.triggerSync();
       await sleep(5_000);
+      await pumpProveTimings();
       const balance = await this.cdp.eval<number>(
         `var s = window.__TEST_STORE__; ` +
           `if (!s) return 0; ` +
@@ -306,10 +330,12 @@ export class IosWalletPage implements WalletPage {
           `return 0;`
       );
       if (balance > 0) {
+        await pumpProveTimings();
         await this.navigateHome();
         return;
       }
     }
+    await pumpProveTimings();
     await this.navigateHome();
   }
 

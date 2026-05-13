@@ -33,7 +33,27 @@ import { WalletType } from 'screens/onboarding/types';
 import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
+import { buildNativeProverCallback } from './native-prover-mobile';
 import { ConsumeTransaction, SendTransaction } from '../db/types';
+
+// E2E-build only. The per-step prove-timing markers are useful for the
+// Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
+// machine) but pure noise in normal users' devtools.
+const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
+
+function recordProveTiming(message: string): void {
+  if (!PROVE_TIMING_ENABLED) return;
+  const line = `[prove-timing] ${message}`;
+  // eslint-disable-next-line no-console
+  console.log(line);
+  try {
+    const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
+    if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
+    g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
+  } catch {
+    // ignore — non-global context (web worker etc.)
+  }
+}
 
 /**
  * Feature flag: when true, local proving is dispatched to a
@@ -107,19 +127,24 @@ export class MidenClientInterface {
           }
         : undefined,
       proverUrl: MIDEN_PROVING_ENDPOINTS.get(network),
-      // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt
-      // out of the SDK's Web-Worker shim. The shim spawns a worker that
-      // owns its own WASM instance and runs every client method (including
-      // `syncState()`) inside the worker — and WKWebView Workers cannot do
-      // gRPC-web fetch (documented in `mobile-wasm-main-thread.md` memory).
-      // The symptom on main: useSyncTrigger calls `client.syncState()`,
-      // it dispatches to the worker, the worker hangs forever, the
-      // wallet's `lastSyncedAt` freezes at the initial sync, no
-      // consumable notes ever surface, `claim_wallet_a` times out at
-      // `triggerNavbarAction` (no Claim-All action ever registered).
-      // Empirically verified in run 25779923813 via the iOS-side
-      // console-capture + isSyncing/msSinceLastSync diagnostic — sync was
-      // `isSyncing: true` with `msSinceLastSync: 184s` at failure time.
+      // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
+      // of the SDK's Web-Worker shim. Two independent reasons:
+      //
+      // 1. The shim spawns a worker that owns its own WASM instance and
+      //    runs every client method (including `syncState()`) inside the
+      //    worker — and WKWebView Workers cannot do gRPC-web fetch
+      //    (documented in `mobile-wasm-main-thread.md` memory). The shim
+      //    hangs sync, `lastSyncedAt` freezes, no consumable notes ever
+      //    surface. Empirically: run 25779923813 saw `isSyncing: true`
+      //    with `msSinceLastSync: 184s` at failure time. See PR #240.
+      //
+      // 2. We hand the SDK a `CallbackProver` that routes prove calls
+      //    through the native Rust prover via a Capacitor plugin. The
+      //    shim serializes the prover via `.serialize()` — a format with
+      //    no encoding for the callback variant — and silently downgrades
+      //    it to `"local"`, running an in-worker WASM ST prover and
+      //    bypassing the native bridge. Opt out so the callback survives.
+      //
       // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
       // (web-sdk PR #149).
       useWorker: !isMobile()
@@ -335,7 +360,9 @@ export class MidenClientInterface {
   async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
     const { accountId, noteId } = transaction;
 
+    recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
     return this.withProverFallback(async prover => {
+      recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
       if (this.shouldUseOffscreenProver(prover)) {
         return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
           // The bundled `transactions.consume` resolves string note IDs via
@@ -359,11 +386,22 @@ export class MidenClientInterface {
           return { accountId: acctId, request };
         });
       }
-      const { result } = await this.client.transactions.consume({
-        account: accountId,
-        notes: [noteId],
-        prover
-      });
+      recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
+      let result;
+      try {
+        const r = await this.client.transactions.consume({
+          account: accountId,
+          notes: [noteId],
+          prover
+        });
+        result = r.result;
+      } catch (err) {
+        recordProveTiming(
+          `consumeNoteId SDK consume THREW: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
+        );
+        throw err;
+      }
+      recordProveTiming('consumeNoteId SDK consume returned');
       return result;
     }, transaction.delegateTransaction);
   }
@@ -529,11 +567,29 @@ export class MidenClientInterface {
     fn: (prover?: TransactionProver) => Promise<T>,
     delegateTransaction?: boolean
   ): Promise<T> {
-    // On mobile, always delegate and never fallback to local
-    const shouldDelegate = isMobile() ? true : delegateTransaction;
+    recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
+    const shouldDelegate = delegateTransaction === true;
+
+    // Mobile builds prove via the native iOS / Android Capacitor plugin
+    // (@miden/native-prover) instead of WASM. iOS WKWebView can't be made
+    // crossOriginIsolated under Capacitor 8, so the MT WASM bundle can't
+    // instantiate; rather than fall back to (very slow) ST WASM, we
+    // route to a native Rust prover linked into the app. Same wire
+    // format as RemoteTransactionProver — bytes in, bytes out — so the
+    // SDK dispatch path is unchanged downstream.
+    const localProverFactory = (): TransactionProver => {
+      if (isMobile()) {
+        return TransactionProver.newCallbackProver(buildNativeProverCallback());
+      }
+      return TransactionProver.newLocalProver();
+    };
 
     try {
-      const result = !shouldDelegate ? await fn(TransactionProver.newLocalProver()) : await fn(); // uses MidenClient's defaultProver (remote)
+      const t0 = performance.now();
+      const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
+      const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
+      const durationMs = (performance.now() - t0).toFixed(1);
+      recordProveTiming(`path=${pathLabel} duration_ms=${durationMs} platform=${isMobile() ? 'mobile' : 'desktop'}`);
       // A successful prover call (whether local or remote) means the prover
       // pathway the wallet actually uses is healthy. If we'd previously
       // marked the prover as down, clear it now — the old design never
@@ -543,17 +599,24 @@ export class MidenClientInterface {
     } catch (err) {
       if (shouldDelegate) {
         // The remote prover path failed. Whether or not we can fall back
-        // locally (we can't on mobile), the user-facing surface should know
-        // remote proving is unavailable. Only categorize transport-shaped
-        // errors so we don't trip the banner on semantic WASM errors
-        // (e.g. "note has already been consumed").
+        // locally, the user-facing surface should know remote proving is
+        // unavailable. Only categorize transport-shaped errors so we
+        // don't trip the banner on semantic WASM errors (e.g. "note has
+        // already been consumed").
         if (isLikelyNetworkError(err)) {
           markConnectivityIssue('prover');
         }
-        if (!isMobile()) {
-          // Desktop: silently fall back to local proving.
-          return await fn(TransactionProver.newLocalProver());
-        }
+        // Fall back to the local path. On mobile this is the native
+        // Rust prover; on desktop / extension it's the WASM local prover.
+        recordProveTiming('delegate failed, retrying with local prover');
+        const t0 = performance.now();
+        const result = await fn(localProverFactory());
+        recordProveTiming(
+          `path=${isMobile() ? 'native-mobile-fallback' : 'local-fallback'} duration_ms=${(
+            performance.now() - t0
+          ).toFixed(1)}`
+        );
+        return result;
       }
       throw err;
     }

@@ -195,6 +195,33 @@ runs:
         rustup target add wasm32-unknown-unknown --toolchain stable
         echo "::endgroup::"
 
+        # Pre-install the SDK's pinned Rust toolchain BEFORE the first
+        # cargo invocation. The wallet's CI runners are Node-only and
+        # don't have nightly + wasm32 + rust-src installed, so when
+        # `pnpm run build` invokes `cargo +nightly ... --target
+        # wasm32-unknown-unknown -Z build-std=...`, rustup auto-installs
+        # nightly mid-invocation and rollup-plugin-rust catches rustup's
+        # progress output as stderr (mistaking it for the build error).
+        # `rustup show` inside the SDK dir reads the rust-toolchain.toml
+        # and force-installs the pinned channel + components + targets
+        # synchronously, so subsequent cargo calls see a fully-ready
+        # toolchain.
+        echo "::group::Install Rust toolchain pinned by web-sdk's rust-toolchain.toml"
+        cd "$SDK_DIR"
+        rustup show
+        cd -
+        echo "::endgroup::"
+
+        # Stable wasm32 std for the SDK's ST rollup path. Web-sdk's
+        # rollup.config.js sets RUSTUP_TOOLCHAIN=stable when
+        # MIDEN_BUILD_VARIANT=st (only nightly is needed for MT — see
+        # 0xMiden/web-sdk@40587c5d). Without stable's wasm32 std, the
+        # ST cargo build dies with "can't find crate for `std`".
+        echo "::group::Install stable + wasm32 target for the ST rollup path"
+        rustup install stable --no-self-update
+        rustup target add wasm32-unknown-unknown --toolchain stable
+        echo "::endgroup::"
+
         # Install + build the SDK packages from source. We need both
         # @miden-sdk/miden-sdk (the WASM SDK) and @miden-sdk/react (which
         # has its own dist/). The wallet may also depend on
@@ -237,6 +264,11 @@ runs:
         $PNPM run build
         echo "::endgroup::"
 
+        echo "::group::Build @miden-sdk/vite-plugin"
+        cd "$SDK_DIR/packages/vite-plugin"
+        $PNPM run build
+        echo "::endgroup::"
+
         # Now patch the wallet's package.json to depend on the local
         # builds via `file:` URIs. Yarn 1 supports file: deps natively
         # (copies the dir into node_modules at install time), and
@@ -259,9 +291,11 @@ runs:
         const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
         const sdkPath = "${SDK_DIR}/crates/web-client";
         const reactPath = "${SDK_DIR}/packages/react-sdk";
+        const vitePluginPath = "${SDK_DIR}/packages/vite-plugin";
         const targets = {
           '@miden-sdk/miden-sdk': 'file:' + sdkPath,
           '@miden-sdk/react': 'file:' + reactPath,
+          '@miden-sdk/vite-plugin': 'file:' + vitePluginPath,
         };
         const orig = {};
         for (const [k, v] of Object.entries(targets)) {

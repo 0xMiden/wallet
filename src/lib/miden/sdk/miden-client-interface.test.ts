@@ -383,6 +383,201 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
   });
 
+  it('recordProveTiming swallows globalThis.__PROVE_TIMINGS__ push errors silently', async () => {
+    // Cover the catch branch in recordProveTiming — verifies the helper
+    // doesn't throw when __PROVE_TIMINGS__ is frozen / non-writable.
+    const prevFlag = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    Object.defineProperty(globalThis, '__PROVE_TIMINGS__', {
+      value: Object.freeze([]),
+      writable: false,
+      configurable: true
+    });
+
+    try {
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient();
+      await jest.isolateModulesAsync(async () => {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        // Should not throw despite the frozen array — the catch swallows it.
+        const result = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume'
+        } as any);
+        expect(result).toBe(fakeTransactionResult);
+      });
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MIDEN_E2E_TEST;
+      } else {
+        process.env.MIDEN_E2E_TEST = prevFlag;
+      }
+      Object.defineProperty(globalThis, '__PROVE_TIMINGS__', {
+        value: undefined,
+        writable: true,
+        configurable: true
+      });
+      delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+    }
+  });
+
+  it('consumeNoteId records prove-timing markers under MIDEN_E2E_TEST=true', async () => {
+    // The PROVE_TIMING_ENABLED constant is captured at module-load time,
+    // so isolateModules + a fresh require is needed to flip the gate on.
+    const prevFlag = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+
+    try {
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient();
+      let consumeResult!: unknown;
+      await jest.isolateModulesAsync(async () => {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        consumeResult = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume'
+        } as any);
+      });
+
+      expect(consumeResult).toBe(fakeTransactionResult);
+      const markers = (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__ ?? [];
+      expect(markers.length).toBeGreaterThan(0);
+      expect(markers.some(l => /consumeNoteId entered/.test(l))).toBe(true);
+      expect(markers.some(l => /consumeNoteId SDK consume returned/.test(l))).toBe(true);
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MIDEN_E2E_TEST;
+      } else {
+        process.env.MIDEN_E2E_TEST = prevFlag;
+      }
+      delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+    }
+  });
+
+  it('localProverFactory uses newCallbackProver(buildNativeProverCallback()) when isMobile()', async () => {
+    // Mobile path branch — withProverFallback should construct a
+    // CallbackProver routed through the native-prover plugin, not a
+    // LocalProver. Mocks isMobile + native-prover plugin + TransactionProver
+    // so the branch is reachable from jsdom without a real Capacitor host.
+    const newCallbackProver = jest.fn(
+      (_callback: (input: Uint8Array) => Promise<Uint8Array>) => 'callback-prover-instance'
+    );
+    const newLocalProver = jest.fn(() => 'should-not-be-called');
+    const nativeProverPlugin = { prove: jest.fn() };
+
+    const consume = jest.fn().mockResolvedValue({ txId: 'tx-1', result: fakeTransactionResult });
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+    // Scope doMocks inside isolateModulesAsync so they don't leak to other
+    // tests in this file (Jest's doMock state is per-module-registry).
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('lib/platform', () => ({
+        isMobile: () => true,
+        isExtension: () => false,
+        isDesktop: () => false
+      }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newCallbackProver, newLocalProver }
+      }));
+      jest.doMock('@miden/native-prover', () => ({ MidenNativeProver: nativeProverPlugin }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      const result = await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: false
+      } as any);
+      expect(result).toBe(fakeTransactionResult);
+    });
+
+    // The mobile branch picks newCallbackProver, not newLocalProver.
+    expect(newCallbackProver).toHaveBeenCalledTimes(1);
+    expect(newLocalProver).not.toHaveBeenCalled();
+    // ...and forwards a function (the callback closure) into it.
+    const firstCall = newCallbackProver.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    expect(typeof firstCall![0]).toBe('function');
+
+    // The SDK then receives that closure-wrapping prover instance.
+    const lastConsumeArgs = consume.mock.calls.at(-1)?.[0];
+    expect(lastConsumeArgs?.prover).toBe('callback-prover-instance');
+
+    // Important: jest.doMock persists past jest.resetModules — explicitly
+    // undo the mobile/native-prover mocks so the next test's default
+    // isMobile()=false / no-native-prover environment is restored.
+    jest.dontMock('lib/platform');
+    jest.dontMock('@miden/native-prover');
+  });
+
+  it('consumeNoteId surfaces SDK exception with name+message in prove-timing log', async () => {
+    const prevFlag = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+
+    try {
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const consumeErr = new Error('kernel exec failed');
+      consumeErr.name = 'TestKernelError';
+      const fakeMidenClient = buildFakeMidenClient({
+        transactions: {
+          consume: jest.fn().mockRejectedValue(consumeErr)
+        }
+      });
+
+      await jest.isolateModulesAsync(async () => {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        await expect(
+          client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
+        ).rejects.toBe(consumeErr);
+      });
+
+      const markers = (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__ ?? [];
+      expect(markers.some(l => /consumeNoteId SDK consume THREW.*TestKernelError.*kernel exec failed/.test(l))).toBe(
+        true
+      );
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MIDEN_E2E_TEST;
+      } else {
+        process.env.MIDEN_E2E_TEST = prevFlag;
+      }
+      delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+    }
+  });
+
   describe('withProverFallback connectivity-state categorization', () => {
     // Build a client that fails the first (delegate) call with a provided error and
     // succeeds the second (local-prover) call. Returns the connectivity-state spies

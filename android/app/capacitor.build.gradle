@@ -18,6 +18,7 @@ dependencies {
     implementation project(':capacitor-share')
     implementation project(':capacitor-splash-screen')
     implementation project(':miden-dapp-browser')
+    implementation project(':miden-native-prover')
     implementation project(':capacitor-barcode-scanner')
     implementation project(':capacitor-native-biometric')
 
