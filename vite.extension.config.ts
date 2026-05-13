@@ -217,6 +217,8 @@ const sharedDefine = {
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
+  'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
+  'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };
 
@@ -318,7 +320,11 @@ export default defineConfig({
         fullpage: resolve(__dirname, 'fullpage.html'),
         confirm: resolve(__dirname, 'confirm.html'),
         options: resolve(__dirname, 'options.html'),
-        sidepanel: resolve(__dirname, 'sidepanel.html')
+        sidepanel: resolve(__dirname, 'sidepanel.html'),
+        // Offscreen prover (chrome.offscreen.createDocument target). Hidden
+        // doc the SW spawns so it can run a wasm-bindgen-rayon thread pool
+        // (SWs can't spawn Workers themselves). See src/offscreen/main.ts.
+        offscreen: resolve(__dirname, 'offscreen.html')
         // NOTE: background is built separately via vite.background.config.ts
         // because it needs inlineDynamicImports (import() is banned in SWs).
         // Content scripts (contentScript, addToWindow) are built separately
@@ -350,8 +356,31 @@ export default defineConfig({
   },
 
   resolve: {
+    // See vite.background.config.ts comment — same reason: the mt-wasm SDK
+    // is symlinked, and we need module resolution to walk through the
+    // symlink path (where the wallet's node_modules is reachable) rather
+    // than the real path (where peer packages like vite-plugin-node-polyfills
+    // aren't installed).
+    preserveSymlinks: true,
     alias: {
       ...sharedAlias,
+      // Chrome extension pages get cross-origin isolation from the
+      // manifest's declared COOP=`same-origin` + COEP=`require-corp`,
+      // so we use the multi-threaded SDK build for ~3-5× faster proving.
+      // Aliases the wallet's own `@miden-sdk/miden-sdk/lazy` imports to
+      // `/mt/lazy`. The wallet's `@miden-sdk/react/lazy` imports are
+      // not aliased — instead, vite catches their transitive SDK imports
+      // through this same alias, so the React-SDK bundle ends up wired
+      // to the MT WASM via the same path. Mobile (vite.mobile.config.ts)
+      // deliberately omits the alias because Capacitor / WKWebView /
+      // Android WebView don't expose cross-origin isolation — mobile
+      // uses delegated proving and the ST WASM is what loads.
+      //
+      // Depends on `@miden-sdk/miden-sdk` ≥ 0.14.5 (web-sdk PR #134) for
+      // the `/mt/lazy` subpath. Wallet's pin is still 0.14.4 because
+      // 0.14.5 isn't published yet — bump after that PR ships and the
+      // build:chrome step turns green.
+      '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy',
       // Ensure consistent React instance across all imports
       react: resolve(__dirname, 'node_modules/react'),
       'react-dom': resolve(__dirname, 'node_modules/react-dom'),

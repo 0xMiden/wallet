@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Miden Offscreen Prover</title>
+  </head>
+  <body>
+    <!--
+      Hidden offscreen document used by the wallet's MV3 service worker to
+      perform multi-threaded WASM proving. The SW cannot itself spawn Web
+      Workers (chrome.offscreen exists for exactly this kind of need), so it
+      delegates the prove step to this doc, which can spawn rayon workers
+      backed by SharedArrayBuffer (the manifest's COOP/COEP enable that).
+      See src/offscreen/main.ts for the message protocol.
+    -->
+    <script type="module" src="/src/offscreen/main.ts"></script>
+  </body>
+</html>

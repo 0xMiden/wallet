@@ -20,7 +20,6 @@ export interface ReviewTransactionProps {
   onGoBack: () => void;
   onSubmit: () => void;
   sharePrivately: boolean;
-  delegateTransaction: boolean;
   recipientAddress?: string;
   recallBlocks?: string;
   recallDate?: Date;
@@ -32,7 +31,6 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   token,
   recipientAddress,
   sharePrivately,
-  delegateTransaction,
   recallBlocks,
   recallDate,
   recallTime,
@@ -79,11 +77,8 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
           {/* Options Card */}
           <div className="mt-3">
             <DetailCard>
-              <DetailRow label={t('privatePayment')}>
+              <DetailRow label={t('privatePayment')} isLast={!hasRecall}>
                 <ToggleBadge enabled={sharePrivately} />
-              </DetailRow>
-              <DetailRow label={t('delegateProving')} isLast={!hasRecall}>
-                <ToggleBadge enabled={delegateTransaction} />
               </DetailRow>
               {hasRecall && (
                 <DetailRow label={t('recallEnabled')} isLast>
