@@ -70,7 +70,16 @@ jobs:
       - name: Install miden-client-cli
         shell: bash
         run: |
-          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          # Decoupled from the JS SDK version — read the pinned CLI version
+          # from package.json's `midenClientCliVersion` field. See
+          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
+          # path. The miden-client Rust workspace and @miden-sdk/* npm
+          # packages release independently; coupling them was brittle.
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$VERSION" || "$VERSION" == "undefined" ]]; then
+            echo "::error::midenClientCliVersion missing from package.json"
+            exit 1
+          fi
           if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
             echo "miden-client already present from cache:"
             "$HOME/.cargo/bin/miden-client" --version || true
@@ -126,7 +135,16 @@ jobs:
       - name: Install miden-client-cli
         shell: bash
         run: |
-          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          # Decoupled from the JS SDK version — read the pinned CLI version
+          # from package.json's `midenClientCliVersion` field. See
+          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
+          # path. The miden-client Rust workspace and @miden-sdk/* npm
+          # packages release independently; coupling them was brittle.
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$VERSION" || "$VERSION" == "undefined" ]]; then
+            echo "::error::midenClientCliVersion missing from package.json"
+            exit 1
+          fi
           if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
             echo "miden-client already present from cache:"
             "$HOME/.cargo/bin/miden-client" --version || true
@@ -206,7 +224,16 @@ jobs:
       - name: Install miden-client-cli
         shell: bash
         run: |
-          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          # Decoupled from the JS SDK version — read the pinned CLI version
+          # from package.json's `midenClientCliVersion` field. See
+          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
+          # path. The miden-client Rust workspace and @miden-sdk/* npm
+          # packages release independently; coupling them was brittle.
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$VERSION" || "$VERSION" == "undefined" ]]; then
+            echo "::error::midenClientCliVersion missing from package.json"
+            exit 1
+          fi
           if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
             echo "miden-client already present from cache:"
             "$HOME/.cargo/bin/miden-client" --version || true
@@ -294,7 +321,16 @@ jobs:
       - name: Install miden-client-cli
         shell: bash
         run: |
-          VERSION=$(node -p "require('./node_modules/@miden-sdk/miden-sdk/package.json').version")
+          # Decoupled from the JS SDK version — read the pinned CLI version
+          # from package.json's `midenClientCliVersion` field. See
+          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
+          # path. The miden-client Rust workspace and @miden-sdk/* npm
+          # packages release independently; coupling them was brittle.
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$VERSION" || "$VERSION" == "undefined" ]]; then
+            echo "::error::midenClientCliVersion missing from package.json"
+            exit 1
+          fi
           if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
             echo "miden-client already present from cache:"
             "$HOME/.cargo/bin/miden-client" --version || true
