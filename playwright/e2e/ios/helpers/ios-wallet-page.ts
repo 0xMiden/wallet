@@ -109,9 +109,7 @@ export class IosWalletPage implements WalletPage {
    * tap "Get started" on the confirmation screen and wait for the store to
    * reach Ready. Mirrors the Chrome `createNewWallet` contract.
    */
-  async createNewWallet(
-    password: string = DEFAULT_PASSWORD
-  ): Promise<{ address: string; seedPhrase: string[] }> {
+  async createNewWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
     // Welcome screen must be visible (fixture guarantees this on cold launch).
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
@@ -154,8 +152,7 @@ export class IosWalletPage implements WalletPage {
     );
 
     const address = await this.cdp.eval<string>(
-      `var s = window.__TEST_STORE__.getState(); ` +
-        `return (s.currentAccount && s.currentAccount.publicKey) || '';`
+      `var s = window.__TEST_STORE__.getState(); ` + `return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
     if (!address) throw new Error('IosWalletPage.createNewWallet: no currentAccount.publicKey after Ready');
 
@@ -169,10 +166,7 @@ export class IosWalletPage implements WalletPage {
    * structurally identical. We rely on data-testid where the components
    * expose it and fall back to placeholder/text matching otherwise.
    */
-  async importWallet(
-    seedPhrase: string[],
-    password: string = DEFAULT_PASSWORD
-  ): Promise<{ address: string }> {
+  async importWallet(seedPhrase: string[], password: string = DEFAULT_PASSWORD): Promise<{ address: string }> {
     await this.navigateHome();
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
@@ -185,10 +179,7 @@ export class IosWalletPage implements WalletPage {
     }
     await this.clickByText('button', /continue/i);
 
-    await this.pollForCondition(
-      `return location.hash.indexOf('create-password') >= 0;`,
-      15_000
-    );
+    await this.pollForCondition(`return location.hash.indexOf('create-password') >= 0;`, 15_000);
     await this.fillInputByPlaceholder('Enter password', password);
     await this.fillInputByPlaceholder('Enter password again', password);
     await this.clickByText('button', /continue/i);
@@ -361,7 +352,7 @@ export class IosWalletPage implements WalletPage {
       [
         '[data-testid="send-flow"] input[placeholder*="wallet address"]',
         '[data-testid="send-flow"] input[placeholder*="address"]',
-        '[data-testid="send-flow"] textarea',
+        '[data-testid="send-flow"] textarea'
       ],
       params.recipientAddress
     );
@@ -370,7 +361,7 @@ export class IosWalletPage implements WalletPage {
       [
         '[data-testid="send-flow"] input[type="text"]',
         '[data-testid="send-flow"] input[type="number"]',
-        '[data-testid="send-flow"] input[inputmode="decimal"]',
+        '[data-testid="send-flow"] input[inputmode="decimal"]'
       ],
       params.amount
     );
@@ -427,7 +418,7 @@ export class IosWalletPage implements WalletPage {
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
           message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts },
+          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
         });
       }
 
@@ -435,9 +426,7 @@ export class IosWalletPage implements WalletPage {
       if (attempt < maxAttempts) await sleep(intervalMs);
     }
 
-    throw new Error(
-      `Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`
-    );
+    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
@@ -489,9 +478,53 @@ export class IosWalletPage implements WalletPage {
       if (fired) return;
       await sleep(POLL_INTERVAL_MS);
     }
+    // Timed out without firing. The bare "no action registered" error
+    // can't distinguish between "hook never installed" (MIDEN_E2E_TEST
+    // not baked into the build) and "hook installed but no page mounted
+    // a non-null action" (sync didn't surface claimable notes). Capture
+    // the diagnostic state from the WebView so the next CI failure
+    // pinpoints the cause instead of forcing a fresh investigation.
+    const diag = await this.cdp
+      .eval<{
+        hookInstalled: boolean;
+        hash: string;
+        status: unknown;
+        balanceFaucetIds: string[];
+        balanceAmounts: string[];
+        claimableNotesCount: number | null;
+      } | null>(
+        `try {` +
+          `  var s = window.__TEST_STORE__; ` +
+          `  var st = s ? s.getState() : null; ` +
+          `  var balances = (st && st.balances) || {}; ` +
+          `  var faucetIds = []; var amounts = []; ` +
+          `  for (var k in balances) { ` +
+          `    var list = balances[k]; ` +
+          `    if (!Array.isArray(list)) continue; ` +
+          `    for (var i = 0; i < list.length; i++) { ` +
+          `      var t = list[i]; ` +
+          `      faucetIds.push(String(t.faucetId || '')); ` +
+          `      amounts.push(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+          `    } ` +
+          `  } ` +
+          `  var notes = (st && st.claimableNotes) || (st && st.notes) || null; ` +
+          `  return {` +
+          `    hookInstalled: typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ === 'function',` +
+          `    hash: location.hash || '',` +
+          `    status: st ? st.status : null,` +
+          `    balanceFaucetIds: faucetIds,` +
+          `    balanceAmounts: amounts,` +
+          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null` +
+          `  }; ` +
+          `} catch (e) { return null; }`
+      )
+      .catch(() => null);
     throw new Error(
-      `triggerNavbarAction: no action registered within ${timeoutMs}ms — ` +
-        `is the wallet on the right page and is MIDEN_E2E_TEST=true baked into the build?`
+      `triggerNavbarAction: no action registered within ${timeoutMs}ms. ` +
+        `diag=${JSON.stringify(diag)} — ` +
+        `hookInstalled=false ⇒ MIDEN_E2E_TEST not baked into the build; ` +
+        `hookInstalled=true + amounts all 0 ⇒ wallet sync hasn't surfaced the note yet; ` +
+        `hash != '#/receive' ⇒ navigation didn't take.`
     );
   }
 
