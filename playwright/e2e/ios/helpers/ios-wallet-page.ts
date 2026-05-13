@@ -478,6 +478,10 @@ export class IosWalletPage implements WalletPage {
         balanceFaucetIds: string[];
         balanceAmounts: string[];
         claimableNotesCount: number | null;
+        isSyncing: boolean | null;
+        hasCompletedInitialSync: boolean | null;
+        lastSyncedAt: number | null;
+        msSinceLastSync: number | null;
       } | null>(
         `try {` +
           `  var s = window.__TEST_STORE__; ` +
@@ -494,13 +498,18 @@ export class IosWalletPage implements WalletPage {
           `    } ` +
           `  } ` +
           `  var notes = (st && st.claimableNotes) || (st && st.notes) || null; ` +
+          `  var lastSync = st && typeof st.lastSyncedAt === 'number' ? st.lastSyncedAt : null; ` +
           `  return {` +
           `    hookInstalled: typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ === 'function',` +
           `    hash: location.hash || '',` +
           `    status: st ? st.status : null,` +
           `    balanceFaucetIds: faucetIds,` +
           `    balanceAmounts: amounts,` +
-          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null` +
+          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null,` +
+          `    isSyncing: st ? !!st.isSyncing : null,` +
+          `    hasCompletedInitialSync: st ? !!st.hasCompletedInitialSync : null,` +
+          `    lastSyncedAt: lastSync,` +
+          `    msSinceLastSync: lastSync ? Date.now() - lastSync : null` +
           `  }; ` +
           `} catch (e) { return null; }`
       )
