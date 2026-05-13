@@ -133,6 +133,27 @@ async function launchSimWalletInstance(
   const cdp = await CdpBridge.connect({ udid, bundleId: BUNDLE_ID });
   const cdpConnectMs = ms(tCdp);
 
+  // Forward WebView console + error output to the timeline so failures
+  // surface what the wallet was actually doing (sync errors, prove timing,
+  // unhandled rejections). Mirrors Chrome-side attachConsoleCapture.
+  cdp.onConsoleLog(entry => {
+    const sev =
+      entry.level === 'error'
+        ? 'error'
+        : entry.level === 'warning'
+          ? 'warn'
+          : entry.level === 'debug' || entry.level === 'trace'
+            ? 'debug'
+            : 'info';
+    timeline.emit({
+      category: 'browser_console',
+      severity: sev,
+      wallet: label,
+      message: `[${label}] ${entry.level}: ${entry.text}`,
+      data: { level: entry.level, text: entry.text, source: entry.source, ts: entry.ts },
+    });
+  });
+
   const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });
 
   timeline.emit({

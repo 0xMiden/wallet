@@ -269,9 +269,21 @@ export class IosWalletPage implements WalletPage {
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
     await this.navigateTo('/receive');
-    await sleep(3_000);
+    // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
+    // installed app the first sync also pays a cold WASM init + IndexedDB
+    // open + RPC cold-start cost. Give it ~10s to land at least one full
+    // sync cycle before we start polling for the navbar action.
+    await sleep(10_000);
 
-    await this.triggerNavbarAction(60_000);
+    // Block-time + sync-cycle math: even after the mint commits, the wallet
+    // needs (a) at least one auto-sync after the new block lands, (b) the
+    // SWR refresh (5s) to actually re-read consumable notes, (c) any
+    // additional WASM-lock contention if a prove/sign is in flight. 60s
+    // was too tight on testnet under CI load (deterministic failure for
+    // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
+    // timeout (default 180s) still has ~50s left for balance polling
+    // after this resolves.
+    await this.triggerNavbarAction(120_000);
 
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
