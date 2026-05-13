@@ -15,7 +15,12 @@ symbol = "TST"
  * Resolve the miden-client binary path.
  * 1. MIDEN_CLIENT_BIN env var
  * 2. `miden-client` in PATH
- * 3. Auto-install from crates.io at the version matching the wallet's SDK
+ * 3. Auto-install from crates.io at the pinned `midenClientCliVersion` from
+ *    the root package.json (decoupled from the JS SDK version — the
+ *    miden-client Rust workspace and `@miden-sdk/*` npm packages release on
+ *    independent cadences, so version-matching them was brittle: a JS-only
+ *    SDK bump would request a CLI version that doesn't exist on crates.io
+ *    and CI would fail before the test even ran).
  */
 export function resolveCliPath(): string {
   // 1. Explicit override
@@ -31,16 +36,17 @@ export function resolveCliPath(): string {
     // not found
   }
 
-  // 3. Auto-install from crates.io
+  // 3. Auto-install from crates.io at the version pinned in package.json
   let version: string;
   try {
-    const sdkPkgPath = path.resolve('node_modules/@miden-sdk/miden-sdk/package.json');
-    const sdkPkg = JSON.parse(fs.readFileSync(sdkPkgPath, 'utf8'));
-    version = sdkPkg.version;
-  } catch {
-    throw new Error(
-      'Cannot determine miden-sdk version from node_modules. Run `yarn install` first.'
-    );
+    const pkgPath = path.resolve('package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    version = pkg.midenClientCliVersion;
+    if (!version || typeof version !== 'string') {
+      throw new Error('midenClientCliVersion missing from package.json');
+    }
+  } catch (err: any) {
+    throw new Error(`Cannot resolve midenClientCliVersion from package.json: ${err.message}`);
   }
 
   console.log(`Installing miden-client-cli@${version} from crates.io (first run only)...`);

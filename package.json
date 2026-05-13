@@ -5,6 +5,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "midenClientCliVersion": "0.14.8",
   "scripts": {
     "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules && patch-package",
     "start": "yarn watch:src",

@@ -133,17 +133,25 @@ async function launchSimWalletInstance(
   const cdp = await CdpBridge.connect({ udid, bundleId: BUNDLE_ID });
   const cdpConnectMs = ms(tCdp);
 
-  // TEMPORARY (mobile-MT test): echo `[prove-timing]` console lines from
-  // the WebView to test stderr so the iOS local-prove E2E run can capture
-  // per-prove wall-clock numbers without piping through a separate log
-  // file. General WebView console output is left alone (would be noisy).
-  // Restore by removing this block when the prove-timing source-side
-  // tracing is removed.
-  cdp.onConsoleLog((entry) => {
-    // Echo ALL console output briefly for diagnosis — restrict to
-    // [prove-timing] once the path is confirmed working.
-    // eslint-disable-next-line no-console
-    console.log(`[wallet ${label} ${entry.level}] ${entry.text}`);
+  // Forward WebView console + error output to the timeline so failures
+  // surface what the wallet was actually doing (sync errors, prove timing,
+  // unhandled rejections). Mirrors Chrome-side attachConsoleCapture.
+  cdp.onConsoleLog(entry => {
+    const sev =
+      entry.level === 'error'
+        ? 'error'
+        : entry.level === 'warning'
+          ? 'warn'
+          : entry.level === 'debug' || entry.level === 'trace'
+            ? 'debug'
+            : 'info';
+    timeline.emit({
+      category: 'browser_console',
+      severity: sev,
+      wallet: label,
+      message: `[${label}] ${entry.level}: ${entry.text}`,
+      data: { level: entry.level, text: entry.text, source: entry.source, ts: entry.ts },
+    });
   });
 
   const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });

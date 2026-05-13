@@ -127,12 +127,26 @@ export class MidenClientInterface {
           }
         : undefined,
       proverUrl: MIDEN_PROVING_ENDPOINTS.get(network),
-      // On mobile we hand the SDK a `CallbackProver` that routes prove calls
-      // through the native Rust prover via a Capacitor plugin. The default
-      // WebClient worker shim serializes the prover via `.serialize()` —
-      // a format with no encoding for the callback variant — and silently
-      // downgrades it to `"local"`, running an in-worker WASM ST prover and
-      // bypassing our native bridge. Opt out so the callback survives.
+      // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
+      // of the SDK's Web-Worker shim. Two independent reasons:
+      //
+      // 1. The shim spawns a worker that owns its own WASM instance and
+      //    runs every client method (including `syncState()`) inside the
+      //    worker — and WKWebView Workers cannot do gRPC-web fetch
+      //    (documented in `mobile-wasm-main-thread.md` memory). The shim
+      //    hangs sync, `lastSyncedAt` freezes, no consumable notes ever
+      //    surface. Empirically: run 25779923813 saw `isSyncing: true`
+      //    with `msSinceLastSync: 184s` at failure time. See PR #240.
+      //
+      // 2. We hand the SDK a `CallbackProver` that routes prove calls
+      //    through the native Rust prover via a Capacitor plugin. The
+      //    shim serializes the prover via `.serialize()` — a format with
+      //    no encoding for the callback variant — and silently downgrades
+      //    it to `"local"`, running an in-worker WASM ST prover and
+      //    bypassing the native bridge. Opt out so the callback survives.
+      //
+      // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
+      // (web-sdk PR #149).
       useWorker: !isMobile()
     });
 

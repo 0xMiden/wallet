@@ -269,9 +269,21 @@ export class IosWalletPage implements WalletPage {
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
     await this.navigateTo('/receive');
-    await sleep(3_000);
+    // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
+    // installed app the first sync also pays a cold WASM init + IndexedDB
+    // open + RPC cold-start cost. Give it ~10s to land at least one full
+    // sync cycle before we start polling for the navbar action.
+    await sleep(10_000);
 
-    await this.triggerNavbarAction(60_000);
+    // Block-time + sync-cycle math: even after the mint commits, the wallet
+    // needs (a) at least one auto-sync after the new block lands, (b) the
+    // SWR refresh (5s) to actually re-read consumable notes, (c) any
+    // additional WASM-lock contention if a prove/sign is in flight. 60s
+    // was too tight on testnet under CI load (deterministic failure for
+    // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
+    // timeout (default 180s) still has ~50s left for balance polling
+    // after this resolves.
+    await this.triggerNavbarAction(120_000);
 
     // TEMPORARY (mobile-MT test): periodically dump
     // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
@@ -492,6 +504,10 @@ export class IosWalletPage implements WalletPage {
         balanceFaucetIds: string[];
         balanceAmounts: string[];
         claimableNotesCount: number | null;
+        isSyncing: boolean | null;
+        hasCompletedInitialSync: boolean | null;
+        lastSyncedAt: number | null;
+        msSinceLastSync: number | null;
       } | null>(
         `try {` +
           `  var s = window.__TEST_STORE__; ` +
@@ -508,13 +524,18 @@ export class IosWalletPage implements WalletPage {
           `    } ` +
           `  } ` +
           `  var notes = (st && st.claimableNotes) || (st && st.notes) || null; ` +
+          `  var lastSync = st && typeof st.lastSyncedAt === 'number' ? st.lastSyncedAt : null; ` +
           `  return {` +
           `    hookInstalled: typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ === 'function',` +
           `    hash: location.hash || '',` +
           `    status: st ? st.status : null,` +
           `    balanceFaucetIds: faucetIds,` +
           `    balanceAmounts: amounts,` +
-          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null` +
+          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null,` +
+          `    isSyncing: st ? !!st.isSyncing : null,` +
+          `    hasCompletedInitialSync: st ? !!st.hasCompletedInitialSync : null,` +
+          `    lastSyncedAt: lastSync,` +
+          `    msSinceLastSync: lastSync ? Date.now() - lastSync : null` +
           `  }; ` +
           `} catch (e) { return null; }`
       )
