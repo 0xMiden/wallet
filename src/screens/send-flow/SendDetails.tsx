@@ -40,6 +40,7 @@ export interface SendDetailsProps {
   amount: string;
   recipientAddress: string;
   sharePrivately: boolean;
+  delegateTransaction: boolean;
   recallBlocks?: string;
   isValidAmount: boolean;
   isValidAddress: boolean;
@@ -65,6 +66,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   amount,
   recipientAddress,
   sharePrivately,
+  delegateTransaction,
   isValidAmount,
   isValidAddress,
   amountError,
@@ -335,13 +337,19 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 className="bg-white rounded-b-[10px] overflow-hidden shrink-0"
               >
                 <div className="px-4 pb-4">
-                  {/* Per-send delegate-proving toggle removed: this is now
-                      driven by the global setting in General Settings only.
-                      Rationale: with mt-wasm + offscreen-doc proving, local
-                      proving is fast enough (~5s) that the per-tx escape
-                      hatch is no longer needed; consolidating to one global
-                      setting also cleans up the speculation logic (we only
-                      pre-prove when the global setting says local). */}
+                  <div className="mt-4">
+                    <OptionItem
+                      title={t('delegateProving')}
+                      subTitle={t('delegateProvingDescription')}
+                      value={delegateTransaction}
+                      onToggle={(val: boolean) => {
+                        onAction({
+                          id: SendFlowActionId.SetFormValues,
+                          payload: { delegateTransaction: val }
+                        });
+                      }}
+                    />
+                  </div>
 
                   {/* Recall Height */}
                   <div className="mt-4 pb-2">
