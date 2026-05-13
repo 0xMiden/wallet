@@ -10,6 +10,8 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { stringToBigInt } from 'lib/i18n/numbers';
 import {
   initiateSendTransaction,
+  requestSpeculateInvalidate,
+  requestSpeculateSend,
   requestSWTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
@@ -64,8 +66,7 @@ const validations = {
     .string()
     .required()
     .test('is-valid-address', 'Invalid address', value => isValidMidenAddress(value)),
-  recallBlocks: yup.number(),
-  delegateTransaction: yup.boolean().required()
+  recallBlocks: yup.number()
 };
 
 const validationSchema = yup.object().shape(validations).required();
@@ -158,7 +159,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       sharePrivately: true,
       recipientAddress: undefined,
       recallBlocks: undefined,
-      delegateTransaction: delegateEnabled,
       token: undefined
     },
     resolver: yupResolver(validationSchema) as any
@@ -169,7 +169,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     register('sharePrivately');
     register('recipientAddress');
     register('recallBlocks');
-    register('delegateTransaction');
     register('token');
   }, [register]);
 
@@ -177,8 +176,89 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const sharePrivately = watch('sharePrivately');
   const recipientAddress = watch('recipientAddress');
   const recallBlocks = watch('recallBlocks');
-  const delegateTransaction = watch('delegateTransaction');
   const token = watch('token');
+  // delegateTransaction is now driven exclusively by the global setting in
+  // General Settings — the per-send toggle was removed because mt-wasm +
+  // offscreen-doc proving makes local proving fast enough that the per-tx
+  // escape hatch isn't worth the UI surface. Read fresh on each render so
+  // a settings change while the send flow is open takes effect.
+  const delegateTransaction = delegateEnabled;
+
+  // Speculative pre-prove: kick off execute + offscreen prove in the SW
+  // as soon as the SendDetails form is valid, so the proof can finish
+  // (~5-10s) while the user is still on details/review. Without an early
+  // trigger, the user reaches review with the proof not yet started; their
+  // typical 2-3s on review isn't enough to absorb the 10s prove cost.
+  //
+  // Cache lives in SW memory keyed by params hash; consumed by
+  // MidenClientInterface.proveLocallyViaOffscreen on actual submit. If
+  // the user clicks Confirm BEFORE the speculation finishes,
+  // proveLocallyViaOffscreen calls SpeculationManager.awaitMatching to
+  // wait on the in-flight prove instead of starting a duplicate one
+  // (Fix B).
+  //
+  // Discarded-CPU bound: the SpeculationManager already serializes (one
+  // active + one pending slot). Rapid form changes replace `pending`
+  // before it ever runs, and the in-flight `active` is marked stale and
+  // its result discarded. Worst case: ONE extra prove's worth of CPU per
+  // session of form edits, regardless of how many keystrokes. The 500ms
+  // React-level debounce below further trims churn during typing.
+  //
+  // Gates:
+  //   - feature flag MIDEN_USE_SPECULATIVE_PROVING
+  //   - extension context only (intercom doesn't exist on mobile/desktop)
+  //   - global setting must be local proving (delegate path is just an RPC)
+  //   - form must be valid (recipient is a Miden address, amount > 0
+  //     and <= balance)
+  //   - skip when recallBlocks is set (block-height drift between
+  //     speculate-time and commit-time would invalidate the cached
+  //     reclaim height — corner case, easier to skip than handle)
+  useEffect(() => {
+    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
+    if (!isExtension()) return;
+    if (delegateEnabled) return; // delegated proving — no point speculating
+    if (!publicKey || !recipientAddress || !token || !amount) return;
+    if (recallBlocks) return;
+    if (!isValidMidenAddress(recipientAddress)) return;
+    const amountFloat = parseFloat(amount);
+    if (!(amountFloat > 0)) return;
+    if (amountFloat > token.balance) return;
+    let amountBig: bigint;
+    try {
+      amountBig = stringToBigInt(amount, token.decimals);
+    } catch {
+      return;
+    }
+    const timer = setTimeout(() => {
+      requestSpeculateSend({
+        accountId: publicKey,
+        recipientAccountId: recipientAddress,
+        faucetId: token.id,
+        noteType: sharePrivately ? 'private' : 'public',
+        amount: amountBig
+      });
+    }, 500);
+    return () => {
+      // Clear the debounced trigger if deps change before it fires.
+      // We do NOT call requestSpeculateInvalidate here — the in-SW
+      // SpeculationManager already replaces pending on each new
+      // speculate() and discards stale active results. Invalidating on
+      // every keystroke would defeat the cache.
+      clearTimeout(timer);
+    };
+  }, [delegateEnabled, publicKey, recipientAddress, token, amount, sharePrivately, recallBlocks]);
+
+  // One-time invalidation when the SendManager unmounts entirely (user
+  // backs out of the send flow, or the tab closes). Drops any cached
+  // completed entry and marks any active as stale so we don't carry
+  // speculative state into a future send.
+  useEffect(() => {
+    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
+    if (!isExtension()) return;
+    return () => {
+      requestSpeculateInvalidate();
+    };
+  }, []);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -384,7 +464,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               amount={amount || ''}
               recipientAddress={recipientAddress || ''}
               sharePrivately={sharePrivately}
-              delegateTransaction={delegateTransaction}
               recallBlocks={recallBlocks}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
@@ -421,7 +500,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               token={token?.name || ''}
               recipientAddress={recipientAddress}
               sharePrivately={sharePrivately}
-              delegateTransaction={delegateTransaction}
               recallBlocks={recallBlocks}
               recallTime={recallTime}
               recallDate={recallDate}
@@ -449,7 +527,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       onAmountChange,
       onAction,
       sharePrivately,
-      delegateTransaction,
       recallBlocks,
       goToStep,
       handleSubmit,
