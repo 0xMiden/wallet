@@ -11,6 +11,7 @@ test.describe('Multi-Account Operations', () => {
     timeline,
   }) => {
     let addressA: string;
+    let faucetId: string;
 
     await steps.step('create_wallets', async () => {
       const created = await walletA.createNewWallet();
@@ -20,7 +21,7 @@ test.describe('Multi-Account Operations', () => {
 
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
-      await midenCli.createFaucet();
+      faucetId = await midenCli.createFaucet();
       await midenCli.mint(addressA!, 100_000_000_000, 'public');
       await midenCli.sync();
     });
@@ -28,8 +29,11 @@ test.describe('Multi-Account Operations', () => {
     // iOS divergence: mobile auto-consume only fires for the well-known
     // MIDEN faucet; custom faucets need an explicit claim before
     // getBalance returns a positive number. See CLAUDE.md.
+    // Pass faucetId to inject synthetic metadata (the SDK's metadata RPC
+    // fails for the CLI's basic-fungible-faucet layout) — see
+    // mint-and-balance.ios.spec.ts for the full explanation.
     await steps.step('claim_wallet_a', async () => {
-      await walletA.claimAllNotes(180_000);
+      await walletA.claimAllNotes(180_000, [faucetId!]);
     });
 
     await steps.step('sync_wallet_a', async () => {

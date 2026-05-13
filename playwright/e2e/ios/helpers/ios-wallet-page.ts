@@ -262,7 +262,10 @@ export class IosWalletPage implements WalletPage {
 
   // ── Claim ─────────────────────────────────────────────────────────────────
 
-  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+  async claimAllNotes(
+    timeoutMs: number = 120_000,
+    knownFaucetIds: string[] = []
+  ): Promise<void> {
     // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
     // — that's safe on Chrome because the SW holds the vault unlock in a
     // separate context. On mobile there's no SW; a reload would drop the
@@ -274,6 +277,24 @@ export class IosWalletPage implements WalletPage {
     // open + RPC cold-start cost. Give it ~10s to land at least one full
     // sync cycle before we start polling for the navbar action.
     await sleep(10_000);
+
+    // The wallet's `attachMetadataToNotes` (`src/lib/miden/front/claimable-notes.ts`)
+    // silently drops consumable notes whose faucet metadata couldn't be
+    // fetched from the RPC. The test deploys a custom `basic-fungible-faucet`
+    // whose on-chain procedures don't match what the SDK's
+    // `BasicFungibleFaucetComponent.fromAccount` expects — so the wallet
+    // hides the note, "Claim All" never registers in the navbar, and
+    // triggerNavbarAction times out. Mirrors Chrome's claimAllNotes
+    // workaround (`playwright/e2e/helpers/wallet-page.ts:762-792`): inject
+    // synthetic metadata for any faucet we don't already have, so
+    // `attachMetadataToNotes`'s `metadataByFaucetId[n.faucetId]` lookup
+    // hits and the note survives the filter. The keys we inject for are
+    // every bech32 faucet id we can discover from the wallet's own
+    // SDK-fetched notes (read via the existing `__TEST_STORE__`-driven
+    // path) — no test-side `faucetId` plumbing needed.
+    if (knownFaucetIds.length > 0) {
+      await this.injectTestMetadataForFaucets(knownFaucetIds);
+    }
 
     // Block-time + sync-cycle math: even after the mint commits, the wallet
     // needs (a) at least one auto-sync after the new block lands, (b) the
@@ -337,6 +358,72 @@ export class IosWalletPage implements WalletPage {
     }
     await pumpProveTimings();
     await this.navigateHome();
+  }
+
+  /**
+   * Stuff synthetic metadata into the wallet's Zustand `assetsMetadata` for
+   * the given faucet ids. Makes `attachMetadataToNotes` (in
+   * `src/lib/miden/front/claimable-notes.ts`) treat the test's custom
+   * faucet as "metadata known" so the consumable note survives the filter
+   * and "Claim All" registers. Mirrors Chrome's claimAllNotes workaround
+   * (`playwright/e2e/helpers/wallet-page.ts:762-792`) where Chrome reads
+   * the cached consumable notes from `chrome.storage.local` and does the
+   * same `store.setState({ assetsMetadata: ... })`. iOS has no chrome
+   * storage, so we feed the faucet ids in from the test side.
+   */
+  private async injectTestMetadataForFaucets(hexFaucetIds: string[]): Promise<void> {
+    if (hexFaucetIds.length === 0) return;
+    // The wallet's `parseNotes` (`src/lib/miden/front/claimable-notes.ts:61`)
+    // stores `faucetId` in bech32 form (e.g. `mtst1a...`), not hex.
+    // `attachMetadataToNotes` keys the metadata lookup by that bech32 form.
+    // The CLI hands us a hex account id (e.g. `0xba55e5...`), so we need to
+    // do the conversion in the same way the wallet does, by calling into
+    // the loaded SDK's `Address.fromAccountId(id, 'BasicWallet').toBech32(networkId)`.
+    // We use `evaluateAsync` with the wallet's already-loaded SDK module —
+    // the dynamic `import('@miden-sdk/miden-sdk/lazy')` hits the module
+    // cache instantly because the wallet already imported it at boot.
+    const hexJson = JSON.stringify(hexFaucetIds);
+    const network = process.env.MIDEN_NETWORK || process.env.E2E_NETWORK || 'testnet';
+    const networkArg = network === 'devnet' ? "'devnet'" : "'testnet'";
+    // Poll for the hex→bech32 hook to be exposed — it's set asynchronously
+    // when the wallet boots (the SDK eager-import in store/index.ts under
+    // MIDEN_E2E_TEST). On a freshly-installed app the SDK chunk takes a few
+    // seconds to resolve, so the hook may not be ready when we navigate.
+    const start = Date.now();
+    let hookReady = false;
+    while (Date.now() - start < 60_000) {
+      const ready = await this.cdp
+        .eval<boolean>(`return typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function';`)
+        .catch(() => false);
+      if (ready) {
+        hookReady = true;
+        break;
+      }
+      await sleep(500);
+    }
+    if (!hookReady) {
+      // eslint-disable-next-line no-console
+      console.log('[injectTestMetadataForFaucets] hook never exposed; skipping');
+      return;
+    }
+    const result = await this.cdp
+      .eval<{ before: string[]; injected: string[]; after: string[] } | { error: string }>(
+        `var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; ` +
+          `var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); ` +
+          `var injected = {}; ` +
+          `for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; ` +
+          `var s = window.__TEST_STORE__; ` +
+          `if (!s) return { error: 'no __TEST_STORE__' }; ` +
+          `var st = s.getState(); ` +
+          `var before = Object.keys(st.assetsMetadata || {}); ` +
+          `if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } ` +
+          `else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } ` +
+          `var after = Object.keys(s.getState().assetsMetadata || {}); ` +
+          `return { before: before, injected: bech32, after: after };`
+      )
+      .catch((e: Error) => ({ error: e.message }));
+    // eslint-disable-next-line no-console
+    console.log(`[injectTestMetadataForFaucets] hex=${hexJson} -> ${JSON.stringify(result)}`);
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
