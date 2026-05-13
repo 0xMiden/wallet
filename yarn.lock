@@ -2236,25 +2236,25 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.14.8":
-  version "0.14.8"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.8.tgz#c096f695cf97724415c5f835274307d68e332aa3"
-  integrity sha512-x27whVObMTQBpsqU/srRH+6mm3MVfw2w64YHAVLYVW7NQ1Ch6pkzTe8BEvsMkkZ0OmENT3HSJ0mQcK0pILjNkg==
+"@miden-sdk/miden-sdk@0.14.9":
+  version "0.14.9"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.9.tgz#93ffb92d0e2d87f56e425115899c72f76dba61ef"
+  integrity sha512-UOnXNHZcqLSgN0z2tx3eMCj80EvlrTDjRsY2iuN2vdPrXUCzGzwMJHAKIfXaWhKEytceeaz371c8d29epPRE0g==
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
 
-"@miden-sdk/react@0.14.8":
-  version "0.14.8"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.8.tgz#5eb631785c0b7169ee53d44f587f83c0d9930d0c"
-  integrity sha512-uh93Ya5jjR6H2Dm2dpfw76opNKFJw9KIoxJr7ZvdjxGYZuG3I6QGtwXPT4LKK8CDA6svz63urdd+gpHGHo5QfA==
+"@miden-sdk/react@0.14.9":
+  version "0.14.9"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.9.tgz#6436a88f5eb350a69abcc284f4a31dbb8c6f2d00"
+  integrity sha512-kI8vC0T6Mc+ClhfGaFZmrqJBynmAwhg88WnWX5T+SJy6Lt+bWTjFBazNyBK4hVzOqW+td1bkreY7naJJowEp7w==
   dependencies:
     zustand "^5.0.0"
 
-"@miden-sdk/vite-plugin@0.14.8":
-  version "0.14.8"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/vite-plugin/-/vite-plugin-0.14.8.tgz#f017be81a4ca0a5fea9d207309d6f26ae3aee758"
-  integrity sha512-y76Ea2epv+Mqv/wFVa5rj7a5YgULklPAJHWnj75qNYqtpp8nUaoM1hgepRMGgH7vcYmVH/fMPT4pc3l/LGMUYg==
+"@miden-sdk/vite-plugin@0.14.9":
+  version "0.14.9"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/vite-plugin/-/vite-plugin-0.14.9.tgz#6fb712255273b5313beb8151002a3a9bdbf09d29"
+  integrity sha512-PmF+u9LHjH0pRvpq5nzX8vuQaTxmF4bXD2XzD7u+zfcplBjF685qmqRPwXOfxwgnhH6IXeUWguL/okiw5ezp/Q==
 
 "@miden/dapp-browser@link:./packages/dapp-browser":
   version "0.0.0"
