@@ -37,20 +37,10 @@ jobs:
       # If the PR description carries a "Web SDK PR: #N" marker, this
       # builds @miden-sdk/miden-sdk + @miden-sdk/react from the linked
       # web-sdk PR and rewrites package.json to consume them via file:
-      # deps. Silent no-op when no marker.
-      #
-      # `translations` is the designated comment-poster (comment=true).
-      # It's the topologically first yarn-using job — has no `needs:`
-      # deps — so the sticky linked-web-sdk-pr comment lands ASAP after
-      # CI starts, independent of whether downstream jobs pass. The
-      # marocchino/sticky-pull-request-comment library upserts on a
-      # `header`, so other jobs setting `comment: false` is fine: only
-      # one comment ever exists, posted by the first job to reach this
-      # step with a parsed marker.
+      # deps. Silent no-op when no marker. comment=false: the `ci` job
+      # is the designated comment-poster.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
-        with:
-          comment: 'true'
 
       - name: Run Install
         uses: borales/actions-yarn@v4
@@ -94,11 +84,13 @@ jobs:
         with:
           node-version: 22
 
-      # comment=false (default): translations is the designated
-      # comment-poster — see its `Inject` step for rationale. Other
-      # jobs just need the package.json mutation, not the comment.
+      # Designated comment-poster: this is the most prominent job (runs
+      # ESLint + TS + tests + build:chrome + Playwright E2E) so the
+      # sticky linked-web-sdk-pr comment lives on its run summary.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          comment: 'true'
 
       - name: Run Install
         uses: borales/actions-yarn@v4

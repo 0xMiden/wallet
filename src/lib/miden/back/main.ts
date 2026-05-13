@@ -2,7 +2,6 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
-import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
@@ -26,13 +25,6 @@ export async function start() {
   // (between intercom registration and Actions.init)
 
   await Actions.init();
-
-  // SpeculationManager wires through the same MidenClientInterface singleton
-  // the rest of the SW uses. Lazy because the client is only created on
-  // unlock; the manager doesn't run anything until a SPECULATE_SEND_REQUEST
-  // arrives, by which point the client must already exist (the user is on
-  // the send-flow review screen, which is gated on unlock).
-  initSpeculationManager(() => getMidenClient());
 
   // Native asset ID is network-wide on-chain state — prime discovery here so
   // the first balance / metadata consumer after SW start already has it cached.
@@ -110,29 +102,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         return results;
       });
       return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: serialized };
-    }
-    case WalletMessageType.SpeculateSendRequest: {
-      // Fire-and-forget. SpeculationManager queues at most one pending; if
-      // it's already running an identical speculation, this is a no-op.
-      // No withWasmClientLock here — the manager handles serialization
-      // internally (it calls executeAndProveForSpeculation which does its
-      // own execute under-lock + offscreen prove with yieldWasmClientLock).
-      const mgr = getSpeculationManager();
-      if (mgr) {
-        mgr.speculate({
-          accountId: req.accountId,
-          recipientAccountId: req.recipientAccountId,
-          faucetId: req.faucetId,
-          noteType: req.noteType,
-          amount: BigInt(req.amount)
-        });
-      }
-      return { type: WalletMessageType.SpeculateSendResponse };
-    }
-    case WalletMessageType.SpeculateInvalidate: {
-      const mgr = getSpeculationManager();
-      mgr?.invalidate();
-      return { type: WalletMessageType.SpeculateInvalidateResponse };
     }
     // case WalletMessageType.SendTrackEventRequest:
     //   await Analytics.trackEvent(req);

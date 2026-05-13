@@ -125,13 +125,9 @@ if [ ! -d "$SDK_CACHE/.git" ]; then
   echo "[dev-with-web-sdk-pr] Cloning into $SDK_CACHE..."
   git clone "https://github.com/${head_owner}/${head_repo}.git" "$SDK_CACHE"
 fi
-# Fetch by SHA, not by branch ref. Branches are auto-deleted when the
-# upstream PR merges, so a `fetch origin "${head_ref}"` breaks the moment
-# that happens. Commit SHAs remain reachable via GitHub's
-# uploadpack.allowAnySHA1InWant, so SHA-fetch survives branch deletion.
-echo "[dev-with-web-sdk-pr] Fetching ${head_sha:0:8} (PR was on ${head_ref})..."
-git -C "$SDK_CACHE" fetch origin "${head_sha}"
-git -C "$SDK_CACHE" checkout --detach "$head_sha"
+echo "[dev-with-web-sdk-pr] Fetching ${head_ref}..."
+git -C "$SDK_CACHE" fetch origin "${head_ref}"
+git -C "$SDK_CACHE" checkout "$head_sha"
 
 # Install + build the SDK packages.
 echo "[dev-with-web-sdk-pr] Installing SDK deps..."
