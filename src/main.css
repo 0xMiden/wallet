@@ -331,23 +331,48 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --chart-4: oklch(0.828 0.189 84.429);
     --chart-5: oklch(0.769 0.188 70.08);
 
-    /* Theme colors - light */
+    /* Theme colors - light. Rebased onto design system: warm-undertone neutrals
+     * (#3F3F3F-based text shades, rgba rules) per Foundations spec. */
     --color-app-bg: #f6f4f2;
     --color-surface: #ffffff;
     --color-surface-solid: #ffffff;
     --color-surface-secondary: #f9f9f9;
     --color-surface-tertiary: #f3f3f3;
-    --color-text-primary: #000000;
-    --color-text-secondary: #484848;
-    --color-text-tertiary: #737373;
-    --color-border: #00000033;
+    --color-text-primary: #3f3f3f;
+    --color-text-secondary: rgba(63, 63, 63, 0.65);
+    --color-text-tertiary: rgba(63, 63, 63, 0.4);
+    --color-border: rgba(63, 63, 63, 0.16);
     --color-border-secondary: #e9ebef;
     --color-chip-bg: #eeeff2;
-    --color-input-bg: #f2f2f2;
+    --color-input-bg: #f9f9f9;
     --color-border-light: #e6e6e6;
-    --color-text-muted: #808080;
-    --color-border-subtle: #00000015;
+    --color-text-muted: rgba(63, 63, 63, 0.4);
+    --color-border-subtle: rgba(63, 63, 63, 0.08);
     --color-hover-bg: #e1dbdb;
+
+    /* Design system tokens (Foundations + Typography + Radius/Spacing) */
+    --accent-primary: #d44b00;
+    --accent-primary-hover: #b33e00;
+    --text-primary: #3f3f3f;
+    --text-secondary: rgba(63, 63, 63, 0.65);
+    --text-tertiary: rgba(63, 63, 63, 0.4);
+    --text-on-accent: #ffffff;
+    --surface-page: #ffffff;
+    --surface-input: #f9f9f9;
+    --surface-interactive: #f6f4f2;
+    --surface-inactive: #dcd4c8;
+    --status-positive: #38824a;
+    --status-pending: #e85d2f;
+    --status-negative: #c51a0a;
+    --tx-received: #38824a;
+    --tx-sent: #024073;
+    --tx-swap: #6b7280;
+    --tx-earn: #891db1;
+    --rule-default: rgba(63, 63, 63, 0.08);
+    --rule-strong: rgba(63, 63, 63, 0.16);
+    --radius-sm: 8px;
+    --radius-md-token: 12px;
+    --radius-lg-token: 16px;
   }
 
   .dark {
@@ -374,5 +399,27 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --color-text-muted: #999999;
     --color-border-subtle: #ffffff15;
     --color-hover-bg: #ffffff0d;
+
+    /* Design system tokens - dark variants. Foundations spec is light-mode only;
+     * derive dark values by inverting text/surface and keeping action/status hues. */
+    --accent-primary: #d44b00;
+    --accent-primary-hover: #e55818;
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.65);
+    --text-tertiary: rgba(255, 255, 255, 0.4);
+    --text-on-accent: #ffffff;
+    --surface-page: #191919;
+    --surface-input: #2a2a2a;
+    --surface-interactive: #2a2a2a;
+    --surface-inactive: #3f3f3f;
+    --status-positive: #38824a;
+    --status-pending: #e85d2f;
+    --status-negative: #c51a0a;
+    --tx-received: #38824a;
+    --tx-sent: #024073;
+    --tx-swap: #6b7280;
+    --tx-earn: #891db1;
+    --rule-default: rgba(255, 255, 255, 0.08);
+    --rule-strong: rgba(255, 255, 255, 0.16);
   }
 }
