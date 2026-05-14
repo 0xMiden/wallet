@@ -86,6 +86,20 @@ test.describe('Stress: random send/claim', () => {
       addressB = b.address;
     });
 
+    // Override the global delegate-proving setting so the stress run
+    // exercises the local (offscreen-doc) prove path on Chrome. Set via
+    // STRESS_LOCAL_PROVING=true at the harness level. The wallet reads
+    // `delegate_proof_setting_key` from localStorage on every form
+    // render, so the change takes effect on the next send without a
+    // reload. Both wallets are flipped because the stress driver sends
+    // from BOTH directions.
+    if (process.env.STRESS_LOCAL_PROVING === 'true') {
+      await steps.step('force_local_proving', async () => {
+        await walletA.setDelegateProofEnabled(false);
+        await walletB.setDelegateProofEnabled(false);
+      });
+    }
+
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
       await midenCli.createFaucet();
