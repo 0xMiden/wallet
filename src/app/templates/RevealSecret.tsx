@@ -10,6 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
@@ -20,12 +21,18 @@ type FormData = {
 };
 
 type RevealSecretProps = {
-  reveal: 'private-key' | 'seed-phrase';
+  reveal: 'private-key' | 'seed-phrase' | 'hot-key' | 'guardian-keys';
+};
+
+type GuardianKeysBundle = {
+  coldPrivateKey: string;
+  coldPublicKey: string;
+  hotPublicKey?: string;
 };
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const { t } = useTranslation();
-  const { revealMnemonic, revealPrivateKey } = useMidenContext();
+  const { revealMnemonic, revealPrivateKey, revealHotKey, revealGuardianKeys } = useMidenContext();
   const account = useAccount();
   const { fieldRef: secretFieldRef } = useCopyToClipboard();
 
@@ -40,12 +47,21 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
+  const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
-  // Private-key reveals require the user to tick an "I understand"
-  // checkbox before the Continue button enables. The warning banner
-  // alone is passive; this gate forces one deliberate interaction
-  // before handing out a key the user can never rotate.
+  // The native iOS / Android navbar pill renders in a separate UIWindow / Dialog
+  // above the WebView, so any content at the bottom of this page (notably the
+  // Unlock button on hardware-protected wallets, where there's no password
+  // input to push the button up) gets z-covered and becomes unclickable.
+  // Morph the pill out while the reveal screen is mounted; restores on unmount.
+  useHideNavbarWhileOpen(true);
+  // Private-key + guardian-keys reveals require the user to tick an "I
+  // understand" checkbox before the Continue button enables. The warning
+  // banner alone is passive; this gate forces one deliberate interaction
+  // before handing out recovery material. Hot-key reveal skips the gate
+  // because hot keys rotate from Settings → Rotate Device Key.
   const [privateKeyAcknowledged, setPrivateKeyAcknowledged] = useState(false);
+  const requiresAcknowledge = reveal === 'private-key' || reveal === 'guardian-keys';
 
   useEffect(() => {
     Vault.hasHardwareProtector().then(setHasHardwareProtector);
@@ -53,7 +69,10 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   useEffect(() => {
     if (account.publicKey) {
-      return () => setSecret(null);
+      return () => {
+        setSecret(null);
+        setGuardianBundle(null);
+      };
     }
     return undefined;
   }, [account.publicKey, setSecret]);
@@ -84,14 +103,16 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       clearErrors('password');
       try {
         const unlockPassword = hasHardwareProtector ? undefined : password;
-        let secret: string;
         if (reveal === 'private-key') {
           const pubKeyCommitment = await getAccountPublicKeyCommitment(account.publicKey);
-          secret = await revealPrivateKey(pubKeyCommitment, unlockPassword);
+          setSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
+        } else if (reveal === 'hot-key') {
+          setSecret(await revealHotKey(account.publicKey, unlockPassword));
+        } else if (reveal === 'guardian-keys') {
+          setGuardianBundle(await revealGuardianKeys(account.publicKey, unlockPassword));
         } else {
-          secret = await revealMnemonic(unlockPassword);
+          setSecret(await revealMnemonic(unlockPassword));
         }
-        setSecret(secret);
       } catch (err: any) {
         console.error(err);
 
@@ -107,6 +128,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       setError,
       revealMnemonic,
       revealPrivateKey,
+      revealHotKey,
+      revealGuardianKeys,
       setSecret,
       focusPasswordField,
       hasHardwareProtector,
@@ -149,10 +172,71 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             </div>
           )
         };
+
+      case 'hot-key':
+        return {
+          name: t('hotPrivateKey'),
+          accountBanner: null,
+          attention: null,
+          fieldDesc: <div className="text-heading-gray text-sm">{t('revealHotKeyDescription')}</div>
+        };
+
+      case 'guardian-keys':
+        return {
+          name: t('coldPrivateKey'),
+          accountBanner: null,
+          attention: null,
+          fieldDesc: <div className="text-heading-gray text-sm">{t('guardianKeysRevealDescription')}</div>
+        };
     }
   }, [reveal, t]);
 
   const mainContent = useMemo(() => {
+    if (guardianBundle) {
+      return (
+        <div className="pt-8 flex flex-col gap-6">
+          <FormField
+            ref={secretFieldRef}
+            secret
+            textarea
+            rows={3}
+            readOnly
+            label={t('coldPrivateKey')}
+            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+            labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
+            id="reveal-guardian-cold-private"
+            spellCheck={false}
+            className="resize-none notranslate"
+            value={guardianBundle.coldPrivateKey}
+          />
+          <FormField
+            textarea
+            rows={2}
+            readOnly
+            label={t('coldPublicKeyLabel')}
+            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+            id="reveal-guardian-cold-public"
+            spellCheck={false}
+            className="resize-none notranslate"
+            value={guardianBundle.coldPublicKey}
+          />
+          {guardianBundle.hotPublicKey && (
+            <FormField
+              textarea
+              rows={2}
+              readOnly
+              label={t('hotPublicKeyLabel')}
+              labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+              id="reveal-guardian-hot-public"
+              spellCheck={false}
+              className="resize-none notranslate"
+              value={guardianBundle.hotPublicKey}
+            />
+          )}
+        </div>
+      );
+    }
+
     if (secret) {
       return (
         <div className="pt-8">
@@ -209,9 +293,21 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         )}
       </form>
     );
-  }, [errors, onSubmit, register, secret, texts, clearErrors, secretFieldRef, t, hasHardwareProtector, handleSubmit]);
+  }, [
+    errors,
+    onSubmit,
+    register,
+    secret,
+    guardianBundle,
+    texts,
+    clearErrors,
+    secretFieldRef,
+    t,
+    hasHardwareProtector,
+    handleSubmit
+  ]);
 
-  const showButton = !secret;
+  const showButton = !secret && !guardianBundle;
 
   if (hasHardwareProtector === null) {
     return null;
@@ -221,7 +317,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
       {texts.accountBanner}
 
-      {reveal === 'private-key' && !secret && (
+      {requiresAcknowledge && showButton && (
         <>
           <Alert
             type="warn"
@@ -241,6 +337,15 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         </>
       )}
 
+      {reveal === 'hot-key' && showButton && (
+        <Alert
+          type="warn"
+          title={t('hotKeyRevealWarningTitle')}
+          description={<p>{t('hotKeyRevealWarningBody')}</p>}
+          className="mb-4 rounded-lg"
+        />
+      )}
+
       {mainContent}
 
       {showButton && (
@@ -251,7 +356,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}
             disabled={
               isSubmitting ||
-              (reveal === 'private-key' && !privateKeyAcknowledged) ||
+              (requiresAcknowledge && !privateKeyAcknowledged) ||
               (hasHardwareProtector ? false : !passwordValue)
             }
             isLoading={isSubmitting}

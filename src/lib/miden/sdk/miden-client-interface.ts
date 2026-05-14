@@ -1,6 +1,7 @@
 import {
   Account,
   AccountFile,
+  AuthSecretKey,
   exportStore,
   importStore,
   InputNoteRecord,
@@ -15,6 +16,7 @@ import {
   TransactionRequest,
   TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
+import { Buffer } from 'buffer';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
@@ -34,7 +36,32 @@ import { ConsumeTransaction, SendTransaction } from '../db/types';
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
-import type { SignWordFunction } from '../guardian/signer';
+import type { CreatedGuardianKeys } from '../guardian/account';
+
+export interface GuardianAccountCreationResult {
+  accountId: string;
+  keys: CreatedGuardianKeys;
+}
+
+/**
+ * One Guardian account discovered + adopted via lookup-based recovery. The
+ * orchestrator does NOT rotate the hot signer at recovery time — the on-chain
+ * hot pubkey's secret is unrecoverable, but the wallet defers replacement
+ * until the user explicitly opts in (via the post-recovery banner on the
+ * home view). Vault.spawn persists `coldSecretKeyHex` under
+ * `accColdSecretKeyStrgKey(coldPublicKey)` and writes the WalletAccount
+ * with `requiresHotKeyRotation: true` and no `hotPublicKey` — the rotation
+ * flow (initiateReplaceHotKeyTransaction) generates the fresh hot key when
+ * the user clicks the banner.
+ */
+export interface RecoveredGuardianAccount {
+  accountId: string;
+  hdIndex: number;
+  coldPublicKey: string;
+  coldSecretKeyHex: string;
+}
+
+const MAX_RECOVERY_HD_INDEX = 20;
 
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
@@ -104,18 +131,23 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array): Promise<string> {
-    if (walletType === WalletType.Guardian) {
-      const { createGuardianAccount } = await import('../guardian/account');
-      const account = await createGuardianAccount(this.client, seed);
-      return getBech32AddressFromAccountId(account.id());
-    }
-
     const isPublic = walletType === WalletType.OnChain;
     const wallet: Account = await this.client.accounts.create({
       storage: isPublic ? 'public' : 'private',
       seed
     });
     return getBech32AddressFromAccountId(wallet.id());
+  }
+
+  /**
+   * Create a 3-key Guardian account. Returns the account ID alongside the hot
+   * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
+   * both before writing them to storage).
+   */
+  async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
+    const { createGuardianAccount } = await import('../guardian/account');
+    const { account, keys } = await createGuardianAccount(this.client, coldSeed);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
@@ -129,47 +161,86 @@ export class MidenClientInterface {
     return getBech32AddressFromAccountId(account.id());
   }
 
-  async importAccountBySeed(
-    walletType: WalletType,
-    seed: Uint8Array,
-    signWordFn: SignWordFunction,
-    getPublicKeyForCommitment: (commitment: string) => Promise<string>
-  ): Promise<string> {
-    if (walletType === WalletType.Guardian) {
-      console.log('Importing Guardian account from seed', seed);
-      try {
-        const [
-          { createGuardianAccount, getSignerDetailsFromAccount },
-          { MultisigService },
-          { DEFAULT_GUARDIAN_ENDPOINT }
-        ] = await Promise.all([
-          import('../guardian/account'),
-          import('../guardian/index'),
-          import('lib/miden-chain/constants')
-        ]);
-        // Derive the account ID against the default guardian so it matches the ID
-        // the account had at creation time. The user's custom guardian URL (persisted
-        // in GUARDIAN_URL_STORAGE_KEY) is picked up later by importAccountFromGuardian for the
-        // live state fetch.
-        const account = await createGuardianAccount(this.client, seed, true, DEFAULT_GUARDIAN_ENDPOINT);
-        console.log('[MidenClientInterface] Imported Guardian account from seed with ID:', account.id().toString());
-        const accountId = account.id().toString();
-        const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
-        await MultisigService.importAccountFromGuardian(
-          `0x${publicKey}`,
-          `0x${commitment}`,
-          signWordFn,
-          accountId,
-          this.client
-        );
-        return getBech32AddressFromAccountId(account.id());
-      } catch (error) {
-        console.log(error);
-        throw new Error('Failed to import Guardian account from seed');
+  async importAccountBySeed(seed: Uint8Array): Promise<string> {
+    return await this.importPublicMidenWalletFromSeed(seed);
+  }
+
+  /**
+   * Discover and adopt all Guardian accounts authorized by the cold keys
+   * derived from `mnemonic` against `guardianEndpoint`. Iterates HD indices
+   * 0..MAX-1 and stops at the first miss (no accounts returned for that
+   * cold commitment).
+   *
+   * Each match is adopted locally only: the on-chain Account state is
+   * decoded and inserted into the WASM client + the cold key registered in
+   * the keystore. The hot signer is NOT rotated here — the on-chain hot
+   * pubkey's secret is unrecoverable, but rotation is deferred to a
+   * user-triggered banner action on the home view (initiateReplaceHotKey).
+   * The persisted WalletAccount is flagged `requiresHotKeyRotation: true`
+   * and carries no `hotPublicKey` until the rotation completes.
+   *
+   * The orchestrator acquires the WASM client mutex granularly per op, so
+   * callers must NOT hold the outer lock.
+   *
+   * @param deriveColdSeed - Sync closure returning the HD-derived cold seed
+   *   for a given index. Supplied by Vault.spawn so the BIP-39 / HD-path
+   *   logic stays out of this module (avoids a vault → miden-client-interface
+   *   import cycle).
+   * @param guardianEndpoint - Operator the lookup is scoped to. Must match
+   *   the endpoint the account was originally registered with — account IDs
+   *   are content-hash bound to the guardian pubkey baked into storage.
+   */
+  async recoverGuardianAccountsBySeed(
+    deriveColdSeed: (hdIndex: number) => Uint8Array,
+    guardianEndpoint: string
+  ): Promise<RecoveredGuardianAccount[]> {
+    const [{ withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
+      import('../sdk/miden-client'),
+      import('@openzeppelin/miden-multisig-client')
+    ]);
+
+    const recovered: RecoveredGuardianAccount[] = [];
+
+    for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+      const coldSeed = deriveColdSeed(hdIndex);
+      const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
+      const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
+      const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
+
+      const lookupClient = new MultisigClient(this.client, { guardianEndpoint });
+      const lookupSigner = new EcdsaSigner(coldSk);
+      const matches = await lookupClient.recoverByKey(lookupSigner);
+
+      if (matches.length === 0) {
+        // First miss — assume no further accounts under this seed at this endpoint.
+        break;
+      }
+
+      for (const { state } of matches) {
+        // Decode the on-chain account state and adopt it locally so subsequent
+        // SDK calls (.load, executeForSummary) can resolve the account.
+        const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
+        const bech32 = await withWasmClientLock(async () => {
+          const acc = Account.deserialize(accountBytes);
+          await this.client.accounts.insert({ account: acc, overwrite: true });
+          await this.client.keystore.insert(acc.id(), coldSk);
+          return getBech32AddressFromAccountId(acc.id());
+        });
+
+        recovered.push({
+          accountId: bech32,
+          hdIndex,
+          coldPublicKey,
+          coldSecretKeyHex
+        });
       }
     }
 
-    return await this.importPublicMidenWalletFromSeed(seed);
+    if (recovered.length === 0) {
+      throw new Error('No Guardian accounts found at this guardian endpoint for this seed');
+    }
+
+    return recovered;
   }
 
   async importNoteBytes(noteBytes: Uint8Array) {

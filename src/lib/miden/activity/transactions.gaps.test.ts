@@ -677,7 +677,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
     guardianManager.isGuardianAccount.mockResolvedValueOnce(true);
     const fakeMultisigService = {
       createConsumeNotesProposal: jest.fn(async () => ({ id: 'proposal-1' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined })),
       sync: jest.fn(async () => {})
     };
     guardianManager.getOrCreateMultisigService.mockResolvedValueOnce(fakeMultisigService);

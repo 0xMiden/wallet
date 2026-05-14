@@ -10,7 +10,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { syncGuardianAccounts, zustandProvider } from './guardian-sync';
 
 const storeState: {
-  accounts: Array<{ publicKey: string; type: WalletType }>;
+  accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean }>;
   getPublicKeyForCommitment: jest.Mock;
   signWord: jest.Mock;
 } = {
@@ -98,5 +98,24 @@ describe('syncGuardianAccounts', () => {
 
     await expect(syncGuardianAccounts()).resolves.toBeUndefined();
     expect(goodSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips Guardian accounts that still require hot-key rotation (post-recovery, pre-activation)', async () => {
+    // Recovered accounts have requiresHotKeyRotation=true and no hotPublicKey
+    // until the Activate Device Key banner runs the cold-signed update_signers
+    // rotation. Sync would throw on the missing hotPublicKey gate inside
+    // getOrCreateMultisigService — skip them upstream so AutoSync stays quiet.
+    storeState.accounts = [
+      { publicKey: 'guardian-pending', type: WalletType.Guardian, requiresHotKeyRotation: true },
+      { publicKey: 'guardian-active', type: WalletType.Guardian }
+    ];
+    const sync = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await syncGuardianAccounts();
+
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider);
+    expect(sync).toHaveBeenCalledTimes(1);
   });
 });

@@ -241,6 +241,30 @@ export const useWalletStore = create<WalletStore>()(
       return res.privateKey;
     },
 
+    revealHotKey: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealHotKeyRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
+      return res.hotPrivateKey;
+    },
+
+    revealGuardianKeys: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealGuardianKeysRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealGuardianKeysResponse);
+      return {
+        coldPrivateKey: res.coldPrivateKey,
+        coldPublicKey: res.coldPublicKey,
+        hotPublicKey: res.hotPublicKey
+      };
+    },
+
     importAccount: async (privateKey, name) => {
       const res = await request({
         type: WalletMessageType.ImportAccountRequest,
@@ -304,6 +328,24 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.SignWordResponse);
       return res.signature;
+    },
+
+    persistNewHotKey: async (newHotPubKey, newHotCiphertext) => {
+      const res = await request({
+        type: WalletMessageType.PersistNewHotKeyRequest,
+        newHotPubKey,
+        newHotCiphertext
+      });
+      assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
+    },
+
+    swapHotKey: async (accountPublicKey, newHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey,
+        newHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
 
     getPublicKeyForCommitment: async commitment => {

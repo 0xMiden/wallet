@@ -12,7 +12,7 @@ import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
-import { withUnlocked } from './store';
+import { accountsUpdated, withUnlocked } from './store';
 
 // NOTE: `webextension-polyfill` throws at module load time when
 // `globalThis.chrome?.runtime?.id` is undefined (non-extension
@@ -76,6 +76,28 @@ const vaultGuardianProvider: GuardianAccountProvider = {
   signWord: async (publicKey: string, wordHex: string) => {
     return withUnlocked(async ({ vault }) => {
       return await vault.signWord(publicKey, wordHex);
+    });
+  },
+  persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
+    return withUnlocked(async ({ vault }) => {
+      await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
+    });
+  },
+  swapHotKey: async (accountPublicKey: string, newHotPubKey: string) => {
+    // Fire `accountsUpdated` after the vault swap so the SW's Effector store
+    // reflects the new hotPublicKey. Without this, storage is correct but the
+    // Effector snapshot served via frontStore stays at the pre-rotation
+    // accounts array — every popup that pulls state then sees the OLD
+    // hotPublicKey, builds a MultisigService bound to it, and signWord trips
+    // "Some storage item not found" against the now-removed old ciphertext.
+    // SW reload masks the bug because the Effector store reinitializes from
+    // storage on boot. Mirrors what Actions.swapHotKey does for the
+    // intercom-driven path; we don't route through Actions.swapHotKey here
+    // because importing actions.ts drags webextension-polyfill into the
+    // transaction-processor's init chain.
+    return withUnlocked(async ({ vault }) => {
+      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+      accountsUpdated(updated);
     });
   }
 };

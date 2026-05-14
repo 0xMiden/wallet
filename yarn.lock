@@ -2260,7 +2260,7 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.14.3", "@miden-sdk/miden-sdk@0.14.4":
+"@miden-sdk/miden-sdk@0.14.4", "@miden-sdk/miden-sdk@0.14.5":
   version "0.14.4"
   resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.4.tgz#be7496e6d2622b7f478768972f9896536db154cb"
   integrity sha512-Qt+3NfGRCyHP5zcD+m9bBqQz01zuAwZRUBkls09mi+tOPVT17sFWKLglQEtKdr3gPAFHLwz2Ja4Hp4adUKfLuA==
@@ -2361,20 +2361,20 @@
   resolved "https://registry.yarnpkg.com/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz#3dc35ba0f1e66b403c00b39344f870298ebb1c8e"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@openzeppelin/guardian-client@^0.14.3":
-  version "0.14.3"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.14.3.tgz#7aa4602ac99aab174e4764dafa1dfd600522d9c5"
-  integrity sha512-t1HW2LxB0YWB4JZB0L1O3Ue3+/VFipmtumHbgnQeWloflym3bg6dWV75zZkcPyLACURJliT3LIhdg/3w0tcA5Q==
+"@openzeppelin/guardian-client@0.14.6", "@openzeppelin/guardian-client@^0.14.6":
+  version "0.14.6"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.14.6.tgz#7e7c25b0a1270aa304d40d4b4cf025603ef128b6"
+  integrity sha512-+obykBGEzTfdjODfdhyrdrlFL8A5SQ6rfeuUBGz0RJE2BAGN2jn6IcrJzKddUECW/3hrLukLCAuhqdzdW/KaPg==
 
-"@openzeppelin/miden-multisig-client@^0.14.3":
-  version "0.14.3"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.14.3.tgz#f738f4ec80362a66fbd3e56cb6432d463852c682"
-  integrity sha512-kVBpEAU0cuAshVOGQ3RD+cFODxVr7dnipi1n7x2FCFmGTWktT8di441ZmPd3/qid1GEoG0Y8UaqrX+6v2YxCDw==
+"@openzeppelin/miden-multisig-client@0.14.6":
+  version "0.14.6"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.14.6.tgz#efddbea4b398ab7f44546dab86afeb3b5e582748"
+  integrity sha512-Ow0gwE2qUN3DDr1qnjRF+DV4dlBm+dqM+X/8hko9vdpKyP8ID5r7RN7Ui6gALFxiG7SlBZjoVD66LYFPHyyxwQ==
   dependencies:
-    "@miden-sdk/miden-sdk" "0.14.3"
+    "@miden-sdk/miden-sdk" "0.14.5"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.14.3"
+    "@openzeppelin/guardian-client" "^0.14.6"
 
 "@oxc-project/types@=0.124.0":
   version "0.124.0"

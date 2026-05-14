@@ -15,6 +15,9 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		7B8A15032FA8BC67006B631E /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 7B8A15022FA8BC67006B631E /* CryptoSwift */; };
+		7BC0FFEE2FAA000000000001 /* HotKeyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC0FFEF2FAA000000000001 /* HotKeyPlugin.swift */; };
+		7BECE3022FA7691500F466A5 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = 7BECE3012FA7691500F466A5 /* P256K */; settings = {ATTRIBUTES = (Required, ); }; };
 		83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6B2865F76F213517CFCCD1 /* AppViewController.swift */; };
 		B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */; };
 		C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */; };
@@ -32,6 +35,7 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		7BC0FFEF2FAA000000000001 /* HotKeyPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HotKeyPlugin.swift; sourceTree = "<group>"; };
 		873F0344C8952CB5585102E0 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BarcodeScannerPlugin.swift; sourceTree = "<group>"; };
@@ -43,6 +47,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				7BECE3022FA7691500F466A5 /* P256K in Frameworks */,
+				7B8A15032FA8BC67006B631E /* CryptoSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,6 +85,7 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */,
+				7BC0FFEF2FAA000000000001 /* HotKeyPlugin.swift */,
 				C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */,
 				1A6B2865F76F213517CFCCD1 /* AppViewController.swift */,
 				873F0344C8952CB5585102E0 /* App.entitlements */,
@@ -89,7 +96,6 @@
 		7BF04FDF2F1F799A005E306E /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
-				BFB20C26958B0AB36D108D0E /* Pods-App.release.xcconfig */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -112,6 +118,8 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
+				7BECE3012FA7691500F466A5 /* P256K */,
+				7B8A15022FA8BC67006B631E /* CryptoSwift */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -144,6 +152,8 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
+				7BECE3002FA7691500F466A5 /* XCRemoteSwiftPackageReference "swift-secp256k1" */,
+				7B8A15012FA8BC67006B631E /* XCRemoteSwiftPackageReference "CryptoSwift" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -177,6 +187,7 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */,
+				7BC0FFEE2FAA000000000001 /* HotKeyPlugin.swift in Sources */,
 				C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */,
 				83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */,
 			);
@@ -391,11 +402,40 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		7B8A15012FA8BC67006B631E /* XCRemoteSwiftPackageReference "CryptoSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzyzanowskim/CryptoSwift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.10.0;
+			};
+		};
+		7BECE3002FA7691500F466A5 /* XCRemoteSwiftPackageReference "swift-secp256k1" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/21-DOT-DEV/swift-secp256k1.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.23.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		4D22ABE82AF431CB00220026 /* CapApp-SPM */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
+		};
+		7B8A15022FA8BC67006B631E /* CryptoSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7B8A15012FA8BC67006B631E /* XCRemoteSwiftPackageReference "CryptoSwift" */;
+			productName = CryptoSwift;
+		};
+		7BECE3012FA7691500F466A5 /* P256K */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7BECE3002FA7691500F466A5 /* XCRemoteSwiftPackageReference "swift-secp256k1" */;
+			productName = P256K;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

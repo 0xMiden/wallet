@@ -136,6 +136,11 @@ export interface WalletActions {
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  revealGuardianKeys: (
+    accountPublicKey: string,
+    password?: string
+  ) => Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }>;
   importAccount: (privateKey: string, name?: string) => Promise<string>;
 
   // Settings actions
@@ -145,6 +150,8 @@ export interface WalletActions {
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 

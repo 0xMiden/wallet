@@ -164,6 +164,22 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.RevealPrivateKeyResponse,
         privateKey: privateKey ?? ''
       };
+    case WalletMessageType.RevealHotKeyRequest: {
+      const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.RevealHotKeyResponse,
+        hotPrivateKey: hotPrivateKey ?? ''
+      };
+    }
+    case WalletMessageType.RevealGuardianKeysRequest: {
+      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.RevealGuardianKeysResponse,
+        coldPrivateKey: keys?.coldPrivateKey ?? '',
+        coldPublicKey: keys?.coldPublicKey ?? '',
+        hotPublicKey: keys?.hotPublicKey
+      };
+    }
     case WalletMessageType.RevealMnemonicRequest:
       const mnemonic = await Actions.revealMnemonic(req.password);
       return {
@@ -212,6 +228,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature
+      };
+    case WalletMessageType.PersistNewHotKeyRequest:
+      await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
+      return {
+        type: WalletMessageType.PersistNewHotKeyResponse
+      };
+    case WalletMessageType.SwapHotKeyRequest:
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+      return {
+        type: WalletMessageType.SwapHotKeyResponse
       };
     case WalletMessageType.GetPublicKeyForCommitmentRequest:
       const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);

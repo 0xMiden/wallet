@@ -239,6 +239,14 @@ export function revealPrivateKey(accPubKeyCommitment: string, password?: string)
   return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
 }
 
+export function revealHotKey(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+}
+
+export function revealGuardianKeys(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealGuardianKeys(accountPublicKey, password));
+}
+
 export function revealPublicKey(_accPublicKey: string) {}
 
 export function removeAccount(_accPublicKey: string, _password: string) {}
@@ -301,6 +309,24 @@ export function signTransaction(publicKey: string, signingInputs: string) {
 export function signWord(publicKey: string, wordHex: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.signWord(publicKey, wordHex);
+  });
+}
+
+export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {
+  return withUnlocked(async ({ vault }) => {
+    await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
+  });
+}
+
+export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {
+  return withUnlocked(async ({ vault }) => {
+    const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+    // Push the updated WalletAccount[] into the Effector store so the
+    // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
+    // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
+    // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
+    // re-binds against the old hot key.
+    accountsUpdated(updated);
   });
 }
 

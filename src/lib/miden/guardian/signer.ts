@@ -6,13 +6,20 @@ export type SignWordFunction = (publicKey: string, wordHex: string) => Promise<s
 export class WalletSigner implements Signer {
   readonly commitment: string;
   readonly publicKey: string;
-  readonly scheme: SignatureScheme = 'falcon';
+  readonly scheme: SignatureScheme;
   private signWordFn: (wordHex: string) => Promise<string>;
 
-  constructor(publicKey: string, commitment: string, signWordFn: SignWordFunction) {
+  constructor(publicKey: string, commitment: string, signWordFn: SignWordFunction, scheme: SignatureScheme = 'ecdsa') {
     this.publicKey = publicKey;
     this.commitment = commitment;
-    this.signWordFn = (wordHex: string) => signWordFn(commitment.slice(2), wordHex);
+    this.scheme = scheme;
+    // Vault.signWord looks up the stored hot ciphertext by hotPublicKey (the
+    // 33-byte compressed pubkey hex), NOT by commitment — see
+    // accAuthSecretKeyStrgKey(keys.hotPublicKey) in vault.ts persistGuardianKeys.
+    // The legacy Falcon path keyed storage by commitment, which was equivalent
+    // for that scheme but broke once Phase 2 standardized on hotPublicKey.
+    const pubKeyNoPrefix = publicKey.startsWith('0x') ? publicKey.slice(2) : publicKey;
+    this.signWordFn = (wordHex: string) => signWordFn(pubKeyNoPrefix, wordHex);
   }
 
   async signAccountIdWithTimestamp(accountId: string, timestamp: number): Promise<string> {

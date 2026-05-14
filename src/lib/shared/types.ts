@@ -38,6 +38,10 @@ export enum WalletMessageType {
   RevealViewKeyResponse = 'REVEAL_VIEW_KEY_RESPONSE',
   RevealPrivateKeyRequest = 'REVEAL_PRIVATE_KEY_REQUEST',
   RevealPrivateKeyResponse = 'REVEAL_PRIVATE_KEY_RESPONSE',
+  RevealHotKeyRequest = 'REVEAL_HOT_KEY_REQUEST',
+  RevealHotKeyResponse = 'REVEAL_HOT_KEY_RESPONSE',
+  RevealGuardianKeysRequest = 'REVEAL_GUARDIAN_KEYS_REQUEST',
+  RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
   RemoveAccountRequest = 'REMOVE_ACCOUNT_REQUEST',
@@ -58,6 +62,10 @@ export enum WalletMessageType {
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
   SignWordRequest = 'SIGN_WORD_REQUEST',
   SignWordResponse = 'SIGN_WORD_RESPONSE',
+  PersistNewHotKeyRequest = 'PERSIST_NEW_HOT_KEY_REQUEST',
+  PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
+  SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
+  SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -274,6 +282,16 @@ export interface WalletAccount {
   isPublic: boolean;
   type: WalletType;
   hdIndex: number;
+  // Set on Guardian accounts created with the 3-key model (hot + cold + guardian).
+  // Absent on non-Guardian accounts and on legacy single-signer Guardian records
+  // produced before the migration; consumers should treat absence as "not 3-key".
+  hotPublicKey?: string;
+  coldPublicKey?: string;
+  // True for Guardian accounts adopted via seed-phrase recovery — the on-chain
+  // hot signer's secret is unrecoverable, so the wallet defers replacement to
+  // a user-triggered rotation (banner on the home view). Cleared by Vault.swapHotKey
+  // once the cold+guardian-signed update_signers tx lands on-chain.
+  requiresHotKeyRotation?: boolean;
 }
 
 export interface WalletNetwork {
@@ -365,6 +383,30 @@ export interface RevealPrivateKeyRequest extends WalletMessageBase {
 export interface RevealPrivateKeyResponse extends WalletMessageBase {
   type: WalletMessageType.RevealPrivateKeyResponse;
   privateKey: string;
+}
+
+export interface RevealHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.RevealHotKeyRequest;
+  accountPublicKey: string;
+  password?: string;
+}
+
+export interface RevealHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.RevealHotKeyResponse;
+  hotPrivateKey: string;
+}
+
+export interface RevealGuardianKeysRequest extends WalletMessageBase {
+  type: WalletMessageType.RevealGuardianKeysRequest;
+  accountPublicKey: string;
+  password?: string;
+}
+
+export interface RevealGuardianKeysResponse extends WalletMessageBase {
+  type: WalletMessageType.RevealGuardianKeysResponse;
+  coldPrivateKey: string;
+  coldPublicKey: string;
+  hotPublicKey?: string;
 }
 
 export interface RevealMnemonicRequest extends WalletMessageBase {
@@ -482,6 +524,26 @@ export interface SignWordRequest extends WalletMessageBase {
 export interface SignWordResponse extends WalletMessageBase {
   type: WalletMessageType.SignWordResponse;
   signature: string;
+}
+
+export interface PersistNewHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.PersistNewHotKeyRequest;
+  newHotPubKey: string;
+  newHotCiphertext: string;
+}
+
+export interface PersistNewHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.PersistNewHotKeyResponse;
+}
+
+export interface SwapHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.SwapHotKeyRequest;
+  accountPublicKey: string;
+  newHotPubKey: string;
+}
+
+export interface SwapHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.SwapHotKeyResponse;
 }
 
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
@@ -683,6 +745,8 @@ export type WalletRequest =
   | RevealPublicKeyRequest
   | RevealViewKeyRequest
   | RevealPrivateKeyRequest
+  | RevealHotKeyRequest
+  | RevealGuardianKeysRequest
   | RevealMnemonicRequest
   | RemoveAccountRequest
   | EditAccountRequest
@@ -694,6 +758,8 @@ export type WalletRequest =
   | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
+  | PersistNewHotKeyRequest
+  | SwapHotKeyRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -733,6 +799,8 @@ export type WalletResponse =
   | RevealPublicKeyResponse
   | RevealViewKeyResponse
   | RevealPrivateKeyResponse
+  | RevealHotKeyResponse
+  | RevealGuardianKeysResponse
   | RevealMnemonicResponse
   | RemoveAccountResponse
   | EditAccountResponse
@@ -744,6 +812,8 @@ export type WalletResponse =
   | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse
+  | PersistNewHotKeyResponse
+  | SwapHotKeyResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse
