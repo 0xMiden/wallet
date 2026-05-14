@@ -125,6 +125,34 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     return true;
   }, [cardStack.length, goBack, onClose]);
 
+  // Dismiss any stale completion modal on send-flow entry.
+  //
+  // After PR #230, the TransactionProgressModal auto-dismiss is gated on
+  // `lastCompletedTxHash !== null` so a successful tx's "Done" screen stays
+  // visible until the user explicitly taps Done. The modal renders as
+  // `fixed inset-0` with `zIndex: 9999` and no `pointer-events: none` —
+  // so while it's open it intercepts every click in the viewport.
+  //
+  // In a stress test (and in any user flow that starts a second send
+  // without first dismissing the modal), navigating to `/send` while the
+  // previous tx's completion modal is still up blocks the SelectToken
+  // tile from being clicked — Playwright sees `locator.click` time out
+  // against `getByTestId('send-flow').locator('div.cursor-pointer')`.
+  //
+  // Entering /send is a clear "I'm starting a new transaction" signal,
+  // equivalent to tapping Done on the previous completion. We only clear
+  // when `lastCompletedTxHash !== null` so in-flight modals (where the
+  // user has navigated mid-tx) are not touched.
+  useEffect(() => {
+    const state = useWalletStore.getState();
+    if (state.lastCompletedTxHash !== null) {
+      state.closeTransactionModal(true);
+      state.setLastCompletedTxHash(null);
+    }
+    // Intentionally empty deps — run once on send-flow entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onGenerateTransaction = useCallback(async () => {
     // On mobile, open the modal and go back to home
     // The modal handles the entire transaction flow
