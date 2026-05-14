@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.5 (TBD)
+
+### Fixes
+
+* [FIX][all] Stale transaction-completion modal no longer blocks subsequent sends. After PR #230 the `TransactionProgressModal` auto-dismiss was correctly gated on terminal-state signals so the "Tx Completed → View on Midenscan" screen wouldn't be ripped away when the success-path `navigate('/')` fires after a long local prove — but with no other dismissal path the modal stayed up as a full-viewport `zIndex: 9999` overlay until the user explicitly tapped **Done**. Stress tests (and any user starting a second send before tapping Done) navigated to `/send`, found the SelectToken tile blocked behind the modal, and saw `locator.click` time out against `getByTestId('send-flow').locator('div.cursor-pointer')` in 80–99.5% of attempts. `SendManager` now closes any stale completion modal on entry — an explicit "starting a new tx" signal equivalent to tapping Done. In-flight modals (where `lastCompletedTxHash` is still null) are untouched.
+
 ## 1.14.4 (TBD)
 
 ### Fixes
