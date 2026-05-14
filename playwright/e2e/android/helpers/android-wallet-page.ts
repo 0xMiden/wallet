@@ -403,6 +403,12 @@ export class AndroidWalletPage implements WalletPage {
     await sleep(3_000);
   }
 
+  async setDelegateProofEnabled(enabled: boolean): Promise<void> {
+    await this.cdp.eval(
+      `localStorage.setItem('delegate_proof_setting_key', ${JSON.stringify(JSON.stringify(enabled))});`
+    );
+  }
+
   private async triggerNavbarAction(timeoutMs: number): Promise<void> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {

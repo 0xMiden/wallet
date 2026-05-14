@@ -81,19 +81,26 @@ async function runSync(): Promise<void> {
     const exists = await vault.isExist();
     if (!exists) return;
 
-    // [Lock 1] THE sync for the whole app. Bounded by SYNC_TIMEOUT_MS so it
-    // can't stall downstream consumers; a breach bumps the circuit-breaker
-    // counter and we continue (downstream read paths should still run so the
-    // UI gets whatever state is locally cached).
+    // [Lock 1] THE sync for the whole app. The timeout bounds only the
+    // RPC itself, NOT the lock acquisition — when a local prove is in
+    // flight it holds the wasm-client mutex for the full prove window
+    // (~5–15 s on a typical send/consume), and previously that contention
+    // looked indistinguishable from a real node-unreachable timeout. The
+    // banner that fires on `markConnectivityIssue('node')` is the
+    // user-visible "cannot reach the miden node" toast, and seeing it
+    // every time a local-prove tx runs is the wrong UX. With the bound
+    // around the RPC only, a queued sync waits patiently behind the
+    // prove (which itself yields the lock via `yieldWasmClientLock`
+    // around the offscreen-doc step, so the wait is short), then runs
+    // its actual network call — and only THAT call's slowness fires
+    // the timeout. A subsequent sync after the prove yields is the one
+    // that clears any active issue, so the steady state is correct.
     try {
-      await withTimeout(
-        withWasmClientLock(async () => {
-          const client = await getMidenClient();
-          if (!client) return;
-          await client.syncState();
-        }),
-        SYNC_TIMEOUT_MS
-      );
+      await withWasmClientLock(async () => {
+        const client = await getMidenClient();
+        if (!client) return;
+        await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
+      });
       consecutiveSyncFailures = 0;
       // Sync went through end-to-end: the user has connectivity AND the
       // node is responding. Clear any active reachability category. We
@@ -111,7 +118,9 @@ async function runSync(): Promise<void> {
       // Skip semantic / non-transport errors so a malformed-response bug
       // in the SDK doesn't masquerade as connectivity. Suppressing the
       // synthetic `Sync timeout` from withTimeout is intentional —
-      // timeouts are themselves transport-shaped.
+      // timeouts here mean the RPC didn't answer within the budget
+      // (lock-contention is no longer counted, since the bound is now
+      // around the RPC only).
       if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
         markConnectivityIssue(classifySyncError(err));
       }

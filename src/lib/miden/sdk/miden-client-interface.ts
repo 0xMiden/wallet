@@ -376,13 +376,18 @@ export class MidenClientInterface {
           // produces a tx with zero input notes (the prove succeeds, then
           // completeConsumeTransaction trips on `inputNotes().notes()[0]`
           // being undefined).
+          recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
           const inputNoteRecord = await inner.getInputNote(noteId);
+          recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
           if (!inputNoteRecord) {
             throw new Error(`Note ${noteId} not found in store`);
           }
           const note: Note = inputNoteRecord.toNote();
+          recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
           const request: TransactionRequest = await inner.newConsumeTransactionRequest([note]);
+          recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
           const acctId = resolveAccountId(wasm, accountId);
+          recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
           return { accountId: acctId, request };
         });
       }
@@ -466,7 +471,9 @@ export class MidenClientInterface {
     cacheParams?: SpeculationParams
   ): Promise<TransactionResult> {
     try {
+      recordProveTiming('proveLocallyViaOffscreen entered');
       const wasm = await getWasmOrThrow();
+      recordProveTiming('proveLocallyViaOffscreen got wasm');
       const withInner = (
         this.client as unknown as {
           _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
@@ -475,6 +482,7 @@ export class MidenClientInterface {
       if (typeof withInner !== 'function') {
         throw new Error('_withInnerWebClient missing on linked SDK — rebuild + reinstall @miden-sdk/miden-sdk.');
       }
+      recordProveTiming('proveLocallyViaOffscreen got withInner');
 
       // Speculation cache hit path: if the popup pre-proved this exact tx
       // while the user was on the review screen, the SpeculationManager
@@ -518,19 +526,37 @@ export class MidenClientInterface {
       // TransactionResult handle out of the first block is safe: it's a
       // wasm-bindgen reference, alive as long as the JS reference exists,
       // and the next block re-uses it without a fresh WASM call.
+      recordProveTiming('proveLocallyViaOffscreen entering execute under SDK lock');
+      const tExec = performance.now();
       const txResult = (await withInner.call(this.client, async (inner: any) => {
+        recordProveTiming('proveLocallyViaOffscreen inside SDK lock; building exec args');
         const { accountId, request } = await buildExecuteArgs(wasm, inner);
-        return (await inner.executeTransaction(accountId, request)) as TransactionResult;
+        recordProveTiming('proveLocallyViaOffscreen built exec args; calling executeTransaction');
+        const r = (await inner.executeTransaction(accountId, request)) as TransactionResult;
+        recordProveTiming(
+          `proveLocallyViaOffscreen executeTransaction returned in ${(performance.now() - tExec).toFixed(0)}ms`
+        );
+        return r;
       })) as TransactionResult;
+      recordProveTiming('proveLocallyViaOffscreen exited SDK-lock execute block; serializing');
       const txResultBytes = txResult.serialize();
+      recordProveTiming(
+        `proveLocallyViaOffscreen serialized txResult (${txResultBytes.length} bytes); yielding lock + proveViaOffscreen`
+      );
       // Yield the SW's WASM lock during the offscreen prove. The SDK's
       // _withInnerWebClient lock is already released here (we left the
       // first block), so background sync can run.
       const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
+      recordProveTiming(
+        `proveLocallyViaOffscreen proveViaOffscreen returned in ${durationMs.toFixed(0)}ms (lock reacquired); submitting + applying`
+      );
       await withInner.call(this.client, async (inner: any) => {
+        recordProveTiming('proveLocallyViaOffscreen inside SDK lock; deserializing proven + submit');
         const proven = wasm.ProvenTransaction.deserialize(new Uint8Array(provenBytes));
         const height = await inner.submitProvenTransaction(proven, txResult);
+        recordProveTiming(`proveLocallyViaOffscreen submit returned height=${height}; applying`);
         await inner.applyTransaction(txResult, height);
+        recordProveTiming('proveLocallyViaOffscreen apply returned');
       });
       console.log(`[mt-offscreen-prove] tx_completed prove_ms=${durationMs.toFixed(0)}`);
       return txResult;
