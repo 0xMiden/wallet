@@ -128,25 +128,38 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   // Dismiss any stale completion modal on send-flow entry.
   //
   // After PR #230, the TransactionProgressModal auto-dismiss is gated on
-  // `lastCompletedTxHash !== null` so a successful tx's "Done" screen stays
-  // visible until the user explicitly taps Done. The modal renders as
-  // `fixed inset-0` with `zIndex: 9999` and no `pointer-events: none` —
-  // so while it's open it intercepts every click in the viewport.
+  // terminal-state signals so the "Done" screen stays visible until the
+  // user explicitly taps Done. The modal renders as `fixed inset-0` with
+  // `zIndex: 9999` and no `pointer-events: none` — while it's open it
+  // intercepts every click in the viewport.
   //
-  // In a stress test (and in any user flow that starts a second send
-  // without first dismissing the modal), navigating to `/send` while the
-  // previous tx's completion modal is still up blocks the SelectToken
-  // tile from being clicked — Playwright sees `locator.click` time out
-  // against `getByTestId('send-flow').locator('div.cursor-pointer')`.
+  // The modal is shared across the wallet: SendManager opens it for
+  // sends, Receive opens it for claims, ConfirmPage opens it for dApp
+  // requests. Any of those completing leaves it sticky. In stress and in
+  // any user flow that initiates a send while a previous send/claim/dApp
+  // tx's completion screen is still up, navigating to `/send` finds the
+  // SelectToken tile blocked behind the modal — Playwright sees
+  // `locator.click` time out against
+  // `getByTestId('send-flow').locator('div.cursor-pointer')`. An
+  // earlier fix gated on `lastCompletedTxHash !== null`, which only
+  // catches the send-completion case (that hash is set by SendManager's
+  // onSubmit only) — claim/dApp completions still produced sticky
+  // modals because they leave the hash null but still flip
+  // `transactionComplete` true via the Dexie queue going empty.
   //
   // Entering /send is a clear "I'm starting a new transaction" signal,
-  // equivalent to tapping Done on the previous completion. We only clear
-  // when `lastCompletedTxHash !== null` so in-flight modals (where the
-  // user has navigated mid-tx) are not touched.
+  // equivalent to tapping Done on whatever was open. Close
+  // unconditionally on mount: in-flight modals can't reach this code
+  // path here because PR #217's `pathname`-watching effect in the modal
+  // already auto-dismisses non-terminal opens on navigation away from
+  // `settledPathname`, so the only `isTransactionModalOpen === true`
+  // state reachable at SendManager-mount time is terminal.
   useEffect(() => {
     const state = useWalletStore.getState();
-    if (state.lastCompletedTxHash !== null) {
+    if (state.isTransactionModalOpen) {
       state.closeTransactionModal(true);
+    }
+    if (state.lastCompletedTxHash !== null) {
       state.setLastCompletedTxHash(null);
     }
     // Intentionally empty deps — run once on send-flow entry.
