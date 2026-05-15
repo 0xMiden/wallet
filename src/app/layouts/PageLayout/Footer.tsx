@@ -107,7 +107,7 @@ const Footer: FC<FooterProps> = ({ historyBadge }) => {
     // the toolbar. Extension / desktop don't need the mobile
     // padding either.
     <footer className="w-full px-4 pb-3 pt-2 md:px-6">
-      <div className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] bg-pure-white/60 dark:bg-[#1e1e1e] backdrop-blur-md dark:backdrop-blur-none">
+      <div className="flex items-center rounded-[26px] px-2 py-2 shadow-[0px_4px_20px_0px_rgba(0,0,0,0.08)] bg-pure-white/60 dark:bg-[#3f3f3f99] backdrop-blur-md">
         <FooterNavButton Icon={HomeIcon} linkTo={'/'} onClick={onHomeClick} name={t('home')} />
         <FooterNavButton
           Icon={ActivityIcon}
