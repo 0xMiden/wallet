@@ -66,9 +66,9 @@ const DAppConnectionModal: FC<DAppConnectionModalProps> = ({ request, onResult }
           <p className="text-text-muted mb-4">{t('dappConnectionRequest')}</p>
 
           {/* Account to connect */}
-          <div className="bg-gray-50 rounded-xl p-4 mb-4">
-            <p className="text-xs text-text-muted mb-1">{t('account')}</p>
-            <p className="text-sm font-mono text-black">{shortAccountId || t('noAccountSelected')}</p>
+          <div className="bg-grey-50 rounded-xl p-4 mb-4">
+            <p className="text-xs text-grey-500 mb-1">{t('account')}</p>
+            <p className="text-sm font-inter text-grey-800">{shortAccountId || t('noAccountSelected')}</p>
           </div>
 
           {/* Network */}

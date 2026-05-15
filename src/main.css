@@ -1,39 +1,3 @@
-/**
- * Geist fonts
- */
-
-@font-face {
-  font-family: 'Geist';
-  src: url('../fonts/Geist/webfonts/Geist[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist';
-  src: url('../fonts/Geist/webfonts/Geist-Italic[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('../fonts/GeistMono/webfonts/GeistMono[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('../fonts/GeistMono/webfonts/GeistMono-Italic[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: italic;
-  font-display: swap;
-}
-
 * {
   font-variant-ligatures: none;
 }
@@ -118,11 +82,31 @@ button:disabled,
  * TailwindCSS
  */
 
+@import 'tailwindcss';
+@import 'tw-animate-css';
 @config '../tailwind.config.ts';
 @source "../src/**/*.{js,jsx,ts,tsx}";
 @source "../public/**/*.html";
-@import 'tailwindcss';
-@import 'tw-animate-css';
+
+@theme {
+  --font-sans:
+    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif;
+  --font-heading:
+    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-inter: 'Inter', system-ui, sans-serif;
+  --default-font-family: var(--font-sans);
+}
+
+/* Force Inter as the inherited default. Tailwind v4's preflight should set this
+ * via --default-font-family, but the @config + JS-theme path doesn't reliably
+ * populate it, so pin it explicitly here. */
+html,
+body {
+  font-family:
+    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif;
+}
 
 /**
  * CSS custom properties for shadcn/ui primitives
