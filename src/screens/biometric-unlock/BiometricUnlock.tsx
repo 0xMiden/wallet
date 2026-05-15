@@ -3,16 +3,11 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { ReactComponent as BreadLogo } from 'app/icons/brand/bread.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
-// `?url` — see Unlock.tsx for why the suffix is load-bearing.
-import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url';
-import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { BiometricAvailability, checkBiometricAvailability, unlockWithBiometric } from 'lib/biometric';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
-
-const WalletLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? LogoVerticalTitleDevnet : LogoVerticalTitle;
 
 export interface BiometricUnlockProps {
   onSuccess: (password: string) => void;
@@ -84,9 +79,10 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
   return (
     <SimplePageLayout
       icon={
-        <>
-          <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
-        </>
+        <div className="flex flex-col items-center gap-2">
+          <BreadLogo style={{ width: 80, height: 140 }} />
+          <span className="text-3xl font-semibold font-heading text-heading-gray">Bread</span>
+        </div>
       }
     >
       <div className="flex flex-col items-center justify-center grow px-8 py-8">
