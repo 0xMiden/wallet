@@ -155,26 +155,10 @@ export default {
 
     // Custom font families with Geist
     fontFamily: {
-      sans: [
-        "'Geist'",
-        'system-ui',
-        '-apple-system',
-        'BlinkMacSystemFont',
-        '"Segoe UI"',
-        'Roboto',
-        '"Helvetica Neue"',
-        'Arial',
-        '"Noto Sans"',
-        'sans-serif',
-        '"Apple Color Emoji"',
-        '"Segoe UI Emoji"',
-        '"Segoe UI Symbol"',
-        '"Noto Color Emoji"'
-      ],
-      serif: ['Georgia', 'Cambria', '"Times New Roman"', 'Times', 'serif'],
-      mono: ["'Geist Mono'", 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
-      geist: ["'Geist'", 'system-ui', 'sans-serif'],
-      'geist-mono': ["'Geist Mono'", 'monospace']
+      sans: ['Inter'],
+      serif: ['Inter'],
+      mono: ['Inter'],
+      inter: ['Inter']
     },
 
     extend: {

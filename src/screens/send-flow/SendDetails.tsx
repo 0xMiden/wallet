@@ -477,7 +477,7 @@ export const OptionItem = ({
   value: boolean;
 }) => {
   return (
-    <div className="flex items-center justify-between font-geist">
+    <div className="flex items-center justify-between font-inter">
       <div className="flex items-center gap-3">
         {icon && (
           <div className="w-10 h-10 rounded-[10px] flex items-center justify-center shrink-0">

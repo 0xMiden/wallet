@@ -136,7 +136,7 @@ const Explore: FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden text-heading-gray font-geist">
+    <div className="flex flex-col h-full overflow-hidden text-heading-gray font-inter">
       <div className="flex-shrink-0">
         <ConnectivityIssueBanner />
         <ActivateHotKeyBanner />
