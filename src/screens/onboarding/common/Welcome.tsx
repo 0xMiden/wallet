@@ -3,13 +3,9 @@ import React from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as OnboardingLogoDevnet } from 'app/icons/v2/onboarding-logo-devnet.svg';
-import { ReactComponent as OnboardingLogoTestnet } from 'app/icons/v2/onboarding-logo.svg';
+import { ReactComponent as BreadLogo } from 'app/icons/brand/bread.svg';
 import { Button, ButtonVariant } from 'components/Button';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isMobile } from 'lib/platform';
-
-const OnboardingLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? OnboardingLogoDevnet : OnboardingLogoTestnet;
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
   onSubmit?: (action: Actions) => void;
@@ -21,10 +17,10 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center bg-app-bg max-w-full h-full" data-testid="onboarding-welcome">
-      <div className="flex flex-col items-center justify-center pt-[120px]">
+      <div className="flex flex-col items-center justify-center pt-30">
         <div className="flex flex-col items-center gap-6">
-          <OnboardingLogo style={{ width: 120, height: 100 }} />
-          <h1 className="text-5xl font-semibold mb-4 font-heading text-heading-gray">Miden Wallet</h1>
+          <BreadLogo style={{ width: 100, height: 174 }} />
+          <h1 className="text-5xl font-semibold mb-4 font-heading text-heading-gray">Bread</h1>
         </div>
         <p className="text-xl text-heading-gray/75 text-center leading-relaxed font-semibold">
           {t('privateTransactions')}
@@ -34,7 +30,7 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           {t('anywhere')}
         </p>
       </div>
-      <div className={clsx('w-full flex flex-col gap-2 px-4 mt-auto pb-4 pt-10', isMobile() ? 'pt-[120px]' : '')}>
+      <div className={clsx('w-full flex flex-col gap-2 px-4 mt-auto pb-4 pt-10', isMobile() ? 'pt-30' : '')}>
         <Button tabIndex={0} title={t('createANewWallet')} onClick={() => onSubmit?.('select-wallet-type')} />
         <Button
           id={'import-link'}

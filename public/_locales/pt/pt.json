@@ -323,7 +323,7 @@
   "setNewFaucetIdDescription": "Insira o ID de uma Faucet miden",
   "encryptedWalletFile": "Arquivo de carteira criptografado",
   "encryptedWalletFileDescription": "Digite sua senha para acessar seu arquivo criptografado da carteira. Desative o compartilhamento de tela. Não compartilhe com ninguém.",
-  "encryptedWalletFileConfirmation": "Não compartilharei meu arquivo criptografado da carteira com ninguém, incluindo a Miden Wallet.",
+  "encryptedWalletFileConfirmation": "Não compartilharei meu arquivo criptografado da carteira com ninguém, incluindo a Bread.",
   "editMidenFaucetId": "Editar ID da Faucet Miden",
   "exportWalletFile": "Exportar arquivo de carteira",
   "privacyScalesBetter": "A privacidade é melhor dimensionada",

@@ -321,7 +321,7 @@
   "setNewFaucetIdDescription": "输入midenFaucet的ID",
   "encryptedWalletFile": "加密钱包文件",
   "encryptedWalletFileDescription": "输入您的密码以访问您的加密钱包文件。关闭屏幕共享。不要与任何人分享。",
-  "encryptedWalletFileConfirmation": "我不会与任何人分享我的加密钱包文件，包括 Miden Wallet。",
+  "encryptedWalletFileConfirmation": "我不会与任何人分享我的加密钱包文件，包括 Bread。",
   "editMidenFaucetId": "编辑 Miden Faucet ID",
   "exportWalletFile": "导出钱包文件",
   "privacyScalesBetter": "隐私规模更好",

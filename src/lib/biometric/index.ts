@@ -149,7 +149,7 @@ export async function authenticate(reason: string): Promise<boolean> {
     } else {
       await (plugin as typeof import('capacitor-native-biometric').NativeBiometric).verifyIdentity({
         reason,
-        title: 'Miden Wallet',
+        title: 'Bread',
         subtitle: reason,
         description: '',
         useFallback: true,
@@ -318,7 +318,7 @@ export async function unlockWithBiometric(reason: string): Promise<string | null
     } else {
       await (plugin as typeof import('capacitor-native-biometric').NativeBiometric).verifyIdentity({
         reason,
-        title: 'Miden Wallet',
+        title: 'Bread',
         subtitle: reason,
         description: '',
         useFallback: false

@@ -5,7 +5,7 @@
   },
   "appName": {
     "message": "Miden - Portefeuille Miden",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Un portefeuille de navigateur pour la blockchain Miden",
@@ -104,7 +104,7 @@
   },
   "changelogTitle": {
     "message": "Portefeuille Miden mis à jour",
-    "englishSource": "Miden Wallet updated"
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "Mise à jour",
@@ -306,7 +306,7 @@
   },
   "resetExtensionConfirmation": {
     "message": "Êtes-vous sûr de vouloir réinitialiser le portefeuille Miden ?\nEn conséquence, toutes vos données seront supprimées.",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "Réessayer",
@@ -659,7 +659,7 @@
   },
   "aboutMidenWallet": {
     "message": "À propos du portefeuille Miden",
-    "englishSource": "About Miden Wallet"
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Préférences",
@@ -1330,7 +1330,7 @@
   },
   "midenWallet": {
     "message": "Portefeuille Miden",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "Transactions privées.",
@@ -1692,8 +1692,8 @@
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "Je ne partagerai mon fichier de portefeuille crypté avec personne, y compris Miden Wallet.",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "message": "Je ne partagerai mon fichier de portefeuille crypté avec personne, y compris Bread.",
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "Entrez un mot de passe pour crypter votre fichier de portefeuille.",
@@ -3059,11 +3059,11 @@
   },
   "pinExtensionTitle": {
     "message": "Portefeuille Pin Miden",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "Cliquez sur l'icône du puzzle et épinglez Miden Wallet pour un accès rapide depuis votre barre d'outils.",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "message": "Cliquez sur l'icône du puzzle et épinglez Bread pour un accès rapide depuis votre barre d'outils.",
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "J'ai compris",

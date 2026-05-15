@@ -4,8 +4,8 @@
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "Miden - Miden Wallet",
-    "englishSource": "Miden Wallet"
+    "message": "Miden - Bread",
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Eine Browser-Wallet für die Miden-Blockchain",
@@ -103,8 +103,8 @@
     "englishSource": "Got it"
   },
   "changelogTitle": {
-    "message": "Miden Wallet aktualisiert",
-    "englishSource": "Miden Wallet updated"
+    "message": "Bread aktualisiert",
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "Aktualisieren",
@@ -305,8 +305,8 @@
     "englishSource": "Reset Extension"
   },
   "resetExtensionConfirmation": {
-    "message": "Sind Sie sicher, dass Sie das Miden Wallet zurücksetzen möchten?\nDadurch werden alle Ihre Daten gelöscht.",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "message": "Sind Sie sicher, dass Sie das Bread zurücksetzen möchten?\nDadurch werden alle Ihre Daten gelöscht.",
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "Wiederholen",
@@ -658,8 +658,8 @@
     "englishSource": "About"
   },
   "aboutMidenWallet": {
-    "message": "Über Miden Wallet",
-    "englishSource": "About Miden Wallet"
+    "message": "Über Bread",
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Präferenzen",
@@ -1330,7 +1330,7 @@
   },
   "midenWallet": {
     "message": "Miden-Geldbörse",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "Private Transaktionen.",
@@ -1693,8 +1693,8 @@
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "Ich werde meine verschlüsselte Wallet-Datei mit niemandem teilen, auch nicht mit Miden Wallet.",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "message": "Ich werde meine verschlüsselte Wallet-Datei mit niemandem teilen, auch nicht mit Bread.",
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "Geben Sie ein Passwort ein, um Ihre Wallet-Datei zu verschlüsseln.",
@@ -3072,11 +3072,11 @@
   },
   "pinExtensionTitle": {
     "message": "Pin Miden-Geldbörse",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "Klicken Sie auf das Puzzle-Symbol und heften Sie Miden Wallet an, um über Ihre Symbolleiste schnell darauf zugreifen zu können.",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "message": "Klicken Sie auf das Puzzle-Symbol und heften Sie Bread an, um über Ihre Symbolleiste schnell darauf zugreifen zu können.",
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "Habe es",

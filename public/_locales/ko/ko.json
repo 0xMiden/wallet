@@ -322,7 +322,7 @@
   "setNewFaucetIdDescription": "미덴 Faucet의 ID를 입력하세요",
   "encryptedWalletFile": "암호화된 지갑 파일",
   "encryptedWalletFileDescription": "암호화된 지갑 파일에 접근하려면 비밀번호를 입력하세요. 화면 공유를 끄세요. 누구와도 공유하지 마세요.",
-  "encryptedWalletFileConfirmation": "나는 암호화된 지갑 파일을 Miden Wallet을 포함한 누구와도 공유하지 않을 것입니다.",
+  "encryptedWalletFileConfirmation": "나는 암호화된 지갑 파일을 Bread을 포함한 누구와도 공유하지 않을 것입니다.",
   "editMidenFaucetId": "Miden Faucet ID 편집",
   "exportWalletFile": "지갑 파일 내보내기",
   "privacyScalesBetter": "개인 정보 보호 수준이 향상됨",

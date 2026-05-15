@@ -5,7 +5,7 @@
   },
   "appName": {
     "message": "타노스 - 테조스 지갑",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Miden 블록체인용 브라우저 지갑",
@@ -104,7 +104,7 @@
   },
   "changelogTitle": {
     "message": "Miden 지갑이 업데이트되었습니다.",
-    "englishSource": "Miden Wallet updated"
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "업데이트",
@@ -306,7 +306,7 @@
   },
   "resetExtensionConfirmation": {
     "message": "정말로 Miden 지갑을 재설정하시겠습니까?\n결과적으로 모든 데이터가 삭제됩니다.",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "재시도",
@@ -659,7 +659,7 @@
   },
   "aboutMidenWallet": {
     "message": "Miden 지갑 소개",
-    "englishSource": "About Miden Wallet"
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "환경설정",
@@ -1330,7 +1330,7 @@
   },
   "midenWallet": {
     "message": "미덴 지갑",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "개인 거래.",
@@ -1693,8 +1693,8 @@
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "나는 암호화된 지갑 파일을 Miden Wallet을 포함한 누구와도 공유하지 않을 것입니다.",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "message": "나는 암호화된 지갑 파일을 Bread을 포함한 누구와도 공유하지 않을 것입니다.",
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "지갑 파일을 암호화하려면 비밀번호를 입력하세요.",
@@ -3072,11 +3072,11 @@
   },
   "pinExtensionTitle": {
     "message": "핀 미덴 지갑",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "도구 모음에서 빠르게 액세스하려면 퍼즐 아이콘을 클릭하고 Miden Wallet을 고정하세요.",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "message": "도구 모음에서 빠르게 액세스하려면 퍼즐 아이콘을 클릭하고 Bread을 고정하세요.",
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "알았어요",
