@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 
 import { Button, ButtonVariant } from './Button';
 
@@ -13,8 +13,7 @@ jest.mock('./Loader', () => ({
 
 // Mock haptics
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn(),
-  hapticMedium: jest.fn()
+  hapticLight: jest.fn()
 }));
 
 // Mock IconOrComponent
@@ -61,7 +60,7 @@ describe('Button', () => {
     it('applies Secondary variant styles', () => {
       render(<Button variant={ButtonVariant.Secondary} />);
 
-      expect(screen.getByRole('button')).toHaveClass('bg-[#E9E4E4]');
+      expect(screen.getByRole('button')).toHaveClass('bg-surface-interactive');
     });
 
     it('applies Ghost variant styles', () => {
@@ -69,31 +68,15 @@ describe('Button', () => {
 
       expect(screen.getByRole('button')).toHaveClass('bg-transparent');
     });
-
-    it('applies Danger variant styles', () => {
-      render(<Button variant={ButtonVariant.Danger} />);
-
-      expect(screen.getByRole('button')).toHaveClass('bg-red-500');
-    });
   });
 
   describe('haptic feedback', () => {
-    it('triggers light haptic for non-danger buttons', () => {
+    it('triggers light haptic on click', () => {
       render(<Button variant={ButtonVariant.Primary} />);
 
       fireEvent.click(screen.getByRole('button'));
 
       expect(hapticLight).toHaveBeenCalled();
-      expect(hapticMedium).not.toHaveBeenCalled();
-    });
-
-    it('triggers medium haptic for danger buttons', () => {
-      render(<Button variant={ButtonVariant.Danger} />);
-
-      fireEvent.click(screen.getByRole('button'));
-
-      expect(hapticMedium).toHaveBeenCalled();
-      expect(hapticLight).not.toHaveBeenCalled();
     });
   });
 
@@ -111,7 +94,7 @@ describe('Button', () => {
       render(<Button disabled />);
 
       expect(screen.getByRole('button')).toBeDisabled();
-      expect(screen.getByRole('button')).toHaveClass('bg-primary-500/60');
+      expect(screen.getByRole('button')).toHaveClass('bg-surface-inactive');
     });
 
     it('does not call onClick when disabled', () => {

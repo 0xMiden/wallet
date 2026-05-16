@@ -146,6 +146,7 @@ export default {
         'tx-earn': 'var(--tx-earn)',
         'rule-default': 'var(--rule-default)',
         'rule-strong': 'var(--rule-strong)',
+        'border-button': 'var(--color-border-button)',
         ...customColors,
         // Override primary from customColors with network-conditional values
         primary: primaryPalette
