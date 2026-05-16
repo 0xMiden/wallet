@@ -30,13 +30,8 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           </h1>
           <p className="text-lg leading-[130%] text-heading-gray text-center mt-4">{t('breadWalletDescription')}</p>
         </div>
-        <div className={clsx('w-full flex flex-col items-center gap-1 pb-6 shrink-0', isMobile() ? 'pt-8' : 'pt-6')}>
-          <Button
-            tabIndex={0}
-            className="w-full"
-            title={t('getStarted')}
-            onClick={() => onSubmit?.('select-wallet-type')}
-          />
+        <div className={clsx('w-full flex flex-col items-center gap-4 pb-6 shrink-0', isMobile() ? 'pt-8' : 'pt-6')}>
+          <Button tabIndex={0} title={t('getStarted')} onClick={() => onSubmit?.('select-wallet-type')} />
           <button
             id="import-link"
             type="button"

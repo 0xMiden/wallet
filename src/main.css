@@ -362,6 +362,7 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --tx-earn: #891db1;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
+    --color-border-button: #cbcbcb;
     --radius-sm: 8px;
     --radius-md-token: 12px;
     --radius-lg-token: 16px;
@@ -413,5 +414,6 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --tx-earn: #891db1;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
+    --color-border-button: #444444;
   }
 }
