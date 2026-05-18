@@ -10,7 +10,6 @@ import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { ReactComponent as QRIcon } from 'app/icons/qr-new.svg';
-import { Icon, IconName } from 'app/icons/v2';
 import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { QRCode } from 'components/QRCode';
@@ -34,7 +33,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { goBack, HistoryAction, navigate } from 'lib/woozie';
+import { HistoryAction, navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 export interface ReceiveProps {}
@@ -348,33 +347,20 @@ export const Receive: React.FC<ReceiveProps> = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
-      {/* Custom Header with back button, title, and QR icon */}
-      <div
-        className="flex flex-row px-4 items-center justify-between border-b border-grey-100"
-        style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
+      {/* Floating QR button — the back/title chrome is provided by
+          TabLayout's SegmentedActionBar; only the receive-specific QR
+          affordance survives. */}
+      <button
+        type="button"
+        className="absolute top-2 right-3 z-10 flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100"
+        aria-label={t('showQrCode')}
+        onClick={() => {
+          hapticLight();
+          setIsQRSheetOpen(true);
+        }}
       >
-        <button
-          type="button"
-          onClick={goBack}
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 cursor-pointer"
-          aria-label="Back"
-        >
-          <Icon name={IconName.ChevronLeft} size="sm" fill="currentColor" className="text-black" />
-        </button>
-        <h1 className="text-[20px] font-medium text-black">{t('receive')}</h1>
-
-        <button
-          type="button"
-          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 cursor-pointer"
-          aria-label={t('showQrCode')}
-          onClick={() => {
-            hapticLight();
-            setIsQRSheetOpen(true);
-          }}
-        >
-          <QRIcon className="text-black" style={{ width: '22px', height: '22px' }} />
-        </button>
-      </div>
+        <QRIcon className="text-black" style={{ width: '22px', height: '22px' }} />
+      </button>
 
       <div className="flex-1 flex flex-col min-h-0" data-testid="receive-page">
         <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />

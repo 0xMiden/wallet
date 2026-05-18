@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
-import { NavigationHeader } from 'components/NavigationHeader';
 import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
@@ -74,7 +73,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   recallDate,
   recallTime,
   onAction,
-  onGoBack,
   onAmountChange,
   onAddressChange,
   onScannedAddress,
@@ -193,8 +191,6 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-app-bg text-black">
-      <NavigationHeader mode="back" title={t('details')} onBack={onGoBack} showBorder />
-
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col flex-1 overflow-y-auto min-h-0 no-scrollbar">
           {/* Amount */}
