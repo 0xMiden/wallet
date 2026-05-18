@@ -167,9 +167,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/receive',
     onlyReady(() => (
-      <FullScreenPage>
+      <TabLayout>
         <Receive />
-      </FullScreenPage>
+      </TabLayout>
     ))
   ],
   [
@@ -215,9 +215,17 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/send',
     onlyReady(() => (
-      <FullScreenPage>
+      <TabLayout>
         <SendFlow isLoading={false} />
-      </FullScreenPage>
+      </TabLayout>
+    ))
+  ],
+  [
+    '/swap',
+    onlyReady(() => (
+      <TabLayout>
+        <></>
+      </TabLayout>
     ))
   ],
   [
