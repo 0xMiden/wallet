@@ -258,41 +258,12 @@ button,
   animation: mobile-slide-in 0.15s ease-out both;
 }
 
-/* Native navbar overlay hook (Architecture A — see DappBrowserProvider).
- * On mobile, the wallet replaces the React Footer with a native
- * MidenNavbarOverlayWindow at .normal+200 across every wallet page.
- * The provider sets `data-native-navbar` on body whenever the user is
- * past onboarding/unlock and the native navbar is up. */
-body[data-native-navbar] [data-tabbar-footer='true'] {
-  /* Hide the React footer — the native pill replaces it. */
-  display: none !important;
-}
-body[data-native-navbar] {
-  /* Reserve the vertical space the native pill occupies so React
-   * content doesn't scroll under it. The pill is 76pt tall and sits
-   * 12pt above the home-indicator safe area (see WKWebViewController
-   * .swift: shadowWrap 76pt tall, bottom = safeArea.bottom - 12), so
-   * the total bottom gutter = existing safe-area padding + 88pt.
-   * Pages using `h-full` inside body automatically shrink to this
-   * smaller inner box, keeping their bottom edge above the pill. */
-  padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 88px);
-}
-
-body[data-native-navbar][data-dapp-foreground],
-body[data-native-navbar][data-edge-to-edge] {
-  /* Pages that opt in to edge-to-edge layout (dApp browser, Settings
-   * list) extend BEHIND the navbar pill instead of stopping above it.
-   * The navbar's PassThroughView still routes pill-area taps to the
-   * navbar window so the buttons stay live; only the visual layer
-   * overlaps. Pages that opt in are responsible for their own internal
-   * bottom padding so scrollable content can be scrolled above the
-   * pill (otherwise the last item is permanently hidden behind it).
-   *
-   * Reset the gutter back to just the home-indicator safe area so
-   * h-full chains inside the body fill all the way to the screen
-   * bottom. */
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
-}
+/* Native navbar overlay retired — wallet now ships a React-only BottomNav
+ * mounted inside TabLayout. The legacy rules keyed on
+ * `body[data-native-navbar]` (which hid `[data-tabbar-footer='true']` and
+ * reserved 88pt of bottom gutter) have been removed so a stale compiled
+ * bundle that still toggles that attribute can't make the React BottomNav
+ * vanish or push the page upward. */
 
 /* Parked-dApp bubble host — default transform is identity, and it
  * rides a ~spring transition so that when the drawer-open rule
@@ -366,6 +337,14 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --radius-sm: 8px;
     --radius-md-token: 12px;
     --radius-lg-token: 16px;
+
+    /* Balance card surface — saturated royal blue, intentionally signature. */
+    --surface-balance: #224ca7;
+    --surface-balance-fg: #ffffff;
+    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
+    --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    --surface-balance-positive: #4ade80;
+    --surface-balance-handle: #b2b2b2;
   }
 
   .dark {
@@ -415,5 +394,13 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;
+
+    /* Balance card surface — keep same royal blue in dark mode (signature color). */
+    --surface-balance: #224ca7;
+    --surface-balance-fg: #ffffff;
+    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
+    --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    --surface-balance-positive: #4ade80;
+    --surface-balance-handle: #b2b2b2;
   }
 }

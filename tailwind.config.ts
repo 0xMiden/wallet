@@ -147,6 +147,13 @@ export default {
         'rule-default': 'var(--rule-default)',
         'rule-strong': 'var(--rule-strong)',
         'border-button': 'var(--color-border-button)',
+        // Balance card surface — signature royal blue, distinct from system surfaces.
+        'surface-balance': 'var(--surface-balance)',
+        'surface-balance-fg': 'var(--surface-balance-fg)',
+        'surface-balance-fg-muted': 'var(--surface-balance-fg-muted)',
+        'surface-balance-rule': 'var(--surface-balance-rule)',
+        'surface-balance-positive': 'var(--surface-balance-positive)',
+        'surface-balance-handle': 'var(--surface-balance-handle)',
         ...customColors,
         // Override primary from customColors with network-conditional values
         primary: primaryPalette
