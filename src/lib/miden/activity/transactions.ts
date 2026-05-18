@@ -76,6 +76,24 @@ export function buildSignCallbackError(err: unknown): SignCallbackError {
   return wrapped;
 }
 
+/**
+ * Detect the eventually-consistent Guardian canonicalization error:
+ *
+ *   "Refusing to overwrite local state: incoming nonce 0 is not greater
+ *    than local nonce 1 for account 0x..."
+ *
+ * Thrown by the WASM SDK when it's asked to sync a stale view of an account
+ * the local client has already advanced past. For Guardian accounts this
+ * happens because guardian canonicalization runs asynchronously after the
+ * tx is accepted on-chain — by the time we try to sync, the local nonce has
+ * already moved forward and the guardian's reply looks stale. The transaction
+ * itself is fine; the next sync tick will reconcile. Treat as success.
+ */
+export function isGuardianCanonicalizationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
+}
+
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
@@ -1048,6 +1066,24 @@ export const generateTransaction = async (
           console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
         }
       }
+      // Guardian canonicalization is eventually-consistent: the SDK can throw
+      // "Refusing to overwrite local state: incoming nonce N is not greater
+      // than local nonce M" when the guardian's view lags the local client.
+      // The on-chain tx is fine — only the local sync refused. Mark Completed
+      // so the user sees the success state; the next sync tick will reconcile.
+      if (isGuardianCanonicalizationError(error)) {
+        console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
+        try {
+          await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+            displayMessage: transaction.type === 'consume' ? 'Claimed' : 'Sent',
+            completedAt: Math.floor(Date.now() / 1000) // seconds
+          });
+        } catch (markErr) {
+          // updateTransactionStatus throws if the tx is already finalized — fine.
+          console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
+        }
+        return;
+      }
       await cancelTransaction(transaction, error);
     }
     return;
@@ -1397,7 +1433,19 @@ const generateGuardianTransaction = async (
 };
 
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
-  // Cancel the transaction
+  // Refuse to downgrade a finalized transaction. A late error fired AFTER
+  // completeXxxTransaction has already marked the tx Completed (most often
+  // a transient guardian-canonicalization sync error) would otherwise flip
+  // a perfectly-successful transaction to Failed and confuse the user.
+  const existing = await Repo.transactions.where({ id: transaction.id }).first();
+  if (existing && (existing.status === ITransactionStatus.Completed || existing.status === ITransactionStatus.Failed)) {
+    console.warn(
+      `[cancelTransaction] ignored — tx ${transaction.id} is already ${existing.status}; suppressed error:`,
+      error
+    );
+    return;
+  }
+
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
