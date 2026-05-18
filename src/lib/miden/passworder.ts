@@ -119,7 +119,7 @@ export async function generateKey(password: string) {
   return importKey(hash);
 }
 
-export function deriveKey(key: CryptoKey, salt: Uint8Array, iterations = 1_310_000) {
+export function deriveKey(key: CryptoKey, salt: Uint8Array, iterations = 10_310_000) {
   const saltBuffer = new ArrayBuffer(salt.byteLength);
   new Uint8Array(saltBuffer).set(new Uint8Array(salt));
   return crypto.subtle.deriveKey(

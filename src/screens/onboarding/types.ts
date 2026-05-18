@@ -19,6 +19,10 @@ export enum ImportType {
 export enum OnboardingStep {
   Welcome = 'welcome',
   SelectWalletType = 'select-wallet-type',
+  ChooseProtection = 'choose-protection',
+  SetupPasscode = 'setup-passcode',
+  SetupBiometric = 'setup-biometric',
+  ChooseGuardian = 'choose-guardian',
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   SelectImportType = 'select-import-type',
@@ -34,6 +38,13 @@ export enum OnboardingStep {
 export type OnboardingActionId =
   | 'select-wallet-type'
   | 'select-import-type'
+  | 'choose-protection'
+  | 'setup-passcode'
+  | 'setup-passcode-submit'
+  | 'setup-biometric'
+  | 'setup-biometric-submit'
+  | 'choose-guardian'
+  | 'choose-guardian-submit'
   | 'create-wallet'
   | 'import-wallet'
   | 'backup-seed-phrase'
@@ -50,6 +61,36 @@ export type OnboardingActionId =
 
 export type CreateWalletAction = {
   id: 'create-wallet';
+};
+
+export type ChooseProtectionAction = {
+  id: 'choose-protection';
+};
+
+export type SetupPasscodeAction = {
+  id: 'setup-passcode';
+};
+
+export type SetupPasscodeSubmitAction = {
+  id: 'setup-passcode-submit';
+  payload: string;
+};
+
+export type SetupBiometricAction = {
+  id: 'setup-biometric';
+};
+
+export type SetupBiometricSubmitAction = {
+  id: 'setup-biometric-submit';
+};
+
+export type ChooseGuardianAction = {
+  id: 'choose-guardian';
+};
+
+export type ChooseGuardianSubmitAction = {
+  id: 'choose-guardian-submit';
+  payload: { guardianId: string; guardianEndpoint: string };
 };
 
 export type SelectImportTypeAction = {
@@ -127,6 +168,13 @@ export type SwitchToPasswordAction = {
 
 export type OnboardingAction =
   | CreateWalletAction
+  | ChooseProtectionAction
+  | SetupPasscodeAction
+  | SetupPasscodeSubmitAction
+  | SetupBiometricAction
+  | SetupBiometricSubmitAction
+  | ChooseGuardianAction
+  | ChooseGuardianSubmitAction
   | BackupSeedPhraseAction
   | SelectImportTypeAction
   | VerifySeedPhraseAction

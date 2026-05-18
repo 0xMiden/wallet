@@ -19,6 +19,7 @@ import { ReactComponent as ArrowRightUp } from './arrow-right-up.svg';
 import { ReactComponent as ArrowRight } from './arrow-right.svg';
 import { ReactComponent as ArrowUpDown } from './arrow-up-down.svg';
 import { ReactComponent as ArrowUp } from './arrow-up.svg';
+import { ReactComponent as Backspace } from './backspace.svg';
 import { ReactComponent as Bell } from './bell.svg';
 import { ReactComponent as Bin } from './bin.svg';
 import { ReactComponent as Calendar } from './calendar.svg';
@@ -129,6 +130,7 @@ export enum IconName {
   ArrowRight = 'arrow-right',
   ArrowUpDown = 'arrow-up-down',
   ArrowUp = 'arrow-up',
+  Backspace = 'backspace',
   Bell = 'bell',
   Calendar = 'calendar',
   Bin = 'bin',
@@ -258,6 +260,8 @@ const IconSwitch = (props: IconProps) => {
       return <ArrowUpDown {...props} />;
     case IconName.ArrowUp:
       return <ArrowUp {...props} />;
+    case IconName.Backspace:
+      return <Backspace {...props} />;
     case IconName.Bell:
       return <Bell {...props} />;
     case IconName.Calendar:
