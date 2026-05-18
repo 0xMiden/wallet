@@ -113,7 +113,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
                   {!isCustomizing && (
                     <div className="flex flex-col gap-1">
                       <span className="text-xs text-grey-600">{t('guardianEndpoint')}</span>
-                      <span className="text-sm font-mono break-all">{endpointInput}</span>
+                      <span className="text-sm font-inter break-all">{endpointInput}</span>
                     </div>
                   )}
                   <button

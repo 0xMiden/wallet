@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Miden Wallet",
+  "name": "Bread",
   "version": "1.14.3",
 
   "icons": {
@@ -11,7 +11,7 @@
   },
   "description": "__MSG_appDesc__",
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
-  "short_name": "Miden Wallet",
+  "short_name": "Bread",
 
   "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "sidePanel"],
   "host_permissions": [
@@ -58,7 +58,7 @@
       "48": "misc/logo-white-bg-48.png",
       "128": "misc/logo-white-bg-128.png"
     },
-    "default_title": "Miden Wallet",
+    "default_title": "Bread",
     "__chrome|opera__chrome_style": false,
     "__firefox__browser_style": false
   },

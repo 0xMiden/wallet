@@ -935,66 +935,21 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     return true;
   }, [location.pathname, isWalletReady]);
 
+  // Native navbar disabled — wallet now ships a React-only BottomNav
+  // mounted inside TabLayout. Unconditionally tear down any leftover
+  // overlay state (body flag + native UIWindow) on every effect run.
+  //
+  // We do NOT gate on navbarShownRef.current because on a fresh React
+  // mount that ref is false even if iOS has a stale UIWindow up from a
+  // previous app session — hideNativeNavbar() is idempotent, so always
+  // call it.
   useEffect(() => {
     if (!isMobile()) return;
-    const path = location.pathname;
-
-    // Reuse the derived flag — `!walletShellActive` is the inverse
-    // of "show wallet chrome" which is exactly the condition under
-    // which we want to hide the navbar.
-    const isOnboardingRoute = !walletShellActive;
-
-    if (isOnboardingRoute) {
-      document.body.removeAttribute('data-native-navbar');
-      if (navbarShownRef.current) {
-        InAppBrowser.hideNativeNavbar().catch(() => {});
-        navbarShownRef.current = false;
-      }
-      return;
-    }
-
-    // Determine which pill should be highlighted. Pages that aren't
-    // a top-level destination (send, receive, faucet, etc.) pass null
-    // so no pill is active — the navbar still shows but none of the
-    // three pills look "selected". Same pattern iOS uses when you
-    // drill into a sub-page from a tab bar.
-    //
-    // /token-detail/:tokenId is the per-token activity view reached
-    // by tapping a token row on Home. It's conceptually part of the
-    // activity surface — the entire page is the token's transaction
-    // history — so it highlights the activity pill, not home.
-    let activeId: string | null = null;
-    if (path === '/') activeId = 'home';
-    else if (path.startsWith('/history') || path.startsWith('/history-details') || path.startsWith('/token-detail'))
-      activeId = 'activity';
-    else if (path === '/browser' || path.startsWith('/select-account') || path.startsWith('/manage-assets'))
-      activeId = 'browser';
-
-    document.body.setAttribute('data-native-navbar', '');
-
-    if (navbarShownRef.current) {
-      // Navbar already up — just refresh the active pill. Avoids the
-      // teardown / rebuild flicker that showNativeNavbar would cause.
-      InAppBrowser.setNativeNavbarActive({ id: activeId }).catch(() => {});
-      return;
-    }
-
-    // SF Symbols chosen to mirror the React Footer's filled SVG icons:
-    // - house.fill matches `home-new.svg` (filled house silhouette)
-    // - chart.line.uptrend.xyaxis matches `activity-new.svg` (zigzag
-    //   line over a baseline). There's no exact filled equivalent so
-    //   we use the regular variant which is the closest visual match.
-    // - globe matches `globe-new.svg` (circle with meridians).
-    InAppBrowser.showNativeNavbar({
-      items: [
-        { id: 'home', title: t('home'), sfSymbol: 'house.fill' },
-        { id: 'activity', title: t('activity'), sfSymbol: 'chart.line.uptrend.xyaxis' },
-        { id: 'browser', title: t('browser'), sfSymbol: 'globe' }
-      ],
-      activeId
-    }).catch(() => {});
-    navbarShownRef.current = true;
+    document.body.removeAttribute('data-native-navbar');
+    InAppBrowser.hideNativeNavbar().catch(() => {});
+    navbarShownRef.current = false;
   }, [location.pathname, walletShellActive, t]);
+
 
   // Drive the native navbar's secondary row (Send / Receive / Settings
   // quick actions). Visible on Home / Send / Receive / Settings routes.

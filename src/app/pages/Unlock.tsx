@@ -7,23 +7,21 @@ import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { openInFullPage, useAppEnv } from 'app/env';
+import { ReactComponent as BreadLogo } from 'app/icons/brand/bread.svg';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
-// `?url` forces the asset pipeline to produce a plain URL string instead of
-// letting the svg-to-react plugin swallow the default export (the plugin sets
-// default to "" because it only means to emit the named `ReactComponent`).
-// Without the suffix `<img src={WalletLogo}>` renders an empty src and Chrome
-// falls back to showing the alt text.
-import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url';
-import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { useFormAnalytics } from 'lib/analytics';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
-const WalletLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? LogoVerticalTitleDevnet : LogoVerticalTitle;
+const BrandIcon = () => (
+  <div className="flex flex-col items-center gap-2">
+    <BreadLogo style={{ width: 80, height: 140 }} />
+    <span className="text-3xl font-semibold font-heading text-heading-gray">Bread</span>
+  </div>
+);
 
 type FormData = {
   password: string;
@@ -231,11 +229,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   if (!hardwareUnlockChecked && !isExtension()) {
     return (
       <SimplePageLayout
-        icon={
-          <>
-            <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
-          </>
-        }
+        icon={<BrandIcon />}
       >
         <div className="flex items-center justify-center h-32">{/* Loading state */}</div>
       </SimplePageLayout>
@@ -246,11 +240,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   if (isHardwareOnlyWallet) {
     return (
       <SimplePageLayout
-        icon={
-          <>
-            <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
-          </>
-        }
+        icon={<BrandIcon />}
       >
         <div className="w-full max-w-sm mx-auto my-8" style={{ padding: '0px 32px' }}>
           <div className="text-center mb-6">
@@ -280,13 +270,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   // Show password unlock form (default for extension, fallback for mobile/desktop)
   return (
-    <SimplePageLayout
-      icon={
-        <>
-          <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
-        </>
-      }
-    >
+    <SimplePageLayout icon={<BrandIcon />}>
       {isDisabled && (
         <Alert
           type="error"

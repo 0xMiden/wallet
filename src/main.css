@@ -1,39 +1,3 @@
-/**
- * Geist fonts
- */
-
-@font-face {
-  font-family: 'Geist';
-  src: url('../fonts/Geist/webfonts/Geist[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist';
-  src: url('../fonts/Geist/webfonts/Geist-Italic[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('../fonts/GeistMono/webfonts/GeistMono[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('../fonts/GeistMono/webfonts/GeistMono-Italic[wght].woff2') format('woff2');
-  font-weight: 100 900;
-  font-style: italic;
-  font-display: swap;
-}
-
 * {
   font-variant-ligatures: none;
 }
@@ -118,11 +82,39 @@ button:disabled,
  * TailwindCSS
  */
 
+@import 'tailwindcss';
+@import 'tw-animate-css';
 @config '../tailwind.config.ts';
 @source "../src/**/*.{js,jsx,ts,tsx}";
 @source "../public/**/*.html";
-@import 'tailwindcss';
-@import 'tw-animate-css';
+
+@theme {
+  --font-sans:
+    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    sans-serif;
+  --font-heading:
+    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-inter: 'Inter', system-ui, sans-serif;
+  --default-font-family: var(--font-sans);
+}
+
+/* Force Inter as the inherited default. Tailwind v4's preflight should set this
+ * via --default-font-family, but the @config + JS-theme path doesn't reliably
+ * populate it, so pin it explicitly here. */
+html,
+body {
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    'Noto Sans',
+    sans-serif;
+}
 
 /**
  * CSS custom properties for shadcn/ui primitives
@@ -266,41 +258,12 @@ button,
   animation: mobile-slide-in 0.15s ease-out both;
 }
 
-/* Native navbar overlay hook (Architecture A — see DappBrowserProvider).
- * On mobile, the wallet replaces the React Footer with a native
- * MidenNavbarOverlayWindow at .normal+200 across every wallet page.
- * The provider sets `data-native-navbar` on body whenever the user is
- * past onboarding/unlock and the native navbar is up. */
-body[data-native-navbar] [data-tabbar-footer='true'] {
-  /* Hide the React footer — the native pill replaces it. */
-  display: none !important;
-}
-body[data-native-navbar] {
-  /* Reserve the vertical space the native pill occupies so React
-   * content doesn't scroll under it. The pill is 76pt tall and sits
-   * 12pt above the home-indicator safe area (see WKWebViewController
-   * .swift: shadowWrap 76pt tall, bottom = safeArea.bottom - 12), so
-   * the total bottom gutter = existing safe-area padding + 88pt.
-   * Pages using `h-full` inside body automatically shrink to this
-   * smaller inner box, keeping their bottom edge above the pill. */
-  padding-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 88px);
-}
-
-body[data-native-navbar][data-dapp-foreground],
-body[data-native-navbar][data-edge-to-edge] {
-  /* Pages that opt in to edge-to-edge layout (dApp browser, Settings
-   * list) extend BEHIND the navbar pill instead of stopping above it.
-   * The navbar's PassThroughView still routes pill-area taps to the
-   * navbar window so the buttons stay live; only the visual layer
-   * overlaps. Pages that opt in are responsible for their own internal
-   * bottom padding so scrollable content can be scrolled above the
-   * pill (otherwise the last item is permanently hidden behind it).
-   *
-   * Reset the gutter back to just the home-indicator safe area so
-   * h-full chains inside the body fill all the way to the screen
-   * bottom. */
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
-}
+/* Native navbar overlay retired — wallet now ships a React-only BottomNav
+ * mounted inside TabLayout. The legacy rules keyed on
+ * `body[data-native-navbar]` (which hid `[data-tabbar-footer='true']` and
+ * reserved 88pt of bottom gutter) have been removed so a stale compiled
+ * bundle that still toggles that attribute can't make the React BottomNav
+ * vanish or push the page upward. */
 
 /* Parked-dApp bubble host — default transform is identity, and it
  * rides a ~spring transition so that when the drawer-open rule
@@ -331,23 +294,57 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --chart-4: oklch(0.828 0.189 84.429);
     --chart-5: oklch(0.769 0.188 70.08);
 
-    /* Theme colors - light */
-    --color-app-bg: #f6f4f2;
+    /* Theme colors - light. Rebased onto design system: warm-undertone neutrals
+     * (#3F3F3F-based text shades, rgba rules) per Foundations spec. */
+    --color-app-bg: #ffffff;
     --color-surface: #ffffff;
     --color-surface-solid: #ffffff;
     --color-surface-secondary: #f9f9f9;
     --color-surface-tertiary: #f3f3f3;
-    --color-text-primary: #000000;
+    --color-text-primary: #3f3f3f;
     --color-text-secondary: #484848;
-    --color-text-tertiary: #737373;
-    --color-border: #00000033;
+    --color-text-tertiary: rgba(63, 63, 63, 0.4);
+    --color-border: rgba(63, 63, 63, 0.16);
     --color-border-secondary: #e9ebef;
     --color-chip-bg: #eeeff2;
-    --color-input-bg: #f2f2f2;
+    --color-input-bg: #f9f9f9;
     --color-border-light: #e6e6e6;
-    --color-text-muted: #808080;
-    --color-border-subtle: #00000015;
+    --color-text-muted: rgba(63, 63, 63, 0.4);
+    --color-border-subtle: rgba(63, 63, 63, 0.08);
     --color-hover-bg: #e1dbdb;
+
+    /* Design system tokens (Foundations + Typography + Radius/Spacing) */
+    --accent-primary: #d44b00;
+    --accent-primary-hover: #b33e00;
+    --text-primary: #3f3f3f;
+    --text-secondary: rgba(63, 63, 63, 0.65);
+    --text-tertiary: #0000009c;
+    --text-on-accent: #ffffff;
+    --surface-page: #ffffff;
+    --surface-input: #f9f9f9;
+    --surface-interactive: #f6f4f2;
+    --surface-inactive: #dcd4c8;
+    --status-positive: #38824a;
+    --status-pending: #e85d2f;
+    --status-negative: #c51a0a;
+    --tx-received: #38824a;
+    --tx-sent: #024073;
+    --tx-swap: #6b7280;
+    --tx-earn: #891db1;
+    --rule-default: rgba(63, 63, 63, 0.08);
+    --rule-strong: rgba(63, 63, 63, 0.16);
+    --color-border-button: #cbcbcb;
+    --radius-sm: 8px;
+    --radius-md-token: 12px;
+    --radius-lg-token: 16px;
+
+    /* Balance card surface — saturated royal blue, intentionally signature. */
+    --surface-balance: #224ca7;
+    --surface-balance-fg: #ffffff;
+    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
+    --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    --surface-balance-positive: #4ade80;
+    --surface-balance-handle: #b2b2b2;
   }
 
   .dark {
@@ -361,18 +358,49 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --color-app-bg: #191919;
     --color-surface: #3f3f3f99;
     --color-surface-solid: #191919;
-    --color-surface-secondary: #2a2a2a;
-    --color-surface-tertiary: #333333;
+    --color-surface-secondary: #3f3f3f99;
+    --color-surface-tertiary: #3f3f3f99;
     --color-text-primary: #ffffff;
     --color-text-secondary: #ffffff;
     --color-text-tertiary: #999999;
     --color-border: #ffffff22;
     --color-border-secondary: #444444;
-    --color-chip-bg: #3f3f3f;
-    --color-input-bg: #2a2a2a;
+    --color-chip-bg: #3f3f3f99;
+    --color-input-bg: #3f3f3f99;
     --color-border-light: #444444;
     --color-text-muted: #999999;
     --color-border-subtle: #ffffff15;
     --color-hover-bg: #ffffff0d;
+
+    /* Design system tokens - dark variants. Foundations spec is light-mode only;
+     * derive dark values by inverting text/surface and keeping action/status hues. */
+    --accent-primary: #d44b00;
+    --accent-primary-hover: #e55818;
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.65);
+    --text-tertiary: rgba(255, 255, 255, 0.4);
+    --text-on-accent: #ffffff;
+    --surface-page: #191919;
+    --surface-input: #3f3f3f99;
+    --surface-interactive: #3f3f3f99;
+    --surface-inactive: #3f3f3f99;
+    --status-positive: #38824a;
+    --status-pending: #e85d2f;
+    --status-negative: #c51a0a;
+    --tx-received: #38824a;
+    --tx-sent: #024073;
+    --tx-swap: #6b7280;
+    --tx-earn: #891db1;
+    --rule-default: rgba(255, 255, 255, 0.08);
+    --rule-strong: rgba(255, 255, 255, 0.16);
+    --color-border-button: #444444;
+
+    /* Balance card surface — keep same royal blue in dark mode (signature color). */
+    --surface-balance: #224ca7;
+    --surface-balance-fg: #ffffff;
+    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
+    --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    --surface-balance-positive: #4ade80;
+    --surface-balance-handle: #b2b2b2;
   }
 }

@@ -57,7 +57,7 @@ export const QRCode: React.FC<QRCodeProps> = ({ address, size = 80, onCopy, clas
           level="M"
         />
       </div>
-      <span className="text-sm text-grey-600 font-mono truncate max-w-full">
+      <span className="text-sm text-grey-600 font-inter truncate max-w-full">
         {truncateAddress(address, true, 8, 4, 8)}
       </span>
     </button>

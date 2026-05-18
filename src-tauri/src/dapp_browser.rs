@@ -119,7 +119,7 @@ pub async fn open_dapp_window(url: String, app: AppHandle) -> Result<(), String>
         "dapp-browser",
         WebviewUrl::External(parsed_url),
     )
-    .title("dApp Browser - Miden Wallet")
+    .title("dApp Browser - Bread")
     .inner_size(DAPP_WINDOW_WIDTH, DAPP_WINDOW_HEIGHT)
     .position(
         position.x as f64 + 50.0,

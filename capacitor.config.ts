@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.miden.wallet',
-  appName: 'Miden Wallet',
+  appName: 'Bread',
   webDir: 'dist/mobile',
   server: {
     // Use HTTP scheme on both platforms to allow network requests from WASM workers

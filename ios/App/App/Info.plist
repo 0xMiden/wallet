@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Miden Wallet</string>
+        <string>Bread</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -25,9 +25,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Miden Wallet uses Face ID to securely unlock your wallet without entering your password.</string>
+	<string>Bread uses Face ID to securely unlock your wallet without entering your password.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Miden Wallet uses the camera to scan QR codes for receiving wallet addresses.</string>
+	<string>Bread uses the camera to scan QR codes for receiving wallet addresses.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

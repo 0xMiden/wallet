@@ -5,7 +5,7 @@
   },
   "appName": {
     "message": "Лео - Кошелек Алео",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Браузерный кошелек для блокчейна Miden",
@@ -104,7 +104,7 @@
   },
   "changelogTitle": {
     "message": "Обновление кошелька Miden",
-    "englishSource": "Miden Wallet updated"
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "Обновлять",
@@ -306,7 +306,7 @@
   },
   "resetExtensionConfirmation": {
     "message": "Вы уверены, что хотите сбросить настройки кошелька Miden?\nВ результате все ваши данные будут удалены.",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "Повторить попытку",
@@ -659,7 +659,7 @@
   },
   "aboutMidenWallet": {
     "message": "О кошельке Miden",
-    "englishSource": "About Miden Wallet"
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Предпочтения",
@@ -1330,7 +1330,7 @@
   },
   "midenWallet": {
     "message": "Миден кошелек",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "Частные сделки.",
@@ -1694,8 +1694,8 @@
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "Я никому не передам свой зашифрованный файл кошелька, включая Miden Wallet.",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "message": "Я никому не передам свой зашифрованный файл кошелька, включая Bread.",
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "Введите пароль, чтобы зашифровать файл вашего кошелька.",
@@ -3073,11 +3073,11 @@
   },
   "pinExtensionTitle": {
     "message": "кошелек Miden с булавками",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "Нажмите на значок головоломки и закрепите Miden Wallet для быстрого доступа с панели инструментов.",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "message": "Нажмите на значок головоломки и закрепите Bread для быстрого доступа с панели инструментов.",
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "Понятно",

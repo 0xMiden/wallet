@@ -4,8 +4,8 @@
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "Miden - Miden Wallet",
-    "englishSource": "Miden Wallet"
+    "message": "Miden - Bread",
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Браузерний гаманець для блокчейну Miden",
@@ -103,8 +103,8 @@
     "englishSource": "Got it"
   },
   "changelogTitle": {
-    "message": "Miden Wallet оновлено",
-    "englishSource": "Miden Wallet updated"
+    "message": "Bread оновлено",
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "оновлення",
@@ -305,8 +305,8 @@
     "englishSource": "Reset Extension"
   },
   "resetExtensionConfirmation": {
-    "message": "Ви впевнені, що бажаєте скинути Miden Wallet?\nУ результаті всі ваші дані будуть видалені.",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "message": "Ви впевнені, що бажаєте скинути Bread?\nУ результаті всі ваші дані будуть видалені.",
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "Повторити",
@@ -658,8 +658,8 @@
     "englishSource": "About"
   },
   "aboutMidenWallet": {
-    "message": "Про Miden Wallet",
-    "englishSource": "About Miden Wallet"
+    "message": "Про Bread",
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Уподобання",
@@ -1330,7 +1330,7 @@
   },
   "midenWallet": {
     "message": "Гаманець Miden",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "Приватні операції.",
@@ -1695,7 +1695,7 @@
   },
   "encryptedWalletFileConfirmation": {
     "message": "Я нікому не надаватиму доступу до свого зашифрованого файлу гаманця, зокрема до гаманця Miden.",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "Введіть пароль, щоб зашифрувати файл гаманця.",
@@ -3072,12 +3072,12 @@
     "englishSource": "Advanced Options"
   },
   "pinExtensionTitle": {
-    "message": "Pin Miden Wallet",
-    "englishSource": "Pin Miden Wallet"
+    "message": "Pin Bread",
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "Клацніть піктограму головоломки та закріпіть Miden Wallet для швидкого доступу з панелі інструментів.",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "message": "Клацніть піктограму головоломки та закріпіть Bread для швидкого доступу з панелі інструментів.",
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "зрозумів",

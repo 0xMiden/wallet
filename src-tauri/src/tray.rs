@@ -17,10 +17,10 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     info!("Setting up system tray");
 
     // Create menu items
-    let show = MenuItem::with_id(app, "show", "Show Miden Wallet", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "Show Bread", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
     let separator = MenuItem::with_id(app, "sep1", "---", false, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Miden Wallet", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Bread", true, None::<&str>)?;
 
     // Build the menu
     let menu = Menu::with_items(app, &[&show, &hide, &separator, &quit])?;

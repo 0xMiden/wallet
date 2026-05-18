@@ -5,7 +5,7 @@
   },
   "appName": {
     "message": "Miden - Miden钱包",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Miden 区块链的浏览器钱包",
@@ -104,7 +104,7 @@
   },
   "changelogTitle": {
     "message": "Miden 钱包更新",
-    "englishSource": "Miden Wallet updated"
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "更新",
@@ -306,7 +306,7 @@
   },
   "resetExtensionConfirmation": {
     "message": "您确定要重置 Miden 钱包吗？\n结果，您的所有数据都将被删除。",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "重试",
@@ -659,7 +659,7 @@
   },
   "aboutMidenWallet": {
     "message": "关于米登钱包",
-    "englishSource": "About Miden Wallet"
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "偏好设置",
@@ -1348,7 +1348,7 @@
   },
   "midenWallet": {
     "message": "米登钱包",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "私人交易。",
@@ -1711,8 +1711,8 @@
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "我不会与任何人分享我的加密钱包文件，包括 Miden Wallet。",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "message": "我不会与任何人分享我的加密钱包文件，包括 Bread。",
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "输入密码以加密您的钱包文件。",
@@ -3090,11 +3090,11 @@
   },
   "pinExtensionTitle": {
     "message": "Pin Miden 钱包",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "单击拼图图标并固定 Miden Wallet，以便从工具栏快速访问。",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "message": "单击拼图图标并固定 Bread，以便从工具栏快速访问。",
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "知道了",

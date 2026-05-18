@@ -5,7 +5,7 @@
   },
   "appName": {
     "message": "Portfel Miden",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Portfel przeglądarkowy dla blockchainu Miden",
@@ -103,7 +103,7 @@
   },
   "changelogTitle": {
     "message": "Zaktualizowano portfel Miden",
-    "englishSource": "Miden Wallet updated"
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "Aktualizacja",
@@ -290,7 +290,7 @@
   },
   "resetExtensionConfirmation": {
     "message": "Czy na pewno chcesz zresetować portfel Miden?\nW rezultacie wszystkie Twoje dane zostaną usunięte.",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "Spróbować ponownie",
@@ -643,7 +643,7 @@
   },
   "aboutMidenWallet": {
     "message": "O portfelu Miden",
-    "englishSource": "About Miden Wallet"
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Preferencje",
@@ -1312,7 +1312,7 @@
   },
   "midenWallet": {
     "message": "Portfel Miden",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "Transakcje prywatne.",
@@ -1636,7 +1636,7 @@
   },
   "encryptedWalletFileConfirmation": {
     "message": "Nie będę udostępniać mojego zaszyfrowanego pliku portfela nikomu, w tym portfelowi Miden.",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "Wprowadź hasło, aby zaszyfrować plik portfela.",
@@ -2997,11 +2997,11 @@
   },
   "pinExtensionTitle": {
     "message": "Przypnij portfel Miden",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
     "message": "Kliknij ikonę puzzli i przypnij portfel Miden, aby uzyskać szybki dostęp z paska narzędzi.",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "Rozumiem",

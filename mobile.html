@@ -1,15 +1,26 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="shortcut icon" href="misc/logo-white-bg-16.png" />
-    <title>Miden Wallet</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
+      rel="stylesheet"
+    />
+    <title>Bread</title>
     <style>
       /* Full height hierarchy for mobile */
-      html, body, #root {
+      html,
+      body,
+      #root {
         height: 100%;
         width: 100%;
         margin: 0;
@@ -54,26 +65,35 @@
       }
 
       /* Override extension-specific fixed width classes */
-      .w-\[360px\], .w-\[600px\], .w-\[37\.5rem\], .w-\[500px\] {
+      .w-\[360px\],
+      .w-\[600px\],
+      .w-\[37\.5rem\],
+      .w-\[500px\] {
         width: 100% !important;
         max-width: 100% !important;
       }
 
-      .max-w-\[360px\], .max-w-\[600px\], .max-w-\[500px\] {
+      .max-w-\[360px\],
+      .max-w-\[600px\],
+      .max-w-\[500px\] {
         max-width: 100% !important;
       }
 
       /* Override extension-specific fixed height classes */
-      .h-\[600px\], .h-\[640px\], .h-\[40rem\] {
+      .h-\[600px\],
+      .h-\[640px\],
+      .h-\[40rem\] {
         height: 100% !important;
       }
 
-      .max-h-\[600px\], .max-h-\[640px\] {
+      .max-h-\[600px\],
+      .max-h-\[640px\] {
         max-height: none !important;
       }
 
       /* Fix for images and SVGs that might overflow */
-      img, svg {
+      img,
+      svg {
         max-width: 100%;
       }
 
@@ -99,7 +119,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: #F6F4F2;
+        background-color: #f6f4f2;
       }
       #miden-splash img {
         width: 96px;
@@ -108,7 +128,7 @@
       }
     </style>
   </head>
-  <body style="background-color: #F6F4F2;">
+  <body style="background-color: #f6f4f2">
     <!--
       Splash element lives OUTSIDE #root so it stays paintable while
       React's createRoot mounts into the empty #root. mobile-app.tsx

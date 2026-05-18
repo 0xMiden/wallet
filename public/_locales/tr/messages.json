@@ -4,8 +4,8 @@
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "Miden - Miden Wallet",
-    "englishSource": "Miden Wallet"
+    "message": "Miden - Bread",
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Miden blok zinciri için bir tarayıcı cüzdanı",
@@ -104,7 +104,7 @@
   },
   "changelogTitle": {
     "message": "Miden Cüzdan güncellendi",
-    "englishSource": "Miden Wallet updated"
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "Güncelleme",
@@ -306,7 +306,7 @@
   },
   "resetExtensionConfirmation": {
     "message": "Miden Cüzdanını sıfırlamak istediğinizden emin misiniz?\nSonuç olarak tüm verileriniz silinecektir.",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "Yeniden dene",
@@ -659,7 +659,7 @@
   },
   "aboutMidenWallet": {
     "message": "Miden Cüzdan Hakkında",
-    "englishSource": "About Miden Wallet"
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "Tercihler",
@@ -1330,7 +1330,7 @@
   },
   "midenWallet": {
     "message": "Miden Cüzdan",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "Özel işlemler.",
@@ -1694,7 +1694,7 @@
   },
   "encryptedWalletFileConfirmation": {
     "message": "Şifreli Cüzdan Dosyamı Miden Cüzdan dahil hiç kimseyle paylaşmayacağım.",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "M-cüzdan dosyanızı şifrelemek için bir şifre girin.",
@@ -3060,11 +3060,11 @@
   },
   "pinExtensionTitle": {
     "message": "Miden Cüzdanını Pinle",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
     "message": "Araç çubuğunuzdan hızlı erişim için bulmaca simgesine tıklayın ve Miden Cüzdanını sabitleyin.",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "Anladım",

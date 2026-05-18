@@ -330,7 +330,7 @@
   "twitter": "X (Twitter)",
   "encryptedWalletFile": "Archivo de billetera cifrado",
   "encryptedWalletFileDescription": "Ingrese su contraseña para acceder a su archivo de billetera cifrado. Desactiva el uso compartido de pantalla. No lo compartas con nadie.",
-  "encryptedWalletFileConfirmation": "No compartiré mi archivo cifrado de Wallet con nadie, incluido Miden Wallet.",
+  "encryptedWalletFileConfirmation": "No compartiré mi archivo cifrado de Wallet con nadie, incluido Bread.",
   "enterPasswordToEncrypt": "Ingrese una contraseña para cifrar su archivo de billetera. Necesitará esta contraseña para restaurar su billetera más adelante.",
   "recipientAccountId": "ID de cuenta del destinatario",
   "yourAccounts": "Tus cuentas",

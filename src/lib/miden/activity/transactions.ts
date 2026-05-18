@@ -42,6 +42,24 @@ import { compareAccountIds } from './utils';
 // On desktop extension, transactions can run in background tabs
 export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
 
+/**
+ * Detect the eventually-consistent Guardian canonicalization error:
+ *
+ *   "Refusing to overwrite local state: incoming nonce 0 is not greater
+ *    than local nonce 1 for account 0x..."
+ *
+ * Thrown by the WASM SDK when it's asked to sync a stale view of an account
+ * the local client has already advanced past. For Guardian accounts this
+ * happens because guardian canonicalization runs asynchronously after the
+ * tx is accepted on-chain — by the time we try to sync, the local nonce has
+ * already moved forward and the guardian's reply looks stale. The transaction
+ * itself is fine; the next sync tick will reconcile. Treat as success.
+ */
+export function isGuardianCanonicalizationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
+}
+
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
@@ -514,6 +532,25 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     }).catch(error => ({ success: false, errorType: 'init' as const, error }));
 
     if (!sendResult.success) {
+      // Guardian canonicalization is eventually-consistent — if the SDK
+      // refused to overwrite local state with a stale nonce, the tx was
+      // still submitted on-chain. Mark Completed and let the next sync
+      // reconcile, instead of misreporting the tx as Failed.
+      if (isGuardianCanonicalizationError(sendResult.error)) {
+        console.warn(
+          '[Guardian] canonicalization race during private-note send — marking Completed:',
+          sendResult.error
+        );
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Sent',
+          transactionId: executedTx.id().toHex(),
+          outputNoteIds,
+          completedAt: Math.floor(Date.now() / 1000), // seconds
+          resultBytes: result.serialize()
+        });
+        return;
+      }
+
       if (sendResult.errorType === 'transport') {
         console.error('Failed to send private note through the transport layer', {
           txId: tx.id,
@@ -827,6 +864,24 @@ export const generateTransaction = async (
     try {
       await generateGuardianTransaction(transaction, signCallback, guardianProvider);
     } catch (error) {
+      // Guardian canonicalization is eventually-consistent: the SDK can throw
+      // "Refusing to overwrite local state: incoming nonce N is not greater
+      // than local nonce M" when the guardian's view lags the local client.
+      // The on-chain tx is fine — only the local sync refused. Mark Completed
+      // so the user sees the success state; the next sync tick will reconcile.
+      if (isGuardianCanonicalizationError(error)) {
+        console.warn('[Guardian] canonicalization race during tx generation — marking Completed:', error);
+        try {
+          await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, {
+            displayMessage: transaction.type === 'consume' ? 'Claimed' : 'Sent',
+            completedAt: Math.floor(Date.now() / 1000) // seconds
+          });
+        } catch (markErr) {
+          // updateTransactionStatus throws if the tx is already finalized — fine.
+          console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
+        }
+        return;
+      }
       await cancelTransaction(transaction, error);
     }
     return;
@@ -1067,14 +1122,39 @@ const generateGuardianTransaction = async (
   // Skip for replace-hot-key: that path's service is a transient cold one,
   // and the cached hot service was invalidated in completeReplaceHotKeyTransaction
   // via clearGuardianServiceFor — next access re-inits with the new hot pubkey.
+  //
+  // NOTE: this sync runs AFTER the tx has already been marked Completed by
+  // the completeXxxTransaction call above. Guardian canonicalization is
+  // eventually-consistent, so a transient error here (e.g. "Refusing to
+  // overwrite local state: incoming nonce 0 is not greater than local nonce
+  // 1") doesn't mean the user's transaction failed — it just means the
+  // guardian's view hasn't caught up yet, and the next sync tick will
+  // reconcile. Swallow the error so the outer try/catch doesn't roll the
+  // already-Completed tx back to Failed.
   if (transaction.type !== 'replace-hot-key') {
     console.log('Transaction generation complete, syncing multisig service');
-    await service.sync();
+    try {
+      await service.sync();
+    } catch (error) {
+      console.warn('[Guardian] post-completion service.sync() failed (ignored):', error);
+    }
   }
 };
 
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
-  // Cancel the transaction
+  // Refuse to downgrade a finalized transaction. A late error fired AFTER
+  // completeXxxTransaction has already marked the tx Completed (most often
+  // a transient guardian-canonicalization sync error) would otherwise flip
+  // a perfectly-successful transaction to Failed and confuse the user.
+  const existing = await Repo.transactions.where({ id: transaction.id }).first();
+  if (existing && (existing.status === ITransactionStatus.Completed || existing.status === ITransactionStatus.Failed)) {
+    console.warn(
+      `[cancelTransaction] ignored — tx ${transaction.id} is already ${existing.status}; suppressed error:`,
+      error
+    );
+    return;
+  }
+
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;

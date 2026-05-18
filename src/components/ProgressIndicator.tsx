@@ -1,25 +1,38 @@
 import React from 'react';
 
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
+
+import { PRIMARY_500 } from 'utils/brand-colors';
 
 export interface ProgressIndicatorProps extends React.HTMLAttributes<HTMLDivElement> {
   steps: number;
   currentStep: number;
 }
+
+const ACTIVE_WIDTH = 54;
+const INACTIVE_WIDTH = 42;
+const FILLED_COLOR = PRIMARY_500;
+const EMPTY_COLOR = '#D9D9D9';
+
 export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ className, steps, currentStep, ...props }) => {
   return (
-    <div {...props} className={classNames('flex items-center gap-1 w-full', className)}>
-      {Array.from({ length: steps }).map((_, index) => (
-        <div
-          key={index}
-          className={classNames(
-            'h-1.5 flex-1',
-            index <= currentStep - 1 ? 'bg-primary-500' : 'bg-grey-200',
-            index === 0 ? 'rounded-l-10' : '',
-            index === steps - 1 ? 'rounded-r-10' : ''
-          )}
-        />
-      ))}
+    <div {...props} className={classNames('flex items-center gap-0.5', className)}>
+      {Array.from({ length: steps }).map((_, index) => {
+        const isFilled = index <= currentStep - 1;
+        return (
+          <motion.div
+            key={index}
+            className="h-1.5 rounded-full"
+            initial={false}
+            animate={{
+              width: isFilled ? ACTIVE_WIDTH : INACTIVE_WIDTH,
+              backgroundColor: isFilled ? FILLED_COLOR : EMPTY_COLOR
+            }}
+            transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+          />
+        );
+      })}
     </div>
   );
 };

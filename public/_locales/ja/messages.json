@@ -5,7 +5,7 @@
   },
   "appName": {
     "message": "テンプル - テゾスウォレット",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "appDesc": {
     "message": "Miden ブロックチェーン用のブラウザ ウォレット",
@@ -104,7 +104,7 @@
   },
   "changelogTitle": {
     "message": "ミデンウォレットが更新されました",
-    "englishSource": "Miden Wallet updated"
+    "englishSource": "Bread updated"
   },
   "update": {
     "message": "アップデート",
@@ -306,7 +306,7 @@
   },
   "resetExtensionConfirmation": {
     "message": "Miden ウォレットをリセットしてもよろしいですか?\nその結果、すべてのデータが削除されます。",
-    "englishSource": "Are you sure you want to reset the Miden Wallet?\nAs a result, all your data will be deleted."
+    "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
     "message": "再試行",
@@ -659,7 +659,7 @@
   },
   "aboutMidenWallet": {
     "message": "ミデンウォレットについて",
-    "englishSource": "About Miden Wallet"
+    "englishSource": "About Bread"
   },
   "preferences": {
     "message": "設定",
@@ -1330,7 +1330,7 @@
   },
   "midenWallet": {
     "message": "ミデンウォレット",
-    "englishSource": "Miden Wallet"
+    "englishSource": "Bread"
   },
   "privateTransactions": {
     "message": "プライベートな取引。",
@@ -1693,8 +1693,8 @@
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "私は、暗号化されたウォレット ファイルを、Miden Wallet を含め、誰とも共有しません。",
-    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Miden Wallet."
+    "message": "私は、暗号化されたウォレット ファイルを、Bread を含め、誰とも共有しません。",
+    "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
     "message": "ウォレットファイルを暗号化するためのパスワードを入力します。",
@@ -3072,11 +3072,11 @@
   },
   "pinExtensionTitle": {
     "message": "ピンミデンウォレット",
-    "englishSource": "Pin Miden Wallet"
+    "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "パズル アイコンをクリックして Miden Wallet を固定すると、ツールバーから簡単にアクセスできます。",
-    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+    "message": "パズル アイコンをクリックして Bread を固定すると、ツールバーから簡単にアクセスできます。",
+    "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "gotIt": {
     "message": "わかった",

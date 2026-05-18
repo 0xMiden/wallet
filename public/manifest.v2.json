@@ -1,6 +1,6 @@
 {
   "manifest_version": 2,
-  "name": "Miden Wallet",
+  "name": "Bread",
   "version": "1.14.3",
 
   "icons": {
@@ -12,7 +12,7 @@
 
   "description": "__MSG_appDesc__",
   "__chrome|firefox|opera__homepage_url": "https://miden.xyz",
-  "short_name": "Miden Wallet",
+  "short_name": "Bread",
 
   "permissions": [
     "storage",
@@ -47,7 +47,7 @@
       "38": "misc/icon-38.png",
       "128": "misc/icon-128.png"
     },
-    "default_title": "Miden Wallet for Miden Blockchain",
+    "default_title": "Bread for Miden Blockchain",
     "__chrome|opera__chrome_style": false,
     "__firefox__browser_style": false
   },

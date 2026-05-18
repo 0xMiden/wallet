@@ -1,10 +1,11 @@
 import React from 'react';
 
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
+import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation.svg';
+import { ReactComponent as EllipseBackdropLight } from 'app/icons/onboarding/ellipse-light.svg';
+import { ReactComponent as EllipseBackdropDark } from 'app/icons/onboarding/ellipse.svg';
 import { Button, ButtonVariant } from 'components/Button';
-import { Message } from 'components/Message';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
 
@@ -28,21 +29,39 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   const { t } = useTranslation();
 
   const showPasswordFallback = biometricAttempts >= MAX_BIOMETRIC_ATTEMPTS;
-  const hasError = biometricError && biometricAttempts > 0;
+  const hasError = !!biometricError && biometricAttempts > 0;
 
   return (
-    <div className="w-full h-full pt-11.5">
-      <div {...props} className="flex-1 flex flex-col h-full justify-between bg-app-bg gap-y-8 w-full px-6">
-        <div className="flex flex-col items-center grow">
-          <Message
-            icon={IconName.Success}
-            iconSize="3xl"
-            iconClassName="mb-8"
-            title={t('yourWalletIsReady')}
-            description=""
-          />
+    <div
+      {...props}
+      className="relative bg-app-bg max-w-full h-full overflow-hidden"
+      data-testid="onboarding-confirmation"
+    >
+      <EllipseBackdropLight
+        className="pointer-events-none absolute inset-0 w-full h-full block dark:hidden"
+        preserveAspectRatio="xMidYMid slice"
+      />
+      <EllipseBackdropDark
+        className="pointer-events-none absolute inset-0 w-full h-full hidden dark:block"
+        preserveAspectRatio="xMidYMid slice"
+      />
+
+      <div className="relative z-10 min-h-full flex flex-col items-center px-6 pb-8">
+        <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
+          <ConfirmationHero className="w-39 h-39" />
+          <h1 className="mt-6 text-5xl font-semibold font-heading text-heading-gray leading-[100%] tracking-tight">
+            <Trans i18nKey="yourWalletIsReady" components={{ highlight: <span className="text-primary-500" /> }} />
+          </h1>
+          {/* TODO: Wrap in a single class and then have child components */}
+          <p className="mt-3 text-lg text-heading-gray leading-[130%] font-medium">
+            {t('recoveryPhraseSevenDayReminder')}
+          </p>
+          <p className="mt-4 text-lg text-heading-gray leading-[130%]" font-medium>
+            {t('recoveryPhraseDailyReminder')}
+          </p>
+
           {hasError && (
-            <div className="mt-4 text-center">
+            <div className="mt-4">
               <p className="text-red-500 text-sm mb-2">{t('biometricFailed')}</p>
               {!showPasswordFallback && (
                 <p className="text-gray-500 text-xs">
@@ -52,7 +71,8 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
             </div>
           )}
         </div>
-        <div className="flex flex-col mt-auto items-center gap-y-3 w-full pb-8">
+
+        <div className="w-full flex flex-col items-center gap-y-3 shrink-0">
           {showPasswordFallback ? (
             <>
               <Button
@@ -73,7 +93,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
           ) : (
             <Button
               tabIndex={0}
-              title={hasError ? t('retry') : t('getStarted')}
+              title={hasError ? t('retry') : t('openWallet')}
               className="self-center w-full text-base"
               onClick={onSubmit}
               isLoading={isLoading}

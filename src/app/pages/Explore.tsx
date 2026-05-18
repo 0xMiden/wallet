@@ -1,40 +1,50 @@
-import React, { FC, useCallback, useEffect, useMemo } from 'react';
-
-import classNames from 'clsx';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import Header from 'app/layouts/PageLayout/Header';
 import { ActivateHotKeyBanner } from 'app/templates/ActivateHotKeyBanner';
+import Balance from 'app/templates/Balance';
+import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
-import { ActionButtons } from 'components/explore/ActionButtons';
-import { PriceChangeBadge } from 'components/explore/PriceChangeBadge';
+import { BalanceCard, PromptCard, SearchInput } from 'components/ui';
 import {
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { setFaucetIdSetting, useAccount, useMidenContext } from 'lib/miden/front';
+import {
+  setFaucetIdSetting,
+  useAccount,
+  useAllBalances,
+  useAllTokensBaseMetadata,
+  useMidenContext
+} from 'lib/miden/front';
+import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
+import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
+import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
-
-import MainBanner from './Explore/MainBanner';
-import Tokens from './Explore/Tokens';
+import { truncateAddress } from 'utils/string';
 
 const Explore: FC = () => {
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
   const { signTransaction } = useMidenContext();
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
   const shouldAutoConsume = isAutoConsumeEnabled();
 
   const address = account.publicKey;
+
+  const [search, setSearch] = useState('');
 
   const midenNotes = useMemo(() => {
     if (!shouldAutoConsume || !claimableNotes) {
@@ -43,11 +53,6 @@ const Explore: FC = () => {
 
     return claimableNotes.filter(note => note!.faucetId === midenFaucetId);
   }, [claimableNotes, midenFaucetId, shouldAutoConsume]);
-
-  const selfClaimableNotes = useMemo(() => {
-    if (!claimableNotes) return [];
-    return claimableNotes.filter(note => note!.faucetId !== midenFaucetId);
-  }, [claimableNotes, midenFaucetId]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
@@ -58,7 +63,6 @@ const Explore: FC = () => {
       return;
     }
 
-    // Filter to only notes not already being claimed
     const notesToClaim = midenNotes!.filter(note => !note.isBeingClaimed);
     if (notesToClaim.length === 0) {
       return;
@@ -71,10 +75,8 @@ const Explore: FC = () => {
     mutateClaimableNotes();
 
     if (isExtension()) {
-      // On extension: fire-and-forget — SW handles processing
       requestSWTransactionProcessing();
     } else {
-      // Process auto-consume transactions silently in the background (no modal/tab)
       startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
     }
   }, [
@@ -93,22 +95,7 @@ const Explore: FC = () => {
     }
   }, [autoConsumeMidenNotes, hasAutoConsumableNotes]);
 
-  // NOTE: We used to auto-open the transaction-progress modal on Explore mount
-  // whenever `hasQueuedTransactions()` returned true. That was meant to restore
-  // tx progress visibility after a page reload, but it has a nasty side effect:
-  // after ANY reload (including one triggered from a claim flow or the popup
-  // reopening), the user lands on Explore, the modal auto-opens over whatever
-  // they were trying to do next, and — because it's a z-index:9999 portal with
-  // `shouldCloseOnOverlayClick` gated on transactionComplete — it blocks the
-  // entire UI until the SW finishes processing. Surfaced by the E2E stress
-  // suite: wallet-B op#24 send stayed queued, B's page reloaded during the next
-  // claim cycle, Explore auto-opened the modal, and every subsequent navigate
-  // to /send found the TST token row behind an unclickable overlay. Dropped
-  // here; background tx processing continues in the SW regardless, and any
-  // explicit user send still opens the modal via SendManager.
-
   useEffect(() => {
-    // 6-17-25 Force wallet reset if account is still using hex address
     if (isHexAddress(address)) {
       navigate('/reset-required');
     }
@@ -131,29 +118,88 @@ const Explore: FC = () => {
     //fetchFaucetState();
   }, [fetchFaucetState]);
 
+  const filteredTokens = useMemo(() => {
+    const sorted = [...allTokenBalances].sort(a => (a.tokenId === midenFaucetId ? -1 : 1));
+    if (!search.trim()) return sorted;
+    const query = search.toLowerCase();
+    return sorted.filter(
+      asset => asset.metadata.symbol.toLowerCase().includes(query) || asset.metadata.name?.toLowerCase().includes(query)
+    );
+  }, [allTokenBalances, midenFaucetId, search]);
+
   if (isHexAddress(address)) {
     return null;
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden text-heading-gray font-geist">
-      <div className="flex-shrink-0">
+    <div className="flex flex-col h-full overflow-hidden bg-app-bg font-inter">
+      <div className="shrink-0">
         <ConnectivityIssueBanner />
         <ActivateHotKeyBanner />
-        <Header />
-        <div className={classNames('flex flex-col justify-start', 'pt-4 px-4')}>
-          <div className="flex flex-col justify-center items-center pb-4">
-            <MainBanner />
-            <PriceChangeBadge account={account} />
-          </div>
-          <ActionButtons address={address} claimableCount={selfClaimableNotes.length} />
-        </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto pt-2 pb-20">
-        <Tokens />
+
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex flex-col gap-3 px-4 pt-3 pb-32">
+          <HomeOverview
+            address={address}
+            tokenPrices={tokenPrices}
+            filteredTokens={filteredTokens}
+            search={search}
+            onSearchChange={setSearch}
+          />
+        </div>
       </div>
     </div>
   );
 };
 
 export default Explore;
+
+interface HomeOverviewProps {
+  address: string;
+  tokenPrices: TokenPrices;
+  filteredTokens: TokenBalanceData[];
+  search: string;
+  onSearchChange: (v: string) => void;
+}
+
+const HomeOverview: FC<HomeOverviewProps> = ({ address, tokenPrices, filteredTokens, search, onSearchChange }) => (
+  <>
+    <Balance>
+      {balance => (
+        <BalanceCard
+          accountNumber={truncateAddress(address, false, 8)}
+          accountId={address}
+          amount={`$${balance.toFormat(2)}`}
+          currency="USD"
+          delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
+          onMore={() => undefined}
+        />
+      )}
+    </Balance>
+
+    <PromptCard
+      title="Set up your Guardian"
+      body="Make sure to set up your Guardian to ensure your wallet back-up."
+      onClick={() => navigate('/settings')}
+    />
+
+    <div className="flex items-center justify-between pt-2">
+      <span className="text-2xl font-bold text-text-primary-token">Assets</span>
+      <span className="text-sm font-medium text-text-tertiary-token">All</span>
+    </div>
+
+    <SearchInput value={search} onChange={onSearchChange} placeholder="Search for tokens" />
+
+    <div className="flex flex-col divide-y divide-rule-default">
+      {filteredTokens.map(asset => (
+        <AssetRow
+          key={asset.tokenId}
+          asset={asset}
+          tokenPrices={tokenPrices}
+          onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
+        />
+      ))}
+    </div>
+  </>
+);

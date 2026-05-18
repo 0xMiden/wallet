@@ -1,9 +1,8 @@
 import React from 'react';
 
-import classNames from 'clsx';
-
 import { IconName } from 'app/icons/v2';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
 import { IconOrComponent } from 'utils/icon-or-component';
 
 import { Loader } from './Loader';
@@ -11,8 +10,7 @@ import { Loader } from './Loader';
 export enum ButtonVariant {
   Primary = 'primary',
   Secondary = 'secondary',
-  Ghost = 'ghost',
-  Danger = 'danger'
+  Ghost = 'ghost'
 }
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -26,43 +24,36 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 const propsPerButtonVariant = {
   [ButtonVariant.Primary]: {
     color: 'text-pure-white',
-    disabledColor: 'text-pure-white',
+    fontWeight: 'font-semibold',
+    disabledColor: 'text-heading-gray',
+    disabledFontWeight: 'font-semibold',
     backgroundColor: 'bg-primary-500 focus:bg-primary-500',
     hoverBackgroundColor: 'hover:bg-primary-600',
-    disabledBackgroundColor: 'bg-primary-500/60',
+    disabledBackgroundColor: 'bg-surface-inactive',
     iconColor: 'white',
     border: 'border-[0.5px] border-transparent'
   },
   [ButtonVariant.Secondary]: {
     color: 'text-heading-gray',
-    disabledColor: 'text-grey-400',
-    // Light-mode literal #E9E4E4 matches the existing design. In dark mode
-    // text-heading-gray flips to white, so the bg has to darken too —
-    // otherwise it's white-on-beige (see screenshot on Reveal Seed Phrase).
-    // bg-gray-50 maps to --color-surface-tertiary → #f3f3f3 / #333333.
-    backgroundColor: 'bg-[#E9E4E4] dark:bg-gray-50',
-    hoverBackgroundColor: 'hover:bg-[#DDD8D8] dark:hover:bg-[#3f3f3f]',
-    disabledBackgroundColor: 'bg-grey-200',
+    fontWeight: 'font-medium',
+    disabledColor: 'text-heading-gray',
+    disabledFontWeight: 'font-semibold',
+    backgroundColor: 'bg-surface-interactive',
+    hoverBackgroundColor: 'hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f]',
+    disabledBackgroundColor: 'bg-surface-inactive',
     iconColor: 'black',
     border: 'border-[0.5px] border-transparent'
   },
   [ButtonVariant.Ghost]: {
-    color: 'text-black',
+    color: 'text-heading-gray',
+    fontWeight: 'font-medium',
     disabledColor: 'text-grey-400',
+    disabledFontWeight: 'font-semibold',
     backgroundColor: 'bg-transparent',
     hoverBackgroundColor: 'hover:bg-grey-50',
     disabledBackgroundColor: 'bg-grey-200',
     iconColor: 'black',
-    border: 'border-[#0000004D] border-[0.5px]'
-  },
-  [ButtonVariant.Danger]: {
-    color: 'text-pure-white',
-    disabledColor: 'text-grey-400',
-    backgroundColor: 'bg-red-500',
-    hoverBackgroundColor: 'hover:bg-red-600',
-    disabledBackgroundColor: 'bg-grey-200',
-    iconColor: 'white',
-    border: 'border-[0.5px] border-transparent'
+    border: 'border border-border-button'
   }
 };
 
@@ -77,14 +68,17 @@ export const Button: React.FC<ButtonProps> = ({
   children,
   ...props
 }) => {
-  let color = propsPerButtonVariant[variant].color;
-  let backgroundColor = propsPerButtonVariant[variant].backgroundColor;
-  let hoverBackgroundColor = propsPerButtonVariant[variant].hoverBackgroundColor;
-  const iconColor = propsPerButtonVariant[variant].iconColor;
-  const border = propsPerButtonVariant[variant].border;
+  const variantProps = propsPerButtonVariant[variant];
+  let color = variantProps.color;
+  let fontWeight = variantProps.fontWeight;
+  let backgroundColor = variantProps.backgroundColor;
+  let hoverBackgroundColor = variantProps.hoverBackgroundColor;
+  const iconColor = variantProps.iconColor;
+  const border = variantProps.border;
   if (disabled) {
-    backgroundColor = propsPerButtonVariant[variant].disabledBackgroundColor;
-    color = propsPerButtonVariant[variant].disabledColor;
+    backgroundColor = variantProps.disabledBackgroundColor;
+    color = variantProps.disabledColor;
+    fontWeight = variantProps.disabledFontWeight;
     hoverBackgroundColor = '';
   }
 
@@ -96,7 +90,7 @@ export const Button: React.FC<ButtonProps> = ({
     return (
       <>
         {iconLeft && <span className="w-6">{<IconOrComponent icon={iconLeft} color={iconColor} />}</span>}
-        {isLoading ? <Loader color={iconColor} /> : <span className={`${color} font-medium`}>{title}</span>}
+        {isLoading ? <Loader color={iconColor} /> : <span className={cn(color, fontWeight)}>{title}</span>}
         {iconRight && <span className="w-6">{<IconOrComponent icon={iconRight} color={iconColor} />}</span>}
       </>
     );
@@ -104,25 +98,21 @@ export const Button: React.FC<ButtonProps> = ({
 
   const onClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.blur();
-    // Haptic feedback - medium for danger, light for others
-    if (variant === ButtonVariant.Danger) {
-      hapticMedium();
-    } else {
-      hapticLight();
-    }
+    hapticLight();
     props.onClick?.(e);
   };
 
   return (
     <button
-      className={classNames(
+      className={cn(
+        'flex justify-center items-center gap-x-2',
+        // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
+        'max-w-92.5 h-14 px-4 rounded-10 w-full',
+        'transition duration-300 ease-in-out text-base',
         backgroundColor,
         hoverBackgroundColor,
         border,
-        isLoading ? 'pointer-events-none' : '',
-        'flex justify-center items-center gap-x-2',
-        'py-3 px-4 rounded-10',
-        'transition duration-300 ease-in-out text-base',
+        isLoading && 'pointer-events-none',
         disabled ? 'cursor-default' : 'cursor-pointer',
         className
       )}

@@ -321,7 +321,7 @@
   "setNewFaucetIdDescription": "ミデンFaucetのIDを入力してください",
   "encryptedWalletFile": "暗号化されたウォレットファイル",
   "encryptedWalletFileDescription": "パスワードを入力して、暗号化されたウォレット ファイルにアクセスします。画面共有をオフにします。誰とも共有しないでください。",
-  "encryptedWalletFileConfirmation": "私は、暗号化されたウォレット ファイルを、Miden Wallet を含め、誰とも共有しません。",
+  "encryptedWalletFileConfirmation": "私は、暗号化されたウォレット ファイルを、Bread を含め、誰とも共有しません。",
   "editMidenFaucetId": "ミデン Faucet ID の編集",
   "exportWalletFile": "ウォレットファイルのエクスポート",
   "privacyScalesBetter": "プライバシーの拡張性が向上",

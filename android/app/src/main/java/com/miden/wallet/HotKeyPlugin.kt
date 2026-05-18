@@ -332,7 +332,7 @@ class HotKeyPlugin : Plugin() {
         // Match HardwareSecurityPlugin: biometric-strong OR device credential,
         // no negative button (DEVICE_CREDENTIAL forbids it).
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Miden Wallet")
+            .setTitle("Bread")
             .setSubtitle(subtitle)
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or

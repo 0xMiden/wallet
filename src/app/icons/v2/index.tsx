@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 
 import { ReactComponent as LeoLogo } from '../leo-logo-blue.svg';
+import { ReactComponent as Activity } from './activity.svg';
 import { ReactComponent as AddCircle } from './add-circle.svg';
 import { ReactComponent as Add } from './add.svg';
 import { ReactComponent as AddressBook } from './address-book.svg';
@@ -19,6 +20,7 @@ import { ReactComponent as ArrowRightUp } from './arrow-right-up.svg';
 import { ReactComponent as ArrowRight } from './arrow-right.svg';
 import { ReactComponent as ArrowUpDown } from './arrow-up-down.svg';
 import { ReactComponent as ArrowUp } from './arrow-up.svg';
+import { ReactComponent as Backspace } from './backspace.svg';
 import { ReactComponent as Bell } from './bell.svg';
 import { ReactComponent as Bin } from './bin.svg';
 import { ReactComponent as Calendar } from './calendar.svg';
@@ -48,6 +50,7 @@ import { ReactComponent as DelegateProving } from './delegate-proving.svg';
 import { ReactComponent as Download1 } from './download-1.svg';
 import { ReactComponent as Download } from './download.svg';
 import { ReactComponent as EmotionSad } from './emotion-sad.svg';
+import { ReactComponent as Explore } from './explore.svg';
 import { ReactComponent as EyeOff } from './eye-off.svg';
 import { ReactComponent as Eye } from './eye.svg';
 import { ReactComponent as FaceId } from './face-id.svg';
@@ -92,6 +95,7 @@ import { ReactComponent as Refresh } from './refresh.svg';
 import { ReactComponent as Rocket } from './rocket.svg';
 import { ReactComponent as ScanFrame } from './scan-frame.svg';
 import { ReactComponent as Search } from './search.svg';
+import { ReactComponent as Send } from './send.svg';
 import { ReactComponent as Settings2 } from './settings-2.svg';
 import { ReactComponent as SettingsFill } from './settings-fill.svg';
 import { ReactComponent as SettingsNew } from './settings-new.svg';
@@ -115,6 +119,7 @@ import { ReactComponent as Warning } from './warning.svg';
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 
 export enum IconName {
+  Activity = 'activity',
   AddCircle = 'add-circle',
   Add = 'add',
   AddressBook = 'address-book',
@@ -129,6 +134,7 @@ export enum IconName {
   ArrowRight = 'arrow-right',
   ArrowUpDown = 'arrow-up-down',
   ArrowUp = 'arrow-up',
+  Backspace = 'backspace',
   Bell = 'bell',
   Calendar = 'calendar',
   Bin = 'bin',
@@ -158,6 +164,7 @@ export enum IconName {
   Download1 = 'download-1',
   Download = 'download',
   EmotionSad = 'emotion-sad',
+  Explore = 'explore',
   EyeOff = 'eye-off',
   Eye = 'eye',
   FaceId = 'face-id',
@@ -197,6 +204,7 @@ export enum IconName {
   Rocket = 'rocket',
   ScanFrame = 'scan-frame',
   Search = 'search',
+  Send = 'send',
   Settings2 = 'settings-2',
   SettingsFill = 'settings-fill',
   Settings = 'settings',
@@ -232,6 +240,8 @@ export interface IconProps extends React.SVGAttributes<SVGElement> {
 
 const IconSwitch = (props: IconProps) => {
   switch (props.name) {
+    case IconName.Activity:
+      return <Activity {...props} />;
     case IconName.AddCircle:
       return <AddCircle {...props} />;
     case IconName.Add:
@@ -258,6 +268,8 @@ const IconSwitch = (props: IconProps) => {
       return <ArrowUpDown {...props} />;
     case IconName.ArrowUp:
       return <ArrowUp {...props} />;
+    case IconName.Backspace:
+      return <Backspace {...props} />;
     case IconName.Bell:
       return <Bell {...props} />;
     case IconName.Calendar:
@@ -316,6 +328,8 @@ const IconSwitch = (props: IconProps) => {
       return <Download {...props} />;
     case IconName.EmotionSad:
       return <EmotionSad {...props} />;
+    case IconName.Explore:
+      return <Explore {...props} />;
     case IconName.EyeOff:
       return <EyeOff {...props} />;
     case IconName.Eye:
@@ -394,6 +408,8 @@ const IconSwitch = (props: IconProps) => {
       return <ScanFrame {...props} />;
     case IconName.Search:
       return <Search {...props} />;
+    case IconName.Send:
+      return <Send {...props} />;
     case IconName.Settings2:
       return <Settings2 {...props} />;
     case IconName.SettingsFill:
