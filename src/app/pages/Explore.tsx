@@ -5,7 +5,7 @@ import { ActivateHotKeyBanner } from 'app/templates/ActivateHotKeyBanner';
 import Balance from 'app/templates/Balance';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
-import { BalanceCard, PromptCard, SearchInput } from 'components/ui';
+import { BalanceCard, PromptCard, PromptCarousel, SearchInput } from 'components/ui';
 import {
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
@@ -137,7 +137,6 @@ const Explore: FC = () => {
     <div className="flex flex-col h-full overflow-hidden bg-app-bg font-inter">
       <div className="shrink-0">
         <ConnectivityIssueBanner />
-        <ActivateHotKeyBanner />
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -180,11 +179,14 @@ const HomeOverview: FC<HomeOverviewProps> = ({ address, tokenPrices, filteredTok
       )}
     </Balance>
 
-    <PromptCard
-      title="Set up your Guardian"
-      body="Make sure to set up your Guardian to ensure your wallet back-up."
-      onClick={() => navigate('/settings')}
-    />
+    <PromptCarousel>
+      <PromptCard
+        title="Set up your Guardian"
+        body="Make sure to set up your Guardian to ensure your wallet back-up."
+        onClick={() => navigate('/settings')}
+      />
+      <ActivateHotKeyBanner />
+    </PromptCarousel>
 
     <div className="flex items-center justify-between pt-2">
       <span className="text-2xl font-bold text-text-primary-token">Assets</span>

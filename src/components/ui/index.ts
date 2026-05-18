@@ -4,6 +4,9 @@ export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 export { PromptCard } from './PromptCard';
 export type { PromptCardProps, PromptCardVariant } from './PromptCard';
 
+export { PromptCarousel } from './PromptCarousel';
+export type { PromptCarouselProps } from './PromptCarousel';
+
 export { AssetListItem } from './AssetListItem';
 export type { AssetListItemProps, AssetDeltaDirection } from './AssetListItem';
 
