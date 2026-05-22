@@ -320,6 +320,10 @@
   "useFaceIdOrBiometric": "Use FaceID or Biometric",
   "setUpYourPasscode": "Set up your passcode",
   "confirmYourPasscode": "Confirm your passcode",
+  "enterYourPasscode": "Enter your passcode",
+  "enterYour6DigitCode": "Enter your 6-digit code",
+  "incorrectPasscode": "Incorrect passcode. Try again.",
+  "forgotPasscode": "Forgot passcode?",
   "createA6DigitCode": "Create a 6 digit code",
   "reEnterTheSame6Digits": "Re-enter the same 6 digits",
   "faceIdSetUp": "Face ID set up",
@@ -776,5 +780,11 @@
   "advancedOptions": "Advanced Options",
   "pinExtensionTitle": "Pin Bread",
   "pinExtensionDescription": "Click the puzzle icon and pin Bread for quick access from your toolbar.",
-  "gotIt": "Got it"
+  "gotIt": "Got it",
+  "all": "All",
+  "sent": "Sent",
+  "pending": "Pending",
+  "faucetRequestTitle": "Faucet Request",
+  "share": "Share",
+  "copy": "Copy"
 }

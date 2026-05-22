@@ -10,6 +10,7 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { isFaucetRequest as isFaucetEntry } from './transactionUtils';
 
 type HistoryProps = {
   address: string;
@@ -21,10 +22,11 @@ type HistoryProps = {
   centerEmptyState?: boolean;
   tokenId?: string;
   searchQuery?: string;
+  filter?: 'all' | 'sent' | 'received' | 'faucet';
 };
 
 const History = memo<HistoryProps>(
-  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery }) => {
+  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery, filter }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -98,6 +100,14 @@ const History = memo<HistoryProps>(
           e.token?.toLowerCase().includes(query) ||
           e.secondaryAddress?.toLowerCase().includes(query)
       );
+    }
+    if (filter && filter !== 'all') {
+      entries = entries.filter(e => {
+        if (filter === 'sent') return e.transactionIcon === 'SEND';
+        if (filter === 'received') return e.transactionIcon === 'RECEIVE' && !isFaucetEntry(e);
+        if (filter === 'faucet') return isFaucetEntry(e);
+        return true;
+      });
     }
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);

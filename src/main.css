@@ -314,7 +314,7 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --color-hover-bg: #e1dbdb;
 
     /* Design system tokens (Foundations + Typography + Radius/Spacing) */
-    --accent-primary: #d44b00;
+    --accent-primary: #e65303;
     --accent-primary-hover: #b33e00;
     --text-primary: #3f3f3f;
     --text-secondary: rgba(63, 63, 63, 0.65);
@@ -374,7 +374,7 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
 
     /* Design system tokens - dark variants. Foundations spec is light-mode only;
      * derive dark values by inverting text/surface and keeping action/status hues. */
-    --accent-primary: #d44b00;
+    --accent-primary: #e65303;
     --accent-primary-hover: #e55818;
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.65);
