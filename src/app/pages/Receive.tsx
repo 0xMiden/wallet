@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { Share } from '@capacitor/share';
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -10,7 +11,7 @@ import FormField from 'app/atoms/FormField';
 import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
-import { ReactComponent as QRIcon } from 'app/icons/qr-new.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { QRCode } from 'components/QRCode';
@@ -341,10 +342,36 @@ export const Receive: React.FC<ReceiveProps> = () => {
     isMobile() || sidePanel
       ? 'h-full w-full'
       : fullPage
-        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl'
+        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
         : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
-  const [isQRSheetOpen, setIsQRSheetOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'address' | 'pending'>('address');
+  const pendingCount = safeClaimableNotes.length;
+
+  const handleTabTap = (id: 'address' | 'pending') => {
+    if (id === activeTab) return;
+    hapticLight();
+    setActiveTab(id);
+  };
+
+  const handleShare = useCallback(async () => {
+    hapticLight();
+    try {
+      if (isMobile()) {
+        await Share.share({ text: address, dialogTitle: t('receive') });
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ text: address });
+        return;
+      }
+    } catch (e) {
+      // user-cancelled share rejects — quietly ignore
+      console.warn('[Receive] share dismissed:', e);
+    }
+    // Fall through to clipboard if share isn't available
+    copy();
+  }, [address, copy, t]);
 
   // On mobile, morph the native navbar OUT while the QR sheet
   // covers the bottom of the screen — they'd otherwise fight for
@@ -375,126 +402,107 @@ export const Receive: React.FC<ReceiveProps> = () => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
-      {/* Floating QR button — the back/title chrome is provided by
-          TabLayout's SegmentedActionBar; only the receive-specific QR
-          affordance survives. */}
-      <button
-        type="button"
-        className="absolute top-2 right-3 z-10 flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100"
-        aria-label={t('showQrCode')}
-        onClick={() => {
-          hapticLight();
-          setIsQRSheetOpen(true);
-        }}
-      >
-        <QRIcon className="text-black" style={{ width: '22px', height: '22px' }} />
-      </button>
+      <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
 
-      <div className="flex-1 flex flex-col min-h-0" data-testid="receive-page">
-        <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-        <div className={classNames('w-full mx-auto py-4 flex flex-col flex-1 min-h-0', isMobile() ? 'px-8' : 'px-4')}>
-          {safeClaimableNotes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center flex-1">
-              <svg
-                width="52"
-                height="52"
-                viewBox="0 0 52 52"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                className="mb-4 text-grey-400"
-              >
-                {/* Banknote outline */}
-                <rect
-                  x="6"
-                  y="14"
-                  width="40"
-                  height="24"
-                  rx="3"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                {/* Center circle (coin symbol) */}
-                <circle cx="26" cy="26" r="6" stroke="currentColor" strokeWidth="1.5" />
-                {/* Corner circles */}
-                <circle cx="13" cy="20" r="1.5" fill="currentColor" opacity="0.4" />
-                <circle cx="39" cy="20" r="1.5" fill="currentColor" opacity="0.4" />
-                <circle cx="13" cy="32" r="1.5" fill="currentColor" opacity="0.4" />
-                <circle cx="39" cy="32" r="1.5" fill="currentColor" opacity="0.4" />
-              </svg>
-              <p className="text-sm text-center text-heading-gray">{t('noNotesToClaim')}</p>
-            </div>
-          ) : (
-            <>
-              <p className="text-xs text-heading-gray mb-4 shrink-0 text-center font-medium">
-                {t('readyToClaim', { count: safeClaimableNotes.length })}
-              </p>
-              {/* Scrollable grouped notes container */}
-              <div className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0">
-                {groupedNotes.map(group => (
-                  <AssetNoteGroupComponent
-                    key={group.faucetId}
-                    group={group}
-                    isExpanded={expandedGroups.has(group.faucetId)}
-                    onToggleExpand={() => toggleGroupExpanded(group.faucetId)}
-                    account={account}
-                    mutateClaimableNotes={mutateClaimableNotes}
-                    isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-                    claimingNoteIds={claimingNoteIds}
-                    failedNoteIds={failedNoteIds}
-                    checkingNoteIds={checkingNoteIds}
-                    onClaimingStateChange={handleClaimingStateChange}
-                  />
-                ))}
-              </div>
-            </>
+      {/* Address / Pending tab switcher */}
+      <div className="shrink-0 flex border-b border-rule-default">
+        <button
+          type="button"
+          onClick={() => handleTabTap('address')}
+          aria-pressed={activeTab === 'address'}
+          className={classNames(
+            'flex-1 h-12 text-sm font-semibold transition-colors',
+            activeTab === 'address' ? 'bg-[#F6F4F2] text-accent-primary' : 'bg-white text-text-primary-token'
           )}
-          {unclaimedNotes.length > 0 && !isMobile() && (
-            <div className="flex justify-center mt-4 pb-4 shrink-0">
-              <Button
-                className="w-30 h-10 text-md"
-                variant={ButtonVariant.Primary}
-                onClick={handleClaimAll}
-                title={t('claimAll')}
-              />
-            </div>
+        >
+          {t('address')}
+        </button>
+        <button
+          type="button"
+          onClick={() => handleTabTap('pending')}
+          aria-pressed={activeTab === 'pending'}
+          className={classNames(
+            'flex-1 h-12 text-sm font-semibold transition-colors',
+            activeTab === 'pending' ? 'bg-[#F6F4F2] text-accent-primary' : 'bg-white text-text-primary-token'
           )}
-        </div>
+        >
+          {`${t('pending')} (${pendingCount})`}
+        </button>
       </div>
 
-      {/* QR Code Bottom Sheet */}
-      <AnimatePresence>
-        {isQRSheetOpen && (
-          <>
-            <motion.div
-              className="absolute inset-0 bg-pure-black/30 z-40"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsQRSheetOpen(false)}
-            />
-            <motion.div
-              className="absolute bottom-0 left-0 right-0 z-50 bg-app-bg rounded-t-2xl"
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              style={{ paddingBottom: isMobile() ? 'max(2rem, env(safe-area-inset-bottom))' : '2rem' }}
+      {activeTab === 'address' ? (
+        <div className="flex-1 flex flex-col min-h-0 items-center justify-center px-6 pb-8" data-testid="receive-page">
+          <div className="flex items-center justify-center">
+            <QRCode address={address} size={240} onCopy={copy} className="w-auto" />
+          </div>
+          <div className="mt-10 flex items-center gap-12">
+            <button
+              type="button"
+              onClick={handleShare}
+              className="flex flex-col items-center gap-1.5 text-accent-primary"
             >
-              <div className="flex justify-center pt-4 pb-2">
-                <div className="w-12 h-1 bg-grey-200 rounded-full" />
+              <Icon name={IconName.Share} className="w-7 h-7" fill="currentColor" />
+              <span className="text-base font-semibold text-text-primary-token">{t('share')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                hapticLight();
+                copy();
+              }}
+              className="flex flex-col items-center gap-1.5 text-accent-primary"
+            >
+              <Icon name={IconName.Copy} className="w-7 h-7" fill="currentColor" />
+              <span className="text-base font-semibold text-text-primary-token">
+                {copied ? t('copied') : t('copy')}
+              </span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className={classNames('w-full mx-auto py-4 flex flex-col flex-1 min-h-0', isMobile() ? 'px-4' : 'px-4')}>
+            {pendingCount === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1">
+                <p className="text-sm text-center text-text-tertiary-token">{t('noNotesToClaim')}</p>
               </div>
-              <div className="flex flex-col items-center p-6 pt-2">
-                <QRCode address={address} size={200} onCopy={copy} className="w-full" />
-                {copied && (
-                  <p className="text-xs text-primary-500 mt-2 transition-opacity duration-200">{t('copied')}</p>
-                )}
+            ) : (
+              <>
+                <p className="text-xs text-heading-gray mb-4 shrink-0 text-center font-medium">
+                  {t('readyToClaim', { count: pendingCount })}
+                </p>
+                <div className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0">
+                  {groupedNotes.map(group => (
+                    <AssetNoteGroupComponent
+                      key={group.faucetId}
+                      group={group}
+                      isExpanded={expandedGroups.has(group.faucetId)}
+                      onToggleExpand={() => toggleGroupExpanded(group.faucetId)}
+                      account={account}
+                      mutateClaimableNotes={mutateClaimableNotes}
+                      isDelegatedProvingEnabled={isDelegatedProvingEnabled}
+                      claimingNoteIds={claimingNoteIds}
+                      failedNoteIds={failedNoteIds}
+                      checkingNoteIds={checkingNoteIds}
+                      onClaimingStateChange={handleClaimingStateChange}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+            {unclaimedNotes.length > 0 && !isMobile() && (
+              <div className="flex justify-center mt-4 pb-4 shrink-0">
+                <Button
+                  className="w-30 h-10 text-md"
+                  variant={ButtonVariant.Primary}
+                  onClick={handleClaimAll}
+                  title={t('claimAll')}
+                />
               </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -556,7 +564,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
   const privateCount = notes.filter(n => n.type === NoteTypeEnum.Private).length;
 
   return (
-    <div className="border border-border-light rounded-xl overflow-hidden">
+    <div className="rounded-xl overflow-hidden">
       {/* Group Header */}
       <button
         type="button"

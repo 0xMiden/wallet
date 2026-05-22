@@ -21,3 +21,6 @@ export type { SearchInputProps } from './SearchInput';
 
 export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
+
+export { ActivityRow } from './ActivityRow';
+export type { ActivityRowProps, ActivityAmountDirection, ActivityStatusTone } from './ActivityRow';

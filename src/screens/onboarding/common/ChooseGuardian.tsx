@@ -31,9 +31,16 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({ onSu
       {
         id: 'open-zeppelin',
         name: 'Open-Zeppelin',
-        operatedBy: 'Miden Labs',
+        operatedBy: 'Open-Zeppelin',
         location: 'US-EAST',
         endpoint: DEFAULT_GUARDIAN_ENDPOINT
+      },
+      {
+        id: 'gateway',
+        name: 'Gateway Operator',
+        operatedBy: 'Gateway',
+        location: 'EU-NORTH',
+        endpoint: 'https://miden-guardian.dev.eu-north-3.gateway.fm'
       }
     ],
     []

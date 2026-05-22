@@ -1,15 +1,12 @@
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import Alert from 'app/atoms/Alert';
-import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { openInFullPage, useAppEnv } from 'app/env';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/bread.svg';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
+import { Numpad } from 'components/Numpad';
 import { useFormAnalytics } from 'lib/analytics';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
@@ -23,11 +20,7 @@ const BrandIcon = () => (
   </div>
 );
 
-type FormData = {
-  password: string;
-};
-
-const SUBMIT_ERROR_TYPE = 'submit-error';
+const PASSCODE_LENGTH = 6;
 const LOCK_TIME = 60_000;
 const LAST_ATTEMPT = 3;
 
@@ -57,7 +50,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   // HARDWARE UNLOCK STATE
   // Mobile & Desktop: tries hardware unlock (biometric/passcode) automatically
-  // Extension: always shows password form
+  // Extension: always shows passcode entry
   const [hardwareUnlockAttempted, setHardwareUnlockAttempted] = useState(false);
   const [hardwareUnlockChecked, setHardwareUnlockChecked] = useState(false);
   // For hardware-only wallets (no password protector), show biometric-only UI
@@ -69,13 +62,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   // On mobile/desktop, try hardware unlock automatically on mount
   useEffect(() => {
     const tryHardwareUnlock = async () => {
-      // Only try on mobile or desktop, not extension
       if (isExtension() || hardwareUnlockAttempted) {
         setHardwareUnlockChecked(true);
         return;
       }
 
-      // Guard against double invocation (React Strict Mode, unstable deps, etc.)
       if (unlockInProgressRef.current) {
         console.log('[Unlock] Hardware unlock already in progress, skipping');
         return;
@@ -92,7 +83,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
           if (hasKey) {
             console.log('[Unlock] Attempting desktop hardware unlock (Touch ID)...');
-            await unlock(); // No password = try hardware unlock
+            await unlock();
             setAttempt(1);
             navigate('/');
             return;
@@ -104,7 +95,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
           if (hasKey) {
             console.log('[Unlock] Attempting mobile hardware unlock (biometric)...');
-            await unlock(); // No password = try hardware unlock
+            await unlock();
             setAttempt(1);
             navigate('/');
             return;
@@ -112,8 +103,6 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         }
       } catch (err) {
         console.log('[Unlock] Hardware unlock failed or cancelled:', err);
-        // Check if this is a hardware-only wallet (no password protector)
-        // If so, show biometric-only UI instead of password form
         try {
           const { Vault } = await import('lib/miden/back/vault');
           const hasPassword = await Vault.hasPasswordProtector();
@@ -134,41 +123,34 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
-  const formRef = useRef<HTMLFormElement>(null);
+  const [code, setCode] = useState('');
+  const [isError, setIsError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const focusPasswordField = useCallback(() => {
-    formRef.current?.querySelector<HTMLInputElement>("input[name='password']")?.focus();
-  }, []);
+  const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
 
-  const {
-    register,
-    handleSubmit,
-    setError,
-    clearErrors,
-    formState: { errors, isSubmitting }
-  } = useForm<FormData>();
-  const onSubmit = useCallback<SubmitHandler<FormData>>(
-    async ({ password }) => {
+  const submitPasscode = useCallback(
+    async (passcode: string) => {
       if (isSubmitting) return;
-
-      clearErrors('password');
+      setIsSubmitting(true);
+      setIsError(false);
       formAnalytics.trackSubmit();
+
       try {
         if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
-        await unlock(password);
+        await unlock(passcode);
 
         formAnalytics.trackSubmitSuccess();
         setAttempt(1);
 
         // On mobile/desktop, don't reload - the backend state is already updated in-process.
-        // Just navigate to home to trigger a re-render with the unlocked state.
         // On extension, reload to sync with background worker.
         if (!isExtension()) {
           navigate('/');
         } else {
           window.location.reload();
         }
-      } catch (err: any) {
+      } catch (err) {
         formAnalytics.trackSubmitFail();
         if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
         setAttempt(attempt + 1);
@@ -176,14 +158,39 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
         console.error(err);
 
-        // Human delay.
         await new Promise(res => setTimeout(res, 300));
-        setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
-        focusPasswordField();
+        setIsError(true);
+        setCode('');
+        setIsSubmitting(false);
       }
     },
-    [isSubmitting, clearErrors, setError, unlock, focusPasswordField, formAnalytics, attempt, setAttempt, setTimeLock]
+    [isSubmitting, unlock, formAnalytics, attempt, setAttempt, setTimeLock]
   );
+
+  useEffect(() => {
+    if (code.length === PASSCODE_LENGTH && !isSubmitting) {
+      const timer = setTimeout(() => {
+        submitPasscode(code);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [code, isSubmitting, submitPasscode]);
+
+  const handleDigit = useCallback(
+    (digit: string) => {
+      if (isDisabled || isSubmitting) return;
+      if (isError) setIsError(false);
+      setCode(prev => (prev.length >= PASSCODE_LENGTH ? prev : prev + digit));
+    },
+    [isDisabled, isSubmitting, isError]
+  );
+
+  const handleDelete = useCallback(() => {
+    if (isDisabled || isSubmitting) return;
+    if (isError) setIsError(false);
+    setCode(prev => prev.slice(0, -1));
+  }, [isDisabled, isSubmitting, isError]);
 
   const onForgotPasswordClick = useCallback(() => {
     if (openForgotPasswordInFullPage) {
@@ -197,19 +204,15 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     }
   }, [openForgotPasswordInFullPage, compact]);
 
-  // Retry hardware unlock for hardware-only wallets
   const onRetryHardwareUnlock = useCallback(async () => {
     try {
-      await unlock(); // No password = try hardware unlock
+      await unlock();
       setAttempt(1);
       navigate('/');
     } catch (err) {
       console.log('[Unlock] Hardware unlock retry failed:', err);
-      // Stay on the biometric-only UI
     }
   }, [unlock, setAttempt]);
-
-  const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -224,24 +227,19 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     };
   }, [timelock, lockLevel, setTimeLock]);
 
-  // Wait for hardware unlock check to complete before showing password form
-  // This prevents flash of password form while hardware unlock is being attempted
+  // Wait for hardware unlock check to complete before showing passcode UI
   if (!hardwareUnlockChecked && !isExtension()) {
     return (
-      <SimplePageLayout
-        icon={<BrandIcon />}
-      >
-        <div className="flex items-center justify-center h-32">{/* Loading state */}</div>
+      <SimplePageLayout icon={<BrandIcon />}>
+        <div className="flex items-center justify-center h-32" />
       </SimplePageLayout>
     );
   }
 
-  // Show biometric-only UI for hardware-only wallets (no password fallback)
+  // Hardware-only wallet (no password protector) — biometric retry UI
   if (isHardwareOnlyWallet) {
     return (
-      <SimplePageLayout
-        icon={<BrandIcon />}
-      >
+      <SimplePageLayout icon={<BrandIcon />}>
         <div className="w-full max-w-sm mx-auto my-8" style={{ padding: '0px 32px' }}>
           <div className="text-center mb-6">
             <h2 className="text-xl font-semibold mb-2">{t('biometricUnlockRequired')}</h2>
@@ -268,59 +266,54 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     );
   }
 
-  // Show password unlock form (default for extension, fallback for mobile/desktop)
-  return (
-    <SimplePageLayout icon={<BrandIcon />}>
-      {isDisabled && (
-        <Alert
-          type="error"
-          title={t('error')}
-          description={`${t('unlockPasswordErrorDelay')} ${timeleft}`}
-          className="-mt-16 rounded-lg text-black mx-auto"
-          style={{ width: '80%' }}
-        />
-      )}
-      <form
-        ref={formRef}
-        className="w-full max-w-sm mx-auto my-8"
-        onSubmit={handleSubmit(onSubmit)}
-        style={{ padding: '0px 32px' }}
-      >
-        <FormField
-          {...register('password', { required: t('required') })}
-          label={
-            <div className="font-medium -mb-2" style={{ fontSize: '14px', lineHeight: '20px' }}>
-              {t('password')}
-            </div>
-          }
-          id="unlock-password"
-          type="password"
-          name="password"
-          placeholder="********"
-          errorCaption={errors.password && errors.password.message}
-          autoFocus
-          containerClassName="mb-3"
-          disabled={isDisabled}
-        />
+  const subtitle = isDisabled
+    ? `${t('unlockPasswordErrorDelay')} ${timeleft}`
+    : isError
+      ? t('incorrectPasscode')
+      : t('enterYour6DigitCode');
 
-        <FormSubmitButton
-          disabled={isDisabled}
-          loading={isSubmitting}
-          className="w-full justify-center rounded-[10px]"
-          style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
-        >
-          {t('unlock')}
-        </FormSubmitButton>
-        <Button
-          id={'forgot-password'}
-          title={t('forgotPassword')}
-          variant={ButtonVariant.Ghost}
+  const subtitleClass = isDisabled || isError ? 'text-red-500' : 'text-[#8E8E93]';
+
+  return (
+    <div className="bg-app-bg h-full overflow-y-auto" data-testid="unlock-passcode">
+      <div className="min-h-full flex flex-col items-center px-6 pb-8">
+        <div className="flex flex-col items-center w-full mt-8 shrink-0">
+          <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight">
+            {t('enterYourPasscode')}
+          </h1>
+          <p className={`text-lg text-center mt-3 ${subtitleClass}`}>{subtitle}</p>
+
+          <div className="flex items-center gap-3.5 mt-6">
+            {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
+              const filled = index < code.length;
+              return (
+                <div
+                  key={index}
+                  className={
+                    filled
+                      ? 'w-3.5 h-3.5 rounded-full bg-[#C7C7CC] border-2 border-[#C7C7CC]'
+                      : 'w-3.5 h-3.5 rounded-full border-2 border-[#C7C7CC]'
+                  }
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="w-full pt-8">
+          <Numpad onDigit={handleDigit} onDelete={handleDelete} />
+        </div>
+
+        <button
+          id="forgot-password"
+          type="button"
           onClick={onForgotPasswordClick}
-          className="w-full justify-center mt-2"
-          style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
-        />
-      </form>
-    </SimplePageLayout>
+          className="mt-4 text-heading-gray text-base font-medium"
+        >
+          {t('forgotPasscode')}
+        </button>
+      </div>
+    </div>
   );
 };
 
