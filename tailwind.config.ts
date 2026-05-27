@@ -155,6 +155,7 @@ export default {
         'surface-balance-rule': 'var(--surface-balance-rule)',
         'surface-balance-positive': 'var(--surface-balance-positive)',
         'surface-balance-handle': 'var(--surface-balance-handle)',
+        'surface-balance-divider': '#FFFFFF4D',
         ...customColors,
         // Override primary from customColors with network-conditional values
         primary: primaryPalette
