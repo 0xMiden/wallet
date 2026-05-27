@@ -59,7 +59,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       <Icon name={IconName.Close} className="w-4 h-4" fill="currentColor" />
     </button>
   ) : (
-    <Icon name={IconName.ChevronRight} className="shrink-0 w-4 h-4" />
+    <Icon name={IconName.ChevronRight} size="xs" className="dark:stroke-pure-white" />
   );
 
   return (
@@ -68,7 +68,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       onClick={onClick ? handleClick : undefined}
       className={classNames(
         'w-full bg-gray-25 rounded-md-token',
-        'flex items-center gap-3 px-4 py-4.5',
+        'flex items-center gap-3 px-4 py-2',
         onClick && 'cursor-pointer active:opacity-90 transition-opacity',
         VARIANT_ACCENT_BORDER[variant],
         className

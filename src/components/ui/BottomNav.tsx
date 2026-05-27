@@ -28,8 +28,8 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
   return (
     <nav
       className={classNames(
-        'flex items-center justify-around',
-        'bg-white rounded-full px-2 py-2',
+        'flex items-center gap-8 justify-center',
+        'bg-white rounded-3xl px-13.5 py-2',
         'shadow-[0_8px_24px_rgba(0,0,0,0.08)]',
         className
       )}
@@ -44,7 +44,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
             aria-current={isActive ? 'page' : undefined}
             onClick={() => handleSelect(item.id)}
             className={classNames(
-              'flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5',
+              'flex flex-col items-center justify-center gap-0.5 py-1.5 px-3',
               'transition-colors',
               isActive ? 'text-accent-primary' : 'text-text-primary-token'
             )}

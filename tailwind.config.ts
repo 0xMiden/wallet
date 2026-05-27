@@ -119,6 +119,7 @@ export default {
         'primary-orange-darker': isDevnet ? '#3A4857' : '#5C2200',
         'primary-gray': '#656565',
         'border-card': 'var(--color-border)',
+        'border-faint': '#BABABA33',
         'chip-bg': 'var(--color-chip-bg)',
         'pill-active': isDevnet ? '#6878A0' : '#C24400',
         'accent-orange': isDevnet ? '#5E7090' : '#B33E00',

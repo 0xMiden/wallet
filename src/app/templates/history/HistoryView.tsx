@@ -42,9 +42,9 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const longDate = format(d, 'MMMM d, yyyy');
   const day = format(d, 'EEEE');
   return (
-    <div className="flex items-baseline justify-between pt-4 pb-2">
-      <span className="text-base font-bold text-text-primary-token">{longDate}</span>
-      <span className="text-sm font-semibold text-accent-primary">{day}</span>
+    <div className="flex items-center justify-between font-extrabold text-heading-gray dark:text-pure-white text-xl leading-[100%]">
+      <span className="">{longDate}</span>
+      <span className="text-accent-primary">{day}</span>
     </div>
   );
 };
@@ -73,7 +73,8 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
     iconBg = 'bg-tx-received';
     amountDirection = 'positive';
   } else if (icon === 'SEND') {
-    iconNode = <Icon name={IconName.ArrowRightUp} className="w-5 h-5" fill="currentColor" />;
+    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+    iconNode = <Icon name={IconName.Send} size="xs" fill={isDark ? 'white' : 'currentColor'} />;
     iconBg = 'bg-tx-sent';
     amountDirection = 'negative';
   } else if (icon === 'SWAP') {
@@ -105,7 +106,10 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
   if (isFailed) {
     statusTone = 'failed';
     statusLabel = t('failed');
-  } else if (entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction) {
+  } else if (
+    entry.type === HistoryEntryType.PendingTransaction ||
+    entry.type === HistoryEntryType.ProcessingTransaction
+  ) {
     statusTone = 'pending';
     statusLabel = t('pending');
   }
@@ -176,10 +180,13 @@ const HistoryView = memo<HistoryViewProps>(
 
     const list = (
       <div className="flex flex-col">
-        {dateGroups.map(([dateMs, dateEntries]) => (
-          <div key={dateMs}>
+        {dateGroups.map(([dateMs, dateEntries], index) => (
+          <div
+            key={dateMs}
+            className={classNames('flex flex-col gap-1 py-3 border-b-[#BABABA33] border-b', index === 0 && 'pt-4')}
+          >
             <DateSeparator dateMs={dateMs} />
-            <div className="flex flex-col divide-y divide-rule-default">
+            <div className="flex flex-col divide-y divide-rule-default dark:divide-pure-white">
               {dateEntries.map(entry => {
                 const props = buildRowProps(entry, t);
                 return (

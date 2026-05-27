@@ -10,7 +10,13 @@ export interface SearchInputProps {
   autoFocus?: boolean;
 }
 
-export const SearchInput: FC<SearchInputProps> = ({ value, onChange, placeholder = 'Search', className, autoFocus }) => {
+export const SearchInput: FC<SearchInputProps> = ({
+  value,
+  onChange,
+  placeholder = 'Search',
+  className,
+  autoFocus
+}) => {
   const hasValue = value.length > 0;
 
   return (
@@ -22,7 +28,7 @@ export const SearchInput: FC<SearchInputProps> = ({ value, onChange, placeholder
         placeholder={placeholder}
         autoFocus={autoFocus}
         className={classNames(
-          'w-full bg-transparent outline-none px-4 py-3.5 text-sm',
+          'w-full bg-transparent outline-none px-4 py-4 text-sm',
           'placeholder:text-text-tertiary-token placeholder:font-normal',
           hasValue ? 'text-accent-primary font-semibold' : 'text-text-tertiary-token font-normal'
         )}
