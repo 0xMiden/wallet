@@ -42,10 +42,6 @@ jest.mock('lib/miden/guardian', () => ({
   }
 }));
 
-jest.mock('lib/miden-chain/constants', () => ({
-  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
-}));
-
 jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
@@ -107,23 +103,26 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
 
-    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage is empty on the cache-drift re-check', async () => {
+    it('evicts the cached service when storage is empty on the cache-drift re-check', async () => {
       // First call seeds the cache with a service pinned to the default endpoint.
       const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'cached' };
       mockMultisigServiceInit.mockResolvedValueOnce(service);
       const provider = makeProvider([guardianAccount]);
       await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
-      // Second call: storage returns `undefined`, so the re-check computes the
-      // default endpoint via the `|| DEFAULT_GUARDIAN_ENDPOINT` fallback and
-      // the cached instance stays valid.
+      // Second call: storage returns `undefined`. With DEFAULT_GUARDIAN_ENDPOINT
+      // gone, the cache check requires storage to hold a value — empty storage
+      // is treated as drift, so the entry is evicted and the service is
+      // re-initialized.
+      const refreshed = { guardianEndpoint: 'https://default.guardian.test', tag: 'refreshed' };
       mockFetchFromStorage.mockResolvedValueOnce(undefined);
       mockMultisigServiceInit.mockClear();
+      mockMultisigServiceInit.mockResolvedValueOnce(refreshed);
 
       const second = await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
-      expect(second).toBe(service);
-      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
+      expect(second).toBe(refreshed);
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
     });
 
     it('evicts the cached service and reinitializes when the stored guardian URL drifts', async () => {

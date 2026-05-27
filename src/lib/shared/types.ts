@@ -373,6 +373,14 @@ export interface WalletNetwork {
   autoSync: boolean;
 }
 
+export interface GuardianOption {
+  id: string;
+  name: string;
+  operatedBy: string;
+  location: string;
+  endpoint: string;
+}
+
 export interface LoadingResponse extends WalletMessageBase {
   type: WalletMessageType.LoadingResponse;
 }

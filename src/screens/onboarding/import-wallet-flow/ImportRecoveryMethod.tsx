@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl } from 'lib/settings/helpers';
 import { Badge } from 'lib/ui/badge';
 
@@ -21,7 +21,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   const { t } = useTranslation();
 
   const [selected, setSelected] = useState<WalletType>(WalletType.Guardian);
-  const [endpointInput, setEndpointInput] = useState<string>(DEFAULT_GUARDIAN_ENDPOINT);
+  const [endpointInput, setEndpointInput] = useState<string>(GUARDIAN_OPTIONS[0]!.endpoint);
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -128,7 +128,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
                     <Input
                       id="guardian-endpoint-input"
                       value={endpointInput}
-                      placeholder={DEFAULT_GUARDIAN_ENDPOINT}
+                      placeholder={GUARDIAN_OPTIONS[0]!.endpoint}
                       onChange={event => {
                         setEndpointInput(event.target.value);
                         setDirty(true);

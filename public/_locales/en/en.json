@@ -421,6 +421,7 @@
   "guardianProtected": "Guardian Protected",
   "guardianSettings": "Guardian Settings",
   "currentGuardianEndpoint": "Current Guardian",
+  "currentLabel": "Current",
   "newGuardianEndpoint": "New Guardian Endpoint",
   "switchGuardian": "Switch Guardian",
   "switchGuardianDescription": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal.",
