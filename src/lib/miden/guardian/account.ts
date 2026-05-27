@@ -2,7 +2,6 @@ import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
 import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
@@ -76,7 +75,7 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
  * @param skipRegistration - Skip guardian registration (used by the import path).
  * @param guardianEndpointOverride - Force a specific guardian URL for pubkey
  *   derivation. Account ID is a content hash that includes the guardian pubkey
- *   baked into storage, so the import flow passes `DEFAULT_GUARDIAN_ENDPOINT`
+ *   baked into storage, so the import flow passes the stored guardian endpoint
  *   to reproduce the ID the account originally had.
  */
 export async function createGuardianAccount(
@@ -108,10 +107,10 @@ export async function createGuardianAccount(
     const hot = await secureHotKey.generateHotKey();
 
     // Get Guardian endpoint and initialize client
-    const guardianEndpoint =
-      guardianEndpointOverride ??
-      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
-      DEFAULT_GUARDIAN_ENDPOINT;
+    const guardianEndpoint = guardianEndpointOverride ?? (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY));
+    if (!guardianEndpoint) {
+      throw new Error('Guardian endpoint missing from storage — wallet must complete guardian onboarding first');
+    }
     console.log('Using Guardian endpoint:', guardianEndpoint);
 
     const client = new MultisigClient(webClient, { guardianEndpoint });

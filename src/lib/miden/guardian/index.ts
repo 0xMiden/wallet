@@ -10,7 +10,6 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -52,7 +51,10 @@ export class MultisigService {
     signerCommitment: string,
     signWordFn: SignWordFunction
   ): Promise<MultisigService> {
-    const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+    const guardianEndpoint = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
+    if (!guardianEndpoint) {
+      throw new Error('Guardian endpoint missing from storage — wallet must complete guardian onboarding first');
+    }
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
       const webClient = (await MidenClientInterface.create({})).client;

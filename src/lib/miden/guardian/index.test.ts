@@ -17,10 +17,6 @@ jest.mock('../front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
-jest.mock('lib/miden-chain/constants', () => ({
-  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
-}));
-
 jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
@@ -341,16 +337,13 @@ describe('MultisigService', () => {
       await expect(MultisigService.init(account, 'pub', 'commit', async () => 'sig')).rejects.toThrow('load failed');
     });
 
-    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage has no URL', async () => {
-      // Hits the `|| DEFAULT_GUARDIAN_ENDPOINT` branch on the endpoint lookup.
+    it('throws when storage has no guardian URL — onboarding must have written it first', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-      const loaded = makeMultisig();
-      multisigClientConfig.load.mockResolvedValueOnce(loaded);
       mockFetchFromStorage.mockResolvedValueOnce(undefined);
 
-      const svc = await MultisigService.init(account, 'pub', 'commit', async () => 'sig');
-
-      expect(svc.guardianEndpoint).toBe('https://default.guardian.test');
+      await expect(MultisigService.init(account, 'pub', 'commit', async () => 'sig')).rejects.toThrow(
+        /Guardian endpoint missing from storage/
+      );
     });
   });
 

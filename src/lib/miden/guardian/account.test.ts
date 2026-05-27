@@ -14,10 +14,6 @@ jest.mock('../front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
-jest.mock('lib/miden-chain/constants', () => ({
-  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
-}));
-
 jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
@@ -153,7 +149,9 @@ describe('createGuardianAccount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
-    mockFetchFromStorage.mockResolvedValue(undefined);
+    // Storage is the source of truth for the guardian endpoint now — return a
+    // sane value by default so the per-test override paths still work.
+    mockFetchFromStorage.mockResolvedValue('https://stored.guardian');
     mockGenerateHotKey.mockResolvedValue({
       ciphertext: 'hot-ciphertext-hex',
       publicKeyHex: 'hot-pubkey-hex',

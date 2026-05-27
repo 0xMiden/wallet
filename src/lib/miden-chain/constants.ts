@@ -1,6 +1,7 @@
 import { Endpoint, MidenClient, NetworkId } from '@miden-sdk/miden-sdk/lazy';
 
 import { MidenNetwork } from 'lib/miden/types';
+import type { GuardianOption } from 'lib/shared/types';
 
 export const NETWORK_STORAGE_ID = 'network_id';
 
@@ -94,8 +95,22 @@ export const MIDEN_GUARDIAN_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.DEVNET, 'https://stg-guardian.openzeppelin.com']
 ]);
 
-export const DEFAULT_GUARDIAN_ENDPOINT =
-  MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK) ?? 'https://stg-guardian.openzeppelin.com';
+export const GUARDIAN_OPTIONS: GuardianOption[] = [
+  {
+    id: 'open-zeppelin',
+    name: 'Open-Zeppelin',
+    operatedBy: 'Open-Zeppelin',
+    location: 'US-EAST',
+    endpoint: MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK) ?? 'https://stg-guardian.openzeppelin.com'
+  },
+  {
+    id: 'gateway',
+    name: 'Gateway Operator',
+    operatedBy: 'Gateway',
+    location: 'EU-NORTH',
+    endpoint: 'https://miden-guardian.dev.eu-north-3.gateway.fm'
+  }
+];
 
 /**
  * Returns the SDK NetworkId for the current DEFAULT_NETWORK.

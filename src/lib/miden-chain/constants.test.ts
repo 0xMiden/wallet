@@ -140,20 +140,20 @@ describe('miden-chain/constants', () => {
     });
   });
 
-  describe('DEFAULT_GUARDIAN_ENDPOINT', () => {
-    it('uses the network-specific endpoint when present', () => {
+  describe('GUARDIAN_OPTIONS', () => {
+    it("first option's endpoint matches the network-specific mapping when present", () => {
       process.env.MIDEN_NETWORK = 'testnet';
       jest.isolateModules(() => {
-        const { DEFAULT_GUARDIAN_ENDPOINT } = require('./constants');
-        expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('https://guardian.openzeppelin.com');
+        const { GUARDIAN_OPTIONS } = require('./constants');
+        expect(GUARDIAN_OPTIONS[0].endpoint).toBe('https://guardian.openzeppelin.com');
       });
     });
 
-    it('falls back to the staging endpoint when the network has no mapping', () => {
+    it("falls back to the staging endpoint on the first option when the network has no mapping", () => {
       process.env.MIDEN_NETWORK = 'localnet';
       jest.isolateModules(() => {
-        const { DEFAULT_GUARDIAN_ENDPOINT } = require('./constants');
-        expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('https://stg-guardian.openzeppelin.com');
+        const { GUARDIAN_OPTIONS } = require('./constants');
+        expect(GUARDIAN_OPTIONS[0].endpoint).toBe('https://stg-guardian.openzeppelin.com');
       });
     });
   });
