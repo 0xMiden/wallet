@@ -65,8 +65,7 @@ import { ReactComponent as Fullscreen } from './fullscreen.svg';
 import { ReactComponent as GlobalFill } from './global-fill.svg';
 import { ReactComponent as Globe } from './globe.svg';
 import { ReactComponent as Hammer } from './hammer.svg';
-import { ReactComponent as HomeFill } from './home-fill.svg';
-import { ReactComponent as Home } from './home.svg';
+import { ReactComponent as Home } from './home-new.svg';
 import { ReactComponent as ImageFill } from './image-fill.svg';
 import { ReactComponent as ImagePrivate } from './image-private.svg';
 import { ReactComponent as ImagePublic } from './image-public.svg';
@@ -178,7 +177,6 @@ export enum IconName {
   GlobalFill = 'global-fill',
   Globe = 'globe',
   Hammer = 'hammer',
-  HomeFill = 'home-fill',
   Home = 'home',
   ImageFill = 'image-fill',
   ImagePrivate = 'image-private',
@@ -356,8 +354,6 @@ const IconSwitch = (props: IconProps) => {
       return <Globe {...props} />;
     case IconName.Hammer:
       return <Hammer {...props} />;
-    case IconName.HomeFill:
-      return <HomeFill {...props} />;
     case IconName.Home:
       return <Home {...props} />;
     case IconName.ImageFill:

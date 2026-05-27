@@ -95,8 +95,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'home',
       label: 'Home',
-      icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />,
-      iconActive: <Icon name={IconName.HomeFill} className="w-6 h-6" fill="currentColor" />
+      icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
     // Explore tab is a dApp browser surface — extension popup has no use
     // for it (browser-the-product is already the host), so drop it there.
@@ -214,7 +213,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         data-tabbar-footer="true"
         style={{ display: 'flex' }}
       >
-        <div className="pointer-events-auto flex-1 px-4 pb-3 pt-2">
+        <div className="pointer-events-auto flex-1 px-4 pb-2">
           <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>

@@ -60,7 +60,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
     <div
       className={classNames('relative w-full bg-surface-balance text-surface-balance-fg rounded-lg-token ', className)}
     >
-      <div className="flex items-center justify-between gap-2 py-2.5 border-b border-dotted px-3.5">
+      <div className="flex items-center justify-between gap-2 py-2.5 border-b border-dashed px-3.5 border-b-[#FFFFFF4D]">
         <CopyButton
           text={accountId ?? accountNumber}
           className={classNames(
