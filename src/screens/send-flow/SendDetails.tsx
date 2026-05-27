@@ -188,9 +188,9 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
   return (
-    <div className="flex flex-col h-full bg-app-bg text-black">
-      <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
-        <div className="flex flex-col flex-1 overflow-y-auto min-h-0 no-scrollbar">
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg text-black', isMobile() ? 'px-8' : 'px-4')}>
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar relative w-full">
+        <div className="flex flex-col pb-22">
           {/* Amount */}
           <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 py-4 border-b border-border-light">
             <InputAmount
@@ -368,85 +368,84 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           </AnimatePresence>
 
           {/* Continue Button */}
-        </div>
-
-        {!isMobile() && (
-          <div className="pt-4 pb-4 shrink-0">
-            <Button
-              title={t('continue')}
-              variant={ButtonVariant.Primary}
-              onClick={handleReviewOpen}
-              disabled={!canProceed}
-              className="w-full rounded-[10px] text-base font-semibold"
-            />
-          </div>
-        )}
-
-        {/* Calendar Drawer */}
-        <Drawer open={showCalendar} onOpenChange={setShowCalendar}>
-          <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle>{t('recallHeight')}</DrawerTitle>
-            </DrawerHeader>
-            <div className="px-4 pb-4 flex flex-col items-center overflow-y-auto no-scrollbar max-h-[70vh]">
-              <Calendar
-                mode="single"
-                selected={recallDate}
-                onSelect={date => {
-                  if (date) {
-                    onRecallDateChange(date);
-                    setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-                  }
-                }}
-                month={calendarMonth}
-                onMonthChange={setCalendarMonth}
-                disabled={{ before: new Date() }}
-                className="p-0 [--cell-size:--spacing(8)]"
+          {!isMobile() && (
+            <div className="pt-4 shrink-0">
+              <Button
+                title={t('continue')}
+                variant={ButtonVariant.Primary}
+                onClick={handleReviewOpen}
+                disabled={!canProceed}
+                className="w-full rounded-[10px] text-base font-semibold"
               />
-
-              {/* Time Input */}
-              <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-border-subtle">
-                <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
-                <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
-                <input
-                  type="time"
-                  value={recallTime}
-                  onChange={e => onRecallTimeChange(e.target.value)}
-                  className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                />
-              </div>
-
-              {/* Confirm button */}
-              {recallDate && (
-                <button
-                  type="button"
-                  className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium cursor-pointer"
-                  onClick={() => applyDateTimeSelection(recallDate, recallTime)}
-                >
-                  {t('confirm')}
-                </button>
-              )}
-
-              {/* Presets */}
-              <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3 mt-3 w-full">
-                {RECALL_PRESETS(t).map((preset, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors cursor-pointer"
-                    onClick={() => {
-                      const date = preset.fn(new Date());
-                      applyDateTimeSelection(date, format(date, 'HH:mm'));
-                    }}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
             </div>
-          </DrawerContent>
-        </Drawer>
+          )}
+        </div>
       </div>
+
+      {/* Calendar Drawer */}
+      <Drawer open={showCalendar} onOpenChange={setShowCalendar}>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>{t('recallHeight')}</DrawerTitle>
+          </DrawerHeader>
+          <div className="px-4 pb-4 flex flex-col items-center overflow-y-auto no-scrollbar max-h-[70vh]">
+            <Calendar
+              mode="single"
+              selected={recallDate}
+              onSelect={date => {
+                if (date) {
+                  onRecallDateChange(date);
+                  setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+                }
+              }}
+              month={calendarMonth}
+              onMonthChange={setCalendarMonth}
+              disabled={{ before: new Date() }}
+              className="p-0 [--cell-size:--spacing(8)]"
+            />
+
+            {/* Time Input */}
+            <div className="flex items-center gap-2 w-full mt-3 pt-3 border-t border-border-subtle">
+              <Icon name={IconName.Calendar} size="xs" className="text-text-muted" />
+              <span className="text-sm font-medium text-heading-gray">{t('time')}</span>
+              <input
+                type="time"
+                value={recallTime}
+                onChange={e => onRecallTimeChange(e.target.value)}
+                className="ml-auto bg-input-bg rounded-[10px] px-3 py-2 text-sm text-heading-gray outline-none font-medium [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              />
+            </div>
+
+            {/* Confirm button */}
+            {recallDate && (
+              <button
+                type="button"
+                className="w-full mt-3 py-2.5 rounded-[10px] bg-primary-500 text-pure-white text-sm font-medium cursor-pointer"
+                onClick={() => applyDateTimeSelection(recallDate, recallTime)}
+              >
+                {t('confirm')}
+              </button>
+            )}
+
+            {/* Presets */}
+            <div className="flex flex-wrap gap-2 border-t border-border-subtle pt-3 mt-3 w-full">
+              {RECALL_PRESETS(t).map((preset, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  className="flex-1 min-w-[30%] text-xs py-2 px-2 rounded-[10px] border border-border-card text-heading-gray hover:bg-input-bg transition-colors cursor-pointer"
+                  onClick={() => {
+                    const date = preset.fn(new Date());
+                    applyDateTimeSelection(date, format(date, 'HH:mm'));
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 };

@@ -48,7 +48,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
 
   return (
     <div {...props} className={classNames('flex-1 flex flex-col bg-app-bg', className)}>
-      <div className="flex flex-col flex-1 px-4 pt-4">
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-4">
         <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={t('searchByNameOrSymbol')} />
         <div className="flex flex-col divide-y divide-rule-default">
           {filteredBalances.map(b => (

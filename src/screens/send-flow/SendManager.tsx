@@ -81,7 +81,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const { navigateTo, goBack, cardStack } = useNavigator();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const { fullPage, sidePanel } = useAppEnv();
+  const { fullPage } = useAppEnv();
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
@@ -582,14 +582,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     ]
   );
 
-  // On mobile, use h-full to inherit from parent chain (body has safe area padding)
-  const isMobileDevice = isMobile();
-  const containerClass =
-    isMobileDevice || sidePanel
-      ? 'h-full w-full'
-      : fullPage
-        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  // SendManager is rendered inside TabLayout > HomeSwipeContainer, which already
+  // constrains its size. Hardcoded heights (h-[600px]/h-[640px]) overflow the
+  // parent (which loses ~50px to the top action bar), clipping the bottom CTA.
+  // Inherit from the parent chain instead.
+  const containerClass = 'h-full w-full';
 
   return (
     <div

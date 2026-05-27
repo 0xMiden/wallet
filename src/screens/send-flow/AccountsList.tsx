@@ -32,7 +32,7 @@ export const AccountsList: React.FC<AccountsListProps> = ({
   return (
     <div {...props} className={classNames('flex-1 flex flex-col bg-app-bg', className)}>
       <NavigationHeader mode="close" title={t('contacts')} onClose={onClose} showBorder />
-      <div className="flex flex-col flex-1 p-4 gap-y-2 md:w-[460px] md:mx-auto">
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar p-4 gap-y-2 md:w-[460px] md:mx-auto">
         {accounts.length === 0 ? (
           <EmptyState
             className="flex-1"
