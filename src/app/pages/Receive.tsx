@@ -155,87 +155,106 @@ export const Receive: React.FC<ReceiveProps> = () => {
     checkFailedNotes();
   }, [safeClaimableNotes]);
 
-  const handleClaimAll = useCallback(async () => {
-    if (unclaimedNotes.length === 0) return;
+  const claimNotesBatch = useCallback(
+    async (filter?: (note: NonNullable<(typeof safeClaimableNotes)[number]>) => boolean) => {
+      claimAllAbortRef.current?.abort();
+      claimAllAbortRef.current = new AbortController();
+      const signal = claimAllAbortRef.current.signal;
 
-    claimAllAbortRef.current?.abort();
-    claimAllAbortRef.current = new AbortController();
-    const signal = claimAllAbortRef.current.signal;
+      // Refresh the claimable notes list before queueing to avoid race conditions
+      // with auto-consume (Explore page may have already started claiming some notes).
+      const freshNotes = await mutateClaimableNotes();
+      let freshUnclaimedNotes = freshNotes
+        ? freshNotes.filter(
+            n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
+          )
+        : unclaimedNotes;
 
-    // Refresh the claimable notes list before queueing to avoid race conditions
-    // with auto-consume (Explore page may have already started claiming some notes).
-    const freshNotes = await mutateClaimableNotes();
-    const freshUnclaimedNotes = freshNotes
-      ? freshNotes.filter(n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id))
-      : unclaimedNotes;
-
-    if (freshUnclaimedNotes.length === 0) {
-      return;
-    }
-
-    const noteIds = freshUnclaimedNotes.map(n => n!.id);
-    setClaimingNoteIds(new Set(noteIds));
-
-    setFailedNoteIds(new Set());
-
-    try {
-      const transactionIds: { noteId: string; txId: string }[] = [];
-      for (const note of freshUnclaimedNotes) {
-        try {
-          const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
-          transactionIds.push({ noteId: note.id, txId: id });
-        } catch (err) {
-          console.error('Error queuing note for claim:', note.id, err);
-          setFailedNoteIds(prev => new Set(prev).add(note.id));
-          setClaimingNoteIds(prev => {
-            const next = new Set(prev);
-            next.delete(note.id);
-            return next;
-          });
-        }
+      if (filter) {
+        freshUnclaimedNotes = freshUnclaimedNotes.filter(n => n && filter(n));
       }
 
-      if (isExtension()) {
-        // On extension: fire-and-forget — SW handles processing.
-        // Notes show "claiming" spinner via claimingNoteIds + NoteClaimStarted broadcast.
-        // Notes disappear when sync cycle removes them from getConsumableNotes().
-        requestSWTransactionProcessing();
-      } else {
-        useWalletStore.getState().openTransactionModal();
+      if (freshUnclaimedNotes.length === 0) {
+        return;
+      }
 
-        for (const { noteId, txId } of transactionIds) {
-          if (signal.aborted) break;
+      const noteIds = freshUnclaimedNotes.map(n => n!.id);
+      setClaimingNoteIds(prev => new Set([...prev, ...noteIds]));
+
+      setFailedNoteIds(new Set());
+
+      try {
+        const transactionIds: { noteId: string; txId: string }[] = [];
+        for (const note of freshUnclaimedNotes) {
           try {
-            await waitForConsumeTx(txId, signal);
+            const id = await initiateConsumeTransaction(account.publicKey, note!, isDelegatedProvingEnabled);
+            transactionIds.push({ noteId: note!.id, txId: id });
           } catch (err) {
-            if (err instanceof DOMException && err.name === 'AbortError') {
-              break;
-            }
-            console.error('Error waiting for transaction:', txId, err);
-            setFailedNoteIds(prev => new Set(prev).add(noteId));
+            console.error('Error queuing note for claim:', note!.id, err);
+            setFailedNoteIds(prev => new Set(prev).add(note!.id));
+            setClaimingNoteIds(prev => {
+              const next = new Set(prev);
+              next.delete(note!.id);
+              return next;
+            });
           }
         }
 
-        await mutateClaimableNotes();
+        if (isExtension()) {
+          // On extension: fire-and-forget — SW handles processing.
+          // Notes show "claiming" spinner via claimingNoteIds + NoteClaimStarted broadcast.
+          // Notes disappear when sync cycle removes them from getConsumableNotes().
+          requestSWTransactionProcessing();
+        } else {
+          useWalletStore.getState().openTransactionModal();
 
-        if (isMobile()) {
-          navigate('/', HistoryAction.Replace);
+          for (const { noteId, txId } of transactionIds) {
+            if (signal.aborted) break;
+            try {
+              await waitForConsumeTx(txId, signal);
+            } catch (err) {
+              if (err instanceof DOMException && err.name === 'AbortError') {
+                break;
+              }
+              console.error('Error waiting for transaction:', txId, err);
+              setFailedNoteIds(prev => new Set(prev).add(noteId));
+            }
+          }
+
+          await mutateClaimableNotes();
+
+          if (isMobile()) {
+            navigate('/', HistoryAction.Replace);
+          }
         }
+      } finally {
+        if (!isExtension()) {
+          setClaimingNoteIds(new Set());
+        }
+        // On extension, keep claimingNoteIds set — they'll be cleared when notes disappear from sync.
       }
-    } finally {
-      if (!isExtension()) {
-        setClaimingNoteIds(new Set());
-      }
-      // On extension, keep claimingNoteIds set — they'll be cleared when notes disappear from sync.
-    }
-  }, [
-    unclaimedNotes,
-    account.publicKey,
-    isDelegatedProvingEnabled,
-    mutateClaimableNotes,
-    claimingNoteIds,
-    individualClaimingIds
-  ]);
+    },
+    [
+      unclaimedNotes,
+      account.publicKey,
+      isDelegatedProvingEnabled,
+      mutateClaimableNotes,
+      claimingNoteIds,
+      individualClaimingIds
+    ]
+  );
+
+  const handleClaimAll = useCallback(async () => {
+    if (unclaimedNotes.length === 0) return;
+    await claimNotesBatch();
+  }, [unclaimedNotes.length, claimNotesBatch]);
+
+  const handleClaimGroup = useCallback(
+    async (faucetId: string) => {
+      await claimNotesBatch(n => n.faucetId === faucetId);
+    },
+    [claimNotesBatch]
+  );
 
   // Lift the Claim All button into the native navbar overlay on mobile.
   // The navbar morphs to compact mode when claimableNotes appear and
@@ -311,6 +330,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
           checkingNoteIds={checkingNoteIds}
           onClaimingStateChange={handleClaimingStateChange}
           onClaimAll={handleClaimAll}
+          onClaimGroup={handleClaimGroup}
         />
       )}
     </div>
