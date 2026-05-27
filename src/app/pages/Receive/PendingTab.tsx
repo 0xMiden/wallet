@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
-import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
+import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing, waitForConsumeTx } from 'lib/miden/activity';
 import { AssetMetadata } from 'lib/miden/front';
@@ -16,6 +18,8 @@ import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
+import { getTokenPrice } from 'lib/prices';
+import type { TokenPrices } from 'lib/prices';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
@@ -41,7 +45,20 @@ interface PendingTabProps {
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimAll: () => void;
+  onClaimGroup?: (faucetId: string) => void;
 }
+
+const formatUsd = (value: number): string => {
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const groupNumber = (value: string): string => {
+  const parts = value.split('.');
+  const whole = parts[0] ?? '0';
+  const decimal = parts[1];
+  const wholeGrouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decimal !== undefined ? `${wholeGrouped}.${decimal}` : wholeGrouped;
+};
 
 export const PendingTab: React.FC<PendingTabProps> = ({
   safeClaimableNotes,
@@ -53,11 +70,12 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   failedNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
-  onClaimAll
+  onClaimAll,
+  onClaimGroup
 }) => {
-  const { t } = useTranslation();
-  const pendingCount = safeClaimableNotes.length;
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const { registerBackHandler } = useAppEnv();
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
 
   const groupedNotes = useMemo(() => {
     const groups = new Map<string, AssetNoteGroup>();
@@ -78,51 +96,145 @@ export const PendingTab: React.FC<PendingTabProps> = ({
     return Array.from(groups.values());
   }, [safeClaimableNotes]);
 
-  const toggleGroupExpanded = useCallback((faucetId: string) => {
-    setExpandedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(faucetId)) {
-        next.delete(faucetId);
-      } else {
-        next.add(faucetId);
-      }
-      return next;
+  const selectedGroup = useMemo(
+    () => groupedNotes.find(g => g.faucetId === selectedFaucetId) ?? null,
+    [groupedNotes, selectedFaucetId]
+  );
+
+  useEffect(() => {
+    if (selectedFaucetId && !selectedGroup) {
+      setSelectedFaucetId(null);
+    }
+  }, [selectedFaucetId, selectedGroup]);
+
+  useEffect(() => {
+    if (!selectedFaucetId) return;
+    return registerBackHandler(() => {
+      hapticLight();
+      setSelectedFaucetId(null);
     });
+  }, [selectedFaucetId, registerBackHandler]);
+
+  const handleSelectGroup = useCallback((faucetId: string) => {
+    hapticLight();
+    setSelectedFaucetId(faucetId);
   }, []);
 
+  const handleBack = useCallback(() => {
+    hapticLight();
+    setSelectedFaucetId(null);
+  }, []);
+
+  if (selectedGroup) {
+    return (
+      <AssetPendingDetail
+        group={selectedGroup}
+        tokenPrices={tokenPrices}
+        account={account}
+        mutateClaimableNotes={mutateClaimableNotes}
+        isDelegatedProvingEnabled={isDelegatedProvingEnabled}
+        claimingNoteIds={claimingNoteIds}
+        failedNoteIds={failedNoteIds}
+        checkingNoteIds={checkingNoteIds}
+        onClaimingStateChange={onClaimingStateChange}
+        onClaimGroup={onClaimGroup}
+        onBack={handleBack}
+      />
+    );
+  }
+
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="w-full mx-auto py-4 px-4 flex flex-col min-h-full">
-        {pendingCount === 0 ? (
+    <PendingSummary
+      groupedNotes={groupedNotes}
+      tokenPrices={tokenPrices}
+      claimingNoteIds={claimingNoteIds}
+      unclaimedNotesCount={unclaimedNotesCount}
+      onSelectGroup={handleSelectGroup}
+      onClaimAll={onClaimAll}
+    />
+  );
+};
+
+interface PendingSummaryProps {
+  groupedNotes: AssetNoteGroup[];
+  tokenPrices: TokenPrices;
+  claimingNoteIds: Set<string>;
+  unclaimedNotesCount: number;
+  onSelectGroup: (faucetId: string) => void;
+  onClaimAll: () => void;
+}
+
+const PendingSummary: React.FC<PendingSummaryProps> = ({
+  groupedNotes,
+  tokenPrices,
+  claimingNoteIds,
+  unclaimedNotesCount,
+  onSelectGroup,
+  onClaimAll
+}) => {
+  const { t } = useTranslation();
+
+  const totals: { totalUsd: number; notesCount: number; assetsCount: number } = useMemo(() => {
+    let totalUsd = 0;
+    let notesCount = 0;
+    for (const group of groupedNotes) {
+      const decimals = group.metadata?.decimals ?? 6;
+      const amount = Number(formatBigInt(group.totalAmount, decimals));
+      const { price } = getTokenPrice(tokenPrices, group.metadata?.symbol || '');
+      totalUsd += amount * price;
+      notesCount += group.notes.length;
+    }
+    return { totalUsd, notesCount, assetsCount: groupedNotes.length };
+  }, [groupedNotes, tokenPrices]);
+
+  if (groupedNotes.length === 0) {
+    return (
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="w-full mx-auto py-4 px-4 flex flex-col min-h-full">
           <div className="flex flex-col items-center justify-center flex-1">
             <p className="text-sm text-center text-text-tertiary-token">{t('noNotesToClaim')}</p>
           </div>
-        ) : (
-          <>
-            <p className="text-xs text-heading-gray mb-4 text-center font-medium">
-              {t('readyToClaim', { count: pendingCount })}
-            </p>
-            <div className="flex flex-col gap-3">
-              {groupedNotes.map(group => (
-                <AssetNoteGroupComponent
-                  key={group.faucetId}
-                  group={group}
-                  isExpanded={expandedGroups.has(group.faucetId)}
-                  onToggleExpand={() => toggleGroupExpanded(group.faucetId)}
-                  account={account}
-                  mutateClaimableNotes={mutateClaimableNotes}
-                  isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-                  claimingNoteIds={claimingNoteIds}
-                  failedNoteIds={failedNoteIds}
-                  checkingNoteIds={checkingNoteIds}
-                  onClaimingStateChange={onClaimingStateChange}
-                />
-              ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="w-full mx-auto py-4 px-4 flex flex-col min-h-full gap-3">
+        <div className="bg-surface-interactive rounded-10 px-4 py-4 flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-semibold text-accent-primary leading-none">{t('totalPending')}</span>
+            <span className="text-[32px] font-bold text-text-primary-token leading-none tracking-tight">
+              {formatUsd(totals.totalUsd)}
+            </span>
+          </div>
+          <div className="flex flex-col items-end gap-0.5 justify-center">
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="font-medium text-accent-primary flex gap-1">
+                <p className="font-bold text-black">{`${totals.notesCount} `}</p>
+                {t('pendingNotesCount')}
+              </span>
             </div>
-          </>
-        )}
+            <span className="font-medium text-text-primary-token flex gap-1 text-[10px]">
+              <p className="font-bold text-black">{`${totals.assetsCount} `}</p> {t('pendingAssetsCount')}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {groupedNotes.map(group => (
+            <AssetSummaryRow
+              key={group.faucetId}
+              group={group}
+              claimingNoteIds={claimingNoteIds}
+              onClick={() => onSelectGroup(group.faucetId)}
+            />
+          ))}
+        </div>
+
         {unclaimedNotesCount > 0 && !isMobile() && (
-          <div className="flex justify-center mt-4 pb-4">
+          <div className="flex justify-center mt-2 pb-2">
             <Button
               className="w-30 h-10 text-md"
               variant={ButtonVariant.Primary}
@@ -136,11 +248,51 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   );
 };
 
-// Asset Group Component with collapsible table
-interface AssetNoteGroupProps {
+interface AssetSummaryRowProps {
   group: AssetNoteGroup;
-  isExpanded: boolean;
-  onToggleExpand: () => void;
+  claimingNoteIds: Set<string>;
+  onClick: () => void;
+}
+
+const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, claimingNoteIds, onClick }) => {
+  const { t } = useTranslation();
+  const { metadata, faucetId, notes, totalAmount } = group;
+  const symbol = metadata?.symbol || 'UNKNOWN';
+  const decimals = metadata?.decimals ?? 6;
+  const formattedTotal = formatBigInt(totalAmount, decimals);
+  const claimingCount = notes.filter(n => n.isBeingClaimed || claimingNoteIds.has(n.id)).length;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={classNames(
+        'w-full flex items-center rounded-2xl border border-rule-default bg-white',
+        'px-4 py-3 hover:bg-surface-interactive transition-colors text-left'
+      )}
+    >
+      <div className="flex items-center gap-2 flex-3 min-w-0">
+        <TokenLogo symbol={symbol} size="md" />
+        <div className="flex flex-col min-w-0">
+          <span className="text-base font-extrabold text-heading-gray dark:text-pure-white leading-tight truncate">
+            {metadata?.name || symbol}
+          </span>
+          <span className="text-xs text-black opacity-50 leading-tight mt-0.5 font-semibold">
+            {formattedTotal} {symbol} <span className="italic">{t('pending')}</span>
+          </span>
+        </div>
+      </div>
+      <span className="text-sm font-semibold text-black opacity-60 flex-1">
+        {claimingCount}/{notes.length}
+      </span>
+      <Icon name={IconName.ArrowRight} className="w-4 h-4 text-accent-primary shrink-0" fill="currentColor" />
+    </button>
+  );
+};
+
+interface AssetPendingDetailProps {
+  group: AssetNoteGroup;
+  tokenPrices: ReturnType<typeof useWalletStore.getState>['tokenPrices'];
   account: WalletAccount;
   mutateClaimableNotes: ReturnType<typeof useClaimableNotes>['mutate'];
   isDelegatedProvingEnabled: boolean;
@@ -148,245 +300,102 @@ interface AssetNoteGroupProps {
   failedNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
+  onClaimGroup?: (faucetId: string) => void;
+  onBack: () => void;
 }
 
-const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
+const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   group,
-  isExpanded,
-  onToggleExpand,
+  tokenPrices,
   account,
   mutateClaimableNotes,
   isDelegatedProvingEnabled,
   claimingNoteIds,
   failedNoteIds,
   checkingNoteIds,
-  onClaimingStateChange
+  onClaimingStateChange,
+  onClaimGroup,
+  onBack
 }) => {
   const { t } = useTranslation();
-  const { notes, metadata, faucetId, totalAmount } = group;
-
-  const claimingCount = notes.filter(n => n.isBeingClaimed || claimingNoteIds.has(n.id)).length;
-
-  const soloNote = notes.length === 1 ? notes[0] : null;
-  if (soloNote) {
-    return (
-      <SingleNoteRow
-        note={soloNote}
-        account={account}
-        mutateClaimableNotes={mutateClaimableNotes}
-        isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-        isClaimingFromParent={claimingNoteIds.has(soloNote.id)}
-        hasFailedFromParent={failedNoteIds.has(soloNote.id)}
-        isCheckingFromParent={checkingNoteIds.has(soloNote.id)}
-        onClaimingStateChange={onClaimingStateChange}
-      />
-    );
-  }
-
-  const formattedTotal = formatBigInt(totalAmount, metadata?.decimals || 6);
+  const { metadata, faucetId, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
+  const name = metadata?.name || symbol;
+  const decimals = metadata?.decimals ?? 6;
 
-  const publicCount = notes.filter(n => n.type === NoteTypeEnum.Public || n.type === 'unknown').length;
-  const privateCount = notes.filter(n => n.type === NoteTypeEnum.Private).length;
+  const formattedAmount = groupNumber(formatBigInt(totalAmount, decimals));
+  const numericAmount = Number(formatBigInt(totalAmount, decimals));
+  const { price } = getTokenPrice(tokenPrices, symbol);
+  const usdValue = numericAmount * price;
 
-  return (
-    <div className="rounded-xl overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        className={classNames(
-          'w-full flex items-center justify-between bg-app-bg hover:bg-grey-50 transition-colors',
-          isMobile() ? 'pt-[14px] pb-[10px] pl-[8px] pr-[25px]' : 'pt-[10px] pb-[7px] pl-[6px] pr-[17.5px]'
-        )}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <AssetIcon assetSlug={symbol} assetId={faucetId} size={24} className="shrink-0 rounded-lg" />
-          <span className="text-sm font-normal">{symbol}</span>
-        </div>
+  const unclaimedInGroup = notes.filter(n => !n.isBeingClaimed && !claimingNoteIds.has(n.id));
+  const canClaimAllGroup = unclaimedInGroup.length > 0;
 
-        <span className={classNames('font-regular text-heading-gray pr-3', isMobile() ? 'text-xs' : 'text-sm')}>
-          {formattedTotal}
-        </span>
-
-        <div className={classNames('flex items-center gap-2', publicCount > 0 && privateCount > 0 ? '' : 'pr-2')}>
-          {publicCount > 0 && <EyeOpenIcon className="text-primary-500" style={{ width: 18, height: 18 }} />}
-          {privateCount > 0 && <EyeClosedIcon className="text-primary-500" style={{ width: 18, height: 18 }} />}
-        </div>
-
-        <div className="flex items-center gap-2 pr-5">
-          <span className="text-sm text-grey-500">
-            {claimingCount}/{notes.length}
-          </span>
-        </div>
-      </button>
-
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden"
-          >
-            <div className="grid grid-cols-[minmax(80px,1fr)_minmax(60px,auto)_50px_70px] gap-x-3 px-3 py-2 border-y-[0.5px] border-y-[#00000033] text-xs text-[#0000009E] font-medium items-center">
-              <span>{t('from')}</span>
-              <span className="text-center">{t('amount')}</span>
-              <span className="text-center">{t('status')}</span>
-              <span className="text-center">{t('action')}</span>
-            </div>
-
-            <div className="divide-y divide-grey-100 overflow-y-auto max-h-[240px]">
-              {notes.map(note => (
-                <NoteTableRow
-                  key={note.id}
-                  note={note}
-                  account={account}
-                  mutateClaimableNotes={mutateClaimableNotes}
-                  isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-                  isClaimingFromParent={claimingNoteIds.has(note.id)}
-                  hasFailedFromParent={failedNoteIds.has(note.id)}
-                  isCheckingFromParent={checkingNoteIds.has(note.id)}
-                  onClaimingStateChange={onClaimingStateChange}
-                />
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-interface SingleNoteRowProps {
-  note: NoteWithMetadata;
-  account: WalletAccount;
-  mutateClaimableNotes: ReturnType<typeof useClaimableNotes>['mutate'];
-  isDelegatedProvingEnabled: boolean;
-  isClaimingFromParent?: boolean;
-  hasFailedFromParent?: boolean;
-  isCheckingFromParent?: boolean;
-  onClaimingStateChange?: (noteId: string, isClaiming: boolean) => void;
-}
-
-const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
-  note,
-  account,
-  mutateClaimableNotes,
-  isDelegatedProvingEnabled,
-  isClaimingFromParent = false,
-  hasFailedFromParent = false,
-  isCheckingFromParent = false,
-  onClaimingStateChange
-}) => {
-  const { t } = useTranslation();
-  const [isLoading, setIsLoading] = useState(note.isBeingClaimed || false);
-  const showSpinner = isLoading || isClaimingFromParent || isCheckingFromParent;
-  const [error, setError] = useState<string | null>(null);
-  const hasError = error || hasFailedFromParent;
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    onClaimingStateChange?.(note.id, isLoading);
-  }, [isLoading, note.id, onClaimingStateChange]);
-
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
-  const handleClaim = useCallback(async () => {
-    setError(null);
-    setIsLoading(true);
+  const handleClaimGroup = useCallback(() => {
+    if (!canClaimAllGroup) return;
     hapticLight();
-
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-
-    try {
-      const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
-
-      if (isExtension()) {
-        requestSWTransactionProcessing();
-
-        console.log('[Claim] Queued tx:', id, 'requesting SW processing...');
-        try {
-          await waitForConsumeTx(id, signal);
-          console.log('[Claim] TX completed successfully');
-          await mutateClaimableNotes();
-          // Don't setIsLoading(false) on success — keep spinner until sync removes the note
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') return;
-          console.error('[Claim] waitForConsumeTx failed:', err);
-          setError('Failed to claim note');
-          setIsLoading(false);
-        }
-      } else {
-        useWalletStore.getState().openTransactionModal();
-        await waitForConsumeTx(id, signal);
-        const remainingNotes = await mutateClaimableNotes();
-
-        if (isMobile() && (!remainingNotes || remainingNotes.length === 0)) {
-          navigate('/', HistoryAction.Replace);
-        }
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError(t('failedToClaimNote'));
-      console.error('[Claim] Error in outer catch:', err);
-    } finally {
-      if (!isExtension()) {
-        setIsLoading(false);
-      }
-    }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
-
-  const { metadata, faucetId } = note;
-  const symbol = metadata?.symbol || 'UNKNOWN';
-  const formattedAmount = formatBigInt(BigInt(note.amount), metadata?.decimals || 6);
-  const senderDisplay = note.senderAddress ? truncateAddress(note.senderAddress) : t('unknown');
-  const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
+    onClaimGroup?.(faucetId);
+  }, [canClaimAllGroup, faucetId, onClaimGroup]);
 
   return (
-    <div className="relative border-[0.5px] border-[#00000033]  rounded-[10px] p-3">
-      <SyncWaveBackground isSyncing={showSpinner} className="rounded-xl" />
-      <div className="flex items-center justify-between relative z-10">
-        <div className="flex items-center gap-3">
-          <AssetIcon assetSlug={symbol} assetId={faucetId} size={32} />
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-black">
-              {formattedAmount} {symbol}
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="w-full mx-auto pt-6 px-4 flex flex-col min-h-full">
+        <div className="flex flex-col items-center flex-1">
+          <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
+            <span>{name}</span>
+            <span className="mx-2 text-heading-gray">•</span>
+            <span>{t('incomingCount', { count: notes.length })}</span>
+          </div>
+
+          <div className="mt-4 flex items-end gap-2 leading-none">
+            <span className="text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
+              {formattedAmount}
             </span>
-            <span className="text-xs text-grey-500">
-              {t('from')}: {senderDisplay}
-            </span>
+            <span className="text-base font-bold text-heading-gray pb-1">{symbol}</span>
+          </div>
+
+          <div className="mt-2 text-sm text-heading-gray">
+            <span className="mr-1">≈</span>
+            {formatUsd(usdValue)}
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-rule-default bg-white overflow-hidden">
+            {notes.map((note, index) => (
+              <DetailNoteRow
+                key={note.id}
+                note={note}
+                account={account}
+                mutateClaimableNotes={mutateClaimableNotes}
+                isDelegatedProvingEnabled={isDelegatedProvingEnabled}
+                isClaimingFromParent={claimingNoteIds.has(note.id)}
+                hasFailedFromParent={failedNoteIds.has(note.id)}
+                isCheckingFromParent={checkingNoteIds.has(note.id)}
+                onClaimingStateChange={onClaimingStateChange}
+                showDivider={index !== notes.length - 1}
+              />
+            ))}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-primary-500">
-            {isPublic ? (
-              <EyeOpenIcon style={{ width: 14, height: 14 }} />
-            ) : (
-              <EyeClosedIcon style={{ width: 14, height: 14 }} />
+        {onClaimGroup && (
+          <button
+            type="button"
+            onClick={handleClaimGroup}
+            disabled={!canClaimAllGroup}
+            className={classNames(
+              'mt-4 w-full rounded-2xl bg-surface-interactive py-3.5 text-base font-bold text-accent-primary',
+              'hover:bg-grey-50 transition-colors',
+              !canClaimAllGroup && 'opacity-50 cursor-not-allowed'
             )}
-          </div>
-          {!showSpinner && (
-            <Button
-              className="w-[65px] h-[32px] text-xs"
-              variant={ButtonVariant.Primary}
-              onClick={handleClaim}
-              title={hasError ? t('retry') : t('claim')}
-            />
-          )}
-        </div>
+          >
+            {t('claimAllProgress', { unclaimed: unclaimedInGroup.length, total: notes.length })}
+          </button>
+        )}
       </div>
     </div>
   );
 };
 
-interface NoteTableRowProps {
+interface DetailNoteRowProps {
   note: NoteWithMetadata;
   account: WalletAccount;
   mutateClaimableNotes: ReturnType<typeof useClaimableNotes>['mutate'];
@@ -395,9 +404,10 @@ interface NoteTableRowProps {
   hasFailedFromParent?: boolean;
   isCheckingFromParent?: boolean;
   onClaimingStateChange?: (noteId: string, isClaiming: boolean) => void;
+  showDivider: boolean;
 }
 
-const NoteTableRow: React.FC<NoteTableRowProps> = ({
+const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   note,
   account,
   mutateClaimableNotes,
@@ -405,7 +415,8 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
   isClaimingFromParent = false,
   hasFailedFromParent = false,
   isCheckingFromParent = false,
-  onClaimingStateChange
+  onClaimingStateChange,
+  showDivider
 }) => {
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(note.isBeingClaimed || false);
@@ -438,20 +449,18 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
 
       if (isExtension()) {
         requestSWTransactionProcessing();
-
         try {
           await waitForConsumeTx(id, signal);
           await mutateClaimableNotes();
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') return;
-          setError('Failed to claim note');
+          setError(t('failedToClaimNote'));
           setIsLoading(false);
         }
       } else {
         useWalletStore.getState().openTransactionModal();
         await waitForConsumeTx(id, signal);
         const remainingNotes = await mutateClaimableNotes();
-
         if (isMobile() && (!remainingNotes || remainingNotes.length === 0)) {
           navigate('/', HistoryAction.Replace);
         }
@@ -468,35 +477,38 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
   }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
 
   const { metadata } = note;
-  const formattedAmount = formatBigInt(BigInt(note.amount), metadata?.decimals || 6);
-  const senderDisplay = note.senderAddress ? truncateAddress(note.senderAddress, false, 8) : t('unknown');
+  const decimals = metadata?.decimals ?? 6;
+  const formattedAmount = formatBigInt(BigInt(note.amount), decimals);
+  const symbol = metadata?.symbol || 'UNKNOWN';
+  const senderDisplay = note.senderAddress ? truncateAddress(note.senderAddress) : t('unknown');
   const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
 
   return (
-    <div className="relative bg-app-bg">
+    <div className={classNames('relative', showDivider && 'border-b border-rule-default')}>
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
-      <div className="grid grid-cols-[minmax(80px,1fr)_minmax(60px,auto)_50px_70px] gap-x-3 px-3 py-4 items-center text-heading-gray relative z-10">
-        <span className={isMobile() ? 'text-[10px]' : 'text-xs'}>{senderDisplay}</span>
-        <span className="text-sm font-medium text-center">{formattedAmount}</span>
-        <div className="text-grey-400 flex justify-center">
+      <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3 relative z-10">
+        <span className="text-sm text-text-primary-token truncate">{senderDisplay}</span>
+        <div className="text-accent-primary flex justify-center">
           {isPublic ? (
             <EyeOpenIcon style={{ width: 16, height: 16 }} />
           ) : (
             <EyeClosedIcon style={{ width: 16, height: 16 }} />
           )}
         </div>
-        <div className="flex justify-center">
-          {!showSpinner ? (
-            <Button
-              className="rounded-[6.1px] px-[10px] !py-1"
-              variant={ButtonVariant.Primary}
-              onClick={handleClaim}
-              title={hasError ? t('retry') : t('claim')}
-            />
-          ) : (
-            <div className="w-[60px] h-[28px]" />
-          )}
-        </div>
+        <span className="text-sm font-medium text-text-primary-token text-right">
+          {formattedAmount}
+          {symbol}
+        </span>
+        {!showSpinner ? (
+          <Button
+            className="w-18 h-7.5 text-white font-semibold rounded-5 text-xs leading-none"
+            variant={ButtonVariant.Primary}
+            onClick={handleClaim}
+            title={hasError ? t('retry') : t('claim')}
+          />
+        ) : (
+          <div className="w-18 h-7.5" />
+        )}
       </div>
     </div>
   );
