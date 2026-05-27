@@ -62,37 +62,36 @@ export const ActivityRow: FC<ActivityRowProps> = ({
     hapticLight();
     onClick();
   };
-
   return (
     <div
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
-        'w-full flex items-center gap-3 py-3 justify-between',
+        'w-full flex items-center py-4 justify-between',
         onClick && 'cursor-pointer active:opacity-90 transition-opacity',
         className
       )}
     >
       <div className="flex items-center gap-2">
         <div
-          className={classNames('shrink-0 flex items-center justify-center w-10 h-10 rounded-10 text-white', iconBg)}
+          className={classNames(
+            'shrink-0 flex items-center justify-center w-10 h-10 rounded-10 text-pure-white',
+            iconBg
+          )}
         >
           {icon}
         </div>
 
-        <div className="flex flex-col text-heading-gray leading-tight dark:text-white">
-          <span className="text-base font-bold">{title}</span>
-          {subtitle && <span className="text-xs opacity-50 font-medium">{subtitle}</span>}
+        <div className="flex flex-col text-heading-gray leading-tight dark:text-pure-white">
+          <span className="text-sm font-bold">{title}</span>
+          {subtitle && <span className="text-xs opacity-50 font-medium leading-[100%]">{subtitle}</span>}
         </div>
       </div>
 
       <div className="flex flex-col items-end gap-0.5">
         {amount && (
           <span
-            className={classNames(
-              'text-sm font-semibold leading-tight font-tnum',
-              AMOUNT_COLOR[amount.direction ?? 'neutral']
-            )}
+            className={classNames('text-sm font-semibold leading-tight', AMOUNT_COLOR[amount.direction ?? 'neutral'])}
           >
             {amount.value}
           </span>

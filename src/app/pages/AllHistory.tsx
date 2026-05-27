@@ -5,10 +5,10 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import History from 'app/templates/history/History';
-import { hapticSelection } from 'lib/mobile/haptics';
-import { useAccount } from 'lib/miden/front';
-import { navigate } from 'lib/woozie';
 import { SearchInput } from 'components/ui';
+import { useAccount } from 'lib/miden/front';
+import { hapticSelection } from 'lib/mobile/haptics';
+import { navigate } from 'lib/woozie';
 
 type AllHistoryProps = {
   programId?: string | null;
@@ -40,30 +40,22 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-white">
-      <header className="shrink-0 px-4 pt-3 pb-2 flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-text-primary-token">{t('activity')}</h1>
+    <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
+      <header className="shrink-0 px-4 py-4 flex items-center justify-between">
+        <h1 className="text-[28px] font-semibold text-heading-gray dark:text-pure-white">{t('activity')}</h1>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            aria-label="Profile"
-            onClick={() => navigate('/select-account')}
-            className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
-          >
-            <Icon name={IconName.User} className="w-5 h-5" fill="currentColor" />
-          </button>
           <button
             type="button"
             aria-label={t('settings')}
             onClick={() => navigate('/settings')}
             className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
           >
-            <Icon name={IconName.Settings} className="w-5 h-5" fill="currentColor" />
+            <Icon name={IconName.Settings} className="w-4 h-4" fill="currentColor" />
           </button>
         </div>
       </header>
 
-      <div className="shrink-0 px-4 pb-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+      <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
         {filters.map(f => {
           const isActive = f.id === filter;
           return (
@@ -73,9 +65,9 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
               aria-pressed={isActive}
               onClick={() => handleFilterTap(f.id)}
               className={classNames(
-                'shrink-0 px-4 h-9 rounded-full text-sm font-medium transition-colors',
+                'px-6 py-2 rounded-10 text-sm leading-[100%] font-medium transition-colors',
                 isActive
-                  ? 'bg-accent-primary text-text-on-accent'
+                  ? 'bg-accent-primary text-pure-white font-semibold'
                   : 'bg-white text-text-primary-token border border-rule-strong'
               )}
             >
@@ -85,7 +77,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         })}
       </div>
 
-      <div className="shrink-0 px-4 pb-3">
+      <div className="shrink-0 px-4">
         <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
       </div>
 
