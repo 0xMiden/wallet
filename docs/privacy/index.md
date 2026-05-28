@@ -7,11 +7,11 @@ permalink: /privacy/
 
 _Last updated: 2026-05-28_
 
-Miden Wallet ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden Labs.
+Miden Wallet ("the App") is a non-custodial cryptocurrency wallet for the Miden blockchain, published by Miden.
 
 ## Data we collect
 
-**None.** Miden Labs does not collect, transmit, or store any data about you on our servers. The App has no user accounts, no analytics SDKs, no crash reporters, and no advertising identifiers. We never see your wallet contents.
+**None.** Miden does not collect, transmit, or store any data about you on our servers. The App has no user accounts, no analytics SDKs, no crash reporters, and no advertising identifiers. We never see your wallet contents.
 
 ## How the App uses your device
 
