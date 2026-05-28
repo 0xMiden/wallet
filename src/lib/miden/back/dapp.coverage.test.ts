@@ -467,8 +467,6 @@ describe('getNetworkRPC', () => {
   });
 
   it('throws NetworkNotGranted for an unknown network id', async () => {
-    await expect(dapp.getNetworkRPC('definitely-not-a-real-net')).rejects.toThrow(
-      MidenDAppErrorType.NetworkNotGranted
-    );
+    await expect(dapp.getNetworkRPC('definitely-not-a-real-net')).rejects.toThrow(MidenDAppErrorType.NetworkNotGranted);
   });
 });

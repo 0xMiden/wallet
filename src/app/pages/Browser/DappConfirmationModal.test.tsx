@@ -1,8 +1,8 @@
 import React from 'react';
 
+import { PrivateDataPermission, AllowedPrivateData } from '@demox-labs/miden-wallet-adapter-base';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { PrivateDataPermission, AllowedPrivateData } from '@demox-labs/miden-wallet-adapter-base';
 import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
@@ -26,8 +26,9 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 
 jest.mock('framer-motion', () => {
   const React = jest.requireActual('react');
-  const passthrough = React.forwardRef(({ children, ...rest }: { children?: React.ReactNode }, ref: React.Ref<HTMLDivElement>) =>
-    React.createElement('div', { ref, ...rest }, children)
+  const passthrough = React.forwardRef(
+    ({ children, ...rest }: { children?: React.ReactNode }, ref: React.Ref<HTMLDivElement>) =>
+      React.createElement('div', { ref, ...rest }, children)
   );
   return { motion: new Proxy({}, { get: () => passthrough }) };
 });
