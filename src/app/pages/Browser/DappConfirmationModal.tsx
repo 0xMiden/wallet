@@ -28,10 +28,12 @@ import { useSprings } from 'lib/animation';
 import type { DAppConfirmationRequest, DAppConfirmationResult } from 'lib/dapp-browser/confirmation-store';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { truncateAddress } from 'utils/string';
 
 interface DappConfirmationModalProps {
   request: DAppConfirmationRequest;
-  /** Short, monospace-formatted account id used in the connection panel */
+  /** Full bech32 account id — sent back to the dApp on approve and
+   *  truncated locally for the connection-panel display. */
   accountId: string | null;
   /** Called when the user approves or denies. The store updates inside this callback. */
   onResolve: (result: DAppConfirmationResult) => void;
@@ -197,7 +199,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           {!isTransaction && (
             <div className="mb-4 rounded-xl bg-grey-50 p-4">
               <p className="mb-1 text-xs text-grey-500">{t('account')}</p>
-              <p className="font-mono text-sm text-grey-900">{accountId || t('noAccountSelected')}</p>
+              <p className="font-mono text-sm text-grey-900">{accountId ? truncateAddress(accountId) : t('noAccountSelected')}</p>
             </div>
           )}
 

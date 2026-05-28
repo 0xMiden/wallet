@@ -61,6 +61,7 @@ import { WalletStatus } from 'lib/shared/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
+import { getCurrentMidenNetwork } from './safe-network';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import {
@@ -1448,9 +1449,22 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }:
   const stopTimeout = () => clearTimeout(t);
 }
 
-export async function getNetworkRPC(net: string) {
-  const targetRpc = NETWORKS.find(n => n.id === net)!.rpcBaseURL;
-  return targetRpc;
+export async function getNetworkRPC(net: string | undefined) {
+  // dApp didn't specify a network — fall back to the wallet's currently
+  // selected one. Prevents an immediate connect() failure for dApps that
+  // (legitimately) just want to use whatever the user is on.
+  if (!net) {
+    const current = await getCurrentMidenNetwork();
+    if (!current) {
+      throw new Error(MidenDAppErrorType.NetworkNotGranted);
+    }
+    return current.rpcBaseURL;
+  }
+  const found = NETWORKS.find(n => n.id === net);
+  if (!found) {
+    throw new Error(MidenDAppErrorType.NetworkNotGranted);
+  }
+  return found.rpcBaseURL;
 
   // if (typeof net === 'string') {
   //   try {
