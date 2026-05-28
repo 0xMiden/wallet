@@ -11,12 +11,14 @@ Miden Wallet ("the App") is a non-custodial cryptocurrency wallet for the Miden 
 
 ## Data we collect
 
-None. The App does not collect, transmit, or store any personal data on Miden Labs' servers. We have no user accounts, no analytics SDKs, no crash reporters, and no advertising identifiers.
+**None.** Miden Labs does not collect, transmit, or store any data about you on our servers. The App has no user accounts, no analytics SDKs, no crash reporters, and no advertising identifiers. We never see your wallet contents.
 
-## Data stored on your device
+## How the App uses your device
 
-- Your wallet's seed phrase, private keys, account names, transaction history, and balances are stored locally on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled.
-- This data never leaves your device unless YOU explicitly export it via the in-app "Export Wallet" function.
+For transparency about how the App functions on your device (this is not data we receive or have access to):
+
+- Your wallet's seed phrase, private keys, account names, transaction history, and balances are generated and held **only** on your device, encrypted at rest using your device's secure enclave (Android Keystore / iOS Secure Enclave) when biometric protection is enabled.
+- This information never leaves your device unless **you** explicitly export it via the in-app "Export Wallet" function.
 
 ## Network traffic
 
