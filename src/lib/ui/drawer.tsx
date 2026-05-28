@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect } from 'react';
 import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 
 import { durations, easings, springs } from 'lib/animation';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 
 import Portal from './Portal';
 import { cn } from './util';
@@ -33,6 +34,8 @@ interface DrawerContentProps {
 
 function DrawerContent({ className, children }: DrawerContentProps) {
   const { open, onClose } = useContext(DrawerContext);
+
+  useHideNavbarWhileOpen(open);
 
   useEffect(() => {
     if (!open) return;

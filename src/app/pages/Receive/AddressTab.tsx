@@ -1,13 +1,15 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
+import EvmConnectModal from 'app/templates/EvmConnectModal';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { QRCode } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { Button } from 'lib/ui/button';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
 interface AddressTabProps {
@@ -17,6 +19,12 @@ interface AddressTabProps {
 export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
   const { t } = useTranslation();
   const { fieldRef, copy, copied } = useCopyToClipboard();
+  const [evmOpen, setEvmOpen] = useState(false);
+
+  const handleOpenEvm = useCallback(() => {
+    hapticLight();
+    setEvmOpen(true);
+  }, []);
 
   const handleShare = useCallback(async () => {
     hapticLight();
@@ -68,8 +76,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
               <span className="text-base font-semibold text-heading-gray">{copied ? t('copied') : t('copy')}</span>
             </button>
           </div>
+          <Button variant="secondary" size="lg" onClick={handleOpenEvm} className="w-full">
+            {t('receiveFromEvm')}
+          </Button>
         </div>
       </div>
+      <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
     </div>
   );
 };

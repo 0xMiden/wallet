@@ -792,5 +792,15 @@
   "pending": "Pending",
   "faucetRequestTitle": "Faucet Request",
   "share": "Share",
-  "copy": "Copy"
+  "copy": "Copy",
+  "receiveFromEvm": "Receive from EVM",
+  "evmWalletConnected": "EVM wallet connected",
+  "evmWalletConnectedDescription": "You can now bridge assets from the connected wallet.",
+  "openInYourWallet": "Open in your wallet",
+  "openInYourWalletDescription": "Pick an installed wallet to approve the connection.",
+  "scanWithYourWallet": "Scan with your wallet",
+  "scanWithYourWalletDescription": "Open WalletConnect in any EVM wallet and scan the code.",
+  "preparing": "Preparing connection…",
+  "copyConnectionLink": "Copy connection link",
+  "disconnect": "Disconnect"
 }
