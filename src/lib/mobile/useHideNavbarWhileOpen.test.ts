@@ -33,14 +33,20 @@ describe('useHideNavbarWhileOpen', () => {
     mockMorphIn.mockResolvedValue(undefined);
   });
 
-  it('is a no-op on desktop / extension', () => {
+  it('sets the body flag on desktop / extension but does not call the native plugin', async () => {
     mockIsMobile.mockReturnValue(false);
 
-    renderHook(({ open }) => useHideNavbarWhileOpen(open), { initialProps: { open: true } });
+    const { unmount } = renderHook(({ open }) => useHideNavbarWhileOpen(open), { initialProps: { open: true } });
 
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
+    await flushMicrotasks();
     expect(mockMorphOut).not.toHaveBeenCalled();
-    expect(mockMorphIn).not.toHaveBeenCalled();
+
+    unmount();
+
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+    await flushMicrotasks();
+    expect(mockMorphIn).not.toHaveBeenCalled();
   });
 
   it('morphs the navbar out when opened and back in on unmount (mobile)', async () => {

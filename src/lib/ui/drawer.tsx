@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { durations, easings, springs } from 'lib/animation';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 
 import Portal from './Portal';
 import { cn } from './util';
@@ -39,6 +40,8 @@ interface DrawerContentProps {
 
 function DrawerContent({ className, children, hideHandle = true }: DrawerContentProps) {
   const { open, onClose } = useContext(DrawerContext);
+
+  useHideNavbarWhileOpen(open);
 
   useEffect(() => {
     if (!open) return;

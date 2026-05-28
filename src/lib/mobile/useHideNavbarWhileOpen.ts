@@ -21,6 +21,7 @@ let openCount = 0;
 
 async function applyOutside() {
   document.body.setAttribute('data-drawer-open', '');
+  if (!isMobile()) return;
   try {
     await InAppBrowser.morphNavbarOut();
   } catch {
@@ -30,6 +31,7 @@ async function applyOutside() {
 
 async function applyInside() {
   document.body.removeAttribute('data-drawer-open');
+  if (!isMobile()) return;
   try {
     await InAppBrowser.morphNavbarIn();
   } catch {
@@ -39,7 +41,7 @@ async function applyInside() {
 
 export function useHideNavbarWhileOpen(open: boolean): void {
   useEffect(() => {
-    if (!isMobile() || !open) return;
+    if (!open) return;
 
     openCount += 1;
     if (openCount === 1) {

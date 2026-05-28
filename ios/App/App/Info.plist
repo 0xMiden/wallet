@@ -58,5 +58,16 @@
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 	</dict>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>metamask</string>
+		<string>rainbow</string>
+		<string>trust</string>
+		<string>safe</string>
+		<string>zerion</string>
+		<string>ledgerlive</string>
+		<string>uniswap</string>
+		<string>okx</string>
+	</array>
 </dict>
 </plist>
