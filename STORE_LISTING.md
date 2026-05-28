@@ -68,7 +68,7 @@ SECURITY REMINDERS
 Miden Wallet is open source. Visit our website to learn more about the Miden blockchain and our commitment to privacy and security.
 
 Website: https://miden.fi
-Privacy Policy: <paste GitHub Pages URL from STORE_LISTING Privacy Policy section before submission>
+Privacy Policy: https://0xmiden.github.io/wallet/privacy/
 ```
 
 ---
@@ -158,8 +158,8 @@ Current icons are located at:
 
 ## Privacy Policy & Support
 
-- **Privacy Policy URL:** `TODO: privacy-policy-url` — `miden.fi/privacy` is currently 404. Stopgap: publish `PRIVACY.md` (at repo root) to GitHub Pages (suggested repo: `0xMiden/miden-wallet-privacy`) and fill the resulting URL here before Play Console submission.
-- **Terms of Service URL:** `TODO` — same situation; `miden.fi/terms` is not live. Play Console allows omitting Terms of Service; only Privacy Policy is required.
+- **Privacy Policy URL:** `https://0xmiden.github.io/wallet/privacy/` — served by GitHub Pages from `docs/privacy/index.md` in this repo. Requires Pages to be enabled at Settings → Pages → Source = `Deploy from a branch`, Branch = `main`, Folder = `/docs`. URL becomes live ~1-2 min after Pages is enabled and `main` contains this commit.
+- **Terms of Service URL:** N/A — Play Console allows omitting Terms of Service; only Privacy Policy is required.
 - **Support URL:** https://miden.fi
 - **Support Email:** privacy@miden.team
 

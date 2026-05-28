@@ -1,3 +1,8 @@
+---
+title: Privacy Policy — Miden Wallet
+permalink: /privacy/
+---
+
 # Miden Wallet — Privacy Policy
 
 _Last updated: 2026-05-28_
@@ -20,6 +25,7 @@ The App connects to the public Miden blockchain RPC endpoint (`rpc.testnet.miden
 ## Permissions
 
 The App requests the following Android permissions:
+
 - **INTERNET** — to reach the Miden RPC and transport endpoints
 - **VIBRATE** — for haptic feedback on UI interactions
 - **USE_BIOMETRIC** (Android 6+) — to unlock the wallet via fingerprint / face authentication
@@ -34,4 +40,4 @@ Material changes to this policy will be reflected on this page with an updated "
 
 ## Contact
 
-Open an issue at https://github.com/0xMiden/miden-wallet/issues or email privacy@miden.team.
+Open an issue at [github.com/0xMiden/wallet/issues](https://github.com/0xMiden/wallet/issues) or email privacy@miden.team.
