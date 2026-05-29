@@ -219,6 +219,9 @@ const sharedDefine = {
   'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
     process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
   ),
+  'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
+    process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
+  ),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   // Requires the explicit-prover fix from 0xMiden/web-sdk#182
   // (>= 0.15.0-alpha.6); see the rationale block in

@@ -1102,11 +1102,16 @@ const generateGuardianTransaction = async (
   };
 
   await setTransactionStage(transaction.id, 'submitting');
+  // Mirror withProverFallback's prover policy: always delegate to the remote
+  // prover on mobile (local proving OOMs the WebView and restarts the app),
+  // and honor delegateTransaction elsewhere. Without this the Guardian path
+  // hard-forced a local prover regardless of platform.
+  const shouldDelegate = isMobile() ? true : transaction.delegateTransaction;
   const transactionResult = await withWasmClientLock(async () => {
     try {
       const midenClient = await getMidenClient(options);
       const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
-        prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+        prover: shouldDelegate ? undefined : TransactionProver.newLocalProver()
       });
       return result;
     } catch (error) {

@@ -1,38 +1,22 @@
-import type EthereumProviderType from '@walletconnect/ethereum-provider';
+import { sepolia } from '@reown/appkit/networks';
+import type { AppKitNetwork } from '@reown/appkit/networks';
 import { create } from 'zustand';
 
-import { getProvider, resetProvider } from './provider';
+import { getModal } from './appkit';
 
 export type WcStatus = 'idle' | 'connecting' | 'connected' | 'disconnecting';
 
 /**
- * The WC ethereum-provider exposes `accounts` / `chainId` as derived fields
- * but doesn't always refresh them after a relay reconnect — `session.namespaces`
- * is the source of truth. Pulls eip155 accounts from CAIP-10 format
- * (`eip155:<chainId>:0x<addr>`) and falls back to the provider's own fields
- * if the session isn't yet readable.
+ * Numeric chain id → AppKit network. AppKit's `switchNetwork` takes a network
+ * object, not an id, so the bridge layer's `switchChain(sepolia.id)` calls map
+ * through here. Only chains we actually switch to need an entry.
  */
-function readSessionState(provider: EthereumProviderType): { accounts: string[]; chainId: number | null } {
-  const session = provider.session;
-  const eip155 = session?.namespaces?.eip155;
-  if (eip155 && eip155.accounts.length > 0) {
-    const parsed = eip155.accounts.map(a => {
-      const [, chainStr, addr] = a.split(':');
-      return { chainId: chainStr ? parseInt(chainStr, 10) : null, address: addr ?? '' };
-    });
-    const accounts = parsed.map(p => p.address).filter(a => a.length > 0);
-    const chainId = parsed[0]?.chainId ?? provider.chainId ?? null;
-    return { accounts, chainId };
-  }
-  return {
-    accounts: provider.accounts ?? [],
-    chainId: provider.chainId ?? null
-  };
-}
+const NETWORKS_BY_ID: Record<number, AppKitNetwork> = {
+  [sepolia.id]: sepolia
+};
 
 type WcStoreState = {
   status: WcStatus;
-  uri: string | null;
   address: string | null;
   chainId: number | null;
   accounts: string[];
@@ -40,10 +24,11 @@ type WcStoreState = {
 };
 
 type WcStoreActions = {
+  /** Open AppKit's connect modal. No-op when already connected. */
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
-  request: <T = unknown>(args: { method: string; params?: unknown[] | object }) => Promise<T>;
   switchChain: (chainId: number) => Promise<void>;
+  /** Seed state from any persisted AppKit session and attach subscriptions. */
   hydrate: () => Promise<void>;
 };
 
@@ -51,119 +36,99 @@ type WcStore = WcStoreState & WcStoreActions;
 
 const INITIAL_STATE: WcStoreState = {
   status: 'idle',
-  uri: null,
   address: null,
   chainId: null,
   accounts: [],
   error: null
 };
 
-let listenersAttached = false;
+function toChainId(raw: number | string | undefined): number | null {
+  if (raw === undefined) return null;
+  return typeof raw === 'string' ? parseInt(raw, 10) : raw;
+}
+
+let subscribed = false;
 
 export const useWcStore = create<WcStore>((set, get) => {
-  async function attachListeners(): Promise<void> {
-    if (listenersAttached) return;
-    const provider = await getProvider();
+  // AppKit is the source of truth; we mirror its account/network state into the
+  // store so non-React callers (lib/epoch's zustand actions) can read it
+  // synchronously via `useWcStore.getState()`.
+  function ensureSubscriptions(): void {
+    if (subscribed) return;
+    const modal = getModal();
+    subscribed = true;
 
-    provider.on('display_uri', (uri: string) => {
-      console.log('[wc] display_uri');
-      set({ uri, status: 'connecting' });
-    });
-
-    provider.on('connect', () => {
-      const { accounts, chainId } = readSessionState(provider);
-      console.log('[wc] connect', { accounts, chainId, rawAccounts: provider.accounts });
-      set({
-        status: 'connected',
-        uri: null,
-        accounts,
-        address: accounts[0] ?? null,
-        chainId,
+    modal.subscribeAccount(acc => {
+      const address = acc.address ?? null;
+      set(prev => ({
+        address,
+        accounts: address ? [address] : [],
+        // Hold 'connecting' while the modal is open and not yet connected;
+        // otherwise track AppKit's connection truth.
+        status: acc.isConnected ? 'connected' : prev.status === 'connecting' ? 'connecting' : 'idle',
         error: null
-      });
+      }));
     });
 
-    provider.on('disconnect', () => {
-      console.log('[wc] disconnect');
-      set({ ...INITIAL_STATE });
+    modal.subscribeNetwork(net => {
+      set({ chainId: toChainId(net.chainId) });
     });
 
-    provider.on('accountsChanged', (accounts: string[]) => {
-      console.log('[wc] accountsChanged', accounts);
-      set({ accounts, address: accounts[0] ?? null });
+    // When AppKit's modal closes while still unconnected, drop the transient
+    // 'connecting' state so the UI doesn't hang on a spinner.
+    modal.subscribeState(state => {
+      if (!state.open && get().status === 'connecting' && !get().address) {
+        set({ status: 'idle' });
+      }
     });
 
-    provider.on('chainChanged', (chainId: string) => {
-      const id = typeof chainId === 'string' ? parseInt(chainId, 16) : chainId;
-      console.log('[wc] chainChanged', id);
-      set({ chainId: id });
+    // Seed immediately in case a session was restored before we subscribed.
+    const address = modal.getAddress('eip155') ?? null;
+    set({
+      address,
+      accounts: address ? [address] : [],
+      status: modal.getIsConnectedState() ? 'connected' : 'idle',
+      chainId: toChainId(modal.getChainId())
     });
-
-    listenersAttached = true;
   }
 
   return {
     ...INITIAL_STATE,
 
     async hydrate() {
-      const provider = await getProvider();
-      await attachListeners();
-      const { accounts, chainId } = readSessionState(provider);
-      console.log('[wc] hydrate', {
-        hasSession: !!provider.session,
-        accounts,
-        chainId,
-        rawAccounts: provider.accounts,
-        namespaceAccounts: provider.session?.namespaces?.eip155?.accounts
-      });
-      if (provider.session) {
-        set({
-          status: 'connected',
-          accounts,
-          address: accounts[0] ?? null,
-          chainId,
-          uri: null
-        });
-      }
+      ensureSubscriptions();
     },
 
     async connect() {
-      if (get().status === 'connecting' || get().status === 'connected') return;
-      set({ status: 'connecting', uri: null, error: null });
+      ensureSubscriptions();
+      if (get().status === 'connected') return;
+      set({ status: 'connecting', error: null });
       try {
-        const provider = await getProvider();
-        await attachListeners();
-        await provider.connect();
+        // Resolves when the modal is shown, not on connect. Account/state
+        // subscriptions drive the transition to 'connected' (or back to 'idle'
+        // if the user dismisses the modal).
+        await getModal().open();
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to connect';
-        set({ status: 'idle', uri: null, error: message });
+        set({ status: 'idle', error: message });
         throw err;
       }
     },
 
     async disconnect() {
-      const provider = await getProvider();
+      ensureSubscriptions();
       set({ status: 'disconnecting' });
       try {
-        if (provider.session) {
-          await provider.disconnect();
-        }
+        await getModal().disconnect();
       } finally {
-        resetProvider();
-        listenersAttached = false;
         set({ ...INITIAL_STATE });
       }
     },
 
-    async request<T = unknown>(args: { method: string; params?: unknown[] | object }): Promise<T> {
-      const provider = await getProvider();
-      return provider.request<T>(args);
-    },
-
     async switchChain(chainId: number) {
-      const provider = await getProvider();
-      const hex = `0x${chainId.toString(16)}`;
-      await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hex }] });
+      const network = NETWORKS_BY_ID[chainId];
+      if (!network) throw new Error(`Unsupported chain ${chainId}`);
+      await getModal().switchNetwork(network);
       set({ chainId });
     }
   };

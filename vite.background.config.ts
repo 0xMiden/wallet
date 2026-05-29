@@ -316,6 +316,9 @@ export default defineConfig({
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
       process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
     ),
+    'process.env.EPOCH_ALLOCATOR_URL': JSON.stringify(
+      process.env.EPOCH_ALLOCATOR_URL ?? 'https://testnet-dev.epochprotocol.xyz'
+    ),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
