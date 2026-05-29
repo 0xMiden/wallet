@@ -30,10 +30,11 @@ export interface StressOptions {
   /**
    * Probability [0,1] that each private-note send gets its transport
    * request intercepted and forced to fail (via Playwright `page.route`).
-   * Exercises the wallet's transport-retry loop: on failure the tx is
-   * marked Completed-with-transportPending, the background retry should
-   * eventually deliver the note, and final balance conservation
-   * should still hold. 0 disables (default).
+   * Exercises the SDK's durable relay outbox (miden-client#2127): on
+   * failure the wallet marks the tx Completed (the on-chain commit is
+   * durable) and the SDK persists the relay payload, retrying it on the
+   * next sync. Final balance conservation should still hold. 0 disables
+   * (default).
    */
   transportFailProb: number;
   seed: number;

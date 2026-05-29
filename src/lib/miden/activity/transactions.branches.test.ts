@@ -16,7 +16,6 @@ import {
   getCompletedTransactions,
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
-  retryPendingTransports,
   generateTransactionsLoop
 } from './transactions'; // eslint-disable-line import/order
 
@@ -128,7 +127,7 @@ jest.mock('../sdk/keystore-bridge', () => ({
   setActiveSignCallback: jest.fn()
 }));
 
-// Mock navigator.locks for retryPendingTransports / safeGenerateTransactionsLoop
+// Mock navigator.locks for safeGenerateTransactionsLoop
 Object.defineProperty(globalThis.navigator, 'locks', {
   value: {
     request: jest.fn(async (_name: string, opts: any, fn: any) => {
@@ -223,13 +222,12 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('marks Completed with transportPending on transport error during private note send', async () => {
-    // Previously transport failures marked the tx Failed. They now mark it
-    // Completed with `transportPending: true` because the on-chain tx
-    // already committed — a Failed status would hide the sender's asset
-    // as "lost" even though it's only the delivery blob that needs retry.
-    // See `retryPendingTransports` for the background loop that completes
-    // delivery via `resendPrivateById`.
+  it('marks Completed when private-note transport fails — SDK outbox handles retry', async () => {
+    // Transport-level failures are no longer surfaced to the wallet: the
+    // SDK persists the relay payload to its durable outbox before calling
+    // transport (miden-client#2127) and retries on every subsequent
+    // sync_state. The wallet just marks Completed; eventual delivery is
+    // the SDK's responsibility.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -240,24 +238,20 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-      expect(txStore[0]!.transportPending).toBe(true);
-      expect(txStore[0]!.transportAttempts).toBe(1);
-      expect(txStore[0]!.displayMessage).toContain('pending delivery');
+      expect(txStore[0]!.displayMessage).toBe('Sent');
     } finally {
       helpers.toNoteTypeString = orig;
     }
   });
 
-  it('marks Completed with transportPending on init error (withWasmClientLock rejects)', async () => {
-    // As above: even if the client itself failed to initialize, the tx
-    // already committed on chain. Mark Completed + transportPending so
-    // the retry loop can still deliver the note once the client is back.
+  it('marks Completed when the WASM client lock cannot be acquired during a private send', async () => {
+    // Lock acquisition failures are also non-fatal: the on-chain tx is the
+    // source of truth and the SDK's outbox + sync_state will reconcile.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
-    // Override withWasmClientLock to reject
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
     sdk.withWasmClientLock = async () => {
@@ -267,8 +261,7 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-      expect(txStore[0]!.transportPending).toBe(true);
-      expect(txStore[0]!.displayMessage).toContain('pending delivery');
+      expect(txStore[0]!.displayMessage).toBe('Sent');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;
@@ -384,150 +377,6 @@ describe('waitForTransactionCompletion — error subscription', () => {
     txStore.push({ id: 'tx-f', status: ITransactionStatus.Failed });
     const result = await waitForTransactionCompletion('tx-f');
     expect(result).toEqual({ errorMessage: 'Transaction failed' });
-  });
-});
-
-describe('retryPendingTransports', () => {
-  const mockResendPrivateById = jest.fn().mockResolvedValue(undefined);
-
-  beforeEach(() => {
-    mockResendPrivateById.mockClear();
-    // Wire up the mock SDK client to expose resendPrivateById
-    const sdk = require('../sdk/miden-client');
-    sdk.getMidenClient = jest.fn(async () => ({
-      client: {
-        notes: { resendPrivateById: mockResendPrivateById }
-      }
-    }));
-  });
-
-  it('retries a transport-pending tx and clears the flag on success', async () => {
-    const longAgo = Math.floor(Date.now() / 1000) - 3600;
-    txStore.push({
-      id: 'tx-pending-1',
-      type: 'send',
-      status: ITransactionStatus.Completed,
-      transportPending: true,
-      transportAttempts: 0,
-      transportLastAttemptAt: longAgo,
-      outputNoteIds: ['note-abc'],
-      secondaryAccountId: 'recipient-bech32'
-    });
-
-    await retryPendingTransports();
-
-    expect(mockResendPrivateById).toHaveBeenCalledWith({
-      noteId: 'note-abc',
-      to: 'recipient-bech32'
-    });
-    expect(txStore[0]!.transportPending).toBe(false);
-    expect(txStore[0]!.displayMessage).toBe('Sent');
-  });
-
-  it('marks Failed after exhausting retry budget', async () => {
-    const longAgo = Math.floor(Date.now() / 1000) - 3600;
-    txStore.push({
-      id: 'tx-exhausted',
-      type: 'send',
-      status: ITransactionStatus.Completed,
-      transportPending: true,
-      transportAttempts: 20, // >= TRANSPORT_RETRY_MAX_ATTEMPTS
-      transportLastAttemptAt: longAgo,
-      outputNoteIds: ['note-xyz'],
-      secondaryAccountId: 'recipient-bech32'
-    });
-
-    await retryPendingTransports();
-
-    expect(mockResendPrivateById).not.toHaveBeenCalled();
-    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-    expect(txStore[0]!.transportPending).toBe(false);
-    expect(txStore[0]!.error).toBe('Transport retries exhausted');
-  });
-
-  it('clears flag when noteId or recipient is missing', async () => {
-    const longAgo = Math.floor(Date.now() / 1000) - 3600;
-    txStore.push({
-      id: 'tx-missing-note',
-      type: 'send',
-      status: ITransactionStatus.Completed,
-      transportPending: true,
-      transportAttempts: 0,
-      transportLastAttemptAt: longAgo,
-      outputNoteIds: [],
-      secondaryAccountId: 'recipient-bech32'
-    });
-
-    await retryPendingTransports();
-
-    expect(mockResendPrivateById).not.toHaveBeenCalled();
-    expect(txStore[0]!.transportPending).toBe(false);
-  });
-
-  it('increments attempt count when resend fails', async () => {
-    const longAgo = Math.floor(Date.now() / 1000) - 3600;
-    mockResendPrivateById.mockRejectedValueOnce(new Error('transport-fail'));
-    txStore.push({
-      id: 'tx-retry-fail',
-      type: 'send',
-      status: ITransactionStatus.Completed,
-      transportPending: true,
-      transportAttempts: 2,
-      transportLastAttemptAt: longAgo,
-      outputNoteIds: ['note-retry'],
-      secondaryAccountId: 'recipient-bech32'
-    });
-
-    await retryPendingTransports();
-
-    expect(txStore[0]!.transportAttempts).toBe(3);
-    // transportPending stays true — will retry again later
-    expect(txStore[0]!.transportPending).toBe(true);
-  });
-
-  it('skips txs within backoff window', async () => {
-    const recentTime = Math.floor(Date.now() / 1000) - 1; // 1 second ago
-    txStore.push({
-      id: 'tx-recent',
-      type: 'send',
-      status: ITransactionStatus.Completed,
-      transportPending: true,
-      transportAttempts: 0,
-      transportLastAttemptAt: recentTime, // within backoff window (10s base)
-      outputNoteIds: ['note-recent'],
-      secondaryAccountId: 'recipient-bech32'
-    });
-
-    await retryPendingTransports();
-
-    expect(mockResendPrivateById).not.toHaveBeenCalled();
-    // tx unchanged
-    expect(txStore[0]!.transportPending).toBe(true);
-  });
-
-  it('returns early when SDK lacks resendPrivateById', async () => {
-    const sdk = require('../sdk/miden-client');
-    sdk.getMidenClient = jest.fn(async () => ({
-      client: { notes: {} }
-    }));
-
-    const longAgo = Math.floor(Date.now() / 1000) - 3600;
-    txStore.push({
-      id: 'tx-old-sdk',
-      type: 'send',
-      status: ITransactionStatus.Completed,
-      transportPending: true,
-      transportAttempts: 0,
-      transportLastAttemptAt: longAgo,
-      outputNoteIds: ['note-old'],
-      secondaryAccountId: 'recipient-bech32'
-    });
-
-    await retryPendingTransports();
-
-    // Flag stays set — no budget burned
-    expect(txStore[0]!.transportPending).toBe(true);
-    expect(txStore[0]!.transportAttempts).toBe(0);
   });
 });
 

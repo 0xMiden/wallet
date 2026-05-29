@@ -53,19 +53,6 @@ export interface ITransaction {
   error?: string;
   resultBytes?: Uint8Array;
   /**
-   * Set when a private-note send succeeded on chain but the note-transport
-   * step failed (network error, service outage). The tx is marked
-   * `Completed` because the on-chain commit is durable; this flag drives a
-   * background retry loop that calls `resendPrivateById` on the SDK until
-   * the recipient can fetch the blob. Once transport delivers, the flag is
-   * cleared. Only meaningful for `type === 'send'` with private noteType.
-   */
-  transportPending?: boolean;
-  /** Number of transport-retry attempts so far (for backoff). */
-  transportAttempts?: number;
-  /** Unix-seconds timestamp of the most recent transport-retry attempt. */
-  transportLastAttemptAt?: number;
-  /**
    * Current sub-phase during active processing. Readers should treat this
    * as informational only — it is overwritten without coordination with
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.

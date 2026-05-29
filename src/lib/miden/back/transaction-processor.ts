@@ -6,7 +6,6 @@
 import {
   getAllUncompletedTransactions,
   hasQueuedTransactions,
-  retryPendingTransports,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity/transactions';
 import { WalletMessageType } from 'lib/shared/types';
@@ -99,17 +98,6 @@ export async function startTransactionProcessing(): Promise<void> {
       const result = await safeGenerateTransactionsLoop(swSignCallback);
       console.log('[TransactionProcessor] Loop result:', result);
 
-      // Retry any private-note transports that failed post-commit. The
-      // retry is rate-limited internally by per-tx exponential backoff,
-      // so it's safe to fire every loop iteration — most calls no-op.
-      // Runs regardless of whether there are queued txs because
-      // transportPending txs are already Completed (not Queued).
-      try {
-        await retryPendingTransports();
-      } catch (err) {
-        console.warn('[TransactionProcessor] Transport retry loop errored:', err);
-      }
-
       // Broadcast progress so popup UI can update
       try {
         getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });
@@ -167,6 +155,4 @@ export function setupTransactionProcessor(): void {
       }
     })
     .catch(err => console.warn('[TransactionProcessor] Startup check error:', err));
-
-  retryPendingTransports().catch(err => console.warn('[TransactionProcessor] Startup transport retry error:', err));
 }
