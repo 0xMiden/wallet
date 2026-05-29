@@ -1,39 +1,23 @@
-import type EthereumProviderType from '@walletconnect/ethereum-provider';
+import { getModal } from './appkit';
 
-import { APP_METADATA, SUPPORTED_CHAINS, WC_PROJECT_ID } from './config';
+/**
+ * Minimal EIP-1193 surface. Generic `request` keeps it compatible with both
+ * viem's `custom()` transport (which only needs `{ request(...args): Promise }`)
+ * and the bridge layer's typed calls (`provider.request<string>(...)`).
+ */
+export type Eip1193Provider = {
+  request<T = unknown>(args: { method: string; params?: unknown[] | object }): Promise<T>;
+};
 
-let providerPromise: Promise<EthereumProviderType> | null = null;
-
-export async function getProvider(): Promise<EthereumProviderType> {
-  if (typeof window === 'undefined') {
-    throw new Error('WalletConnect provider can only be used in a browser context');
+/**
+ * The connected EVM wallet's EIP-1193 provider, sourced from AppKit's eip155
+ * namespace. Throws when no wallet is connected — callers build SDKs/clients
+ * only after a connection exists, so the throw surfaces a programming error.
+ */
+export async function getProvider(): Promise<Eip1193Provider> {
+  const provider = getModal().getProvider<Eip1193Provider>('eip155');
+  if (!provider) {
+    throw new Error('No EVM wallet connected');
   }
-  if (!WC_PROJECT_ID) {
-    throw new Error('WALLETCONNECT_PROJECT_ID is not set');
-  }
-  if (!providerPromise) {
-    providerPromise = (async () => {
-      const { EthereumProvider } = await import('@walletconnect/ethereum-provider');
-      const rpcMap = SUPPORTED_CHAINS.reduce<Record<number, string>>((acc, c) => {
-        acc[c.id] = c.rpcUrl;
-        return acc;
-      }, {});
-      const primary = SUPPORTED_CHAINS[0]!;
-      const chains: [number, ...number[]] = [primary.id];
-      const optionalChains = SUPPORTED_CHAINS.map(c => c.id);
-      return EthereumProvider.init({
-        projectId: WC_PROJECT_ID,
-        showQrModal: false,
-        chains,
-        optionalChains,
-        rpcMap,
-        metadata: APP_METADATA
-      });
-    })();
-  }
-  return providerPromise;
-}
-
-export function resetProvider(): void {
-  providerPromise = null;
+  return provider;
 }

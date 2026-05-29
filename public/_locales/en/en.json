@@ -796,6 +796,8 @@
   "receiveFromEvm": "Receive from EVM",
   "evmWalletConnected": "EVM wallet connected",
   "evmWalletConnectedDescription": "You can now bridge assets from the connected wallet.",
+  "connectEvmWallet": "Connect an EVM wallet",
+  "connectEvmWalletDescription": "Connect a wallet to bridge assets to and from Miden.",
   "openInYourWallet": "Open in your wallet",
   "openInYourWalletDescription": "Pick an installed wallet to approve the connection.",
   "scanWithYourWallet": "Scan with your wallet",
