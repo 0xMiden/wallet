@@ -144,6 +144,13 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     operatedBy: 'Gateway',
     location: 'EU-NORTH',
     endpoint: 'https://miden-guardian.dev.eu-north-3.gateway.fm'
+  },
+  {
+    id: 'lambda-class',
+    name: 'Lambda Class',
+    operatedBy: 'Lambda Class',
+    location: 'EU-WEST',
+    endpoint: 'https://miden-guardian.lambdaclass.com'
   }
 ];
 
