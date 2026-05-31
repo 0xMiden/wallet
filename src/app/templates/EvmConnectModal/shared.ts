@@ -1,3 +1,5 @@
+export type BridgeProvider = 'epoch' | 'agglayer';
+
 export type BridgeTab = 'miden-to-evm' | 'evm-to-miden';
 
 export interface EvmToken {

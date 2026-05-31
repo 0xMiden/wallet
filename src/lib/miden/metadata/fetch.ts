@@ -47,16 +47,28 @@ export async function fetchTokenMetadata(
       // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
       return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
     }
-    const faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
-    const decimals = faucetDetails.decimals();
-    const symbol = faucetDetails.symbol().toString();
-    const base: AssetMetadata = {
-      decimals,
-      symbol,
-      name: symbol,
-      shouldPreferSymbol: true,
-      thumbnailUri: getAssetUrl('misc/token-logos/default.svg')
-    };
+    let base: AssetMetadata;
+    try {
+      const faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
+      const decimals = faucetDetails.decimals();
+      const symbol = faucetDetails.symbol().toString();
+      base = {
+        decimals,
+        symbol,
+        name: symbol,
+        shouldPreferSymbol: true,
+        thumbnailUri: getAssetUrl('misc/token-logos/default.svg')
+      };
+    } catch (err) {
+      // The account exists on-chain but its interface isn't a standard basic
+      // fungible faucet (e.g. a custom or bridged-asset faucet whose interface
+      // lacks the BasicFungibleFaucet procedures). There's nothing to read, and
+      // this is a deterministic failure for this faucet — surface it as Unknown
+      // (and cache that) rather than throwing into the inconsistent caller
+      // fallbacks.
+      console.warn('Account is not a basic fungible faucet for', assetId, '— using default metadata', err);
+      return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
+    }
 
     const detailed: DetailedAssetMetdata = {
       ...base
