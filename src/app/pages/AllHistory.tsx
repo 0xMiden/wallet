@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { AgglayerBridgeBanner } from 'app/templates/history/AgglayerBridgeBanner';
 import History from 'app/templates/history/History';
 import { SearchInput } from 'components/ui';
 import { useAccount } from 'lib/miden/front';
@@ -83,6 +84,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
       <div ref={scrollParentRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
         <div className="px-4">
+          <AgglayerBridgeBanner />
           <History
             address={account.publicKey}
             programId={programId}

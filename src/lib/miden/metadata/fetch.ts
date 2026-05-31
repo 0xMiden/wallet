@@ -47,27 +47,28 @@ export async function fetchTokenMetadata(
       // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
       return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
     }
-    // `fromAccount` reads the 0.15 faucet metadata slot. Faucets minted by
-    // pre-0.15 SDKs are not introspectable through it — degrade to default
-    // ("Unknown") metadata instead of throwing NotFoundTokenMetadata, which
-    // would blacklist the faucet for the whole session via
-    // `autoFetchMetadataFails` even though its assets are otherwise usable.
-    let faucetDetails;
+    let base: AssetMetadata;
     try {
-      faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
-    } catch (introspectErr) {
-      console.warn('Faucet metadata slot unreadable (pre-0.15 faucet?) for', assetId, introspectErr);
+      const faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
+      const decimals = faucetDetails.decimals();
+      const symbol = faucetDetails.symbol().toString();
+      base = {
+        decimals,
+        symbol,
+        name: symbol,
+        shouldPreferSymbol: true,
+        thumbnailUri: getAssetUrl('misc/token-logos/default.svg')
+      };
+    } catch (err) {
+      // The account exists on-chain but its interface isn't a standard basic
+      // fungible faucet (e.g. a custom or bridged-asset faucet whose interface
+      // lacks the BasicFungibleFaucet procedures). There's nothing to read, and
+      // this is a deterministic failure for this faucet — surface it as Unknown
+      // (and cache that) rather than throwing into the inconsistent caller
+      // fallbacks.
+      console.warn('Account is not a basic fungible faucet for', assetId, '— using default metadata', err);
       return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
     }
-    const decimals = faucetDetails.decimals();
-    const symbol = faucetDetails.symbol().toString();
-    const base: AssetMetadata = {
-      decimals,
-      symbol,
-      name: symbol,
-      shouldPreferSymbol: true,
-      thumbnailUri: getAssetUrl('misc/token-logos/default.svg')
-    };
 
     const detailed: DetailedAssetMetdata = {
       ...base
