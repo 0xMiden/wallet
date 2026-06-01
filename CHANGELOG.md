@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+* [FIX][all] **Consuming a note via the dApp API can no longer brick the wallet.** A dApp's `requestConsume` may carry serialized note bytes, which the wallet enqueues (`queueNoteImport`) and later imports via `NoteFile.deserialize` in `importAllNotes` (`src/lib/miden/activity/notes.ts`). If a dApp passes the wrong bytes — e.g. a serialized `Note` (which has no `"note"` magic header) where a `NoteFile` is expected, as happens when calling `note.serialize()` instead of serializing a `NoteFile` — deserialization throws `notefile deserialization failed: invalid utf-8 sequence...`. Previously `importAllNotes` aborted the whole batch on any failure and only cleared the persistent import queue (`miden-notes-pending-import`) after full success, so the bad note was retried on every transaction-loop iteration forever. Because `importAllNotes()` is the first call in `generateTransactionsLoop`, this permanently jammed ALL transaction generation (sends and consumes alike) — the queue lives in persistent storage, so the jam survived restarts and only a reinstall recovered. `importAllNotes` now imports each note independently (one failure no longer aborts the batch) and applies a bounded retry: a failing note is kept and retried, carrying an attempt count, and dropped only after `MAX_IMPORT_ATTEMPTS` (3) failures. This keeps the queue draining — a deterministically bad note can never loop forever and re-brick the wallet — while still giving genuinely transient failures (e.g. a `NoteFile::NoteId` import, which fetches the note over RPC and can hit a network blip) a chance to succeed, so a recoverable note (including a private note whose bytes are its only copy) isn't lost to a single blip. Processed-note removal happens inside the WASM lock and before `syncState`, so a sync failure can't leave processed notes queued for an unbounded retry. Queue entries gain an `{ bytes, attempts }` shape; legacy bare-string entries are normalized on read, so no migration is needed. Regression tests cover a failing note kept for retry with an incremented count, a poison note dropped after 3 attempts without `importAllNotes` ever throwing, the queue draining even when `syncState` throws, and concurrently-enqueued notes preserved across a pass. Reported in `0xMiden/wallet-adapter#87`.
+
 ## 1.14.5 (2026-05-28)
 
 ### Fixes
