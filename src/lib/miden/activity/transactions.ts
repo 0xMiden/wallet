@@ -1,4 +1,11 @@
-import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import {
+  InputNoteState,
+  Note,
+  TransactionProver,
+  TransactionRequest,
+  TransactionResult,
+  WasmWebClient
+} from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
@@ -18,6 +25,7 @@ import { getIntercom } from 'lib/store';
 import { logger } from 'shared/logger';
 
 import {
+  BridgeTransaction,
   ConsumeTransaction,
   ITransaction,
   ITransactionStage,
@@ -30,13 +38,18 @@ import {
 } from '../db/types';
 import { putToStorage } from '../front';
 import { toNoteTypeString } from '../helpers';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { interpretTransactionResult } from './helpers';
 import { importAllNotes, queueNoteImport } from './notes';
 import { compareAccountIds } from './utils';
+import {
+  DEFAULT_NETWORK,
+  MIDEN_NETWORK_ENDPOINTS,
+  MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS
+} from 'lib/miden-chain/constants';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -371,6 +384,34 @@ export const initiateSendTransaction = async (
 };
 
 /**
+ * Queue a Miden→EVM Agglayer bridge transaction. `requestBytes` is a pre-built
+ * B2AGG `TransactionRequest` (own output note); the standard pipeline proves +
+ * submits it via `newTransaction`, and `completeBridgeTransaction` records it.
+ */
+export const initiateBridgeTransaction = async (
+  accountId: string,
+  requestBytes: Uint8Array,
+  amount: bigint,
+  faucetId: string,
+  destinationAddress: string,
+  destinationNetwork: number,
+  delegateTransaction?: boolean
+): Promise<string> => {
+  const dbTransaction = new BridgeTransaction(
+    accountId,
+    requestBytes,
+    amount,
+    faucetId,
+    destinationAddress,
+    destinationNetwork,
+    delegateTransaction
+  );
+  await Repo.transactions.add(dbTransaction);
+
+  return dbTransaction.id;
+};
+
+/**
  * Queue a switch-guardian transaction for a Guardian account. The local
  * `GUARDIAN_URL_STORAGE_KEY` is NOT updated here — it's written only after
  * the on-chain proposal lands, in `completeSwitchGuardianTransaction`.
@@ -605,6 +646,21 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       error
     });
   }
+};
+
+export const completeBridgeTransaction = async (tx: BridgeTransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  const note = extractFullNote(result);
+  const noteId = note?.id().toString();
+  const outputNoteIds = noteId ? [noteId] : [];
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Bridged to EVM',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
 };
 
 /**
@@ -904,6 +960,7 @@ export const generateTransaction = async (
       case 'consume':
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'execute':
+      case 'bridge':
       default:
         return midenClient.newTransaction(
           transaction.accountId,
@@ -919,6 +976,9 @@ export const generateTransaction = async (
       break;
     case 'consume':
       await completeConsumeTransaction(transaction.id, result);
+      break;
+    case 'bridge':
+      await completeBridgeTransaction(transaction as BridgeTransaction, result);
       break;
     case 'execute':
     default:
@@ -1007,19 +1067,27 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
-    // case 'execute':
-    // default: {
-    // // For custom transactions, get TransactionSummary and create a custom proposal
-    // const summaryBytes = await withWasmClientLock(async () => {
-    //   const midenClient = await getMidenClient();
-    //   const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
-    //   return (
-    //     await midenClient.client.transactions.preview(accountIdStringToSdk(transaction.accountId), txRequest)
-    //   ).serialize();
-    // });
-    // proposalResult = await multisigService.createCustomProposal(summaryBytes);
-    // break;
-    // }
+    case 'execute':
+    case 'bridge': {
+      // For custom / bridge transactions, preview the request into a
+      // TransactionSummary and create a custom multisig proposal from it.
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      const summaryBytes = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        const rawClient = await WasmWebClient.createClient(
+          MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!,
+          MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(DEFAULT_NETWORK)!,
+          undefined,
+          midenClient.client.storeIdentifier(),
+          undefined,
+          undefined
+        );
+        const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
+        return (await rawClient.executeForSummary(accountIdStringToSdk(transaction.accountId), txRequest)).serialize();
+      });
+      proposalResult = await service.createCustomProposal(summaryBytes);
+      break;
+    }
     default: {
       throw new Error(`Unsupported transaction type for Guardian account: ${transaction.type}`);
     }
@@ -1117,6 +1185,9 @@ const generateGuardianTransaction = async (
         transactionResult,
         guardianProvider
       );
+      break;
+    case 'bridge':
+      await completeBridgeTransaction(transaction as BridgeTransaction, transactionResult);
       break;
     // case 'execute':
     // default:

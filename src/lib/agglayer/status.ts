@@ -34,3 +34,38 @@ export async function fetchDeposits(destAddr: string, limit = 10): Promise<Aggla
   const data: BridgesResponse = await res.json();
   return data.deposits ?? [];
 }
+
+// The bridge-service merkle proof for a deposit, used to claim it on L1.
+export interface AgglayerMerkleProof {
+  main_exit_root: string;
+  rollup_exit_root: string;
+  merkle_proof: string[];
+  rollup_merkle_proof: string[];
+}
+
+interface MerkleProofResponse {
+  proof: AgglayerMerkleProof;
+}
+
+// Base URL of the bridge service (the `/bridges` indexer path stripped off).
+const BRIDGE_SERVICE_URL = AGGLAYER_BRIDGE_API.replace(/\/bridges$/, '');
+
+// The most recent Miden→EVM (L2→L1) deposit to `l1Dest` that's ready to claim
+// on L1, or null. L2-logged deposits carry `network_id === 1`.
+export async function findClaimableMidenToEvmDeposit(l1Dest: string): Promise<AgglayerDeposit | null> {
+  const deposits = await fetchDeposits(l1Dest);
+  const claimable = deposits
+    .filter(d => d.ready_for_claim && d.network_id === 1)
+    .sort((a, b) => b.deposit_cnt - a.deposit_cnt);
+  return claimable[0] ?? null;
+}
+
+// Fetch the merkle proof for a deposit (net_id is the deposit's `network_id`).
+export async function fetchMerkleProof(depositCnt: number, netId: number): Promise<AgglayerMerkleProof> {
+  const res = await fetch(`${BRIDGE_SERVICE_URL}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`);
+  if (!res.ok) {
+    throw new Error(`Agglayer merkle-proof status ${res.status}`);
+  }
+  const data: MerkleProofResponse = await res.json();
+  return data.proof;
+}

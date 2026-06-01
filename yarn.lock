@@ -2359,6 +2359,12 @@
     dexie "^4.0.1"
     glob "^11.0.0"
 
+"@miden-sdk/miden-sdk@file:../web-sdk/crates/web-client":
+  version "0.14.10"
+  dependencies:
+    dexie "^4.0.1"
+    glob "^11.0.0"
+
 "@miden-sdk/react@0.14.4":
   version "0.14.4"
   resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.4.tgz#6bb6e05572f6a4a63806e580bffc6156658e52f4"
