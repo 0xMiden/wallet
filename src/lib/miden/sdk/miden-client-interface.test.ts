@@ -1277,4 +1277,109 @@ describe('MidenClientInterface', () => {
       expect(proveViaOffscreen).toHaveBeenCalledWith(expect.any(Uint8Array), null, { speculative: true });
     });
   });
+
+  describe('importNoteBytes', () => {
+    // Builds a MidenClientInterface with the SDK's note (de)serialization mocked,
+    // so we can drive importNoteBytes down each branch. Mirrors the doMock scaffold
+    // used by the smoke test above.
+    async function setup(sdk: {
+      noteFileDeserialize: jest.Mock;
+      noteDeserialize: jest.Mock;
+      fromNoteDetails?: jest.Mock;
+    }) {
+      const fakeMidenClient = buildFakeMidenClient();
+      const importMock = fakeMidenClient.notes.import as jest.Mock;
+      const fromNoteDetails = sdk.fromNoteDetails ?? jest.fn((details: any) => ({ kind: 'from-details', details }));
+      const NoteDetailsCtor = jest.fn(function (this: any, assets: any, recipient: any) {
+        this.assets = assets;
+        this.recipient = recipient;
+      });
+
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        MidenClient: { create: jest.fn(async () => fakeMidenClient) },
+        NoteFile: { deserialize: sdk.noteFileDeserialize, fromNoteDetails },
+        Note: { deserialize: sdk.noteDeserialize },
+        NoteDetails: NoteDetailsCtor,
+        AccountFile: { deserialize: jest.fn(() => ({})) },
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionProver: { newRemoteProver: jest.fn(), newLocalProver: jest.fn() },
+        exportStore: jest.fn(),
+        importStore: jest.fn()
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc-local']]),
+        MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS: new Map([['localnet', undefined]]),
+        getNoteTransportUrl: () => undefined,
+        MIDEN_PROVING_ENDPOINTS: new Map([['localnet', undefined]]),
+        MIDEN_NETWORK_NAME: { TESTNET: 'testnet', DEVNET: 'devnet', LOCALNET: 'localnet' },
+        DEFAULT_NETWORK: 'localnet'
+      }));
+      jest.doMock('./constants', () => ({ NoteExportType: {} }));
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('../helpers', () => ({ toNoteType: jest.fn() }));
+      jest.doMock('../db/types', () => ({ ConsumeTransaction: class {}, SendTransaction: class {} }));
+      jest.doMock('screens/onboarding/types', () => ({ WalletType: { OnChain: 'on-chain', OffChain: 'off-chain' } }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = await MidenClientInterface.create({
+        seed: new Uint8Array([1, 2, 3]),
+        insertKeyCallback: jest.fn()
+      });
+      return { client, importMock, fromNoteDetails, NoteDetailsCtor };
+    }
+
+    it('imports serialized NoteFile bytes directly without touching the Note fallback', async () => {
+      const noteFileDeserialize = jest.fn(() => ({ kind: 'notefile' }));
+      const noteDeserialize = jest.fn();
+      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+
+      await client.importNoteBytes(new Uint8Array([1, 2]));
+
+      expect(noteFileDeserialize).toHaveBeenCalled();
+      expect(noteDeserialize).not.toHaveBeenCalled();
+      expect(importMock).toHaveBeenCalledWith({ kind: 'notefile' });
+    });
+
+    it('wraps a serialized Note (e.g. note.serialize()) into a NoteFile and imports it', async () => {
+      const noteFileDeserialize = jest.fn(() => {
+        throw new Error('notefile deserialization failed: invalid utf-8 sequence of 1 bytes from index 1');
+      });
+      const fakeNote = { assets: jest.fn(() => 'note-assets'), recipient: jest.fn(() => 'note-recipient') };
+      const noteDeserialize = jest.fn(() => fakeNote);
+      const fromNoteDetails = jest.fn((details: any) => ({ kind: 'wrapped', details }));
+      const { client, importMock, NoteDetailsCtor } = await setup({
+        noteFileDeserialize,
+        noteDeserialize,
+        fromNoteDetails
+      });
+
+      await client.importNoteBytes(new Uint8Array([9, 9, 9]));
+
+      expect(noteDeserialize).toHaveBeenCalled();
+      // NoteDetails built from the note's assets + recipient, then wrapped.
+      expect(NoteDetailsCtor).toHaveBeenCalledWith('note-assets', 'note-recipient');
+      expect(fromNoteDetails).toHaveBeenCalled();
+      expect(importMock).toHaveBeenCalledWith(expect.objectContaining({ kind: 'wrapped' }));
+    });
+
+    it('throws a clear, actionable error when bytes are neither a NoteFile nor a Note', async () => {
+      const noteFileDeserialize = jest.fn(() => {
+        throw new Error('notefile deserialization failed');
+      });
+      const noteDeserialize = jest.fn(() => {
+        throw new Error('note deserialization failed');
+      });
+      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+
+      await expect(client.importNoteBytes(new Uint8Array([0]))).rejects.toThrow(
+        /neither a serialized NoteFile nor a serialized Note/
+      );
+      expect(importMock).not.toHaveBeenCalled();
+    });
+  });
 });
