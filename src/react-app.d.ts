@@ -59,3 +59,15 @@ declare module '*.module.css' {
   const classes: { readonly [key: string]: string };
   export default classes;
 }
+
+// Vite `?raw` asset suffix — imports the file's contents as a string.
+declare module '*?raw' {
+  const src: string;
+  export default src;
+}
+
+// `.masm` MASM sources imported as raw text.
+declare module '*.masm?raw' {
+  const src: string;
+  export default src;
+}

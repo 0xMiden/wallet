@@ -1,4 +1,4 @@
-import { Account, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { Account, TransactionRequest, Word } from '@miden-sdk/miden-sdk/lazy';
 import {
   Multisig,
   MultisigClient,
@@ -23,6 +23,7 @@ import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const MAX_SYNC_RETRIES = 20;
+const randomWord = () => Word.fromHex(`0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toHex()}`);
 
 /**
  * MultisigService wraps the MultisigClient and Multisig classes from
@@ -133,15 +134,13 @@ export class MultisigService {
     if (!account) {
       throw new Error('Account not found in MultisigService');
     }
-    // +2 accounts for the current nonce plus the proposal execution incrementing nonce
-    const nonce = Number(account.nonce().asInt()) + 2;
-
     // Create metadata for unknown/custom proposal type
     const metadata: ProposalMetadata = {
       proposalType: 'unknown',
       description: 'Custom transaction'
     };
-    const proposal = await this.multisig.createProposal(nonce, txSummaryBase64, metadata);
+    console.log('proposal metadata', metadata);
+    const proposal = await this.multisig.createProposal(Date.now(), txSummaryBase64, metadata);
 
     return proposal;
   }

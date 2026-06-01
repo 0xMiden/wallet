@@ -15,7 +15,7 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian' | 'replace-hot-key';
+export type ITransactionType = 'send' | 'consume' | 'execute' | 'bridge' | 'switch-guardian' | 'replace-hot-key';
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -197,6 +197,55 @@ export class ConsumeTransaction implements ITransaction {
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
+  }
+}
+
+/**
+ * Miden → EVM Agglayer bridge transaction. Created from a pre-built B2AGG
+ * `TransactionRequest` (own output note) serialized into `requestBytes`, so the
+ * standard pipeline proves + submits it via `newTransaction` like a custom
+ * `execute` tx — but as its own kind so the activity list shows it as a bridge.
+ * `extraInputs` carries the EVM destination for display / later claim.
+ */
+export class BridgeTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  requestBytes: Uint8Array;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: { destinationAddress: string; destinationNetwork: number };
+
+  constructor(
+    accountId: string,
+    requestBytes: Uint8Array,
+    amount: bigint,
+    faucetId: string,
+    destinationAddress: string,
+    destinationNetwork: number,
+    delegateTransaction?: boolean
+  ) {
+    this.id = uuid();
+    this.type = 'bridge';
+    this.accountId = accountId;
+    this.requestBytes = requestBytes;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Bridging';
+    this.delegateTransaction = delegateTransaction;
+    this.extraInputs = { destinationAddress, destinationNetwork };
   }
 }
 
