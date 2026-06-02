@@ -398,6 +398,54 @@ describe('requestTransaction', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
+
+  it('routes a Consume-typed transaction to the consume flow instead of failing as a custom payload (issue #88)', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'TOK' });
+    mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-consume-1');
+    const res = await dapp.requestTransaction('https://miden.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        type: 'consume',
+        payload: {
+          accountAddress: 'miden-account-1',
+          noteId: 'note-1',
+          faucetId: 'faucet-1',
+          noteType: 'Private',
+          amount: '50'
+        }
+      }
+    } as never);
+    // Response is normalized to a TransactionResponse, and the dedicated
+    // consume execution path runs (not the CustomTransaction validation).
+    expect(res.type).toBe(MidenDAppMessageType.TransactionResponse);
+    expect((res as any).transactionId).toBe('tx-consume-1');
+    expect(mockInitiateConsumeTransactionFromId).toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('routes a Send-typed transaction to the send flow', async () => {
+    mockInitiateSendTransaction.mockResolvedValue('tx-send-1');
+    const res = await dapp.requestTransaction('https://miden.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        type: 'send',
+        payload: {
+          senderAddress: 'miden-account-1',
+          recipientAddress: 'bob',
+          faucetId: 'faucet-1',
+          noteType: 'Private',
+          amount: '100',
+          recallBlocks: 50
+        }
+      }
+    } as never);
+    expect(res.type).toBe(MidenDAppMessageType.TransactionResponse);
+    expect((res as any).transactionId).toBe('tx-send-1');
+    expect(mockInitiateSendTransaction).toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
 });
 
 // ── requestSendTransaction ─────────────────────────────────────────
