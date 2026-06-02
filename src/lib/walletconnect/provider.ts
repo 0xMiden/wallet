@@ -1,13 +1,6 @@
-import { getModal } from './appkit';
+import { Eip1193Provider } from 'ethers';
 
-/**
- * Minimal EIP-1193 surface. Generic `request` keeps it compatible with both
- * viem's `custom()` transport (which only needs `{ request(...args): Promise }`)
- * and the bridge layer's typed calls (`provider.request<string>(...)`).
- */
-export type Eip1193Provider = {
-  request<T = unknown>(args: { method: string; params?: unknown[] | object }): Promise<T>;
-};
+import { getModal } from './appkit';
 
 /**
  * The connected EVM wallet's EIP-1193 provider, sourced from AppKit's eip155

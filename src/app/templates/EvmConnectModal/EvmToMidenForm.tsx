@@ -4,8 +4,8 @@ import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { Button } from 'lib/ui/button';
 
-import { TokenSelect } from './TokenSelect';
 import { SEPOLIA_TESTNET_TOKENS, inputClass, shortenAddress } from './shared';
+import { TokenSelect } from './TokenSelect';
 
 interface EvmToMidenFormProps {
   evmAddress: string;
@@ -28,7 +28,7 @@ export const EvmToMidenForm: React.FC<EvmToMidenFormProps> = ({ evmAddress, mide
   const [faucetId, setFaucetId] = useState('0x0a7d175ed63ec5200fb2ced86f6aa5');
   // Source token picked from the hardcoded Sepolia list; decimals come from
   // the matched token entry.
-  const [tokenAddress, setTokenAddress] = useState(SEPOLIA_TESTNET_TOKENS[0].address);
+  const [tokenAddress, setTokenAddress] = useState(SEPOLIA_TESTNET_TOKENS[0]!.address);
   const decimals = SEPOLIA_TESTNET_TOKENS.find(t => t.address === tokenAddress)?.decimals ?? 18;
   const [amount, setAmount] = useState('');
 
