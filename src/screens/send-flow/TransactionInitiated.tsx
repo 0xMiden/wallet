@@ -26,7 +26,7 @@ export const TransactionInitiated: React.FC<TransactionInitiatedProps> = ({ clas
           title={t('transactionInitiated')}
           description={t('transactionWillProceedInBackground')}
           icon={IconName.CheckboxCircleFill}
-          iconBackgroundClassName="rounded-full bg-gradient-to-t from-white to-[#F9F9F9]"
+          iconBackgroundClassName="rounded-full bg-gradient-to-t from-white to-surface-secondary"
         />
         <Button title={t('done')} className="mt-8" variant={ButtonVariant.Primary} onClick={onDoneClick} />
       </div>

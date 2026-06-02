@@ -28,7 +28,7 @@ export const FeaturedCarousel: FC<FeaturedCarouselProps> = ({ onOpen }) => {
 
   return (
     <section>
-      <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-grey-500">{t('featuredDapps')}</h2>
+      <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-text-muted">{t('featuredDapps')}</h2>
       <div
         className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 pl-4 pr-4"
         style={{ overscrollBehavior: 'contain', scrollbarWidth: 'none' }}

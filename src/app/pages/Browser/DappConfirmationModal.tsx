@@ -158,37 +158,37 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
     >
       <motion.div
         ref={containerRef}
-        className="w-full max-w-[360px] overflow-hidden rounded-2xl bg-pure-white shadow-2xl"
+        className="w-full max-w-[360px] overflow-hidden rounded-2xl bg-surface-solid shadow-2xl"
         initial={{ scale: 0.96, opacity: 0, y: 20 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.96, opacity: 0, y: 20 }}
         transition={springs.sheetPresent}
       >
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-grey-100 px-6 py-5">
+        <div className="flex items-center gap-3 border-b border-border-light px-6 py-5">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-100">
             <Icon name={IconName.Globe} className="text-primary-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-grey-900">
+            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-black">
               {appName}
             </h2>
-            <p className="truncate text-sm text-grey-500">{request.origin}</p>
+            <p className="truncate text-sm text-text-muted">{request.origin}</p>
           </div>
         </div>
 
         {/* Body */}
         <div className="px-6 py-5">
-          <p className="mb-4 text-sm text-grey-700">
+          <p className="mb-4 text-sm text-text-muted">
             {isTransaction ? t('dappTransactionRequest') : t('dappConnectionRequest')}
           </p>
 
           {isTransaction && transactionMessages.length > 0 && (
-            <div className="mb-4 rounded-xl bg-grey-50 p-4">
+            <div className="mb-4 rounded-xl bg-gray-50 p-4">
               {transactionMessages.map((msg, i) => (
                 <div
                   key={i}
-                  className="border-b border-grey-200 py-1 text-xs text-grey-700 last:border-b-0 last:pb-0 first:pt-0"
+                  className="border-b border-border-light py-1 text-xs text-text-muted last:border-b-0 last:pb-0 first:pt-0"
                 >
                   {msg}
                 </div>
@@ -197,26 +197,26 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           )}
 
           {!isTransaction && (
-            <div className="mb-4 rounded-xl bg-grey-50 p-4">
-              <p className="mb-1 text-xs text-grey-500">{t('account')}</p>
-              <p className="font-mono text-sm text-grey-900">
+            <div className="mb-4 rounded-xl bg-gray-50 p-4">
+              <p className="mb-1 text-xs text-text-muted">{t('account')}</p>
+              <p className="font-mono text-sm text-black">
                 {accountId ? truncateAddress(accountId) : t('noAccountSelected')}
               </p>
             </div>
           )}
 
-          <div className="rounded-xl bg-grey-50 p-4">
-            <p className="mb-1 text-xs text-grey-500">{t('network')}</p>
-            <p className="text-sm capitalize text-grey-900">{request.network}</p>
+          <div className="rounded-xl bg-gray-50 p-4">
+            <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
+            <p className="text-sm capitalize text-black">{request.network}</p>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 border-t border-grey-100 px-6 py-5">
+        <div className="flex gap-3 border-t border-border-light px-6 py-5">
           <button
             type="button"
             onClick={handleDeny}
-            className="flex-1 rounded-full border-2 border-orange-500 bg-pure-white px-6 py-3 text-sm font-semibold text-orange-500 hover:bg-orange-50"
+            className="flex-1 rounded-full border-2 border-orange-500 bg-surface-solid px-6 py-3 text-sm font-semibold text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10"
           >
             {t('deny')}
           </button>

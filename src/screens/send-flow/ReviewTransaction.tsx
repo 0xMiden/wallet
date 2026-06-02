@@ -120,7 +120,7 @@ const ToggleBadge: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   return (
     <span
       className={`text-xs font-medium px-3 py-1 rounded-full ${
-        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
+        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-input-bg'
       }`}
     >
       {enabled ? t('on') : t('off')}

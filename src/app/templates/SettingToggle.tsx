@@ -18,7 +18,7 @@ const SettingToggle: FC<SettingToggleProps> = ({ checked, onChange, name, testID
         <span className="font-medium text-base leading-[130%] text-black">{title}</span>
         <ToggleSwitch checked={checked} onChange={onChange} name={name} testID={testID} />
       </label>
-      {description && <span className="text-xs text-gray-400">{description}</span>}
+      {description && <span className="text-xs text-text-muted">{description}</span>}
     </div>
   );
 };
