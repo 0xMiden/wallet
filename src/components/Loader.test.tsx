@@ -27,10 +27,10 @@ describe('Loader', () => {
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'Loader');
   });
 
-  it('uses default color black', () => {
+  it('uses default color currentColor', () => {
     render(<Loader />);
 
-    expect(screen.getByTestId('icon')).toHaveAttribute('data-fill', 'black');
+    expect(screen.getByTestId('icon')).toHaveAttribute('data-fill', 'currentColor');
   });
 
   it('uses custom color when provided', () => {
