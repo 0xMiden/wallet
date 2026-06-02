@@ -236,7 +236,7 @@ const Toolbar: FC<ToolbarProps> = ({
               onClick={step ? onStepBack : onBack}
               testID={PageLayoutSelectors.BackButton}
             >
-              <Icon name={IconName.Close} fill={'black'} />
+              <Icon name={IconName.Close} fill={'currentColor'} />
             </Button>
           )}
         </div>
