@@ -41,7 +41,7 @@ const SyncSpinner: FC<{ visible: boolean }> = ({ visible }) => (
     style={{
       width: 16,
       height: 16,
-      border: '2px solid #E5E7EB',
+      border: '2px solid var(--color-border-secondary)',
       borderTopColor: '#F97316',
       borderRadius: '50%',
       opacity: visible ? 1 : 0,
