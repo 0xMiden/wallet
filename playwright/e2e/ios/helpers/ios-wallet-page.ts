@@ -26,17 +26,30 @@ interface IosWalletPageOpts {
  *   - `evaluate` and `screenshot` mirror Playwright's Page shape so the same
  *     `ScreenshotCapable` / `StateCaptureCapable` typing accepts both.
  */
+export interface PollStats {
+  pollCount: number;
+  pollIterations: number;
+  pollMs: number;
+  pollSleepMs: number;
+}
+
 export class IosWalletPage implements WalletPage {
   readonly udid: string;
   readonly bundleId: string;
   private cdp: CdpSession;
   private sim: SimulatorControl;
+  private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
     this.cdp = opts.cdp;
     this.sim = opts.sim;
     this.udid = opts.udid;
     this.bundleId = opts.bundleId;
+  }
+
+  /** Read poll stats snapshot. Includes CdpSession totals too. */
+  getStats(): { polls: PollStats; cdp: ReturnType<CdpSession['getStats']> } {
+    return { polls: { ...this.pollStats }, cdp: this.cdp.getStats() };
   }
 
   // ── Capability surfaces (matches Playwright Page shape) ─────────────────
@@ -96,9 +109,7 @@ export class IosWalletPage implements WalletPage {
    * tap "Get started" on the confirmation screen and wait for the store to
    * reach Ready. Mirrors the Chrome `createNewWallet` contract.
    */
-  async createNewWallet(
-    password: string = DEFAULT_PASSWORD
-  ): Promise<{ address: string; seedPhrase: string[] }> {
+  async createNewWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
     // Welcome screen must be visible (fixture guarantees this on cold launch).
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
@@ -141,8 +152,7 @@ export class IosWalletPage implements WalletPage {
     );
 
     const address = await this.cdp.eval<string>(
-      `var s = window.__TEST_STORE__.getState(); ` +
-        `return (s.currentAccount && s.currentAccount.publicKey) || '';`
+      `var s = window.__TEST_STORE__.getState(); ` + `return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
     if (!address) throw new Error('IosWalletPage.createNewWallet: no currentAccount.publicKey after Ready');
 
@@ -156,10 +166,7 @@ export class IosWalletPage implements WalletPage {
    * structurally identical. We rely on data-testid where the components
    * expose it and fall back to placeholder/text matching otherwise.
    */
-  async importWallet(
-    seedPhrase: string[],
-    password: string = DEFAULT_PASSWORD
-  ): Promise<{ address: string }> {
+  async importWallet(seedPhrase: string[], password: string = DEFAULT_PASSWORD): Promise<{ address: string }> {
     await this.navigateHome();
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
@@ -172,10 +179,7 @@ export class IosWalletPage implements WalletPage {
     }
     await this.clickByText('button', /continue/i);
 
-    await this.pollForCondition(
-      `return location.hash.indexOf('create-password') >= 0;`,
-      15_000
-    );
+    await this.pollForCondition(`return location.hash.indexOf('create-password') >= 0;`, 15_000);
     await this.fillInputByPlaceholder('Enter password', password);
     await this.fillInputByPlaceholder('Enter password again', password);
     await this.clickByText('button', /continue/i);
@@ -258,21 +262,78 @@ export class IosWalletPage implements WalletPage {
 
   // ── Claim ─────────────────────────────────────────────────────────────────
 
-  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+  async claimAllNotes(
+    timeoutMs: number = 120_000,
+    knownFaucetIds: string[] = []
+  ): Promise<void> {
     // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
     // — that's safe on Chrome because the SW holds the vault unlock in a
     // separate context. On mobile there's no SW; a reload would drop the
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
     await this.navigateTo('/receive');
-    await sleep(3_000);
+    // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
+    // installed app the first sync also pays a cold WASM init + IndexedDB
+    // open + RPC cold-start cost. Give it ~10s to land at least one full
+    // sync cycle before we start polling for the navbar action.
+    await sleep(10_000);
 
-    await this.triggerNavbarAction(60_000);
+    // The wallet's `attachMetadataToNotes` (`src/lib/miden/front/claimable-notes.ts`)
+    // silently drops consumable notes whose faucet metadata couldn't be
+    // fetched from the RPC. The test deploys a custom `basic-fungible-faucet`
+    // whose on-chain procedures don't match what the SDK's
+    // `BasicFungibleFaucetComponent.fromAccount` expects — so the wallet
+    // hides the note, "Claim All" never registers in the navbar, and
+    // triggerNavbarAction times out. Mirrors Chrome's claimAllNotes
+    // workaround (`playwright/e2e/helpers/wallet-page.ts:762-792`): inject
+    // synthetic metadata for any faucet we don't already have, so
+    // `attachMetadataToNotes`'s `metadataByFaucetId[n.faucetId]` lookup
+    // hits and the note survives the filter. The keys we inject for are
+    // every bech32 faucet id we can discover from the wallet's own
+    // SDK-fetched notes (read via the existing `__TEST_STORE__`-driven
+    // path) — no test-side `faucetId` plumbing needed.
+    if (knownFaucetIds.length > 0) {
+      await this.injectTestMetadataForFaucets(knownFaucetIds);
+    }
+
+    // Block-time + sync-cycle math: even after the mint commits, the wallet
+    // needs (a) at least one auto-sync after the new block lands, (b) the
+    // SWR refresh (5s) to actually re-read consumable notes, (c) any
+    // additional WASM-lock contention if a prove/sign is in flight. 60s
+    // was too tight on testnet under CI load (deterministic failure for
+    // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
+    // timeout (default 180s) still has ~50s left for balance polling
+    // after this resolves.
+    await this.triggerNavbarAction(120_000);
+
+    // TEMPORARY (mobile-MT test): periodically dump
+    // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
+    // see prove path + duration even when Console.messageAdded doesn't
+    // route console.log. Plain stdout via console.log so they show in
+    // the playwright test log.
+    let lastProveTimingIdx = 0;
+    const pumpProveTimings = async () => {
+      try {
+        const fresh = await this.cdp.eval<string[]>(
+          `var a = (window).__PROVE_TIMINGS__ || []; return a.slice(${lastProveTimingIdx});`
+        );
+        if (Array.isArray(fresh) && fresh.length > 0) {
+          lastProveTimingIdx += fresh.length;
+          for (const line of fresh) {
+            // eslint-disable-next-line no-console
+            console.log(`[prove-timing] ${line}`);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
 
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       await this.triggerSync();
       await sleep(5_000);
+      await pumpProveTimings();
       const balance = await this.cdp.eval<number>(
         `var s = window.__TEST_STORE__; ` +
           `if (!s) return 0; ` +
@@ -290,11 +351,79 @@ export class IosWalletPage implements WalletPage {
           `return 0;`
       );
       if (balance > 0) {
+        await pumpProveTimings();
         await this.navigateHome();
         return;
       }
     }
+    await pumpProveTimings();
     await this.navigateHome();
+  }
+
+  /**
+   * Stuff synthetic metadata into the wallet's Zustand `assetsMetadata` for
+   * the given faucet ids. Makes `attachMetadataToNotes` (in
+   * `src/lib/miden/front/claimable-notes.ts`) treat the test's custom
+   * faucet as "metadata known" so the consumable note survives the filter
+   * and "Claim All" registers. Mirrors Chrome's claimAllNotes workaround
+   * (`playwright/e2e/helpers/wallet-page.ts:762-792`) where Chrome reads
+   * the cached consumable notes from `chrome.storage.local` and does the
+   * same `store.setState({ assetsMetadata: ... })`. iOS has no chrome
+   * storage, so we feed the faucet ids in from the test side.
+   */
+  private async injectTestMetadataForFaucets(hexFaucetIds: string[]): Promise<void> {
+    if (hexFaucetIds.length === 0) return;
+    // The wallet's `parseNotes` (`src/lib/miden/front/claimable-notes.ts:61`)
+    // stores `faucetId` in bech32 form (e.g. `mtst1a...`), not hex.
+    // `attachMetadataToNotes` keys the metadata lookup by that bech32 form.
+    // The CLI hands us a hex account id (e.g. `0xba55e5...`), so we need to
+    // do the conversion in the same way the wallet does, by calling into
+    // the loaded SDK's `Address.fromAccountId(id, 'BasicWallet').toBech32(networkId)`.
+    // We use `evaluateAsync` with the wallet's already-loaded SDK module —
+    // the dynamic `import('@miden-sdk/miden-sdk/lazy')` hits the module
+    // cache instantly because the wallet already imported it at boot.
+    const hexJson = JSON.stringify(hexFaucetIds);
+    const network = process.env.MIDEN_NETWORK || process.env.E2E_NETWORK || 'testnet';
+    const networkArg = network === 'devnet' ? "'devnet'" : "'testnet'";
+    // Poll for the hex→bech32 hook to be exposed — it's set asynchronously
+    // when the wallet boots (the SDK eager-import in store/index.ts under
+    // MIDEN_E2E_TEST). On a freshly-installed app the SDK chunk takes a few
+    // seconds to resolve, so the hook may not be ready when we navigate.
+    const start = Date.now();
+    let hookReady = false;
+    while (Date.now() - start < 60_000) {
+      const ready = await this.cdp
+        .eval<boolean>(`return typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function';`)
+        .catch(() => false);
+      if (ready) {
+        hookReady = true;
+        break;
+      }
+      await sleep(500);
+    }
+    if (!hookReady) {
+      // eslint-disable-next-line no-console
+      console.log('[injectTestMetadataForFaucets] hook never exposed; skipping');
+      return;
+    }
+    const result = await this.cdp
+      .eval<{ before: string[]; injected: string[]; after: string[] } | { error: string }>(
+        `var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; ` +
+          `var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); ` +
+          `var injected = {}; ` +
+          `for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; ` +
+          `var s = window.__TEST_STORE__; ` +
+          `if (!s) return { error: 'no __TEST_STORE__' }; ` +
+          `var st = s.getState(); ` +
+          `var before = Object.keys(st.assetsMetadata || {}); ` +
+          `if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } ` +
+          `else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } ` +
+          `var after = Object.keys(s.getState().assetsMetadata || {}); ` +
+          `return { before: before, injected: bech32, after: after };`
+      )
+      .catch((e: Error) => ({ error: e.message }));
+    // eslint-disable-next-line no-console
+    console.log(`[injectTestMetadataForFaucets] hex=${hexJson} -> ${JSON.stringify(result)}`);
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
@@ -322,7 +451,7 @@ export class IosWalletPage implements WalletPage {
       [
         '[data-testid="send-flow"] input[placeholder*="wallet address"]',
         '[data-testid="send-flow"] input[placeholder*="address"]',
-        '[data-testid="send-flow"] textarea',
+        '[data-testid="send-flow"] textarea'
       ],
       params.recipientAddress
     );
@@ -331,7 +460,7 @@ export class IosWalletPage implements WalletPage {
       [
         '[data-testid="send-flow"] input[type="text"]',
         '[data-testid="send-flow"] input[type="number"]',
-        '[data-testid="send-flow"] input[inputmode="decimal"]',
+        '[data-testid="send-flow"] input[inputmode="decimal"]'
       ],
       params.amount
     );
@@ -388,7 +517,7 @@ export class IosWalletPage implements WalletPage {
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
           message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts },
+          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
         });
       }
 
@@ -396,9 +525,7 @@ export class IosWalletPage implements WalletPage {
       if (attempt < maxAttempts) await sleep(intervalMs);
     }
 
-    throw new Error(
-      `Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`
-    );
+    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
@@ -450,35 +577,110 @@ export class IosWalletPage implements WalletPage {
       if (fired) return;
       await sleep(POLL_INTERVAL_MS);
     }
+    // Timed out without firing. The bare "no action registered" error
+    // can't distinguish between "hook never installed" (MIDEN_E2E_TEST
+    // not baked into the build) and "hook installed but no page mounted
+    // a non-null action" (sync didn't surface claimable notes). Capture
+    // the diagnostic state from the WebView so the next CI failure
+    // pinpoints the cause instead of forcing a fresh investigation.
+    const diag = await this.cdp
+      .eval<{
+        hookInstalled: boolean;
+        hash: string;
+        status: unknown;
+        balanceFaucetIds: string[];
+        balanceAmounts: string[];
+        claimableNotesCount: number | null;
+        isSyncing: boolean | null;
+        hasCompletedInitialSync: boolean | null;
+        lastSyncedAt: number | null;
+        msSinceLastSync: number | null;
+      } | null>(
+        `try {` +
+          `  var s = window.__TEST_STORE__; ` +
+          `  var st = s ? s.getState() : null; ` +
+          `  var balances = (st && st.balances) || {}; ` +
+          `  var faucetIds = []; var amounts = []; ` +
+          `  for (var k in balances) { ` +
+          `    var list = balances[k]; ` +
+          `    if (!Array.isArray(list)) continue; ` +
+          `    for (var i = 0; i < list.length; i++) { ` +
+          `      var t = list[i]; ` +
+          `      faucetIds.push(String(t.faucetId || '')); ` +
+          `      amounts.push(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+          `    } ` +
+          `  } ` +
+          `  var notes = (st && st.claimableNotes) || (st && st.notes) || null; ` +
+          `  var lastSync = st && typeof st.lastSyncedAt === 'number' ? st.lastSyncedAt : null; ` +
+          `  return {` +
+          `    hookInstalled: typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ === 'function',` +
+          `    hash: location.hash || '',` +
+          `    status: st ? st.status : null,` +
+          `    balanceFaucetIds: faucetIds,` +
+          `    balanceAmounts: amounts,` +
+          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null,` +
+          `    isSyncing: st ? !!st.isSyncing : null,` +
+          `    hasCompletedInitialSync: st ? !!st.hasCompletedInitialSync : null,` +
+          `    lastSyncedAt: lastSync,` +
+          `    msSinceLastSync: lastSync ? Date.now() - lastSync : null` +
+          `  }; ` +
+          `} catch (e) { return null; }`
+      )
+      .catch(() => null);
     throw new Error(
-      `triggerNavbarAction: no action registered within ${timeoutMs}ms — ` +
-        `is the wallet on the right page and is MIDEN_E2E_TEST=true baked into the build?`
+      `triggerNavbarAction: no action registered within ${timeoutMs}ms. ` +
+        `diag=${JSON.stringify(diag)} — ` +
+        `hookInstalled=false ⇒ MIDEN_E2E_TEST not baked into the build; ` +
+        `hookInstalled=true + amounts all 0 ⇒ wallet sync hasn't surfaced the note yet; ` +
+        `hash != '#/receive' ⇒ navigation didn't take.`
     );
   }
 
   // ── Internals (DOM helpers wired through CDP) ───────────────────────────
 
   private async pollForSelector(selector: string, timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      // Catch eval errors (page reload mid-poll, inspector reattach race).
-      const found = await this.cdp
-        .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
-        .catch(() => false);
-      if (found) return;
-      await sleep(POLL_INTERVAL_MS);
+    const wallStart = Date.now();
+    let iterations = 0;
+    let totalSleepMs = 0;
+    try {
+      while (Date.now() - wallStart < timeoutMs) {
+        iterations++;
+        // Catch eval errors (page reload mid-poll, inspector reattach race).
+        const found = await this.cdp
+          .eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`)
+          .catch(() => false);
+        if (found) return;
+        await sleep(POLL_INTERVAL_MS);
+        totalSleepMs += POLL_INTERVAL_MS;
+      }
+      throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
+    } finally {
+      this.pollStats.pollCount++;
+      this.pollStats.pollIterations += iterations;
+      this.pollStats.pollMs += Date.now() - wallStart;
+      this.pollStats.pollSleepMs += totalSleepMs;
     }
-    throw new Error(`pollForSelector: ${selector} did not appear within ${timeoutMs}ms`);
   }
 
   private async pollForCondition(jsBody: string, timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
-      if (ok) return;
-      await sleep(POLL_INTERVAL_MS);
+    const wallStart = Date.now();
+    let iterations = 0;
+    let totalSleepMs = 0;
+    try {
+      while (Date.now() - wallStart < timeoutMs) {
+        iterations++;
+        const ok = await this.cdp.eval<boolean>(jsBody).catch(() => false);
+        if (ok) return;
+        await sleep(POLL_INTERVAL_MS);
+        totalSleepMs += POLL_INTERVAL_MS;
+      }
+      throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
+    } finally {
+      this.pollStats.pollCount++;
+      this.pollStats.pollIterations += iterations;
+      this.pollStats.pollMs += Date.now() - wallStart;
+      this.pollStats.pollSleepMs += totalSleepMs;
     }
-    throw new Error(`pollForCondition: condition not met within ${timeoutMs}ms — ${jsBody.slice(0, 80)}`);
   }
 
   private async clickByText(tag: string, pattern: RegExp): Promise<void> {

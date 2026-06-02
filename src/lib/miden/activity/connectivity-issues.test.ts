@@ -20,9 +20,11 @@ jest.mock('lib/platform/storage-adapter', () => ({
 }));
 
 import { addConnectivityIssue, sendConnectivityIssue } from './connectivity-issues';
+import { resetConnectivityState } from './connectivity-state';
 
 beforeEach(() => {
   for (const k of Object.keys(_g.__connStore)) delete _g.__connStore[k];
+  resetConnectivityState();
   (globalThis as any).chrome = {
     runtime: {
       sendMessage: jest.fn()
@@ -31,9 +33,17 @@ beforeEach(() => {
 });
 
 describe('addConnectivityIssue', () => {
-  it('writes a true flag to storage under the connectivity-issues key', async () => {
+  it('writes a true flag to the legacy storage key (back-compat)', async () => {
     await addConnectivityIssue();
     expect(_g.__connStore['miden-connectivity-issues']).toBe(true);
+  });
+
+  it('also writes the new categorized state mirror with prover active', async () => {
+    await addConnectivityIssue();
+    // Yield once for the fire-and-forget putToStorage inside the state mirror.
+    await new Promise(r => setTimeout(r, 0));
+    const stored = _g.__connStore['miden-connectivity-state'];
+    expect(stored?.prover?.active).toBe(true);
   });
 });
 

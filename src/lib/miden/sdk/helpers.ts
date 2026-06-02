@@ -1,4 +1,4 @@
-import { AccountId, Address } from '@miden-sdk/miden-sdk';
+import { AccountId, Address } from '@miden-sdk/miden-sdk/lazy';
 
 import { getNetworkId } from 'lib/miden-chain/constants';
 

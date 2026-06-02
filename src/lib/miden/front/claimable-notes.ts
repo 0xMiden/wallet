@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
-import { type InputNoteRecord } from '@miden-sdk/miden-sdk';
+import { type InputNoteRecord } from '@miden-sdk/miden-sdk/lazy';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { isExtension, isIOS } from 'lib/platform';

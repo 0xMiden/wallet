@@ -31,7 +31,7 @@ jest.mock('webextension-polyfill', () => mockPolyfill);
 
 const mockSafeGenerateTransactionsLoop = jest.fn();
 const mockGetAllUncompletedTransactions = jest.fn();
-const mockHasQueuedTransactions = jest.fn();
+const mockCancelStuckTransactions = jest.fn();
 
 // transaction-processor.ts imports directly from lib/miden/activity/transactions
 // (not the activity/index re-export) to avoid a circular init deadlock in the
@@ -40,7 +40,7 @@ const mockHasQueuedTransactions = jest.fn();
 jest.mock('lib/miden/activity/transactions', () => ({
   safeGenerateTransactionsLoop: (...args: unknown[]) => mockSafeGenerateTransactionsLoop(...args),
   getAllUncompletedTransactions: (...args: unknown[]) => mockGetAllUncompletedTransactions(...args),
-  hasQueuedTransactions: (...args: unknown[]) => mockHasQueuedTransactions(...args)
+  cancelStuckTransactions: (...args: unknown[]) => mockCancelStuckTransactions(...args)
 }));
 
 const mockWithUnlocked = jest.fn();
@@ -58,7 +58,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetAllUncompletedTransactions.mockResolvedValue([]);
   mockSafeGenerateTransactionsLoop.mockResolvedValue({ success: true });
-  mockHasQueuedTransactions.mockResolvedValue(false);
+  mockCancelStuckTransactions.mockResolvedValue(undefined);
 });
 
 /** Flush a few microtask / macrotask ticks so in-flight awaits can progress. */
@@ -163,27 +163,73 @@ describe('C5 regression: getBrowser / loop rejections do not wedge isProcessing'
 });
 
 describe('setupTransactionProcessor', () => {
-  it('registers an alarm listener on startup', async () => {
+  it('registers an alarm listener and creates the self-heal alarm on startup', async () => {
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     // The listener is registered inside a lazy async IIFE that awaits
     // a dynamic import — needs several task ticks to settle.
     await flushAsync();
     expect(mockAlarmsOnAlarm.addListener).toHaveBeenCalled();
+    expect(mockAlarmsCreate).toHaveBeenCalledWith(
+      'miden-tx-stuck-heal',
+      expect.objectContaining({ periodInMinutes: expect.any(Number) })
+    );
   });
 
-  it('auto-resumes processing when hasQueuedTransactions() reports true', async () => {
-    mockHasQueuedTransactions.mockResolvedValue(true);
+  it('auto-resumes processing when getAllUncompletedTransactions() reports queued or generating txs', async () => {
+    // Issue #216 — the previous gate was `hasQueuedTransactions()` (Queued only),
+    // so an SW death mid-`sendTransaction` left the orphan in `GeneratingTransaction`
+    // status invisible to startup recovery. The new gate uses
+    // `getAllUncompletedTransactions` which returns both statuses, so the orphan
+    // is reaped by `safeGenerateTransactionsLoop` → `cancelStuckTransactions` on
+    // the next SW spawn.
+    mockGetAllUncompletedTransactions.mockResolvedValue([{ id: 'orphan', status: 1 }]);
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
-    // Drain the promise chain (hasQueuedTransactions → then → startTransactionProcessing).
-    await new Promise(resolve => setTimeout(resolve, 0));
+    // Drain the promise chain (getAllUncompletedTransactions → then → startTransactionProcessing).
+    await flushAsync();
     expect(mockSafeGenerateTransactionsLoop).toHaveBeenCalled();
   });
 
-  it('handles hasQueuedTransactions rejection gracefully', async () => {
+  it('does not auto-resume when there are no uncompleted transactions', async () => {
+    mockGetAllUncompletedTransactions.mockResolvedValue([]);
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    expect(mockSafeGenerateTransactionsLoop).not.toHaveBeenCalled();
+  });
+
+  it('runs an initial self-heal sweep at startup so aged-out orphans are reaped without an alarm tick', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    expect(mockCancelStuckTransactions).toHaveBeenCalled();
+  });
+
+  it('fires cancelStuckTransactions when the self-heal alarm ticks', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    // Reset to drop the startup-sweep call so we only count the alarm-driven one.
+    mockCancelStuckTransactions.mockClear();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-stuck-heal' });
+    expect(mockCancelStuckTransactions).toHaveBeenCalled();
+  });
+
+  it('keepalive alarm tick does not invoke cancelStuckTransactions', async () => {
+    const mod = await import('./transaction-processor');
+    mod.setupTransactionProcessor();
+    await flushAsync();
+    mockCancelStuckTransactions.mockClear();
+    const listener = mockAlarmsOnAlarm.addListener.mock.calls[0][0];
+    listener({ name: 'miden-tx-processor' });
+    expect(mockCancelStuckTransactions).not.toHaveBeenCalled();
+  });
+
+  it('handles getAllUncompletedTransactions rejection gracefully', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-    mockHasQueuedTransactions.mockRejectedValue(new Error('db error'));
+    mockGetAllUncompletedTransactions.mockRejectedValue(new Error('db error'));
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     await flushAsync();

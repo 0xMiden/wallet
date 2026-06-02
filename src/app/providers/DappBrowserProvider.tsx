@@ -49,10 +49,10 @@ import React, {
   useState
 } from 'react';
 
-import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } from '@miden/dapp-browser';
 import { AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } from '@miden/dapp-browser';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
@@ -1202,11 +1202,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
-  const shortAccountId = useMemo(() => {
-    if (!accountId) return null;
-    return `${accountId.slice(0, 10)}...${accountId.slice(-8)}`;
-  }, [accountId]);
-
   return (
     <DappBrowserContext.Provider value={contextValue}>
       {children}
@@ -1227,7 +1222,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           regardless of which tab the user is on. */}
       <AnimatePresence>
         {request && (
-          <DappConfirmationModal request={request} accountId={shortAccountId} onResolve={result => resolve(result)} />
+          <DappConfirmationModal request={request} accountId={accountId} onResolve={result => resolve(result)} />
         )}
       </AnimatePresence>
     </DappBrowserContext.Provider>

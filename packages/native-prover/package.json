@@ -1,0 +1,39 @@
+{
+  "name": "@miden/native-prover",
+  "version": "0.1.0",
+  "description": "Native Miden transaction prover Capacitor plugin (iOS + Android).",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "dist/",
+    "ios/Sources/",
+    "ios/MidenMobileProver.xcframework/",
+    "Package.swift",
+    "MidenNativeProver.podspec"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json && rollup -c rollup.config.mjs",
+    "clean": "rimraf ./dist"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^8.0.1",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "rimraf": "^5.0.5",
+    "rollup": "^4.18.0",
+    "typescript": "^5.4.5"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.1"
+  }
+}

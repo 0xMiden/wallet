@@ -15,7 +15,12 @@ symbol = "TST"
  * Resolve the miden-client binary path.
  * 1. MIDEN_CLIENT_BIN env var
  * 2. `miden-client` in PATH
- * 3. Auto-install from crates.io at the version matching the wallet's SDK
+ * 3. Auto-install from crates.io at the pinned `midenClientCliVersion` from
+ *    the root package.json (decoupled from the JS SDK version — the
+ *    miden-client Rust workspace and `@miden-sdk/*` npm packages release on
+ *    independent cadences, so version-matching them was brittle: a JS-only
+ *    SDK bump would request a CLI version that doesn't exist on crates.io
+ *    and CI would fail before the test even ran).
  */
 export function resolveCliPath(): string {
   // 1. Explicit override
@@ -31,16 +36,17 @@ export function resolveCliPath(): string {
     // not found
   }
 
-  // 3. Auto-install from crates.io
+  // 3. Auto-install from crates.io at the version pinned in package.json
   let version: string;
   try {
-    const sdkPkgPath = path.resolve('node_modules/@miden-sdk/miden-sdk/package.json');
-    const sdkPkg = JSON.parse(fs.readFileSync(sdkPkgPath, 'utf8'));
-    version = sdkPkg.version;
-  } catch {
-    throw new Error(
-      'Cannot determine miden-sdk version from node_modules. Run `yarn install` first.'
-    );
+    const pkgPath = path.resolve('package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    version = pkg.midenClientCliVersion;
+    if (!version || typeof version !== 'string') {
+      throw new Error('midenClientCliVersion missing from package.json');
+    }
+  } catch (err: any) {
+    throw new Error(`Cannot resolve midenClientCliVersion from package.json: ${err.message}`);
   }
 
   console.log(`Installing miden-client-cli@${version} from crates.io (first run only)...`);
@@ -125,18 +131,35 @@ export class MidenCli {
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
     fs.writeFileSync(tomlPath, FAUCET_INIT_TOML);
 
-    // Create the faucet account
-    const createResult = await this.run(
+    const createArgs =
       `new-account --account-type fungible-faucet ` +
-        `-p basic-fungible-faucet ` +
-        `--storage-mode public ` +
-        `--init-storage-data-path ${tomlPath} ` +
-        `--deploy`,
-      { timeoutMs: 180_000 }
-    );
+      `-p basic-fungible-faucet ` +
+      `--storage-mode public ` +
+      `--init-storage-data-path ${tomlPath} ` +
+      `--deploy`;
 
-    if (createResult.exitCode !== 0) {
-      throw new Error(`Failed to create faucet: ${createResult.stderr}`);
+    const maxAttempts = 5;
+    let lastErr = '';
+    let createResult: CLIInvocation | undefined;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      createResult = await this.run(createArgs, { timeoutMs: 180_000 });
+      if (createResult.exitCode === 0) {
+        break;
+      }
+      lastErr = createResult.stderr;
+      const transient =
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+          lastErr
+        );
+      if (!transient || attempt === maxAttempts) break;
+      const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+      // eslint-disable-next-line no-console
+      console.log(`[miden-cli] createFaucet attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      await new Promise(r => setTimeout(r, backoffMs));
+    }
+
+    if (!createResult || createResult.exitCode !== 0) {
+      throw new Error(`Failed to create faucet: ${lastErr}`);
     }
 
     // Parse account ID from stdout
@@ -182,31 +205,53 @@ export class MidenCli {
       mintArgs += ' --delegate-proving';
     }
 
-    const result = await this.run(mintArgs, { timeoutMs: this.env.txTimeoutMs });
-    if (result.exitCode !== 0) {
-      throw new Error(`Mint failed: ${result.stderr}`);
+    const maxAttempts = 5;
+    let lastErr = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const result = await this.run(mintArgs, { timeoutMs: this.env.txTimeoutMs });
+      if (result.exitCode === 0) {
+        const txId = result.parsed?.transactionId;
+        const noteId = result.parsed?.noteId;
+        if (!txId || !noteId) {
+          throw new Error(`Could not parse mint result from output:\n${result.stdout}`);
+        }
+        return { txId, noteId };
+      }
+      lastErr = result.stderr;
+      const transient =
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+          lastErr
+        );
+      if (!transient || attempt === maxAttempts) break;
+      const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+      // eslint-disable-next-line no-console
+      console.log(`[miden-cli] mint attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      await new Promise(r => setTimeout(r, backoffMs));
     }
-
-    const txId = result.parsed?.transactionId;
-    const noteId = result.parsed?.noteId;
-
-    if (!txId || !noteId) {
-      throw new Error(
-        `Could not parse mint result from output:\n${result.stdout}`
-      );
-    }
-
-    return { txId, noteId };
+    throw new Error(`Mint failed after retries: ${lastErr}`);
   }
 
   /**
    * Sync the miden-client state with the network.
    */
   async sync(): Promise<void> {
-    const result = await this.run('sync', { timeoutMs: 60_000 });
-    if (result.exitCode !== 0) {
-      throw new Error(`Sync failed: ${result.stderr}`);
+    const maxAttempts = 5;
+    let lastErr = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const result = await this.run('sync', { timeoutMs: 60_000 });
+      if (result.exitCode === 0) return;
+      lastErr = result.stderr;
+      const transient =
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+          lastErr
+        );
+      if (!transient || attempt === maxAttempts) break;
+      const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+      // eslint-disable-next-line no-console
+      console.log(`[miden-cli] sync attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`);
+      await new Promise(r => setTimeout(r, backoffMs));
     }
+    throw new Error(`Sync failed: ${lastErr}`);
   }
 
   /**

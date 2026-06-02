@@ -7,7 +7,7 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk';
+import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
@@ -40,7 +40,6 @@ import {
 } from 'lib/adapter/types';
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { formatBigInt } from 'lib/i18n/numbers';
-import { getNetworkId } from 'lib/miden-chain/constants';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -54,6 +53,7 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -61,6 +61,9 @@ import { WalletStatus } from 'lib/shared/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
+import { getCurrentMidenNetwork } from './safe-network';
+import { store, withUnlocked } from './store';
+import { startTransactionProcessing } from './transaction-processor';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -69,8 +72,6 @@ import {
 } from '../activity/transactions';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { store, withUnlocked } from './store';
-import { startTransactionProcessing } from './transaction-processor';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -898,6 +899,46 @@ const generatePromisifyTransaction = async (
   req: MidenDAppTransactionRequest,
   sessionId?: string
 ) => {
+  // The generalized TransactionRequest carries a tagged `MidenTransaction`
+  // ({ type, payload }). A `send`/`consume` payload is not a custom-transaction
+  // payload, so delegate those to their dedicated flows (preview, confirmation
+  // UI and execution) instead of validating them as a CustomTransaction —
+  // otherwise they fail with "Invalid CustomTransaction payload". Only `custom`
+  // (and bare/legacy payloads) fall through to the custom flow below. Issue #88.
+  // `req.transaction.type` is a string enum from `MidenTransaction`
+  // ('send' | 'consume' | 'custom'). Compare by value rather than importing
+  // the `TransactionType` enum as a runtime value: adapter-base is consumed
+  // type-only in this module, and its runtime exports aren't loadable in the
+  // unit-test (jest) setup. The string values are part of the dApp↔wallet
+  // wire contract, so they're stable.
+  const type: string = req.transaction.type;
+  if (type === 'send') {
+    return generatePromisifySendTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppSendTransactionResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppSendTransactionRequest,
+      sessionId
+    );
+  }
+  if (type === 'consume') {
+    return generatePromisifyConsumeTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppConsumeResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppConsumeRequest,
+      sessionId
+    );
+  }
+
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
@@ -1448,9 +1489,22 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }:
   const stopTimeout = () => clearTimeout(t);
 }
 
-export async function getNetworkRPC(net: string) {
-  const targetRpc = NETWORKS.find(n => n.id === net)!.rpcBaseURL;
-  return targetRpc;
+export async function getNetworkRPC(net: string | undefined) {
+  // dApp didn't specify a network — fall back to the wallet's currently
+  // selected one. Prevents an immediate connect() failure for dApps that
+  // (legitimately) just want to use whatever the user is on.
+  if (!net) {
+    const current = await getCurrentMidenNetwork();
+    if (!current) {
+      throw new Error(MidenDAppErrorType.NetworkNotGranted);
+    }
+    return current.rpcBaseURL;
+  }
+  const found = NETWORKS.find(n => n.id === net);
+  if (!found) {
+    throw new Error(MidenDAppErrorType.NetworkNotGranted);
+  }
+  return found.rpcBaseURL;
 
   // if (typeof net === 'string') {
   //   try {

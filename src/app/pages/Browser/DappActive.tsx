@@ -15,9 +15,9 @@
 
 import React, { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { InAppBrowser } from '@miden/dapp-browser';
 import { useTranslation } from 'react-i18next';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
@@ -253,11 +253,9 @@ export const DappActive: FC = () => {
           />
         )}
         {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-pure-white px-6 text-center">
-            <div className="mb-2 text-lg font-semibold text-grey-900">
-              {t('dappLoadFailed') ?? "Can't load this dApp"}
-            </div>
-            <div className="mb-6 text-sm text-grey-600">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-solid px-6 text-center">
+            <div className="mb-2 text-lg font-semibold text-black">{t('dappLoadFailed') ?? "Can't load this dApp"}</div>
+            <div className="mb-6 text-sm text-text-muted">
               {t('dappLoadFailedHint') ?? 'Check your connection and try again.'}
             </div>
             <button

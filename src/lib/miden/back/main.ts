@@ -2,9 +2,11 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
+import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { NoteExportType } from '../sdk/constants';
@@ -24,6 +26,19 @@ export async function start() {
   // (between intercom registration and Actions.init)
 
   await Actions.init();
+
+  // SpeculationManager wires through the same MidenClientInterface singleton
+  // the rest of the SW uses. Lazy because the client is only created on
+  // unlock; the manager doesn't run anything until a SPECULATE_SEND_REQUEST
+  // arrives, by which point the client must already exist (the user is on
+  // the send-flow review screen, which is gated on unlock).
+  initSpeculationManager(() => getMidenClient());
+
+  // Native asset ID is network-wide on-chain state — prime discovery here so
+  // the first balance / metadata consumer after SW start already has it cached.
+  // Cheap (one RPC round-trip on cache miss, no-op on hit).
+  primeNativeAssetId();
+
   frontStore = store.map(toFront);
   frontStore.watch(() => {
     intercom.broadcast({ type: WalletMessageType.StateUpdated });
@@ -96,6 +111,29 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       });
       return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: serialized };
     }
+    case WalletMessageType.SpeculateSendRequest: {
+      // Fire-and-forget. SpeculationManager queues at most one pending; if
+      // it's already running an identical speculation, this is a no-op.
+      // No withWasmClientLock here — the manager handles serialization
+      // internally (it calls executeAndProveForSpeculation which does its
+      // own execute under-lock + offscreen prove with yieldWasmClientLock).
+      const mgr = getSpeculationManager();
+      if (mgr) {
+        mgr.speculate({
+          accountId: req.accountId,
+          recipientAccountId: req.recipientAccountId,
+          faucetId: req.faucetId,
+          noteType: req.noteType,
+          amount: BigInt(req.amount)
+        });
+      }
+      return { type: WalletMessageType.SpeculateSendResponse };
+    }
+    case WalletMessageType.SpeculateInvalidate: {
+      const mgr = getSpeculationManager();
+      mgr?.invalidate();
+      return { type: WalletMessageType.SpeculateInvalidateResponse };
+    }
     // case WalletMessageType.SendTrackEventRequest:
     //   await Analytics.trackEvent(req);
     //   return { type: WalletMessageType.SendTrackEventResponse };
@@ -122,7 +160,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       }
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic);
+      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
@@ -151,12 +189,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     //     type: WalletMessageType.RevealViewKeyResponse,
     //     viewKey
     //   };
-    // case WalletMessageType.RevealPrivateKeyRequest:
-    //   const privateKey = await Actions.revealPrivateKey(req.accountPublicKey, req.password);
-    //   return {
-    //     type: WalletMessageType.RevealPrivateKeyResponse,
-    //     privateKey
-    //   };
+    case WalletMessageType.RevealPrivateKeyRequest:
+      const privateKey = await Actions.revealPrivateKey(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.RevealPrivateKeyResponse,
+        privateKey: privateKey ?? ''
+      };
     case WalletMessageType.RevealMnemonicRequest:
       const mnemonic = await Actions.revealMnemonic(req.password);
       return {
@@ -174,9 +212,10 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.EditAccountResponse
       };
     case WalletMessageType.ImportAccountRequest:
-      await Actions.importAccount(req.privateKey, req.encPassword);
+      const importedAccountPublicKey = await Actions.importAccount(req.privateKey, req.name);
       return {
-        type: WalletMessageType.ImportAccountResponse
+        type: WalletMessageType.ImportAccountResponse,
+        accountPublicKey: importedAccountPublicKey ?? ''
       };
     // case WalletMessageType.ImportWatchOnlyAccountRequest:
     //   await Actions.importWatchOnlyAccount(req.viewKey);

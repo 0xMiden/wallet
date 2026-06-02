@@ -17,9 +17,9 @@ import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url
 import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { useFormAnalytics } from 'lib/analytics';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
@@ -255,7 +255,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         <div className="w-full max-w-sm mx-auto my-8" style={{ padding: '0px 32px' }}>
           <div className="text-center mb-6">
             <h2 className="text-xl font-semibold mb-2">{t('biometricUnlockRequired')}</h2>
-            <p className="text-gray-600 text-sm">{t('biometricUnlockRequiredDescription')}</p>
+            <p className="text-text-muted text-sm">{t('biometricUnlockRequiredDescription')}</p>
           </div>
           <Button
             id="retry-biometric"

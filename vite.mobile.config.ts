@@ -15,9 +15,8 @@ const pkg = require('./package.json');
 export default defineConfig({
   plugins: [
     midenVitePlugin({
-      rpcProxyTarget: process.env.MIDEN_NETWORK === 'devnet'
-        ? 'https://rpc.devnet.miden.io'
-        : 'https://rpc.testnet.miden.io',
+      rpcProxyTarget:
+        process.env.MIDEN_NETWORK === 'devnet' ? 'https://rpc.devnet.miden.io' : 'https://rpc.testnet.miden.io'
     }),
     tailwindcss(),
     react(),
@@ -53,7 +52,7 @@ export default defineConfig({
             }
           }
         }
-      },
+      }
     } satisfies Plugin,
     // SVG → React component transform.
     // Mirrors webpack's @svgr/webpack behavior: default export is a URL to the
@@ -74,25 +73,29 @@ export default defineConfig({
         const { readFileSync } = await import('fs');
         const svgContent = readFileSync(filePath, 'utf8');
         const { transform } = await import('@svgr/core');
-        const jsxCode = await transform(svgContent, {
-          plugins: ['@svgr/plugin-jsx'],
-          exportType: 'named',
-          namedExport: 'ReactComponent',
-          jsxRuntime: 'automatic',
-        }, { filePath });
+        const jsxCode = await transform(
+          svgContent,
+          {
+            plugins: ['@svgr/plugin-jsx'],
+            exportType: 'named',
+            namedExport: 'ReactComponent',
+            jsxRuntime: 'automatic'
+          },
+          { filePath }
+        );
         // Emit the SVG as a Vite asset so we get a hashed URL for the default
         // export. `this.emitFile` returns a reference id that Vite rewrites to
         // the final URL at bundle time.
         const refId = this.emitFile({
           type: 'asset',
           name: filePath.split('/').pop(),
-          source: svgContent,
+          source: svgContent
         });
         return {
           code: `${jsxCode}\nexport default import.meta.ROLLUP_FILE_URL_${refId};`,
-          moduleType: 'jsx',
+          moduleType: 'jsx'
         };
-      },
+      }
     } satisfies Plugin,
     // Hoist React to global for CJS dependencies that expect React.createElement
     {
@@ -106,13 +109,13 @@ export default defineConfig({
             'var React = $1; globalThis.React = globalThis.React || React;'
           );
         }
-      },
+      }
     } satisfies Plugin,
     wasm(),
     nodePolyfills({
       include: ['buffer', 'stream', 'assert', 'process', 'util'],
-      globals: { Buffer: true, process: true },
-    }),
+      globals: { Buffer: true, process: true }
+    })
   ],
 
   // publicDir must be enabled for mobile — Capacitor needs misc/ icons, _locales, etc.
@@ -132,11 +135,10 @@ export default defineConfig({
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name].[hash].js',
         assetFileNames: 'static/[name].[hash][extname]',
-        inlineDynamicImports: true,
-      },
-    },
+        inlineDynamicImports: true
+      }
+    }
   },
-
 
   resolve: {
     alias: {
@@ -148,14 +150,8 @@ export default defineConfig({
       utils: resolve(__dirname, 'src/utils'),
       stories: resolve(__dirname, 'src/stories'),
       // Mock webextension-polyfill for mobile
-      'webextension-polyfill': resolve(__dirname, 'src/lib/webextension-polyfill-mock.js'),
-      // See lib/miden-chain/constants.ts — virtual specifier resolved here to
-      // reach the SDK's wasm-loader file that isn't listed in its exports map.
-      'sdk-wasm-loader': resolve(
-        __dirname,
-        'node_modules/@miden-sdk/miden-sdk/dist/wasm.js'
-      ),
-    },
+      'webextension-polyfill': resolve(__dirname, 'src/lib/webextension-polyfill-mock.js')
+    }
   },
 
   define: {
@@ -163,10 +159,23 @@ export default defineConfig({
     'process.env.MIDEN_PLATFORM': JSON.stringify('mobile'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
+    'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    // Mobile (Capacitor / WKWebView / Android WebView) cannot use the
+    // chrome.offscreen path — that API only exists in Chrome MV3 extensions.
+    // Force the flag false at build time so a stray shell env never opts
+    // mobile into a code path it can't run. The runtime guard
+    // (isOffscreenAvailable) also catches it, but pinning the build-time
+    // constant lets dead-code elimination drop the offscreen import entirely.
+    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify('false'),
+    // Speculative pre-prove also pinned false on mobile: speculation
+    // dispatches the prove to a chrome.offscreen document, which doesn't
+    // exist in WKWebView/Capacitor. Without offscreen, there's nothing
+    // to speculate against.
+    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify('false'),
     'process.browser': 'true',
-    'global': 'globalThis',
-  },
+    global: 'globalThis'
+  }
 });

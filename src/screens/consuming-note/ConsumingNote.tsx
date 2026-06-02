@@ -1,6 +1,6 @@
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
-import { useConsume } from '@miden-sdk/react';
+import { useConsume } from '@miden-sdk/react/lazy';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 

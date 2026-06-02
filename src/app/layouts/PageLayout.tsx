@@ -14,8 +14,8 @@ import { isDesktop, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
-import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
 import { PageLayoutSelectors } from './PageLayout.selectors';
+import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
 import { ChangelogOverlay } from './PageLayout/ChangelogOverlay/ChangelogOverlay';
 
 interface PageLayoutProps extends PropsWithChildren, ToolbarProps {
@@ -228,7 +228,7 @@ const Toolbar: FC<ToolbarProps> = ({
                 'rounded-full',
                 'flex',
                 'text-black font-bold text-shadow-black',
-                'hover:bg-grey-100/5',
+                'hover:bg-gray-100',
                 'transition duration-300 ease-in-out',
                 'opacity-90 hover:opacity-100'
               )}
@@ -236,7 +236,7 @@ const Toolbar: FC<ToolbarProps> = ({
               onClick={step ? onStepBack : onBack}
               testID={PageLayoutSelectors.BackButton}
             >
-              <Icon name={IconName.Close} fill={'black'} />
+              <Icon name={IconName.Close} fill={'currentColor'} />
             </Button>
           )}
         </div>
@@ -252,7 +252,7 @@ const Toolbar: FC<ToolbarProps> = ({
               'flex items-center',
               'text-black text-shadow-black',
               'text-sm font-semibold leading-none',
-              'hover:bg-pure-black/5',
+              'hover:bg-gray-100',
               'transition duration-300 ease-in-out',
               'opacity-90 hover:opacity-100'
             )}

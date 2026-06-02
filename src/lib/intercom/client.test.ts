@@ -123,6 +123,44 @@ describe('IntercomClient', () => {
     });
   });
 
+  it('abort via AbortSignal rejects and removes the port listener', async () => {
+    await flushPromises();
+
+    const controller = new AbortController();
+    const requestPromise = client.request({ action: 'x' }, { signal: controller.signal });
+    await flushPromises();
+
+    expect(mockAddListener).toHaveBeenCalledTimes(1);
+    const listener = mockAddListener.mock.calls[0][0];
+
+    controller.abort();
+
+    await expect(requestPromise).rejects.toThrow('Aborted');
+    expect(mockRemoveListener).toHaveBeenCalledWith(listener);
+  });
+
+  it('rejects immediately if the signal is already aborted', async () => {
+    await flushPromises();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(client.request({ action: 'x' }, { signal: controller.signal })).rejects.toThrow('Aborted');
+  });
+
+  it('abort after port replacement does not throw (cleanup swallows dead-port removeListener)', async () => {
+    await flushPromises();
+    const controller = new AbortController();
+    const requestPromise = client.request({ action: 'x' }, { signal: controller.signal });
+    await flushPromises();
+
+    // Simulate the port being torn down after request started — e.g. SW evicted it.
+    mockRemoveListener.mockImplementationOnce(() => {
+      throw new Error('port disconnected');
+    });
+
+    expect(() => controller.abort()).not.toThrow();
+    await expect(requestPromise).rejects.toThrow('Aborted');
+  });
+
   it('ignores messages with different reqId', async () => {
     // Wait for port initialization
     await flushPromises();
@@ -353,7 +391,7 @@ describe('MobileIntercomClientWrapper', () => {
     mockMobileAdapter.request.mockResolvedValueOnce({ ok: true });
     const client = createIntercomClient();
     const result = await client.request({ payload: 'p' });
-    expect(mockMobileAdapter.request).toHaveBeenCalledWith({ payload: 'p' });
+    expect(mockMobileAdapter.request).toHaveBeenCalledWith({ payload: 'p' }, undefined);
     expect(result).toEqual({ ok: true });
   });
 
@@ -400,7 +438,7 @@ describe('DesktopIntercomClientWrapper', () => {
     mockDesktopAdapter.request.mockResolvedValueOnce({ from: 'desktop' });
     const client = createIntercomClient();
     const result = await client.request({ x: 1 });
-    expect(mockDesktopAdapter.request).toHaveBeenCalledWith({ x: 1 });
+    expect(mockDesktopAdapter.request).toHaveBeenCalledWith({ x: 1 }, undefined);
     expect(result).toEqual({ from: 'desktop' });
   });
 

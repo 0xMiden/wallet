@@ -35,7 +35,7 @@ export class MobileIntercomAdapter {
   /**
    * Makes a request directly to the backend handlers
    */
-  async request(payload: WalletRequest): Promise<WalletResponse | void> {
+  async request(payload: WalletRequest, _options?: { signal?: AbortSignal }): Promise<WalletResponse | void> {
     // Ensure backend is initialized
     if (!this.initialized) {
       await this.init();
@@ -71,7 +71,7 @@ export class MobileIntercomAdapter {
         return { type: WalletMessageType.NewWalletResponse };
 
       case WalletMessageType.ImportFromClientRequest:
-        await Actions.registerImportedWallet((req as any).password, (req as any).mnemonic);
+        await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
         return { type: WalletMessageType.ImportFromClientResponse };
 
       case WalletMessageType.UnlockRequest:
@@ -97,6 +97,13 @@ export class MobileIntercomAdapter {
           mnemonic
         };
 
+      case WalletMessageType.RevealPrivateKeyRequest:
+        const privateKey = await Actions.revealPrivateKey((req as any).accountPublicKey, (req as any).password);
+        return {
+          type: WalletMessageType.RevealPrivateKeyResponse,
+          privateKey: privateKey ?? ''
+        };
+
       case WalletMessageType.RemoveAccountRequest:
         await Actions.removeAccount((req as any).accountPublicKey, (req as any).password);
         return {
@@ -110,9 +117,10 @@ export class MobileIntercomAdapter {
         };
 
       case WalletMessageType.ImportAccountRequest:
-        await Actions.importAccount((req as any).privateKey, (req as any).encPassword);
+        const importedAccountPublicKey = await Actions.importAccount((req as any).privateKey, (req as any).name);
         return {
-          type: WalletMessageType.ImportAccountResponse
+          type: WalletMessageType.ImportAccountResponse,
+          accountPublicKey: importedAccountPublicKey ?? ''
         };
 
       case WalletMessageType.UpdateSettingsRequest:

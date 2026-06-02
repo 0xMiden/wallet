@@ -7,8 +7,8 @@ import { IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { Message } from 'components/Message';
-import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import { useNetwork } from 'lib/miden/front';
+import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import { openFaucetWebview } from 'lib/mobile/faucet-webview';
 import { navigate } from 'lib/woozie';
 

@@ -1,4 +1,4 @@
-import { Endpoint, NetworkId } from '@miden-sdk/miden-sdk';
+import { Endpoint, MidenClient, NetworkId } from '@miden-sdk/miden-sdk/lazy';
 
 import { MidenNetwork } from 'lib/miden/types';
 
@@ -48,6 +48,31 @@ export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://127.0.0.1:57292']
 ]);
 
+export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.TESTNET, 'https://testnet.midenscan.com'],
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://devnet.midenscan.com']
+]);
+
+export function getExplorerTxUrl(txHash: string, network: string = DEFAULT_NETWORK): string | undefined {
+  const base = MIDEN_EXPLORER_ENDPOINTS.get(network);
+  return base ? `${base}/tx/${txHash}` : undefined;
+}
+
+/**
+ * Build-time override for the note-transport URL, independent of the chain
+ * RPC's network. Lets developers point a testnet-RPC build at a local
+ * transport instance (e.g. `~/miden/miden-note-transport` run via `cargo run`)
+ * for iteration without having to deploy a fix to `transport.miden.io`.
+ *
+ * Set via `MIDEN_NOTE_TRANSPORT_URL=http://localhost:57292 yarn build:...`.
+ * Empty string = use the per-network default from the map above.
+ */
+const MIDEN_NOTE_TRANSPORT_URL_OVERRIDE = process.env.MIDEN_NOTE_TRANSPORT_URL || '';
+
+export function getNoteTransportUrl(network: string): string | undefined {
+  return MIDEN_NOTE_TRANSPORT_URL_OVERRIDE || MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(network);
+}
+
 export const MIDEN_NETWORKS: MidenNetwork[] = [
   {
     rpcBaseURL: 'https://rpc.testnet.miden.io',
@@ -63,14 +88,6 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
   },
   { rpcBaseURL: 'http://localhost:57291', id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
 ];
-
-export enum MidenTokens {
-  Miden
-}
-
-export const TOKEN_MAPPING = {
-  [MidenTokens.Miden]: { faucetId: 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph' }
-};
 
 /**
  * Returns the SDK NetworkId for the current DEFAULT_NETWORK.
@@ -96,9 +113,7 @@ export function getNetworkId(): NetworkId {
  *
  * NOTE: this constructs a wasm-bindgen-backed `Endpoint` instance and
  * therefore requires the SDK's WASM module to be loaded on this thread.
- * Page-side callers should `await ensureSdkWasmReady()` first; otherwise
- * the constructor throws `TypeError: Cannot read properties of undefined
- * (reading '__wbindgen_malloc')` whenever it races SDK init.
+ * Page-side callers should `await ensureSdkWasmReady()` first.
  */
 export function getRpcEndpoint(): Endpoint {
   const url = MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!;
@@ -106,68 +121,12 @@ export function getRpcEndpoint(): Endpoint {
 }
 
 /**
- * Resolves once the SDK's WASM module is loaded on the current thread, so
- * subsequent `new Endpoint(...)` / `new RpcClient(...)` calls are safe.
+ * Resolves once the SDK's WASM module is initialized on the current thread,
+ * so subsequent `new Endpoint(...)` / `new RpcClient(...)` calls are safe.
  *
- * On the extension page the SDK's WASM is loaded lazily — the first
- * `WebClient`-backed call (e.g. via `useSyncTrigger`) triggers it. Code that
- * reaches for `Endpoint` / `RpcClient` directly (currently
- * `fetchTokenMetadata` and `SendDetails`) doesn't go through that path and
- * fires before the chunk is ready, hitting `Cannot read properties of
- * undefined (reading '__wbindgen_malloc')`.
- *
- * We can't just probe-retry: nothing else triggers a load on the page side,
- * so the bindings stay undefined indefinitely. We have to actively call the
- * SDK's loadWasm. It isn't re-exported from the main entry, so we deep-import
- * it; the path is stable across the SDK versions we ship against, and the
- * probe at the end catches any future mismatch.
+ * Delegates to `MidenClient.ready()` (0.14.4+), which is idempotent and
+ * shared across callers.
  */
-let _sdkWasmReady: Promise<void> | null = null;
 export function ensureSdkWasmReady(): Promise<void> {
-  if (_sdkWasmReady) return _sdkWasmReady;
-  _sdkWasmReady = (async () => {
-    try {
-      // Trigger the SDK's wasm-bindgen init. The SDK's package.json exports
-      // map doesn't list the wasm-loader file directly; we import via a
-      // Vite alias (`sdk-wasm-loader` → `node_modules/@miden-sdk/miden-sdk/
-      // dist/wasm.js`) configured per build target.
-      // @ts-expect-error -- virtual specifier resolved via Vite alias
-      // eslint-disable-next-line import/no-unresolved
-      const wasmModule = await import('sdk-wasm-loader');
-      const loadWasm = wasmModule.default ?? wasmModule;
-      if (typeof loadWasm === 'function') {
-        await loadWasm();
-      }
-    } catch (err) {
-      // Deep import unavailable (SDK refactor, unusual bundler) — fall through
-      // to the probe loop below, which will at least surface a clear error
-      // and let `_sdkWasmReady` retry next call.
-      console.warn('ensureSdkWasmReady: deep loadWasm import unavailable, falling back to probe', err);
-    }
-
-    // Verify by probing — handles both the "loadWasm worked" happy path and
-    // the "deep import failed but something else happens to have loaded WASM"
-    // edge case. If neither, we throw and reset so the next caller retries.
-    const delays = [0, 50, 150, 300];
-    let lastErr: unknown;
-    for (const delay of delays) {
-      if (delay > 0) await new Promise(r => setTimeout(r, delay));
-      try {
-        new Endpoint('https://probe.invalid');
-        return;
-      } catch (err) {
-        const msg = (err as { message?: string } | null)?.message ?? '';
-        if (msg.includes('__wbindgen_malloc') || msg.includes('Cannot read properties of undefined')) {
-          lastErr = err;
-          continue;
-        }
-        return; // unrelated error — WASM is loaded, probe arg was just rejected
-      }
-    }
-    _sdkWasmReady = null;
-    throw new Error(
-      `ensureSdkWasmReady: SDK WASM not loaded — ${(lastErr as { message?: string } | null)?.message ?? 'unknown'}`
-    );
-  })();
-  return _sdkWasmReady;
+  return MidenClient.ready();
 }

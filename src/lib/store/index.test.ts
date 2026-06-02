@@ -293,12 +293,13 @@ describe('useWalletStore', () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words');
+      await importWalletFromClient('password123', 'mnemonic words', []);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
-        mnemonic: 'mnemonic words'
+        mnemonic: 'mnemonic words',
+        walletAccounts: []
       });
     });
 
@@ -349,6 +350,40 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.RevealMnemonicRequest,
         password: 'password123'
+      });
+    });
+
+    it('revealPrivateKey returns hex secret from response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.RevealPrivateKeyResponse,
+        privateKey: 'aabbccdd'
+      });
+
+      const { revealPrivateKey } = useWalletStore.getState();
+      const result = await revealPrivateKey('pk1', 'password123');
+
+      expect(result).toBe('aabbccdd');
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.RevealPrivateKeyRequest,
+        accountPublicKey: 'pk1',
+        password: 'password123'
+      });
+    });
+
+    it('importAccount returns new account public key from response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ImportAccountResponse,
+        accountPublicKey: 'imported-pk'
+      });
+
+      const { importAccount } = useWalletStore.getState();
+      const result = await importAccount('aabbccdd', 'My Imported');
+
+      expect(result).toBe('imported-pk');
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ImportAccountRequest,
+        privateKey: 'aabbccdd',
+        name: 'My Imported'
       });
     });
   });
@@ -695,7 +730,7 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends ImportFromClientRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
-      await useWalletStore.getState().importWalletFromClient('pw', 'm');
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', []);
       expect(mockRequest).toHaveBeenCalledWith(
         expect.objectContaining({ type: WalletMessageType.ImportFromClientRequest })
       );
@@ -941,6 +976,13 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(true);
       useWalletStore.getState().resetTransactionModalDismiss();
       expect(useWalletStore.getState().isTransactionModalDismissedByUser).toBe(false);
+    });
+
+    it('setLastCompletedTxHash stores and clears the hash', () => {
+      useWalletStore.getState().setLastCompletedTxHash('0xabc');
+      expect(useWalletStore.getState().lastCompletedTxHash).toBe('0xabc');
+      useWalletStore.getState().setLastCompletedTxHash(null);
+      expect(useWalletStore.getState().lastCompletedTxHash).toBeNull();
     });
   });
 

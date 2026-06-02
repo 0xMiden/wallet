@@ -32,8 +32,9 @@ runtime.onUpdateAvailable.addListener(() => {
 
 // IMPORTANT: Chrome MV3 requires event listeners to be registered synchronously
 // at the top level. Listeners inside async .then() callbacks miss events that
-// woke the SW. doSync() independently checks vault state, so it's safe to call
-// before start() completes.
+// woke the SW. The alarm can fire before start() completes; runSync() in the
+// SyncManager uses a lazy getVault() accessor that awaits the vault module's
+// init factory, so the cold-start race documented in #212 is handled there.
 browser.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === 'miden-sync') {
     doSync().catch(err => console.warn('[SyncManager] Alarm sync error:', err));

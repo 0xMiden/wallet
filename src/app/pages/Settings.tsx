@@ -1,9 +1,9 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { InAppBrowser } from '@miden/dapp-browser';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
 import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
 import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
@@ -19,6 +19,8 @@ import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/languag
 import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
 import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
 import { ReactComponent as PrivacyPolicyIconOrange } from 'app/icons/settings/privacy-policy.svg';
+import { ReactComponent as SecretKeyIconDevnet } from 'app/icons/settings/secret-key-devnet.svg';
+import { ReactComponent as SecretKeyIconOrange } from 'app/icons/settings/secret-key.svg';
 import { ReactComponent as SeedPhraseIconDevnet } from 'app/icons/settings/seed-phrase-devnet.svg';
 import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-phrase.svg';
 import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
@@ -31,6 +33,7 @@ import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
+import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
@@ -42,10 +45,10 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer'
 import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 
-import pkg from '../../../package.json';
 import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
+import pkg from '../../../package.json';
 
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
@@ -55,12 +58,15 @@ const EncryptedWalletIcon = isDevnet ? EncryptedWalletIconDevnet : EncryptedWall
 const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
 const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
 const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
+const SecretKeyIcon = isDevnet ? SecretKeyIconDevnet : SecretKeyIconOrange;
 const SeedPhraseIcon = isDevnet ? SeedPhraseIconDevnet : SeedPhraseIconOrange;
 const TosIcon = isDevnet ? TosIconDevnet : TosIconOrange;
 
 type SettingsProps = {
   tabSlug?: string | null;
 };
+
+const RevealPrivateKey: FC = () => <RevealSecret reveal="private-key" />;
 
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English',
@@ -139,6 +145,13 @@ const TAB_GROUPS: TabGroup[] = [
         Component: RevealSeedPhraseFlow,
         testID: SettingsSelectors.RevealSeedPhraseButton,
         hasOwnLayout: true
+      },
+      {
+        slug: 'reveal-private-key',
+        titleI18nKey: 'revealPrivateKey',
+        Icon: SecretKeyIcon,
+        Component: RevealPrivateKey,
+        testID: SettingsSelectors.RevealPrivateKeyButton
       },
       {
         slug: 'encrypted-wallet-file',
@@ -316,7 +329,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
             {TAB_GROUPS.map(group => (
               <div key={group.titleI18nKey}>
-                <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>
+                <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>
                 <div className="overflow-hidden flex flex-col gap-6">
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
@@ -351,7 +364,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               </div>
             ))}
 
-            <p className="text-base font-medium text-grey-300 pt-2">Version {pkg.version}</p>
+            <p className="text-base font-medium text-text-muted pt-2">Version {pkg.version}</p>
           </div>
         )}
       </div>
@@ -391,7 +404,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                 <div className="bg-gray-25 rounded-2xl px-6 py-8">
                   <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
                     {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-[#BABABA]" style={{ width: 144 }} />
+                      <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
                     ))}
                   </div>
                 </div>

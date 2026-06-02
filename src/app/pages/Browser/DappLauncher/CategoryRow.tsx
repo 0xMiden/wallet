@@ -41,11 +41,11 @@ export const CategoryRow: FC<CategoryRowProps> = ({ active, onToggle }) => {
                 'flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors',
                 isActive
                   ? 'bg-primary-500 text-pure-white shadow-[0_2px_6px_rgba(255,87,0,0.3)]'
-                  : 'bg-grey-100 text-grey-700 active:bg-grey-200'
+                  : 'bg-gray-50 text-heading-gray active:bg-gray-100'
               )}
               aria-pressed={isActive}
             >
-              <Icon name={cat.icon} size="xs" className={isActive ? 'text-pure-white' : 'text-grey-500'} />
+              <Icon name={cat.icon} size="xs" className={isActive ? 'text-pure-white' : 'text-text-muted'} />
               <span>{t(cat.labelKey)}</span>
             </button>
           );

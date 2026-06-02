@@ -1,16 +1,15 @@
 import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
-import { useAccountBadgeTitle } from 'app/defaults';
 import AccountBanner from 'app/templates/AccountBanner';
 import { Button, ButtonVariant } from 'components/Button';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
@@ -21,13 +20,12 @@ type FormData = {
 };
 
 type RevealSecretProps = {
-  reveal: 'view-key' | 'private-key' | 'seed-phrase';
+  reveal: 'private-key' | 'seed-phrase';
 };
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const { t } = useTranslation();
-  const accountBadgeTitle = useAccountBadgeTitle();
-  const { revealMnemonic } = useMidenContext();
+  const { revealMnemonic, revealPrivateKey } = useMidenContext();
   const account = useAccount();
   const { fieldRef: secretFieldRef } = useCopyToClipboard();
 
@@ -43,6 +41,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  // Private-key reveals require the user to tick an "I understand"
+  // checkbox before the Continue button enables. The warning banner
+  // alone is passive; this gate forces one deliberate interaction
+  // before handing out a key the user can never rotate.
+  const [privateKeyAcknowledged, setPrivateKeyAcknowledged] = useState(false);
 
   useEffect(() => {
     Vault.hasHardwareProtector().then(setHasHardwareProtector);
@@ -80,7 +83,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
       clearErrors('password');
       try {
-        const secret = await revealMnemonic(hasHardwareProtector ? undefined : password);
+        const unlockPassword = hasHardwareProtector ? undefined : password;
+        let secret: string;
+        if (reveal === 'private-key') {
+          const pubKeyCommitment = await getAccountPublicKeyCommitment(account.publicKey);
+          secret = await revealPrivateKey(pubKeyCommitment, unlockPassword);
+        } else {
+          secret = await revealMnemonic(unlockPassword);
+        }
         setSecret(secret);
       } catch (err: any) {
         console.error(err);
@@ -91,28 +101,22 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         if (!hasHardwareProtector) focusPasswordField();
       }
     },
-    [isSubmitting, clearErrors, setError, revealMnemonic, setSecret, focusPasswordField, hasHardwareProtector]
+    [
+      isSubmitting,
+      clearErrors,
+      setError,
+      revealMnemonic,
+      revealPrivateKey,
+      setSecret,
+      focusPasswordField,
+      hasHardwareProtector,
+      reveal,
+      account.publicKey
+    ]
   );
 
   const texts = useMemo(() => {
     switch (reveal) {
-      case 'view-key':
-        return {
-          name: t('viewKey'),
-          accountBanner: (
-            <AccountBanner labelDescription={t('ifYouWantToRevealViewKeyFromOtherAccount')} className="mb-6" />
-          ),
-          attention: (
-            <div className="flex flex-col text-left text-black">
-              <span className="font-medium" style={{ fontSize: '14px', lineHeight: '20px', marginBottom: '4px' }}>
-                {t('doNotShareViewKey1')} <br />
-              </span>
-              <span className="text-xs">{t('doNotShareViewKey2')}</span>
-            </div>
-          ),
-          fieldDesc: t('viewKeyFieldDescription')
-        };
-
       case 'private-key':
         return {
           name: t('privateKey'),
@@ -148,35 +152,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     }
   }, [reveal, t]);
 
-  const forbidPrivateKeyRevealing = reveal === 'private-key';
   const mainContent = useMemo(() => {
-    if (forbidPrivateKeyRevealing) {
-      return (
-        <Alert
-          title={t('privateKeyCannotBeRevealed')}
-          description={
-            <p>
-              {t('youCannotGetPrivateKeyFromThisAccountType', {
-                accountType: (
-                  <span
-                    key="account-type"
-                    className={classNames('rounded-sm', 'border', 'px-1 py-px', 'font-normal leading-tight')}
-                    style={{
-                      fontSize: '0.75em',
-                      borderColor: 'currentColor'
-                    }}
-                  >
-                    {accountBadgeTitle}
-                  </span>
-                )
-              })}
-            </p>
-          }
-          className="mb-4 bg-blue-200 border-primary-500 rounded-none text-black"
-        />
-      );
-    }
-
     if (secret) {
       return (
         <div className="pt-8">
@@ -233,22 +209,9 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         )}
       </form>
     );
-  }, [
-    forbidPrivateKeyRevealing,
-    errors,
-    onSubmit,
-    register,
-    secret,
-    texts,
-    clearErrors,
-    secretFieldRef,
-    t,
-    accountBadgeTitle,
-    hasHardwareProtector,
-    handleSubmit
-  ]);
+  }, [errors, onSubmit, register, secret, texts, clearErrors, secretFieldRef, t, hasHardwareProtector, handleSubmit]);
 
-  const showButton = !forbidPrivateKeyRevealing && !secret;
+  const showButton = !secret;
 
   if (hasHardwareProtector === null) {
     return null;
@@ -258,6 +221,26 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
       {texts.accountBanner}
 
+      {reveal === 'private-key' && !secret && (
+        <>
+          <Alert
+            type="warn"
+            title={t('privateKeyRevealWarningTitle')}
+            description={<p>{t('privateKeyRevealWarningBody')}</p>}
+            className="mb-4 rounded-lg"
+          />
+          <label className="mb-4 flex items-start gap-2 text-sm text-black cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={privateKeyAcknowledged}
+              onChange={e => setPrivateKeyAcknowledged(e.target.checked)}
+            />
+            <span>{t('privateKeyRevealAcknowledge')}</span>
+          </label>
+        </>
+      )}
+
       {mainContent}
 
       {showButton && (
@@ -266,7 +249,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             className="w-full justify-center"
             variant={ButtonVariant.Primary}
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-            disabled={isSubmitting || (hasHardwareProtector ? false : !passwordValue)}
+            disabled={
+              isSubmitting ||
+              (reveal === 'private-key' && !privateKeyAcknowledged) ||
+              (hasHardwareProtector ? false : !passwordValue)
+            }
             isLoading={isSubmitting}
             onClick={hasHardwareProtector ? () => onSubmit({ password: '' }) : handleSubmit(onSubmit)}
           />
@@ -277,3 +264,23 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 };
 
 export default RevealSecret;
+
+// Returns the hex-encoded auth public-key commitment for an account.
+// This is the key under which the vault stores the matching secret key —
+// distinct from the account's bech32 id (`WalletAccount.publicKey`), which
+// identifies the account on-chain.
+const getAccountPublicKeyCommitment = async (accPublicKey: string): Promise<string> => {
+  const commitmentHex = await withWasmClientLock(async () => {
+    const client = await getMidenClient();
+    const account = await client.getAccount(accPublicKey);
+    if (!account) {
+      throw new Error('Account not found');
+    }
+    const commitments = account.getPublicKeyCommitments();
+    if (commitments.length === 0) {
+      throw new Error('Account has no public key');
+    }
+    return commitments[0]!.toHex();
+  });
+  return commitmentHex.startsWith('0x') ? commitmentHex.slice(2) : commitmentHex;
+};

@@ -1,4 +1,4 @@
-import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk';
+import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
@@ -183,28 +183,96 @@ export const initiateConsumeTransaction = async (
   // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
   // Reason: getConsumableNotes() can still return a note for a short window after a local
   // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
-  // tx every 5s until the sync catches up. Failed txs are excluded so retries still work.
-  const existingByNote = await Repo.transactions
-    .where('noteId')
-    .equals(note.id)
-    .filter(tx => tx.type === 'consume' && tx.status !== ITransactionStatus.Failed)
-    .toArray();
-  const existingTransaction = existingByNote.find(tx => compareAccountIds(tx.accountId, accountId));
-  if (existingTransaction) {
-    return existingTransaction.id;
-  }
+  // tx every 5s until the sync catches up. Failed txs are excluded by the existing-non-Failed
+  // dedup so retries can recover from transient failures, but bounded by the
+  // MAX_CONSECUTIVE_CONSUME_FAILURES + RETRY_COOLDOWN_SEC policy below to prevent
+  // unbounded retry storms when the failure is deterministic (issue #215).
+  //
+  // The check-and-add is wrapped in a Dexie `rw` transaction so concurrent callers for the
+  // same noteId are serialized at the DB layer. Without this, two callers that slip past
+  // the isBeingClaimed gate (e.g. two Explore re-renders racing the NoteClaimStarted
+  // intercom round-trip) both see `[]` from the check and both `.add()`, producing two
+  // queued consume rows — the second of which fails on-chain with "note has already been
+  // consumed" and spuriously trips the connectivity-issue banner.
+  const committedId = await Repo.db.transaction('rw', Repo.transactions, async () => {
+    // Read every consume row for this noteId once, then partition. We need both
+    // non-Failed (for the existing dedup) and recent Failed (for the bounded-retry
+    // gate) inside the same rw transaction so the check-and-add stays atomic.
+    const allByNote = await Repo.transactions
+      .where('noteId')
+      .equals(note.id)
+      .filter(tx => tx.type === 'consume')
+      .toArray();
+    const sameAccount = allByNote.filter(tx => compareAccountIds(tx.accountId, accountId));
 
-  await Repo.transactions.add(dbTransaction);
+    // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.
+    const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
+    if (liveOrCompleted) return liveOrCompleted.id;
 
-  // Notify other tabs that a claim is in progress (cross-tab coordination)
-  if (isExtension()) {
+    // Bounded-retry gate: only Failed rows exist for this note+account.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const recentFailures = sameAccount
+      .filter(tx => tx.status === ITransactionStatus.Failed)
+      .filter(tx => {
+        const completed = tx.completedAt ?? tx.initiatedAt;
+        return nowSec - completed <= RECENT_FAILURE_WINDOW_SEC;
+      })
+      .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
+    if (recentFailures.length > 0) {
+      const mostRecentFailed = recentFailures[0]!;
+      const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
+      const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
+      // Two gates compose: cap on consecutive failures inside the recent window
+      // AND a cooldown since the most recent failure. Either one being unsatisfied
+      // suppresses the new attempt and returns the most recent Failed row's id so
+      // callers see a stable "this note already has a tx" response.
+      if (recentFailures.length >= MAX_CONSECUTIVE_CONSUME_FAILURES || secsSinceLastFailure < RETRY_COOLDOWN_SEC) {
+        return mostRecentFailed.id;
+      }
+    }
+
+    await Repo.transactions.add(dbTransaction);
+    return dbTransaction.id;
+  });
+
+  // Only broadcast NoteClaimStarted if WE were the caller that actually queued the row —
+  // duplicate broadcasts for the same note are a no-op but wasteful.
+  if (committedId === dbTransaction.id && isExtension()) {
     getIntercom()
       .request({ type: WalletMessageType.NoteClaimStarted, noteId: note.id })
       .catch(() => {});
   }
 
-  return dbTransaction.id;
+  return committedId;
 };
+
+/**
+ * Bounded-retry policy for auto-consume.
+ *
+ * Background: the consume dedup at `initiateConsumeTransaction` excludes
+ * `Failed` rows by design so retries can recover from *transient* failures
+ * (e.g., kernel `auth::request` errors that clear once chain state
+ * advances). But without a cap, an upstream deterministic failure
+ * combined with auto-consume's polling cadence + tab-switch remounts
+ * produces an unbounded retry storm — one user empirically observed 122+
+ * consume/Failed rows for 2 notes in 38 minutes. Issue #215 documents
+ * this in detail. The follow-up shows the kernel error eventually clears
+ * (both notes consumed within 10s of each other after a 65min idle), so
+ * we must keep retrying *eventually*, just not on every single tick.
+ *
+ * Policy:
+ *   - Cap at MAX_CONSECUTIVE_CONSUME_FAILURES failures inside RECENT_FAILURE_WINDOW_SEC.
+ *   - Once capped, require RETRY_COOLDOWN_SEC to elapse since the most
+ *     recent Failed `completedAt` before allowing a new attempt.
+ *
+ * The combined effect: a deterministic failure caps at ~5 retries within
+ * ~30 min, then re-attempts at most once every ~5 min. A transient
+ * failure that succeeds within the window still retries normally because
+ * a Completed row reactivates the existing-non-Failed dedup branch.
+ */
+export const MAX_CONSECUTIVE_CONSUME_FAILURES = 5;
+export const RECENT_FAILURE_WINDOW_SEC = 30 * 60; // 30 minutes
+export const RETRY_COOLDOWN_SEC = 5 * 60; // 5 minutes
 
 // Timeout for waiting on consume transactions (5 minutes)
 const WAIT_FOR_CONSUME_TX_TIMEOUT = 5 * 60_000;
@@ -624,12 +692,39 @@ export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
+  // DIAGNOSTIC tracing for the iOS send-tx pre-sync hang. Mirrors the
+  // recordProveTiming pattern in miden-client-interface.ts. Remove when
+  // the hang is understood and fixed.
+  const dtag = (msg: string) => {
+    const line = `[prove-timing] [generateTransaction:${transaction.type}:${transaction.id}] ${msg}`;
+    // eslint-disable-next-line no-console
+    console.log(line);
+    try {
+      const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
+      if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
+      g.__PROVE_TIMINGS__.push(`${Date.now()}|${line}`);
+    } catch {
+      // ignore
+    }
+  };
+  dtag('entered');
+
   // Sync state first to ensure we have latest account state
+  // Separate lock acquisition to avoid holding lock during network call
+  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
+  // catch block which cancels the transaction — this is intentional fail-fast behavior,
+  // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
+  dtag('about to acquire withWasmClientLock for syncState');
   await withWasmClientLock(async () => {
+    dtag('acquired lock for syncState; calling getMidenClient');
     const midenClient = await getMidenClient();
+    dtag('got midenClient; calling syncState');
+    const _t = performance.now();
     await midenClient.syncState();
+    dtag(`syncState returned in ${(performance.now() - _t).toFixed(0)}ms`);
   });
+  dtag('released syncState lock');
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
@@ -655,7 +750,9 @@ export const generateTransaction = async (
   };
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply)
+  dtag('about to acquire withWasmClientLock for tx dispatch');
   const result = await withWasmClientLock(async () => {
+    dtag('acquired tx lock; calling midenClient dispatch');
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
@@ -671,6 +768,7 @@ export const generateTransaction = async (
         );
     }
   });
+  dtag('tx dispatch completed');
 
   switch (transaction.type) {
     case 'send':

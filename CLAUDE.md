@@ -70,15 +70,16 @@ yarn format           # Prettier
 
 ## Version Bumping
 
-**CRITICAL:** The extension manifest version is controlled by `package.json`'s `version` field, NOT by `public/manifest.json`. The webpack build (`webpack.public.config.js:69-70`) overrides the manifest version with `pkg.version` from `package.json` during the copy transform.
+The extension manifest version is controlled by `package.json`'s `version` field — `vite.extension.config.ts`'s `copyPublicAssets` plugin overrides the copied `manifest.json` with `pkg.version` at build time.
 
-When bumping the version:
-1. Update **both** `package.json` (`"version": "X.Y.Z"`) and `public/manifest.json` (`"version": "X.Y.Z"`) to keep them in sync
-2. Clear webpack cache: `rm -rf node_modules/.cache/webpack`
-3. Build: `yarn build:devnet` (or whichever build target)
-4. **Verify** the output manifest has the correct version: `grep '"version"' dist/chrome_unpacked/manifest.json`
+When bumping:
+1. Update **both** `package.json` (`"version": "X.Y.Z"`) and `public/manifest.json` to keep the source of truth aligned.
+2. Build, e.g. `yarn build:chrome`.
+3. Verify: `grep '"version"' dist/chrome_unpacked/manifest.json`.
 
-If the output still shows the old version, the webpack filesystem cache is stale — delete `node_modules/.cache/webpack` and `dist/` and rebuild.
+## CHANGELOG
+
+`CHANGELOG.md` carries unreleased entries under a `## <next-version> (TBD)` heading. **NEVER add an entry to a section whose version has already been published — check `gh api repos/0xMiden/wallet/releases/latest` for the latest tag and put new entries under a section whose version is strictly higher and still has `(TBD)` next to it. If no such section exists, add one.** The header at the top of `CHANGELOG.md` may lag (a `(TBD)` heading often persists past the release tag); don't trust the heading alone.
 
 ## Mobile Development
 
@@ -209,17 +210,7 @@ import { hapticLight, hapticMedium, hapticSelection } from 'lib/mobile/haptics';
 // Use hapticSelection() for tab changes, footer navigation
 ```
 
-The haptic functions automatically check `isMobile()` and the user's haptic feedback setting - no need to wrap in conditionals.
-
-Components that already have haptics (for reference):
-- `components/Button.tsx`, `app/atoms/Button.tsx` - buttons
-- `lib/woozie/Link.tsx` - navigation links
-- `components/Toggle.tsx`, `app/atoms/ToggleSwitch.tsx` - toggles
-- `components/TabBar.tsx`, `app/atoms/TabSwitcher.tsx` - tabs
-- `components/FooterIconWrapper.tsx` - footer navigation
-- `components/CardItem.tsx`, `components/ListItem.tsx` - tappable items
-- `components/Chip.tsx`, `components/CircleButton.tsx` - misc buttons
-- `app/atoms/Checkbox.tsx`, `components/RadioButton.tsx` - form controls
+The haptic functions automatically check `isMobile()` and the user's haptic feedback setting — no need to wrap in conditionals. For existing patterns, `grep -l 'hapticLight\|hapticMedium\|hapticSelection' src/`.
 
 ### Known iOS-Specific Issues
 
@@ -337,56 +328,9 @@ xcrun simctl spawn booted log stream --predicate 'process == "App"' > ios_logs.t
 
 ### CDP Bridge for iOS WebView Debugging
 
-Use the `inspect` CLI (`@inspectdotdev/cli`) + a persistent-connection daemon to evaluate JavaScript in the Capacitor WKWebView from Claude Code. This gives you access to DOM, computed styles, console output, and error state — much more powerful than screenshots alone.
+Use `@inspectdotdev/cli` to evaluate JS inside the Capacitor WKWebView — DOM, computed styles, console, arbitrary `Runtime.evaluate`. More useful than screenshots when you need to know _why_ pixels look wrong.
 
-**Known issue:** The inspect bridge has a single-use bug — after a WebSocket client disconnects, subsequent connections get no responses. The workaround is a persistent-connection daemon that holds ONE WebSocket open and routes all requests through it.
-
-**Bringup recipe (run once per session):**
-
-```bash
-# 1. Kill old bridges and free ports
-pkill -9 -f "inspect" 2>/dev/null
-pkill -9 -f "cdp-daemon" 2>/dev/null
-lsof -ti:9221,9222,9333 | xargs kill -9 2>/dev/null
-
-# 2. Reset webinspectord
-xcrun simctl spawn booted launchctl kill 9 user/501/com.apple.webinspectord
-
-# 3. Relaunch the app (re-registers WebView with fresh webinspectord)
-xcrun simctl terminate booted com.miden.wallet
-xcrun simctl launch booted com.miden.wallet
-sleep 2
-
-# 4. Start inspect bridge (wait ~5s for it to discover devices)
-source ~/.nvm/nvm.sh && nvm use 22
-nohup inspect --no-telemetry > /tmp/inspect.log 2>&1 &
-sleep 5
-
-# 5. Start CDP daemon (holds persistent WS, routes evals through it)
-nohup node /tmp/cdp-daemon.mjs > /tmp/cdp-daemon.log 2>&1 &
-sleep 3
-
-# 6. Smoke test — should print "2"
-node /tmp/cdp-eval '1+1'
-```
-
-**Usage after bringup:**
-```bash
-# Evaluate any JS in the WebView
-node /tmp/cdp-eval 'document.title'
-node /tmp/cdp-eval 'JSON.stringify(window.__cdp_errors)'
-
-# Set up an error trap to catch async failures
-node /tmp/cdp-eval 'window.__cdp_errors = []; window.addEventListener("error", e => window.__cdp_errors.push(e.message)); window.addEventListener("unhandledrejection", e => window.__cdp_errors.push("REJECTION: " + (e.reason?.message || e.reason))); "trap set"'
-```
-
-**Recovery when it stops working:**
-- Smoke test fails → restart from step 2 (webinspectord reset)
-- Bridge sees `[]` on `/json` → restart from step 3 (app crashed)
-- After `yarn mobile:ios:run` rebuild → restart from step 4 (PID changed)
-- Nothing works → quit Simulator.app entirely (`osascript -e 'tell application "Simulator" to quit'`), cold-boot, restart from step 1
-
-**Files:** `/tmp/cdp-daemon.mjs` (persistent WS daemon), `/tmp/cdp-eval` (one-shot client). If missing, recreate from the memory file at `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md`.
+Full bringup recipe, usage examples, recovery steps, and CDP-vs-native tradeoffs live in [`docs/ios-cdp-bridge.md`](docs/ios-cdp-bridge.md).
 
 ### Verifying Mobile UI Fixes
 
@@ -1139,9 +1083,9 @@ Same artifact tree as Chrome, output to `test-results-ios/run-<timestamp>/tests/
 - The CDP bridge picks the first WebKit page on the inspector. The wallet uses one WebView, so this is fine; if a future build adds a dApp browser WebView, `CdpBridge.connect` needs a target-disambiguation parameter.
 - `simctl` does NOT support keyboard input from outside the simulator. The iOS POM dispatches React-compatible `input`/`change` events directly via DOM rather than typing into native fields. For native iOS sheets / system dialogs this won't work — only WebView content is reachable.
 
-### Empirical Status (2026-04-14)
+### Empirical Status (2026-04-14, pre-/lazy-SDK baseline)
 
-**7/7 iOS specs pass on devnet in ~9 min wall clock.** Per-spec timing:
+**7/7 iOS specs pass on devnet in ~9 min wall clock.** Per-spec timings below are from SDK 0.14.2 on the eager entry. The `wiktor/use-lazy-sdk` branch migrates to `@miden-sdk/miden-sdk/lazy`; rerun to refresh baseline after that lands on main.
 
 | Spec | Duration |
 |---|---|
@@ -1228,6 +1172,59 @@ Transactions flow through these states in `ITransactionStatus`:
 2. `GeneratingTransaction` (1) - Being processed
 3. `Completed` (2) - Successfully finished
 4. `Failed` (3) - Error occurred
+
+## Linked Web SDK PR (cross-repo CI)
+
+**ALWAYS use the `Web SDK PR: #N` marker when opening a wallet PR that
+depends on an unpublished web-sdk change.** This is the load-bearing
+machine-readable handle — prose like "Companion PR: web-sdk#N" or
+"depends on …" does NOT trigger the linked-PR pipeline. Put the marker
+on its own line in the PR description (top is fine, anywhere is fine).
+When in doubt include both forms (`Web SDK PR: #N` and a prose mention)
+but the marker has to be present verbatim.
+
+The wallet's CI can be pointed at an unpublished `@miden-sdk/miden-sdk`
+or `@miden-sdk/react` branch by including a marker in the wallet PR's
+description:
+
+```
+Web SDK PR: #134
+```
+
+Or cross-repo:
+
+```
+Web SDK PR: 0xMiden/web-sdk#134
+```
+
+When the marker is present, every yarn-using job in `.github/workflows/pr.yml`
+runs `.github/actions/inject-linked-web-sdk-pr` BEFORE its `yarn install`
+step. The action clones the linked web-sdk PR, builds
+`@miden-sdk/miden-sdk` + `@miden-sdk/react` from source, and rewrites
+this repo's `package.json` to consume them via `file:` deps (runner-local
+mutation, never committed).
+
+A separate workflow (`check-linked-web-sdk-pr.yml`) posts a custom
+status named `linked-web-sdk-pr-ready` that's `pending` until the linked
+web-sdk PR is merged AND a release tag covering its merge commit is
+visible. Branch protection on `main` should require this status before
+allowing the wallet PR to merge — that's the gate that prevents the
+wallet from landing while it depends on an unpublished web-sdk change.
+
+Local-dev parity:
+
+```bash
+scripts/dev-with-web-sdk-pr.sh             # auto-detect from current PR body
+scripts/dev-with-web-sdk-pr.sh 134         # use web-sdk#134
+scripts/dev-with-web-sdk-pr.sh --clear     # restore the published versions
+```
+
+The `lefthook.yml` pre-commit hooks block committing the patched state
+(state file `.linked-web-sdk-pr.json` or `file:` SDK deps in
+package.json). Lefthook isn't auto-installed by `yarn install` — opt in
+once with `pnpm dlx lefthook install` if you want the guard.
+
+Mirrors web-sdk's `Client PR: #N` pattern (`.github/actions/inject-linked-client-pr`).
 
 ## Important Notes
 

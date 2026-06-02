@@ -24,6 +24,10 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  resetNativeAssetCache: jest.fn(async () => {})
+}));
+
 const mockBrowserStorageClear = jest.fn();
 jest.mock('webextension-polyfill', () => ({
   __esModule: true,

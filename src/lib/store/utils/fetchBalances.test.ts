@@ -72,6 +72,19 @@ describe('fetchBalances', () => {
     });
   });
 
+  it('returns empty list when account not found AND native-asset discovery has not resolved', async () => {
+    // Pre-discovery state: getFaucetIdSetting returns '' / undefined, so we
+    // can't fabricate a "0 MIDEN" row and must return [] so the UI renders a
+    // skeleton instead of a misattributed token.
+    const { getFaucetIdSetting } = jest.requireMock('lib/miden/assets');
+    getFaucetIdSetting.mockReturnValueOnce(undefined);
+    mockGetAccount.mockResolvedValueOnce(null);
+
+    const result = await fetchBalances('unknown-address', {});
+
+    expect(result).toEqual([]);
+  });
+
   it('returns balances for account with assets', async () => {
     // Mock so bech32 conversion always returns the miden faucet id for this test
     // (called multiple times: filter check + map in balance building)

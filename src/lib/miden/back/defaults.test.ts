@@ -9,7 +9,8 @@ jest.mock('lib/platform', () => ({
 jest.mock('lib/intercom/server', () => ({
   IntercomServer: jest.fn().mockImplementation(() => ({
     onRequest: jest.fn(),
-    broadcast: jest.fn()
+    broadcast: jest.fn(),
+    hasClients: jest.fn().mockReturnValue(true)
   }))
 }));
 
@@ -87,6 +88,16 @@ describe('defaults', () => {
 
       const server = getIntercom();
       expect(server!.broadcast).toHaveBeenCalledWith(message);
+    });
+
+    it('hasClients delegates to getIntercom', () => {
+      mockIsExtension.mockReturnValue(true);
+
+      const result = intercom.hasClients();
+
+      const server = getIntercom();
+      expect(server!.hasClients).toHaveBeenCalled();
+      expect(result).toBe(true);
     });
   });
 

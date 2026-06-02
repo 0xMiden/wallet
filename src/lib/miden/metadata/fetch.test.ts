@@ -25,7 +25,7 @@ const mockRpcClient = jest.fn(() => ({
 const mockFromBech32 = jest.fn();
 const mockFromAccount = jest.fn();
 
-jest.mock('@miden-sdk/miden-sdk', () => ({
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   RpcClient: function (..._args: unknown[]) {
     return mockRpcClient();
   },

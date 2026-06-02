@@ -15,6 +15,7 @@ const DEVICE_TYPE_B = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro';
 
 const BOOT_TIMEOUT_MS = 60_000;
 const BOOT_POLL_MS = 1_000;
+const BOOTSTATUS_TIMEOUT_MS = 180_000;
 
 interface DevicePair {
   udidA: string;
@@ -69,24 +70,47 @@ export class SimulatorControl {
    * occasionally races with itself if multiple boots are issued quickly).
    */
   async ensureBooted(udid: string): Promise<void> {
-    if (await this.isBooted(udid)) return;
-
-    try {
-      await execSimctl(['boot', udid]);
-    } catch (err) {
-      if (!isAlreadyBootedError(err)) {
-        // Wait briefly and retry once
-        await sleep(2_000);
+    if (!(await this.isBooted(udid))) {
+      try {
         await execSimctl(['boot', udid]);
+      } catch (err) {
+        if (!isAlreadyBootedError(err)) {
+          // Wait briefly and retry once
+          await sleep(2_000);
+          await execSimctl(['boot', udid]);
+        }
+      }
+
+      const start = Date.now();
+      while (Date.now() - start < BOOT_TIMEOUT_MS) {
+        if (await this.isBooted(udid)) break;
+        await sleep(BOOT_POLL_MS);
+      }
+      if (!(await this.isBooted(udid))) {
+        throw new Error(`Simulator ${udid} did not reach Booted state within ${BOOT_TIMEOUT_MS}ms`);
       }
     }
 
-    const start = Date.now();
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
-      if (await this.isBooted(udid)) return;
-      await sleep(BOOT_POLL_MS);
+    // `Booted` from simctl does NOT mean SpringBoard is ready. `simctl launch`
+    // hangs on fresh boots if we skip this — CI runs with cold simulators
+    // observed multi-minute hangs inside simctl launch. bootstatus -b blocks
+    // until the device is actually usable.
+    //
+    // Best-effort: on some macos-26 CI runner images, bootstatus itself
+    // fails/hangs even when the sim is otherwise usable. Swallow the error
+    // and let the subsequent install/launch reveal whether the sim is
+    // really broken — a genuine sim failure produces a clearer error there.
+    try {
+      await execFileAsync('xcrun', ['simctl', 'bootstatus', udid, '-b'], {
+        timeout: BOOTSTATUS_TIMEOUT_MS,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[SimulatorControl] bootstatus for ${udid} did not complete cleanly; ` +
+          `continuing. Error: ${(err as Error).message}`
+      );
     }
-    throw new Error(`Simulator ${udid} did not reach Booted state within ${BOOT_TIMEOUT_MS}ms`);
   }
 
   async install(udid: string, appPath: string): Promise<void> {
@@ -99,6 +123,41 @@ export class SimulatorControl {
   async uninstall(udid: string, bundleId: string): Promise<void> {
     // simctl exits 0 even if the app wasn't installed — safe to call blindly.
     await execSimctl(['uninstall', udid, bundleId]);
+  }
+
+  /**
+   * Wipe the app's data sandbox (IndexedDB, localStorage, Preferences,
+   * WebKit caches) without reinstalling the binary. ~5–10× faster than
+   * uninstall + install on warm sims. Caller MUST terminate the app first
+   * — wiping a running app leaves partial state.
+   */
+  async wipeAppState(udid: string, bundleId: string): Promise<void> {
+    let dataContainer: string;
+    try {
+      const { stdout } = await execFileAsync('xcrun', [
+        'simctl',
+        'get_app_container',
+        udid,
+        bundleId,
+        'data',
+      ]);
+      dataContainer = stdout.trim();
+    } catch {
+      // App isn't installed — nothing to wipe.
+      return;
+    }
+    if (!dataContainer || !fs.existsSync(dataContainer)) return;
+
+    for (const sub of ['Library', 'Documents', 'tmp']) {
+      const p = path.join(dataContainer, sub);
+      if (fs.existsSync(p)) {
+        try {
+          fs.rmSync(p, { recursive: true, force: true });
+        } catch {
+          // best-effort; partial wipe is still better than a 10s reinstall
+        }
+      }
+    }
   }
 
   async launch(udid: string, bundleId: string, env: Record<string, string> = {}): Promise<void> {

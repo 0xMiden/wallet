@@ -42,7 +42,7 @@ const propsPerButtonVariant = {
     // bg-gray-50 maps to --color-surface-tertiary → #f3f3f3 / #333333.
     backgroundColor: 'bg-[#E9E4E4] dark:bg-gray-50',
     hoverBackgroundColor: 'hover:bg-[#DDD8D8] dark:hover:bg-[#3f3f3f]',
-    disabledBackgroundColor: 'bg-grey-200',
+    disabledBackgroundColor: 'bg-gray-50',
     iconColor: 'black',
     border: 'border-[0.5px] border-transparent'
   },
@@ -50,17 +50,17 @@ const propsPerButtonVariant = {
     color: 'text-black',
     disabledColor: 'text-grey-400',
     backgroundColor: 'bg-transparent',
-    hoverBackgroundColor: 'hover:bg-grey-50',
-    disabledBackgroundColor: 'bg-grey-200',
+    hoverBackgroundColor: 'hover:bg-gray-100',
+    disabledBackgroundColor: 'bg-gray-50',
     iconColor: 'black',
-    border: 'border-[#0000004D] border-[0.5px]'
+    border: 'border-border-card border-[0.5px]'
   },
   [ButtonVariant.Danger]: {
     color: 'text-pure-white',
     disabledColor: 'text-grey-400',
     backgroundColor: 'bg-red-500',
     hoverBackgroundColor: 'hover:bg-red-600',
-    disabledBackgroundColor: 'bg-grey-200',
+    disabledBackgroundColor: 'bg-gray-50',
     iconColor: 'white',
     border: 'border-[0.5px] border-transparent'
   }

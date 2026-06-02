@@ -3,14 +3,22 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-import { GeneratingTransactionPage } from './GeneratingTransaction';
+import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+jest.mock('lib/platform', () => ({
+  isMobile: jest.fn(() => false),
+  isExtension: jest.fn(() => false)
+}));
+
 jest.mock('app/atoms/CircularProgress', () => () => null);
-jest.mock('components/Alert', () => ({ Alert: () => null, AlertVariant: { Warning: 'Warning' } }));
+jest.mock('components/Alert', () => ({
+  Alert: ({ title }: { title: string }) => <div data-testid="alert">{title}</div>,
+  AlertVariant: { Warning: 'Warning' }
+}));
 jest.mock('components/Button', () => ({ Button: () => null, ButtonVariant: {} }));
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
@@ -142,5 +150,156 @@ describe('GeneratingTransactionPage interval cleanup', () => {
 
     act(() => root.unmount());
     expect(clearIntervalSpy).toHaveBeenCalled();
+  });
+});
+
+describe('GeneratingTransaction stage + state rendering', () => {
+  beforeAll(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  });
+
+  afterAll(() => {
+    delete (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  });
+
+  const renderInto = async (element: React.ReactElement) => {
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(element);
+    });
+    return { container, root };
+  };
+
+  it.each([
+    ['syncing', undefined, 'transactionStageSyncing', 'transactionStageSyncingDescription'],
+    ['sending', 'send', 'transactionStageSending', 'transactionStageSendingDescription'],
+    ['sending', 'consume', 'transactionStageClaiming', 'transactionStageSendingDescription'],
+    ['sending', 'execute', 'transactionStageExecuting', 'transactionStageSendingDescription'],
+    ['confirming', undefined, 'transactionStageConfirming', 'transactionStageConfirmingDescription'],
+    ['delivering', undefined, 'transactionStageDelivering', 'transactionStageDeliveringDescription']
+  ])('renders stage %s (type=%s) with correct labels', async (stage, type, titleKey, descKey) => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage={stage as any}
+        activeType={type as any}
+      />
+    );
+    expect(container.textContent).toContain(titleKey);
+    expect(container.textContent).toContain(descKey);
+    act(() => root.unmount());
+  });
+
+  it('renders fallback labels when no activeStage', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} />
+    );
+    expect(container.textContent).toContain('generatingTransaction');
+    expect(container.textContent).toContain('generatingTransactionDescription');
+    act(() => root.unmount());
+  });
+
+  it('renders success state when transactionComplete + no errors', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+    );
+    expect(container.textContent).toContain('transactionCompleted');
+    expect(container.textContent).toContain('transactionSuccessDescription');
+    act(() => root.unmount());
+  });
+
+  it('renders failure state with single-failure description', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors failedCount={1} />
+    );
+    expect(container.textContent).toContain('transactionFailed');
+    expect(container.textContent).toContain('transactionErrorDescription');
+    act(() => root.unmount());
+  });
+
+  it('renders failure state with multiple-failure description', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors failedCount={3} />
+    );
+    expect(container.textContent).toContain('multipleTransactionsFailed');
+    act(() => root.unmount());
+  });
+
+  it('renders batch subtitle when more than one tx is in flight', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} remainingCount={3} />
+    );
+    expect(container.textContent).toContain('transactionsRemainingInBatch');
+    act(() => root.unmount());
+  });
+
+  it('omits batch subtitle when only one tx in flight', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} remainingCount={1} />
+    );
+    expect(container.textContent).not.toContain('transactionsRemainingInBatch');
+    act(() => root.unmount());
+  });
+
+  it('renders the View on Midenscan button and wires it to onViewExplorer on success', async () => {
+    const onViewExplorer = jest.fn();
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors={false}
+        onViewExplorer={onViewExplorer}
+      />
+    );
+
+    expect(container.textContent).toContain('viewOnMidenscan');
+    const button = container.querySelector('button') as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    act(() => {
+      button.click();
+    });
+    expect(onViewExplorer).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it('omits the View on Midenscan button when no onViewExplorer is provided', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+    );
+    expect(container.textContent).not.toContain('viewOnMidenscan');
+    act(() => root.unmount());
+  });
+
+  it('omits the View on Midenscan button on failure even when onViewExplorer is provided', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        failedCount={1}
+        onViewExplorer={jest.fn()}
+      />
+    );
+    expect(container.textContent).not.toContain('viewOnMidenscan');
+    act(() => root.unmount());
+  });
+
+  it('renders the "navigate home" warning alert when keepOpen is true (desktop, in-flight)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen />
+    );
+    expect(container.textContent).toContain('doNotCloseWindowNavigateHome');
+    act(() => root.unmount());
+  });
+
+  it('renders the "auto-close" warning alert when keepOpen is false (desktop, in-flight)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen={false} />
+    );
+    expect(container.textContent).toContain('doNotCloseWindowAutoClose');
+    act(() => root.unmount());
   });
 });

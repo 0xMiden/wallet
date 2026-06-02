@@ -119,7 +119,7 @@ export const SeedWordInput: FC<SeedWordInputProps> = ({
             'absolute',
             'w-full',
             'cursor-pointer flex items-center justify-center',
-            'bg-gray-800/80 rounded-lg'
+            'bg-chip-bg rounded-lg'
           )}
           style={{ top: 20, height: 52 }}
           onClick={() => {
@@ -127,7 +127,7 @@ export const SeedWordInput: FC<SeedWordInputProps> = ({
             setShowSeed(true);
           }}
         >
-          <p className={classNames('flex items-center', 'text-gray-500 text-sm')}>
+          <p className={classNames('flex items-center', 'text-text-muted text-sm')}>
             <LockAltIcon className={classNames('mr-1', 'h-6 w-auto', 'stroke-current stroke-2')} />
             <span>{t('clickToReveal')}</span>
           </p>

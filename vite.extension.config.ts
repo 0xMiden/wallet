@@ -96,25 +96,24 @@ function copyPublicAssets(outDir: string): Plugin {
       // (shown in the browser toolbar pin/pop-out row). Swap is done at
       // manifest-write time so the source manifest stays canonical and we
       // don't have to duplicate the vendor-key machinery.
+      //
+      // Also suffix the display name with "(Devnet)" so the extension is
+      // labeled as such in chrome://extensions/, the toolbar tooltip, and
+      // the app launcher. The source manifest stays canonical.
       if (MIDEN_NETWORK === 'devnet') {
         const swap = (path: string) =>
-          path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) =>
-            `logo-devnet${suffix ?? ''}.png`
-          );
+          path.replace(/logo-white-bg(-\d+)?\.png$/, (_, suffix) => `logo-devnet${suffix ?? ''}.png`);
         const swapIconDict = (dict: Record<string, string> | undefined) =>
-          dict
-            ? Object.fromEntries(
-                Object.entries(dict).map(([k, v]) => [k, swap(String(v))])
-              )
-            : dict;
+          dict ? Object.fromEntries(Object.entries(dict).map(([k, v]) => [k, swap(String(v))])) : dict;
         if (transformed.icons) transformed.icons = swapIconDict(transformed.icons);
         if (transformed.action?.default_icon) {
           transformed.action.default_icon = swapIconDict(transformed.action.default_icon);
         }
         if (transformed.browser_action?.default_icon) {
-          transformed.browser_action.default_icon = swapIconDict(
-            transformed.browser_action.default_icon
-          );
+          transformed.browser_action.default_icon = swapIconDict(transformed.browser_action.default_icon);
+        }
+        if (typeof transformed.name === 'string' && !transformed.name.includes('Devnet')) {
+          transformed.name = `${transformed.name} (Devnet)`;
         }
       }
 
@@ -149,7 +148,7 @@ function copyPublicAssets(outDir: string): Plugin {
           cpSync(sdkWasm, join(assetsDir, 'miden_client_web.wasm'));
         }
       }
-    },
+    }
   };
 }
 
@@ -177,7 +176,7 @@ function swPatches(): Plugin {
           chunk.code = chunk.code.replace(/^await /gm, '/* tla-stripped */ ');
         }
       }
-    },
+    }
   };
 }
 
@@ -192,7 +191,7 @@ function svgStubForBackground(): Plugin {
       if (id.endsWith('.svg') && this.getModuleInfo?.(id)?.isEntry === false) {
         return 'export const ReactComponent = () => null; export default "";';
       }
-    },
+    }
   };
 }
 
@@ -207,7 +206,7 @@ const sharedAlias = {
   components: resolve(__dirname, 'src/components'),
   screens: resolve(__dirname, 'src/screens'),
   utils: resolve(__dirname, 'src/utils'),
-  stories: resolve(__dirname, 'src/stories'),
+  stories: resolve(__dirname, 'src/stories')
 };
 
 const sharedDefine = {
@@ -215,9 +214,12 @@ const sharedDefine = {
   'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
   'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
+  'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
-  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+  'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
+  'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
+  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };
 
 export default defineConfig({
@@ -242,20 +244,24 @@ export default defineConfig({
         const { readFileSync } = await import('fs');
         const svgContent = readFileSync(filePath, 'utf8');
         const { transform } = await import('@svgr/core');
-        const jsxCode = await transform(svgContent, {
-          plugins: ['@svgr/plugin-jsx'],
-          exportType: 'named',
-          namedExport: 'ReactComponent',
-          jsxRuntime: 'automatic',
-          prettier: false,
-          svgo: false,
-          titleProp: true,
-          ref: true,
-        }, { filePath });
+        const jsxCode = await transform(
+          svgContent,
+          {
+            plugins: ['@svgr/plugin-jsx'],
+            exportType: 'named',
+            namedExport: 'ReactComponent',
+            jsxRuntime: 'automatic',
+            prettier: false,
+            svgo: false,
+            titleProp: true,
+            ref: true
+          },
+          { filePath }
+        );
         const code = jsxCode + '\nexport default "";';
         // Return as JSX so Vite/Rolldown transforms it to JS
         return { code, moduleType: 'jsx' };
-      },
+      }
     } satisfies Plugin,
     wasm(),
     // Polyfill Node built-ins used by crypto/stream libraries (readable-stream uses util.debuglog)
@@ -263,20 +269,19 @@ export default defineConfig({
     // to avoid injecting fake document/window that break React's CSS animation detection.
     nodePolyfills({
       include: ['util', 'stream', 'assert', 'buffer', 'process'],
-      globals: { Buffer: false, process: false },
+      globals: { Buffer: false, process: false }
     }),
     // Extension HTML fixes
     {
       name: 'extension-html-fixes',
       enforce: 'post',
       transformIndexHtml(html) {
-        return html
-          .replace(/ crossorigin/g, '')
-          // Inject process global via external script (inline scripts blocked by CSP)
-          .replace(
-            '<script type="module"',
-            '<script src="/globals.js"></script>\n    <script type="module"'
-          );
+        return (
+          html
+            .replace(/ crossorigin/g, '')
+            // Inject process global via external script (inline scripts blocked by CSP)
+            .replace('<script type="module"', '<script src="/globals.js"></script>\n    <script type="module"')
+        );
       },
       // Inject global React + Buffer for CJS dependencies that expect them.
       // Rolldown's CJS-to-ESM interop scopes `var React = require_react()` inside
@@ -291,9 +296,9 @@ export default defineConfig({
             'var React = $1; globalThis.React = globalThis.React || React;'
           );
         }
-      },
+      }
     } satisfies Plugin,
-    copyPublicAssets(resolve(__dirname, OUTPUT_DIR)),
+    copyPublicAssets(resolve(__dirname, OUTPUT_DIR))
   ],
 
   // Disable Vite's built-in public dir handling -- our copyPublicAssets plugin
@@ -316,22 +321,24 @@ export default defineConfig({
         confirm: resolve(__dirname, 'confirm.html'),
         options: resolve(__dirname, 'options.html'),
         sidepanel: resolve(__dirname, 'sidepanel.html'),
-        // Content scripts (need to be standalone JS files)
-        contentScript: resolve(__dirname, 'src/contentScript.ts'),
-        addToWindow: resolve(__dirname, 'src/addToWindow.ts'),
+        // Offscreen prover (chrome.offscreen.createDocument target). Hidden
+        // doc the SW spawns so it can run a wasm-bindgen-rayon thread pool
+        // (SWs can't spawn Workers themselves). See src/offscreen/main.ts.
+        offscreen: resolve(__dirname, 'offscreen.html')
         // NOTE: background is built separately via vite.background.config.ts
-        // because it needs inlineDynamicImports (import() is banned in SWs)
+        // because it needs inlineDynamicImports (import() is banned in SWs).
+        // Content scripts (contentScript, addToWindow) are built separately
+        // via vite.contentScripts.config.ts because Chrome MV3 content scripts
+        // run as classic scripts and cannot use ES-module `import` statements.
       },
       output: {
-        entryFileNames: (chunkInfo) => {
-          // Content scripts and background need fixed names
-          if (chunkInfo.name === 'contentScript') return 'contentScript.js';
-          if (chunkInfo.name === 'addToWindow') return 'addToWindow.js';
+        entryFileNames: chunkInfo => {
+          // background is emitted here by its own config; keep the fixed name
           if (chunkInfo.name === 'background') return 'background.js';
           return '[name].js';
         },
         chunkFileNames: 'chunks/[name].[hash].js',
-        assetFileNames: (assetInfo) => {
+        assetFileNames: assetInfo => {
           if (assetInfo.names?.[0]?.endsWith('.wasm')) {
             return 'static/wasm/[name].[hash][extname]';
           }
@@ -339,34 +346,49 @@ export default defineConfig({
             return 'static/styles/[name][extname]';
           }
           return 'static/media/[name].[hash][extname]';
-        },
-      },
-    },
+        }
+      }
+    }
   },
 
   worker: {
-    format: 'es',
+    format: 'es'
   },
 
   resolve: {
+    // See vite.background.config.ts comment — same reason: the mt-wasm SDK
+    // is symlinked, and we need module resolution to walk through the
+    // symlink path (where the wallet's node_modules is reachable) rather
+    // than the real path (where peer packages like vite-plugin-node-polyfills
+    // aren't installed).
+    preserveSymlinks: true,
     alias: {
       ...sharedAlias,
+      // Chrome extension pages get cross-origin isolation from the
+      // manifest's declared COOP=`same-origin` + COEP=`require-corp`,
+      // so we use the multi-threaded SDK build for ~3-5× faster proving.
+      // Aliases the wallet's own `@miden-sdk/miden-sdk/lazy` imports to
+      // `/mt/lazy`. The wallet's `@miden-sdk/react/lazy` imports are
+      // not aliased — instead, vite catches their transitive SDK imports
+      // through this same alias, so the React-SDK bundle ends up wired
+      // to the MT WASM via the same path. Mobile (vite.mobile.config.ts)
+      // deliberately omits the alias because Capacitor / WKWebView /
+      // Android WebView don't expose cross-origin isolation — mobile
+      // uses delegated proving and the ST WASM is what loads.
+      //
+      // Depends on `@miden-sdk/miden-sdk` ≥ 0.14.5 (web-sdk PR #134) for
+      // the `/mt/lazy` subpath. Wallet's pin is still 0.14.4 because
+      // 0.14.5 isn't published yet — bump after that PR ships and the
+      // build:chrome step turns green.
+      '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy',
       // Ensure consistent React instance across all imports
       react: resolve(__dirname, 'node_modules/react'),
       'react-dom': resolve(__dirname, 'node_modules/react-dom'),
       // Node module polyfills for browser context
       buffer: 'buffer',
       stream: 'stream-browserify',
-      assert: 'assert',
-      // The SDK's package.json exports field only lists "."; alias a
-      // virtual specifier through to the wasm-loader file directly so
-      // `ensureSdkWasmReady` can call it without tripping Rolldown's
-      // exports-map enforcement. See lib/miden-chain/constants.ts.
-      'sdk-wasm-loader': resolve(
-        __dirname,
-        'node_modules/@miden-sdk/miden-sdk/dist/wasm.js'
-      ),
-    },
+      assert: 'assert'
+    }
   },
 
   define: {
@@ -374,12 +396,12 @@ export default defineConfig({
     // Provide process.browser for libraries that check it
     'process.browser': 'true',
     // Global process object for compatibility
-    'global': 'globalThis',
+    global: 'globalThis'
   },
 
   css: {
     modules: {
-      generateScopedName: '[path][name]__[local]--[hash:base64:5]',
-    },
-  },
+      generateScopedName: '[path][name]__[local]--[hash:base64:5]'
+    }
+  }
 });

@@ -8,8 +8,8 @@ import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/send-new.svg';
 import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { TestIDProps } from 'lib/analytics';
-import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import { useNetwork } from 'lib/miden/front';
+import { getFaucetUrl } from 'lib/miden-chain/faucet';
 import { openFaucetWebview } from 'lib/mobile/faucet-webview';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -133,7 +133,7 @@ export const ActionButtons = ({ address, claimableCount = 0 }: { address: string
   }, [network.id, t, address]);
 
   return (
-    <div className={classNames('flex w-full gap-3 items-center justify-evenly py-4 border-y border-grey-300/20')}>
+    <div className={classNames('flex w-full gap-3 items-center justify-evenly py-4 border-y border-border-light')}>
       {ACTION_BUTTONS(t, handleFaucetClick).map(props => (
         <div key={props.type} className="relative flex-1 overflow-visible">
           <ActionButton {...props} />

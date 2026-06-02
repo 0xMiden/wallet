@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Miden Wallet",
-  "version": "1.14.2",
+  "version": "1.14.4",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
@@ -13,7 +13,7 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Miden Wallet",
 
-  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "sidePanel"],
+  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "sidePanel", "offscreen"],
   "host_permissions": [
     "http://localhost/*",
     "https://*.miden.fi/*",

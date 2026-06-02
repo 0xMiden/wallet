@@ -60,7 +60,6 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const onPasswordVisibilityToggle = useCallback(() => {
     setIsPasswordVisible(prev => !prev);
   }, []);
-
   const [timeleft, setTimeleft] = useState(getTimeLeft(timelock, lockLevel));
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);

@@ -75,6 +75,7 @@ export const useWalletStore = create<WalletStore>()(
     isTransactionModalDismissedByUser: false,
     isDappBrowserOpen: false,
     activeDappSessionId: null,
+    lastCompletedTxHash: null,
 
     // Initial note toast state (mobile only)
     seenNoteIds: new Set<string>(),
@@ -134,11 +135,12 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
-        mnemonic
+        mnemonic,
+        walletAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },
@@ -217,6 +219,26 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.RevealMnemonicResponse);
       return res.mnemonic;
+    },
+
+    revealPrivateKey: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealPrivateKeyRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealPrivateKeyResponse);
+      return res.privateKey;
+    },
+
+    importAccount: async (privateKey, name) => {
+      const res = await request({
+        type: WalletMessageType.ImportAccountRequest,
+        privateKey,
+        name
+      });
+      assertResponse(res.type === WalletMessageType.ImportAccountResponse);
+      return res.accountPublicKey;
     },
 
     // Settings actions
@@ -474,18 +496,27 @@ export const useWalletStore = create<WalletStore>()(
 
     // Transaction modal actions
     openTransactionModal: () => {
-      // Reset dismissed flag when explicitly opening the modal (new transaction initiated)
+      // Reset dismissed flag when explicitly opening the modal (new transaction initiated).
+      // Note: `lastCompletedTxHash` is intentionally NOT cleared here — SendManager
+      // calls `openTransactionModal()` a second time after a successful completion
+      // (via the GenerateTransaction action), and clearing would wipe the hash we
+      // just set. Clearing happens on `closeTransactionModal` and at the start of
+      // a fresh send in `SendManager.onSubmit`.
       set({ isTransactionModalOpen: true, isTransactionModalDismissedByUser: false });
     },
     closeTransactionModal: (dismissedByUser = false) => {
       set({
         isTransactionModalOpen: false,
         // Track if user explicitly dismissed (prevents auto-reopen until transactions complete)
-        isTransactionModalDismissedByUser: dismissedByUser
+        isTransactionModalDismissedByUser: dismissedByUser,
+        lastCompletedTxHash: null
       });
     },
     resetTransactionModalDismiss: () => {
       set({ isTransactionModalDismissedByUser: false });
+    },
+    setLastCompletedTxHash: (txHash: string | null) => {
+      set({ lastCompletedTxHash: txHash });
     },
 
     // DApp browser state (mobile only)
@@ -590,4 +621,32 @@ export const selectIsIdle = (state: WalletStore) => state.status === WalletStatu
 if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
+  // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
+  // synthetic metadata for the CLI-deployed test faucet (whose on-chain
+  // procedure layout the SDK can't parse, so the real metadata RPC fails
+  // and the wallet's `attachMetadataToNotes` hides the consumable note).
+  // The CLI returns hex; the wallet's parsed note `faucetId` is bech32;
+  // mismatch → injection misses. Eager-import the SDK at module-init so
+  // by the time the test runs, the hook is sync and the WASM is ready.
+  // Dynamic-import inside the call (used to live here) contended with the
+  // wallet's own WASM lock and serialized behind in-flight SDK calls,
+  // blowing past the 30s WebDriver execute_async_script budget.
+  void (async () => {
+    try {
+      const sdk = await import('@miden-sdk/miden-sdk/lazy');
+      (globalThis as any).__TEST_HEX_TO_BECH32_FAUCET__ = (
+        hex: string,
+        network: 'testnet' | 'devnet' = 'testnet'
+      ): string => {
+        const id = sdk.AccountId.fromHex(hex);
+        const netId = network === 'devnet' ? sdk.NetworkId.devnet() : sdk.NetworkId.testnet();
+        return sdk.Address.fromAccountId(id, 'BasicWallet').toBech32(netId);
+      };
+    } catch (e) {
+      // E2E-only path; failure here just means the iOS metadata-injection
+      // workaround won't work and we'd hit the original symptom (note
+      // hidden by attachMetadataToNotes filter).
+      console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
+    }
+  })();
 }

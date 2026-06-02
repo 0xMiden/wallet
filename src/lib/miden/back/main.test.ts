@@ -63,6 +63,10 @@ jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub')
 }));
 
+jest.mock('lib/miden-chain/native-asset', () => ({
+  primeNativeAssetId: jest.fn()
+}));
+
 jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn(),
   getFrontState: jest.fn(),
@@ -73,6 +77,7 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn(),
   updateCurrentAccount: jest.fn(),
   revealMnemonic: jest.fn(),
+  revealPrivateKey: jest.fn(),
   removeAccount: jest.fn(),
   editAccount: jest.fn(),
   importAccount: jest.fn(),
@@ -98,6 +103,8 @@ beforeEach(async () => {
   Actions.isDAppEnabled.mockResolvedValue(true);
   Actions.getFrontState.mockResolvedValue({ status: 'Ready', accounts: [] });
   Actions.revealMnemonic.mockResolvedValue('the mnemonic');
+  Actions.revealPrivateKey.mockResolvedValue('deadbeef');
+  Actions.importAccount.mockResolvedValue('mtst1imported-pk');
   Actions.signTransaction.mockResolvedValue('hex-signature');
   Actions.getAuthSecretKey.mockResolvedValue('secret-key');
   Actions.getAllDAppSessions.mockResolvedValue({});
@@ -241,9 +248,10 @@ describe('processRequest', () => {
     const res = await dispatch({
       type: WalletMessageType.ImportFromClientRequest,
       password: 'pw',
-      mnemonic: 'm'
+      mnemonic: 'm',
+      walletAccounts: []
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm');
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', []);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 
@@ -281,7 +289,7 @@ describe('processRequest', () => {
     expect(res.mnemonic).toBe('the mnemonic');
   });
 
-  it('RemoveAccountRequest / EditAccountRequest / ImportAccountRequest delegate to Actions', async () => {
+  it('RemoveAccountRequest / EditAccountRequest delegate to Actions', async () => {
     await dispatch({
       type: WalletMessageType.RemoveAccountRequest,
       accountPublicKey: 'pk',
@@ -292,14 +300,30 @@ describe('processRequest', () => {
       accountPublicKey: 'pk',
       name: 'new-name'
     });
-    await dispatch({
-      type: WalletMessageType.ImportAccountRequest,
-      privateKey: 'priv',
-      encPassword: 'epw'
-    });
     expect(Actions.removeAccount).toHaveBeenCalledWith('pk', 'pw');
     expect(Actions.editAccount).toHaveBeenCalledWith('pk', 'new-name');
-    expect(Actions.importAccount).toHaveBeenCalledWith('priv', 'epw');
+  });
+
+  it('ImportAccountRequest delegates to Actions and returns new public key', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.ImportAccountRequest,
+      privateKey: 'priv',
+      name: 'My Account'
+    });
+    expect(Actions.importAccount).toHaveBeenCalledWith('priv', 'My Account');
+    expect(res.type).toBe(WalletMessageType.ImportAccountResponse);
+    expect(res.accountPublicKey).toBe('mtst1imported-pk');
+  });
+
+  it('RevealPrivateKeyRequest returns the private key from Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.RevealPrivateKeyRequest,
+      accountPublicKey: 'pk-commitment',
+      password: 'pw'
+    });
+    expect(Actions.revealPrivateKey).toHaveBeenCalledWith('pk-commitment', 'pw');
+    expect(res.type).toBe(WalletMessageType.RevealPrivateKeyResponse);
+    expect(res.privateKey).toBe('deadbeef');
   });
 
   it('UpdateSettingsRequest forwards settings to Actions', async () => {

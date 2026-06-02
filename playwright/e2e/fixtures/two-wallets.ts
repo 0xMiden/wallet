@@ -7,16 +7,16 @@ import { getEnvironmentConfig } from '../config/environments';
 import { attachConsoleCapture } from '../harness/browser-capture';
 import { CLIRunner } from '../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
-import { attachNetworkCapture } from '../harness/network-capture';
+import {
+  SW_FETCH_LOG_PREFIX,
+  attachNetworkCapture,
+  attachPageWorkersCapture,
+  attachServiceWorkerFetchCapture
+} from '../harness/network-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
-import type {
-  DebugSession,
-  EnvironmentConfig,
-  SerializedWalletState,
-  SnapshotCaps,
-} from '../harness/types';
+import type { DebugSession, EnvironmentConfig, SerializedWalletState, SnapshotCaps } from '../harness/types';
 import { MidenCli, resolveCliPath } from '../helpers/miden-cli';
 import { ChromeWalletPage, type ChromeWalletPageApi } from '../helpers/wallet-page';
 
@@ -43,9 +43,7 @@ function getExtensionPath(): string {
   const extensionPath = process.env.EXTENSION_DIST ?? DEFAULT_EXTENSION_PATH;
   const manifestPath = path.join(extensionPath, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
-    throw new Error(
-      `Extension not found at ${extensionPath}. Run "yarn test:e2e:blockchain:build" first.`
-    );
+    throw new Error(`Extension not found at ${extensionPath}. Run "yarn test:e2e:blockchain:build" first.`);
   }
   return extensionPath;
 }
@@ -60,19 +58,14 @@ function getRunOutputDir(testId: string): string {
  * Closes over the Page + BrowserContext + extensionId so test-step.ts can
  * stay runtime-agnostic.
  */
-function buildChromeSnapshotCaps(
-  page: Page,
-  context: BrowserContext,
-  extensionId: string
-): SnapshotCaps {
+function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionId: string): SnapshotCaps {
   return {
     platform: 'chrome',
     runtimeVersion: context.browser()?.version() ?? '',
     extensionId,
     readStore: () =>
       page.evaluate((): SerializedWalletState | null => {
-        const store = (window as { __TEST_STORE__?: { getState(): SerializedWalletState } })
-          .__TEST_STORE__;
+        const store = (window as { __TEST_STORE__?: { getState(): SerializedWalletState } }).__TEST_STORE__;
         if (!store) return null;
         const s = store.getState();
         return {
@@ -81,25 +74,20 @@ function buildChromeSnapshotCaps(
           currentAccount: s.currentAccount
             ? { publicKey: s.currentAccount.publicKey, name: s.currentAccount.name }
             : null,
-          balances: s.balances,
+          balances: s.balances
         };
       }),
-    hasIntercom: () =>
-      page.evaluate(() => Boolean((window as { __TEST_INTERCOM__?: unknown }).__TEST_INTERCOM__)),
+    hasIntercom: () => page.evaluate(() => Boolean((window as { __TEST_INTERCOM__?: unknown }).__TEST_INTERCOM__)),
     serviceWorkerStatus: async () => {
       const workers = context.serviceWorkers();
       const extensionWorker = workers.find(w => new URL(w.url()).host === extensionId);
       return extensionWorker ? 'active' : 'inactive';
     },
-    currentUrl: async () => page.url(),
+    currentUrl: async () => page.url()
   };
 }
 
-async function launchWalletInstance(
-  label: 'A' | 'B',
-  extensionPath: string,
-  timeline: TimelineRecorder
-) {
+async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, timeline: TimelineRecorder) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `miden-wallet-${label}-`));
 
   const context = await chromium.launchPersistentContext(userDataDir, {
@@ -108,9 +96,9 @@ async function launchWalletInstance(
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
       '--no-first-run',
-      '--no-default-browser-check',
+      '--no-default-browser-check'
     ],
-    ignoreDefaultArgs: ['--disable-extensions'],
+    ignoreDefaultArgs: ['--disable-extensions']
   });
 
   // Wait for the service worker to register.
@@ -126,7 +114,7 @@ async function launchWalletInstance(
     }
     if (!serviceWorker) {
       serviceWorker = await context.waitForEvent('serviceworker', {
-        timeout: 30_000,
+        timeout: 30_000
       });
     }
   }
@@ -135,14 +123,18 @@ async function launchWalletInstance(
   // Attach observability
   attachConsoleCapture(context, label, timeline);
 
-  // Capture service worker console (crucial for diagnosing WASM init)
+  // Capture service worker console (crucial for diagnosing WASM init).
+  // Fetch-wrapper sentinel lines are demuxed by attachServiceWorkerFetchCapture
+  // into the network_request category, so skip them here to avoid duplication.
   serviceWorker.on('console', (msg: any) => {
+    const text = msg.text();
+    if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
     timeline.emit({
       category: 'browser_console',
       severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
       wallet: label,
-      message: `[${label}-SW] ${msg.type()}: ${msg.text()}`,
-      data: { source: 'service_worker', type: msg.type(), text: msg.text() },
+      message: `[${label}-SW] ${msg.type()}: ${text}`,
+      data: { source: 'service_worker', type: msg.type(), text }
     });
   });
 
@@ -154,10 +146,35 @@ async function launchWalletInstance(
         (self as any).__e2e_errors.push('error: ' + (e.message || String(e)));
       });
       self.addEventListener('unhandledrejection', (e: any) => {
-        (self as any).__e2e_errors.push('rejection: ' + String(e.reason?.stack || e.reason?.message || e.reason || 'unknown'));
+        (self as any).__e2e_errors.push(
+          'rejection: ' + String(e.reason?.stack || e.reason?.message || e.reason || 'unknown')
+        );
       });
     });
   } catch {}
+
+  // Instrument SW fetch for network_request capture (prover + SDK RPCs
+  // originate here and are invisible to page- or context-level events).
+  await attachServiceWorkerFetchCapture(serviceWorker, label, timeline);
+
+  // MV3 suspends and resumes the SW unpredictably. The injected fetch
+  // wrapper survives within a single SW lifetime but is lost on restart;
+  // re-install on every new SW target for this context.
+  context.on('serviceworker', async newWorker => {
+    if (new URL(newWorker.url()).host !== extensionId) return;
+    newWorker.on('console', (msg: any) => {
+      const text = msg.text();
+      if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
+      timeline.emit({
+        category: 'browser_console',
+        severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
+        wallet: label,
+        message: `[${label}-SW] ${msg.type()}: ${text}`,
+        data: { source: 'service_worker', type: msg.type(), text }
+      });
+    });
+    await attachServiceWorkerFetchCapture(newWorker, label, timeline);
+  });
 
   // After a delay, probe the SW for errors and state
   const probeDelay = 15_000;
@@ -165,14 +182,14 @@ async function launchWalletInstance(
     try {
       const probe = await serviceWorker.evaluate(() => ({
         errors: (self as any).__e2e_errors?.slice(0, 10) || [],
-        hasBackground: typeof (self as any).__background_started !== 'undefined',
+        hasBackground: typeof (self as any).__background_started !== 'undefined'
       }));
       if (probe.errors.length > 0) {
         timeline.emit({
           category: 'error',
           severity: 'error',
           wallet: label,
-          message: `[${label}-SW] Unhandled errors after ${probeDelay}ms: ${probe.errors.join(' | ')}`,
+          message: `[${label}-SW] Unhandled errors after ${probeDelay}ms: ${probe.errors.join(' | ')}`
         });
       }
     } catch {}
@@ -195,7 +212,11 @@ async function launchWalletInstance(
     if (p !== page) await p.close().catch(() => {});
   }
 
-  attachNetworkCapture(page, label, timeline);
+  attachNetworkCapture(context, label, timeline);
+  // SDK spawns a web worker (web-client-methods-worker.js) that runs the WASM
+  // prove/sync/submit RPCs; its fetches are invisible to page- and SW-scoped
+  // capture. Instrument every current + future worker this page spawns.
+  attachPageWorkersCapture(page, label, timeline);
 
   const earlyErrors: string[] = [];
   page.on('console', msg => {
@@ -213,12 +234,13 @@ async function launchWalletInstance(
       category: 'test_lifecycle',
       severity: 'info',
       wallet: label,
-      message: `Waiting for wallet ${label} to initialize (attempt ${attempt}/${MAX_LOAD_ATTEMPTS})...`,
+      message: `Waiting for wallet ${label} to initialize (attempt ${attempt}/${MAX_LOAD_ATTEMPTS})...`
     });
 
     try {
       // Wait for either the onboarding welcome screen OR the main Explore page.
-      await page.locator('[data-testid="onboarding-welcome"]')
+      await page
+        .locator('[data-testid="onboarding-welcome"]')
         .or(page.locator('[data-testid="receive-page"]'))
         .or(page.getByText('Send'))
         .first()
@@ -228,21 +250,21 @@ async function launchWalletInstance(
         category: 'test_lifecycle',
         severity: 'info',
         wallet: label,
-        message: `Wallet ${label} initialized on attempt ${attempt}`,
+        message: `Wallet ${label} initialized on attempt ${attempt}`
       });
       break;
     } catch {
       // Probe SW for unhandled errors before giving up or retrying
       try {
         const probe = await serviceWorker.evaluate(() => ({
-          errors: ((self as any).__e2e_errors || []).slice(0, 10),
+          errors: ((self as any).__e2e_errors || []).slice(0, 10)
         }));
         if (probe.errors.length > 0) {
           timeline.emit({
             category: 'error',
             severity: 'error',
             wallet: label,
-            message: `[${label}-SW] Errors captured: ${probe.errors.join(' | ')}`,
+            message: `[${label}-SW] Errors captured: ${probe.errors.join(' | ')}`
           });
         }
       } catch {}
@@ -250,7 +272,7 @@ async function launchWalletInstance(
       if (attempt === MAX_LOAD_ATTEMPTS) {
         throw new Error(
           `Wallet ${label} failed to initialize after ${MAX_LOAD_ATTEMPTS} attempts ` +
-            `(${MAX_LOAD_ATTEMPTS * ATTEMPT_TIMEOUT / 1000}s total). ` +
+            `(${(MAX_LOAD_ATTEMPTS * ATTEMPT_TIMEOUT) / 1000}s total). ` +
             `The service worker WASM init may be hanging. ` +
             `Console errors: ${earlyErrors.join('; ') || 'none'}`
         );
@@ -260,7 +282,7 @@ async function launchWalletInstance(
         severity: 'warn',
         wallet: label,
         message: `Wallet ${label} still loading on attempt ${attempt}, reloading...`,
-        data: { earlyErrors: [...earlyErrors] },
+        data: { earlyErrors: [...earlyErrors] }
       });
       earlyErrors.length = 0;
       // Wait before reload to give the service worker more time to finish WASM init
@@ -276,7 +298,7 @@ async function launchWalletInstance(
     severity: 'info',
     wallet: label,
     message: `Wallet ${label} launched (extension: ${extensionId})`,
-    data: { extensionId, userDataDir },
+    data: { extensionId, userDataDir }
   });
 
   const walletPage = new ChromeWalletPage(page, extensionId, userDataDir);
@@ -300,21 +322,21 @@ function writeDebugSession(
         extensionId: instanceA.extensionId,
         fullpageUrl: `chrome-extension://${instanceA.extensionId}/fullpage.html`,
         cdpUrl: '', // CDP URL not easily available from Playwright persistent context
-        userDataDir: instanceA.userDataDir,
+        userDataDir: instanceA.userDataDir
       },
       B: {
         extensionId: instanceB.extensionId,
         fullpageUrl: `chrome-extension://${instanceB.extensionId}/fullpage.html`,
         cdpUrl: '',
-        userDataDir: instanceB.userDataDir,
-      },
+        userDataDir: instanceB.userDataDir
+      }
     },
     midenCliWorkDir,
     expiresAt: new Date(Date.now() + AGENTIC_TIMEOUT_MS).toISOString(),
     helpers: {
       reloadAndReopen: 'page.evaluate(() => chrome.runtime.reload())',
-      rebuildCmd: 'yarn test:e2e:blockchain:build',
-    },
+      rebuildCmd: 'yarn test:e2e:blockchain:build'
+    }
   };
 
   const sessionPath = path.join(ROOT_DIR, 'test-results', 'debug-session.json');
@@ -369,7 +391,7 @@ export const test = base.extend<TwoWalletFixtures>({
       category: 'test_lifecycle',
       severity: 'info',
       message: `Test started: ${testInfo.title}`,
-      data: { testFile: testInfo.file, testTitle: testInfo.title },
+      data: { testFile: testInfo.file, testTitle: testInfo.title }
     });
 
     await use(timeline);
@@ -378,7 +400,7 @@ export const test = base.extend<TwoWalletFixtures>({
       category: 'test_lifecycle',
       severity: testInfo.status === 'passed' ? 'info' : 'error',
       message: `Test ${testInfo.status}: ${testInfo.title}`,
-      data: { status: testInfo.status, duration: testInfo.duration },
+      data: { status: testInfo.status, duration: testInfo.duration }
     });
 
     await timeline.close();
@@ -404,7 +426,7 @@ export const test = base.extend<TwoWalletFixtures>({
       category: 'test_lifecycle',
       severity: 'info',
       message: `MidenCli initialized (workDir: ${workDir}, binary: ${binaryPath})`,
-      data: { workDir, binaryPath, network: envConfig.name },
+      data: { workDir, binaryPath, network: envConfig.name }
     });
 
     await use(cli);
@@ -417,10 +439,7 @@ export const test = base.extend<TwoWalletFixtures>({
   walletA: async ({ timeline, steps }, use, testInfo) => {
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('A', extensionPath, timeline);
-    steps.registerSnapshotCaps(
-      'A',
-      buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId)
-    );
+    steps.registerSnapshotCaps('A', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
 
     await use(instance.walletPage);
 
@@ -428,7 +447,9 @@ export const test = base.extend<TwoWalletFixtures>({
     if (isAgentic && testInfo.status !== 'passed') {
       // Don't close -- browser stays open for agent inspection
       const timer = setTimeout(async () => {
-        try { await instance.context.close(); } catch {}
+        try {
+          await instance.context.close();
+        } catch {}
       }, AGENTIC_TIMEOUT_MS);
       timer.unref();
     } else {
@@ -440,10 +461,7 @@ export const test = base.extend<TwoWalletFixtures>({
   walletB: async ({ timeline, steps, walletA, midenCli }, use, testInfo) => {
     const extensionPath = getExtensionPath();
     const instance = await launchWalletInstance('B', extensionPath, timeline);
-    steps.registerSnapshotCaps(
-      'B',
-      buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId)
-    );
+    steps.registerSnapshotCaps('B', buildChromeSnapshotCaps(instance.page, instance.context, instance.extensionId));
 
     await use(instance.walletPage);
 
@@ -455,15 +473,11 @@ export const test = base.extend<TwoWalletFixtures>({
         const capsB = steps.walletCaps.B;
 
         const stateA = capsA
-          ? await captureWalletSnapshot(capsA, 'A', timeline.currentStep, 'failure').catch(
-              () => undefined
-            )
+          ? await captureWalletSnapshot(capsA, 'A', timeline.currentStep, 'failure').catch(() => undefined)
           : undefined;
 
         const stateB = capsB
-          ? await captureWalletSnapshot(capsB, 'B', timeline.currentStep, 'failure').catch(
-              () => undefined
-            )
+          ? await captureWalletSnapshot(capsB, 'B', timeline.currentStep, 'failure').catch(() => undefined)
           : undefined;
 
         const err = new Error(testInfo.error.message ?? 'Unknown error');
@@ -476,7 +490,7 @@ export const test = base.extend<TwoWalletFixtures>({
           timeline,
           steps,
           stateAtFailure: { walletA: stateA, walletB: stateB },
-          testTimeoutMs: testInfo.timeout,
+          testTimeoutMs: testInfo.timeout
         });
 
         saveFailureReport(report, reportDir);
@@ -494,11 +508,11 @@ export const test = base.extend<TwoWalletFixtures>({
         path.join(timeline.getOutputDir(), 'report.json'),
         {
           extensionId: walletA.extensionId,
-          userDataDir: walletA.userDataDir,
+          userDataDir: walletA.userDataDir
         },
         {
           extensionId: instance.extensionId,
-          userDataDir: instance.userDataDir,
+          userDataDir: instance.userDataDir
         },
         midenCli.getWorkDir()
       );
@@ -516,7 +530,7 @@ export const test = base.extend<TwoWalletFixtures>({
       await instance.context.close();
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
     }
-  },
+  }
 });
 
 export const expect = test.expect;

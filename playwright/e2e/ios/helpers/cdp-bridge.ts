@@ -33,10 +33,32 @@ export interface CdpConsoleEntry {
  * RemoteDebugger so the rest of the harness only sees a CDP-like surface
  * (eval, evaluate, console).
  */
+export interface CdpStats {
+  evalCount: number;
+  evalMs: number;
+  evalAsyncCount: number;
+  evalAsyncMs: number;
+  evaluateCount: number;
+  evaluateMs: number;
+}
+
 export class CdpSession {
   private consoleListeners: Array<(entry: CdpConsoleEntry) => void> = [];
+  private stats: CdpStats = {
+    evalCount: 0,
+    evalMs: 0,
+    evalAsyncCount: 0,
+    evalAsyncMs: 0,
+    evaluateCount: 0,
+    evaluateMs: 0,
+  };
 
   constructor(private rd: RemoteDebugger) {}
+
+  /** Read the current call stats snapshot. */
+  getStats(): CdpStats {
+    return { ...this.stats };
+  }
 
   /**
    * Evaluate synchronous JavaScript and return the result. The body is the
@@ -48,10 +70,16 @@ export class CdpSession {
    * Promise object itself, not its value.
    */
   async eval<T = unknown>(body: string): Promise<T> {
-    return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-      body,
-      [],
-    ])) as T;
+    const start = Date.now();
+    try {
+      return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
+        body,
+        [],
+      ])) as T;
+    } finally {
+      this.stats.evalCount++;
+      this.stats.evalMs += Date.now() - start;
+    }
   }
 
   /**
@@ -76,10 +104,13 @@ export class CdpSession {
         timeoutMs
       );
     });
+    const start = Date.now();
     try {
       return (await Promise.race([exec, timeout])) as T;
     } finally {
       if (timer) clearTimeout(timer);
+      this.stats.evalAsyncCount++;
+      this.stats.evalAsyncMs += Date.now() - start;
     }
   }
 
@@ -94,29 +125,45 @@ export class CdpSession {
    */
   async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {
     const body = `return (${fn.toString()})();`;
-    return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-      body,
-      [],
-    ])) as T;
+    const start = Date.now();
+    try {
+      return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
+        body,
+        [],
+      ])) as T;
+    } finally {
+      this.stats.evaluateCount++;
+      this.stats.evaluateMs += Date.now() - start;
+    }
   }
 
   /**
    * Subscribe to console.* output from the page. Returns an unsubscribe fn.
+   *
+   * Wire-format note: appium-remote-debugger pre-extracts `params.message`
+   * from `Console.messageAdded` events and passes it as the SECOND listener
+   * argument (the first is an Error, undefined for normal messages). See
+   * `node_modules/appium-remote-debugger/lib/rpc/rpc-message-handler.ts`
+   * case `'Console.messageAdded'`: `args = [params?.message]`, then
+   * `emit(name, error, ...args)`. The previous shape `(event) => event.params.message`
+   * was wrong — `event` was the Error slot, always undefined, so every
+   * console message was silently dropped.
    */
   onConsoleLog(cb: (entry: CdpConsoleEntry) => void): () => void {
     this.consoleListeners.push(cb);
     if (this.consoleListeners.length === 1) {
-      (this.rd as unknown as ConsoleCapable).startConsole((event: WebKitConsoleEvent) => {
-        const m = event?.params?.message;
-        if (!m) return;
-        const entry: CdpConsoleEntry = {
-          level: m.level ?? 'log',
-          text: extractConsoleText(m),
-          ts: m.timestamp ?? Date.now(),
-          source: m.source,
-        };
-        for (const listener of this.consoleListeners) listener(entry);
-      });
+      (this.rd as unknown as ConsoleCapable).startConsole(
+        (_error: Error | undefined, m: WebKitConsoleMessage | undefined) => {
+          if (!m) return;
+          const entry: CdpConsoleEntry = {
+            level: m.level ?? 'log',
+            text: extractConsoleText(m),
+            ts: m.timestamp ?? Date.now(),
+            source: m.source,
+          };
+          for (const listener of this.consoleListeners) listener(entry);
+        }
+      );
     }
     return () => {
       this.consoleListeners = this.consoleListeners.filter(l => l !== cb);
@@ -223,27 +270,25 @@ interface SelectPageCapable {
   selectPage(appKey: string, pageNum: number): Promise<void>;
 }
 interface ConsoleCapable {
-  startConsole(listener: (event: WebKitConsoleEvent) => void): void;
+  startConsole(
+    listener: (error: Error | undefined, message: WebKitConsoleMessage | undefined) => void
+  ): void;
   stopConsole(): void;
 }
 
-interface WebKitConsoleEvent {
-  params?: {
-    message?: {
-      level?: string;
-      text?: string;
-      source?: string;
-      timestamp?: number;
-      parameters?: Array<{ value?: unknown; description?: string }>;
-    };
-  };
+interface WebKitConsoleMessage {
+  level?: string;
+  text?: string;
+  source?: string;
+  timestamp?: number;
+  parameters?: Array<{ value?: unknown; description?: string }>;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-function extractConsoleText(m: NonNullable<WebKitConsoleEvent['params']>['message']): string {
+function extractConsoleText(m: WebKitConsoleMessage | undefined): string {
   if (!m) return '';
   if (m.text) return m.text;
   if (m.parameters) {

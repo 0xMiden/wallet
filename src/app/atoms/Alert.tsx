@@ -36,11 +36,11 @@ const Alert: FC<AlertProps> = ({
   const [bgColorClassName, textColorClassName] = (() => {
     switch (type) {
       case 'success':
-        return ['bg-green-100', 'text-green-700'];
+        return ['bg-green-100 dark:bg-green-500/15', 'text-green-700 dark:text-green-500'];
       case 'warn':
-        return ['bg-yellow-100', 'text-yellow-700'];
+        return ['bg-yellow-100 dark:bg-yellow-600/20', 'text-yellow-700 dark:text-yellow-300'];
       case 'error':
-        return ['bg-red-100', 'text-red-700'];
+        return ['bg-red-100 dark:bg-red-500/15', 'text-red-700 dark:text-red-500'];
     }
   })();
 

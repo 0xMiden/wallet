@@ -70,12 +70,6 @@ export default defineConfig({
       screens: resolve(__dirname, 'src/screens'),
       utils: resolve(__dirname, 'src/utils'),
       stories: resolve(__dirname, 'src/stories'),
-      // See lib/miden-chain/constants.ts — virtual specifier resolved here to
-      // reach the SDK's wasm-loader file that isn't listed in its exports map.
-      'sdk-wasm-loader': resolve(
-        __dirname,
-        'node_modules/@miden-sdk/miden-sdk/dist/wasm.js'
-      ),
     },
   },
 
@@ -83,6 +77,7 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),

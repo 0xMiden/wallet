@@ -1,6 +1,14 @@
 import { derivePath } from '@demox-labs/aleo-hd-key';
 import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
-import { AuthSecretKey, SigningInputs, Word } from '@miden-sdk/miden-sdk';
+import {
+  AccountBuilder,
+  AccountComponent,
+  AccountStorageMode,
+  AccountType,
+  AuthSecretKey,
+  SigningInputs,
+  Word
+} from '@miden-sdk/miden-sdk/lazy';
 import * as Bip39 from 'bip39';
 
 import { getMessage } from 'lib/i18n';
@@ -19,6 +27,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { compareAccountIds } from '../activity/utils';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -55,6 +64,19 @@ const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
 
+const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
+  return async (key: Uint8Array, secretKey: Uint8Array) => {
+    const pubKeyHex = Buffer.from(key).toString('hex');
+    const secretKeyHex = Buffer.from(secretKey).toString('hex');
+    await encryptAndSaveMany(
+      [
+        [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
+        [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
+      ],
+      passKey
+    );
+  };
+};
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
 
@@ -222,23 +244,11 @@ export class Vault {
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
-      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
-        const pubKeyHex = Buffer.from(key).toString('hex');
-        const secretKeyHex = Buffer.from(secretKey).toString('hex');
-        await encryptAndSaveMany(
-          [
-            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
-            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
-          ],
-          vaultKey
-        );
-      };
       const options: MidenClientCreateOptions = {
-        insertKeyCallback
+        insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
       };
       const hdAccIndex = 0;
       const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
-
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const accPublicKey = await withWasmClientLock(async () => {
@@ -288,35 +298,12 @@ export class Vault {
     });
   }
 
-  static async spawnFromMidenClient(password: string, mnemonic: string): Promise<Vault> {
+  static async spawnFromMidenClient(
+    password: string,
+    mnemonic: string,
+    walletAccounts: WalletAccount[]
+  ): Promise<Vault> {
     return withError('Failed to spawn from miden client', async (): Promise<Vault> => {
-      // Wrap WASM client operations in a lock to prevent concurrent access
-      const accounts = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        const accountHeaders = await midenClient.getAccounts();
-        const accts = [];
-
-        // Have to do this sequentially else the wasm fails
-        for (const accountHeader of accountHeaders) {
-          const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
-          accts.push(account);
-        }
-        return accts;
-      });
-
-      const newAccounts = [];
-      for (let i = 0; i < accounts.length; i++) {
-        const acc = accounts[i];
-        if (acc) {
-          newAccounts.push({
-            publicKey: getBech32AddressFromAccountId(acc.id()),
-            name: 'Miden Account ' + (i + 1),
-            isPublic: acc.isPublic(),
-            type: WalletType.OnChain
-          });
-        }
-      }
-
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
@@ -337,20 +324,75 @@ export class Vault {
           throw new PublicError('Hardware security setup failed. Please try again.');
         }
       } else {
+        if (!password) {
+          throw new PublicError('Password is required for password-based vault protection');
+        }
         // Password-based protection (user opted out of biometrics or hardware not available)
         const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
+      }
+
+      // insert keys
+      const options: MidenClientCreateOptions = {
+        insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
+      };
+
+      // Wrap WASM client operations in a lock to prevent concurrent access
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient(options);
+        const accountHeaders = await midenClient.getAccounts();
+
+        // Have to do this sequentially else the wasm fails
+        for (const accountHeader of accountHeaders) {
+          const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
+          if (!account || account.isFaucet() || account.isNetwork()) {
+            continue;
+          }
+          const walletAccount = walletAccounts.find(wa =>
+            compareAccountIds(wa.publicKey, getBech32AddressFromAccountId(account.id()))
+          );
+          if (!walletAccount) {
+            // Account exists in the restored miden-client DB but has no
+            // matching `WalletAccount` entry — either orphan data or (by
+            // design) an imported account the exporter filtered out
+            // because the encrypted-file format can't carry its raw
+            // secret. Skip silently; the account stays invisible in the
+            // wallet UI (which reads from `walletAccounts`).
+            continue;
+          }
+          if (walletAccount.hdIndex < 0) {
+            // Belt-and-suspenders: an imported account's key is NOT
+            // derivable from the mnemonic. Writing `rpoFalconWithRNG`
+            // output into the keystore under its account id would
+            // overwrite any preserved real secret with a garbage key
+            // the vault can never sign with. Skip.
+            continue;
+          }
+          const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
+          const secretKey = AuthSecretKey.rpoFalconWithRNG(walletSeed);
+          await midenClient.client.keystore.insert(account.id(), secretKey);
+        }
+      });
+
+      if (walletAccounts.length === 0) {
+        // The encrypted file had no HD accounts to restore — every
+        // entry was filtered out on export (e.g. a wallet whose only
+        // account was imported). Without at least one owned account
+        // the wallet has no current-account pointer and sign paths
+        // break. Fail clearly rather than crash on the
+        // `walletAccounts[0]!.publicKey` dereference below.
+        throw new PublicError('Encrypted file contains no restorable accounts');
       }
 
       await encryptAndSaveMany(
         [
           [checkStrgKey, generateCheck()],
           [mnemonicStrgKey, mnemonic ?? ''],
-          [accountsStrgKey, newAccounts]
+          [accountsStrgKey, walletAccounts]
         ],
         vaultKey
       );
-      await savePlain(currentAccPubKeyStrgKey, newAccounts[0]!.publicKey);
+      await savePlain(currentAccPubKeyStrgKey, walletAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
       // Return the vault instance so caller doesn't need to call unlock() separately
@@ -385,20 +427,8 @@ export class Vault {
       hdAccIndex = accounts.length;
 
       const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
-
-      const insertKeyCallback = async (key: Uint8Array, secretKey: Uint8Array) => {
-        const pubKeyHex = Buffer.from(key).toString('hex');
-        const secretKeyHex = Buffer.from(secretKey).toString('hex');
-        await encryptAndSaveMany(
-          [
-            [accAuthPubKeyStrgKey(pubKeyHex), pubKeyHex],
-            [accAuthSecretKeyStrgKey(pubKeyHex), secretKeyHex]
-          ],
-          this.vaultKey
-        );
-      };
       const options: MidenClientCreateOptions = {
-        insertKeyCallback
+        insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
 
       // Wrap WASM client operations in a lock to prevent concurrent access
@@ -438,6 +468,96 @@ export class Vault {
       );
 
       return newAllAcounts;
+    });
+  }
+
+  /**
+   * Import an account from a raw hex-encoded auth secret key.
+   *
+   * Rebuilds a public wallet account deterministically from the secret
+   * key (same auth component + `AccountBuilder` seed → same account id
+   * across wallets), registers it with the miden client, and persists
+   * the secret into the vault via the standard `keystore.insert` path
+   * (which routes through `insertKeyCallbackWrapper`). Imported
+   * accounts are tagged with `hdIndex: -1` since they are not derived
+   * from the wallet mnemonic.
+   *
+   * Callers must serialize concurrent invocations (e.g. via the unlock
+   * queue). The name-uniqueness check and accounts-list write are
+   * separated by a WASM client call, so two parallel imports could
+   * otherwise both pass the check and race the final save.
+   */
+  async importAccountFromPrivateKey(privateKeyHex: string, name?: string): Promise<WalletAccount[]> {
+    return withError('Failed to import account from private key', async () => {
+      const trimmed = privateKeyHex.trim();
+      if (!isValidHex(trimmed) || trimmed.length > MAX_PRIVATE_KEY_HEX_LEN) {
+        throw new PublicError('Private key must be valid even-length hex');
+      }
+
+      const userSuppliedName = name?.trim();
+      if (userSuppliedName) {
+        const existingAccounts = await this.fetchAccounts();
+        if (existingAccounts.some(a => a.name === userSuppliedName)) {
+          throw new PublicError('Account with same name already exists');
+        }
+      }
+
+      const secretKeyBytes = new Uint8Array(Buffer.from(trimmed, 'hex'));
+
+      const options: MidenClientCreateOptions = {
+        insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
+      };
+
+      const publicKey = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient(options);
+        let secretKey: AuthSecretKey;
+        try {
+          secretKey = AuthSecretKey.deserialize(secretKeyBytes);
+        } catch {
+          throw new PublicError('Invalid private key');
+        }
+
+        const builder = new AccountBuilder(new Uint8Array(32).fill(0))
+          .accountType(AccountType.RegularAccountImmutableCode)
+          .storageMode(AccountStorageMode.public())
+          .withAuthComponent(AccountComponent.createAuthComponentFromSecretKey(secretKey))
+          .withBasicWalletComponent();
+
+        const account = builder.build().account;
+        await midenClient.client.accounts.insert({ account });
+        await midenClient.client.keystore.insert(account.id(), secretKey);
+
+        return getBech32AddressFromAccountId(account.id());
+      });
+
+      // Re-read the accounts list AFTER the WASM lock released. The
+      // pre-read above was only to validate a user-supplied name early;
+      // re-reading here defends against any other writer (e.g. another
+      // account-creating path) that slipped in while we were in WASM.
+      // `concatAccount` below throws on duplicate bech32 id, so
+      // re-importing the same key still fails cleanly.
+      const allAccounts = await this.fetchAccounts();
+      const accName = userSuppliedName || pickFreshAccountName(allAccounts);
+
+      const newAccount: WalletAccount = {
+        publicKey,
+        name: accName,
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: -1
+      };
+
+      const newAllAccounts = concatAccount(allAccounts, newAccount);
+
+      await encryptAndSaveMany(
+        [
+          [accPubKeyStrgKey(publicKey), publicKey],
+          [accountsStrgKey, newAllAccounts]
+        ],
+        this.vaultKey
+      );
+
+      return newAllAccounts;
     });
   }
 
@@ -545,6 +665,34 @@ export class Vault {
     });
   }
 
+  /**
+   * Reveal the raw hex-encoded auth secret key for a given account.
+   * The key here is the account's public-key commitment hex (no `0x`) —
+   * the same key used by `insertKeyCallbackWrapper` when storing the
+   * secret. The caller is responsible for deriving it from the account
+   * (see `getAccountPublicKeyCommitment` in `RevealSecret.tsx`).
+   */
+  static async revealPrivateKey(accountPubKeyCommitment: string, password?: string) {
+    let vaultKey: CryptoKey;
+
+    if (password) {
+      vaultKey = await Vault.unlockWithPassword(password);
+    } else {
+      vaultKey = await Vault.getHardwareVaultKey();
+    }
+
+    return withError('Failed to reveal private key', async () => {
+      const secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+        accAuthSecretKeyStrgKey(accountPubKeyCommitment),
+        vaultKey
+      );
+      if (!secretKeyHex) {
+        throw new PublicError('Private key not found for this account');
+      }
+      return secretKeyHex;
+    });
+  }
+
   async getCurrentAccount() {
     const currAccountPubkey = await getPlain<string>(currentAccPubKeyStrgKey);
     const allAccounts = await this.fetchAccounts();
@@ -605,6 +753,39 @@ function concatAccount(current: WalletAccount[], newOne: WalletAccount) {
 
 function getNewAccountName(allAccounts: WalletAccount[], templateI18nKey = 'defaultAccountName') {
   return getMessage(templateI18nKey, { accountNumber: String(allAccounts.length + 1) });
+}
+
+// When auto-naming a new account we can't blindly use
+// `allAccounts.length + 1` as the suffix: a user who manually renamed one
+// of their earlier accounts to match the template ("Account 3" etc.)
+// would then collide on the next auto-insert. Walk forward from 1 until
+// we find a name nobody else is holding. Starting from 1 (not length+1)
+// handles the pathological case where a user renamed every earlier
+// account to a non-template name and the expected slot is now free.
+function pickFreshAccountName(allAccounts: WalletAccount[]): string {
+  const existing = new Set(allAccounts.map(a => a.name));
+  const scanLimit = allAccounts.length + 100;
+  for (let i = 1; i <= scanLimit; i++) {
+    const candidate = getMessage('defaultAccountName', { accountNumber: String(i) });
+    if (!existing.has(candidate)) {
+      return candidate;
+    }
+  }
+  // Pathological: every candidate up to scanLimit was taken. Fall back to
+  // a short wall-clock-derived suffix. Kept intentionally short (6 digits)
+  // so the resulting name still fits `ACCOUNT_NAME_PATTERN`'s 16-char cap.
+  return getMessage('defaultAccountName', { accountNumber: String(Date.now() % 1_000_000) });
+}
+
+// Falcon-512 serialized auth-secret keys are ~1281 bytes → ~2562 hex chars.
+// The 4 KiB cap is comfortably above that but tight enough to catch
+// accidentally-pasted seed phrases or encrypted-file JSON bodies before
+// allocating under the WASM lock.
+const MAX_PRIVATE_KEY_HEX_LEN = 4 * 1024;
+
+function isValidHex(s: string): boolean {
+  if (s.length === 0 || s.length % 2 !== 0) return false;
+  return /^[0-9a-fA-F]+$/.test(s);
 }
 
 function getMainDerivationPath(walletType: WalletType, accIndex: number) {

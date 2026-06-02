@@ -88,6 +88,13 @@ export interface TransactionModalSlice {
    * list; PR-4 generalizes to a per-instance map.
    */
   activeDappSessionId: string | null;
+  /**
+   * On-chain hash of the most recently completed transaction initiated in
+   * this session, used to render a "View on Midenscan" action in the
+   * transaction-complete modal. Cleared when the modal opens for a new tx
+   * or closes, so a stale hash never leaks across sends.
+   */
+  lastCompletedTxHash: string | null;
 }
 
 /**
@@ -111,7 +118,11 @@ export interface WalletActions {
 
   // Auth actions
   registerWallet: (password: string | undefined, mnemonic?: string, ownMnemonic?: boolean) => Promise<void>;
-  importWalletFromClient: (password: string | undefined, mnemonic: string) => Promise<void>;
+  importWalletFromClient: (
+    password: string | undefined,
+    mnemonic: string,
+    walletAccounts: WalletAccount[]
+  ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 
   // Account actions
@@ -119,6 +130,8 @@ export interface WalletActions {
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
+  revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  importAccount: (privateKey: string, name?: string) => Promise<string>;
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
@@ -197,6 +210,7 @@ export interface TransactionModalActions {
    * in lockstep so legacy consumers stay correct.
    */
   setActiveDappSession: (sessionId: string | null) => void;
+  setLastCompletedTxHash: (txHash: string | null) => void;
 }
 
 /**

@@ -25,14 +25,14 @@ export const TextArea: React.FC<TextAreaProps> = ({ className, value, ...props }
       value={value}
       {...props}
       className={classNames(
-        'border rounded-[10px] border-grey-200 ',
+        'border rounded-[10px] border-border-light ',
         'transition duration-300 ease-in-out',
         'min-h-[48px] p-3',
         'resize-none overflow-hidden',
         'bg-white text-black',
         'placeholder-grey-400 font-base text-base',
-        'border border-grey-200 hover:border-grey-300',
-        'hover:border-grey-300',
+        'border border-border-light hover:border-border-light',
+        'hover:border-border-light',
         'outline-none',
         'focus:border-black focus:ring-1 focus:ring-black',
         'active:border-black',

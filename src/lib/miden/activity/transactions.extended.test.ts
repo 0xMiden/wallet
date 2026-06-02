@@ -37,7 +37,20 @@ _g.__txExtTest = {
 
 const txStore: any[] = _g.__txExtTest.rows;
 
+// Mirror Dexie's rw-transaction serialization: run each cb to completion before the next
+// starts. This is what the atomic-dedup fix relies on — tests run concurrent callers and
+// assert only one row is added.
+let _dbTxChain: Promise<unknown> = Promise.resolve();
+function _serializedDbTransaction<T>(_mode: string, _table: unknown, cb: () => Promise<T>): Promise<T> {
+  const next = _dbTxChain.then(() => cb());
+  _dbTxChain = next.catch(() => undefined);
+  return next;
+}
+
 jest.mock('lib/miden/repo', () => ({
+  db: {
+    transaction: _serializedDbTransaction
+  },
   transactions: {
     add: jest.fn(async (tx: any) => {
       txStore.push({ ...tx });
@@ -231,7 +244,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       initiatedAt: 100
     });
     // Use the wasmMock InputNoteState — ConsumedAuthenticatedLocal is in the array
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedAuthenticatedLocal }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
@@ -246,7 +259,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 100
     });
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Invalid }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
@@ -263,7 +276,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       initiatedAt: 100,
       processingStartedAt: longAgo
     });
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Committed }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
@@ -279,7 +292,7 @@ describe('verifyStuckTransactionsFromNode', () => {
       initiatedAt: 100,
       processingStartedAt: Math.floor(Date.now() / 1000)
     });
-    const { InputNoteState } = require('@miden-sdk/miden-sdk');
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Committed }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(0);
@@ -680,5 +693,19 @@ describe('initiateConsumeTransaction reuse path', () => {
     const result = await initiateConsumeTransaction('acc-1', buildNote());
     expect(result).not.toBe('other-account');
     expect(txStore.filter(t => t.type === 'consume')).toHaveLength(2);
+  });
+
+  it('collapses concurrent calls for the same note into a single row (atomic dedup)', async () => {
+    // Regression: without the Dexie rw-transaction wrapper, two simultaneous
+    // initiateConsumeTransaction calls both read [] from the dedup query and both .add(),
+    // producing two rows — the second of which fails on-chain with "already consumed" and
+    // spuriously trips the connectivity banner. With the fix, the rw-transaction serializes
+    // the check+add so the second caller sees the first caller's row and returns its id.
+    const [idA, idB] = await Promise.all([
+      initiateConsumeTransaction('acc-1', buildNote()),
+      initiateConsumeTransaction('acc-1', buildNote())
+    ]);
+    expect(idA).toBe(idB);
+    expect(txStore.filter(t => t.type === 'consume' && t.noteId === 'note-1')).toHaveLength(1);
   });
 });

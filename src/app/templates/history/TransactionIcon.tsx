@@ -26,7 +26,7 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
 
   if (isPending) {
-    return <PendingIcon className={`${config.pending} animate-spin`} />;
+    return <PendingIcon className={`${config.pending} animate-spin text-black`} />;
   }
 
   if (isFaucetRequest(entry)) {
