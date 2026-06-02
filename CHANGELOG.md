@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+* [FIX][dapp] **Generalized `requestTransaction` now handles `send` / `consume`, not just `custom`.** A dApp consuming a note through the typed `Transaction(TransactionType.Consume, new ConsumeTransaction(...))` API (rather than the dedicated `requestConsume`) hit `INVALID_PARAMS: Invalid CustomTransaction payload`: the wallet's `requestTransaction` handler (`generatePromisifyTransaction` in `src/lib/miden/back/dapp.ts`) read `req.transaction.payload` and validated it as a `MidenCustomTransaction` unconditionally, ignoring the tagged `MidenTransaction.type`. It now dispatches by `type` — `send` delegates to the send flow (`generatePromisifySendTransaction`) and `consume` to the consume flow (`generatePromisifyConsumeTransaction`), reusing their existing preview / confirmation / execution paths, while `custom` (and bare/legacy payloads) keep flowing through the custom path. The `type` discriminant is compared by its wire string value rather than importing the adapter-base `TransactionType` enum (that package is ESM-only and consumed type-only here). Fixes [0xMiden/wallet-adapter#88](https://github.com/0xMiden/wallet-adapter/issues/88).
+
 ## 1.14.5 (2026-05-28)
 
 ### Fixes
