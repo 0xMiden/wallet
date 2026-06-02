@@ -50,7 +50,7 @@ export interface SignCallbackError extends Error {
  * Zustand-store locked state (string "Not initialized" from
  * `assertInited`) and generic TypeError for null-vault access.
  */
-function buildSignCallbackError(err: unknown): SignCallbackError {
+export function buildSignCallbackError(err: unknown): SignCallbackError {
   const underlying = err instanceof Error ? err : new Error(String(err));
   let reason: SignCallbackReason = 'internal';
   const msg = underlying.message || '';
@@ -903,7 +903,7 @@ function extractSdkErrorCode(err: unknown): string | undefined {
  * present. Returns undefined if there was no auth failure or the thrown
  * value didn't carry a reason.
  */
-async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
+export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
   try {
     const midenClient = await getMidenClient();
     const rawClient = (midenClient as any).client;
