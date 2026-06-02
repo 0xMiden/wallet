@@ -8,6 +8,7 @@ import {
   InputNoteState,
   MidenClient,
   Note,
+  NoteDetails,
   NoteExportFormat,
   NoteFile,
   NoteQuery,
@@ -94,6 +95,46 @@ export type FungibleAssetDetails = {
   amount: string;
   faucetId: string;
 };
+
+/**
+ * Resolves note bytes to a {@link NoteFile} for import.
+ *
+ * The import path consumes a serialized `NoteFile`, but callers (notably a dApp's
+ * `ConsumeTransaction` `noteBytes`, whose type is just `Uint8Array` with no
+ * documented format) commonly pass a serialized `Note` — the natural output of
+ * `note.serialize()`. Both are accepted: a `NoteFile` is used directly, and a
+ * bare `Note` is wrapped into a `NoteFile` (the `NoteDetails` variant, matching
+ * what `NoteFile.fromInputNote` produces when no inclusion proof is available).
+ * Bytes that are neither raise a clear, actionable error instead of the opaque
+ * `notefile deserialization failed: invalid utf-8 sequence...` that surfaces when
+ * `Note` bytes are fed straight into `NoteFile.deserialize`.
+ *
+ * The wrapped `NoteDetails` variant carries no tag (`tag: None`,
+ * `after_block_num: 0`), so the imported note is stored as `Expected` without
+ * tag-based sync tracking. It still becomes consumable: the client's
+ * `reconcile_expected_notes` fetches every expected note by ID on each
+ * `syncState`, recovering the on-chain metadata and inclusion proof and
+ * transitioning it to `Committed`. So dropping the metadata here is safe.
+ */
+function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
+  try {
+    return NoteFile.deserialize(noteBytes);
+  } catch (noteFileError) {
+    let note: Note;
+    try {
+      note = Note.deserialize(noteBytes);
+    } catch (noteError) {
+      const noteFileDetail = noteFileError instanceof Error ? noteFileError.message : String(noteFileError);
+      const noteDetail = noteError instanceof Error ? noteError.message : String(noteError);
+      throw new Error(
+        'importNoteBytes: bytes are neither a serialized NoteFile nor a serialized Note ' +
+          `(NoteFile parse error: ${noteFileDetail}; Note parse error: ${noteDetail}). ` +
+          'Pass noteFile.serialize() or note.serialize().'
+      );
+    }
+    return NoteFile.fromNoteDetails(new NoteDetails(note.assets(), note.recipient()));
+  }
+}
 
 export class MidenClientInterface {
   client: MidenClient;
@@ -182,7 +223,7 @@ export class MidenClientInterface {
   }
 
   async importNoteBytes(noteBytes: Uint8Array) {
-    const noteFile = NoteFile.deserialize(noteBytes);
+    const noteFile = deserializeNoteFileOrNote(noteBytes);
     return await this.client.notes.import(noteFile);
   }
 
