@@ -228,7 +228,7 @@ const Toolbar: FC<ToolbarProps> = ({
                 'rounded-full',
                 'flex',
                 'text-black font-bold text-shadow-black',
-                'hover:bg-grey-100/5',
+                'hover:bg-gray-100',
                 'transition duration-300 ease-in-out',
                 'opacity-90 hover:opacity-100'
               )}
@@ -252,7 +252,7 @@ const Toolbar: FC<ToolbarProps> = ({
               'flex items-center',
               'text-black text-shadow-black',
               'text-sm font-semibold leading-none',
-              'hover:bg-pure-black/5',
+              'hover:bg-gray-100',
               'transition duration-300 ease-in-out',
               'opacity-90 hover:opacity-100'
             )}

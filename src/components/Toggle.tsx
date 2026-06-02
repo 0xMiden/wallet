@@ -34,7 +34,7 @@ export const Toggle: React.FC<ToggleProps> = ({
         'w-10 h-5 rounded-full cursor-pointer flex border items-center px-1',
         {
           'justify-end bg-primary-500 border-primary-500': value,
-          'justify-start bg-white border-grey-200': !value,
+          'justify-start bg-white border-border-light': !value,
           'opacity-50 cursor-not-allowed': disabled
         },
         className

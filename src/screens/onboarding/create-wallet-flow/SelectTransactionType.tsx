@@ -116,7 +116,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               <div
                 className={classNames(
                   'absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2',
-                  'bg-pure-black text-pure-white text-xs font-medium',
+                  'bg-primary-500 text-pure-white text-xs font-medium',
                   'px-2 py-1 rounded-full'
                 )}
               >
@@ -126,10 +126,10 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
 
             <div className="flex flex-col grow overflow-scroll no-scrollbar">
               <h2 className="font-semibold text-base text-center whitespace-pre">{option.title}</h2>
-              <ul className="flex flex-1 flex-col mt-6 px-5 divide-y divide-grey-100">
+              <ul className="flex flex-1 flex-col mt-6 px-5 divide-y divide-border-light">
                 {option.features.map((feature, index) => (
                   <li key={index} className="flex flex-col py-2 justify-center">
-                    <p className={classNames('text-center text-sm', { 'text-grey-600': !!feature.subtitle })}>
+                    <p className={classNames('text-center text-sm', { 'text-text-muted': !!feature.subtitle })}>
                       {feature.title}
                     </p>
                     {feature.subtitle && <p className="text-sm text-center">{feature.subtitle}</p>}

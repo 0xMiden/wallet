@@ -329,7 +329,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
             {TAB_GROUPS.map(group => (
               <div key={group.titleI18nKey}>
-                <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>
+                <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>
                 <div className="overflow-hidden flex flex-col gap-6">
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
@@ -364,7 +364,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               </div>
             ))}
 
-            <p className="text-base font-medium text-grey-300 pt-2">Version {pkg.version}</p>
+            <p className="text-base font-medium text-text-muted pt-2">Version {pkg.version}</p>
           </div>
         )}
       </div>
@@ -404,7 +404,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                 <div className="bg-gray-25 rounded-2xl px-6 py-8">
                   <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
                     {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-[#BABABA]" style={{ width: 144 }} />
+                      <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
                     ))}
                   </div>
                 </div>

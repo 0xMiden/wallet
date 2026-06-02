@@ -17,7 +17,7 @@ const About: FC = () => {
 
         <div className="text-center">
           <h4 className="text-xl font-semibold">{t('appName')}</h4>
-          <p className="text-sm text-gray-200">{t('versionLabel', { version: pkg.version })}</p>
+          <p className="text-sm text-text-muted">{t('versionLabel', { version: pkg.version })}</p>
         </div>
       </div>
 

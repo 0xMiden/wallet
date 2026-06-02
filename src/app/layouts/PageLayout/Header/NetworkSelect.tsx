@@ -50,12 +50,12 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
           className={classNames(
             'text-black',
             'hover:bg-gray-100',
-            'active:bg-gray-200',
+            'active:bg-gray-50',
             'transition ease-in-out duration-200',
             'px-2',
             opened ? 'opacity-100' : 'opacity-90 hover:opacity-100 focus:opacity-100',
             'flex items-center text-[10px] leading-4 gap-2',
-            'select-none border border-grey-200 rounded-3xl'
+            'select-none border border-border-light rounded-3xl'
           )}
           // Disabled until we redo screen & add more networks
           // onClick={toggleOpened}

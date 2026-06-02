@@ -196,7 +196,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col flex-1 overflow-y-auto min-h-0 no-scrollbar">
           {/* Amount */}
-          <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 py-4 border-b border-grey-300/20">
+          <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 py-4 border-b border-border-light">
             <InputAmount
               className="self-stretch text-black"
               value={amount}
@@ -225,7 +225,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 <button
                   type="button"
                   onClick={onYourAccounts}
-                  className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
+                  className="p-1 rounded-lg hover:bg-gray-100 transition duration-200"
                   aria-label={t('yourAccounts')}
                 >
                   <Icon name={IconName.AddressBook} size="xs" className="text-text-muted" />
@@ -234,7 +234,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   <button
                     type="button"
                     onClick={handleScan}
-                    className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
+                    className="p-1 rounded-lg hover:bg-gray-100 transition duration-200"
                     aria-label={t('scanQr')}
                   >
                     <Icon name={IconName.ScanFrame} size="xs" className="text-text-muted" />
@@ -246,7 +246,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               <input
                 type="text"
                 placeholder={t('enterWalletAddress')}
-                className="w-full bg-white border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
+                className="w-full bg-white border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-text-muted outline-none overflow-hidden text-ellipsis"
                 value={recipientAddress}
                 onChange={e => onAddressChange(e as any)}
               />
@@ -264,7 +264,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 type="button"
                 className={clsx(
                   'flex-1 py-3 rounded-10 text-sm font-semibold transition-colors cursor-pointer',
-                  sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-pure-white text-heading-gray/40'
+                  sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-input-bg text-heading-gray/40'
                 )}
                 onClick={() => {
                   hapticLight();
@@ -295,7 +295,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               placeholder={t('addANote')}
               value={note}
               onChange={e => onNoteChange(e.target.value)}
-              className="w-full bg-pure-white border-none rounded-10 px-4 py-4 font-medium text-base text-heading-gray placeholder-grey-400 outline-none resize-none min-h-[100px]"
+              className="w-full bg-surface-solid border-none rounded-10 px-4 py-4 font-medium text-base text-heading-gray placeholder-text-muted outline-none resize-none min-h-[100px]"
             />
           </div> */}
 

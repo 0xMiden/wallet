@@ -378,7 +378,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
       {/* Custom Header with back button, title, and QR icon */}
       <div
-        className="flex flex-row px-4 items-center justify-between border-b border-grey-100"
+        className="flex flex-row px-4 items-center justify-between border-b border-border-light"
         style={{ paddingTop: isMobile() ? '24px' : '14px', paddingBottom: '14px' }}
       >
         <button
@@ -570,13 +570,13 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
   const privateCount = notes.filter(n => n.type === NoteTypeEnum.Private).length;
 
   return (
-    <div className="border border-grey-100 rounded-xl overflow-hidden">
+    <div className="border border-border-light rounded-xl overflow-hidden">
       {/* Group Header */}
       <button
         type="button"
         onClick={onToggleExpand}
         className={classNames(
-          'w-full flex items-center justify-between bg-app-bg hover:bg-grey-50 transition-colors',
+          'w-full flex items-center justify-between bg-app-bg hover:bg-gray-100 transition-colors',
           isMobile() ? 'pt-[14px] pb-[10px] pl-[8px] pr-[25px]' : 'pt-[10px] pb-[7px] pl-[6px] pr-[17.5px]'
         )}
       >
@@ -599,7 +599,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
 
         {/* Far right: Count + Chevron */}
         <div className="flex items-center gap-2 pr-5">
-          <span className="text-sm text-grey-500">
+          <span className="text-sm text-text-muted">
             {claimingCount}/{notes.length}
           </span>
         </div>
@@ -616,7 +616,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
             className="overflow-hidden"
           >
             {/* Table Header */}
-            <div className="grid grid-cols-[minmax(80px,1fr)_minmax(60px,auto)_50px_70px] gap-x-3 px-3 py-2 border-y-[0.5px] border-y-[#00000033] text-xs text-[#0000009E] font-medium items-center">
+            <div className="grid grid-cols-[minmax(80px,1fr)_minmax(60px,auto)_50px_70px] gap-x-3 px-3 py-2 border-y-[0.5px] border-y-border-card text-xs text-text-muted font-medium items-center">
               <span>{t('from')}</span>
               <span className="text-center">{t('amount')}</span>
               <span className="text-center">{t('status')}</span>
@@ -624,7 +624,7 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
             </div>
 
             {/* Table Rows */}
-            <div className="divide-y divide-grey-100 overflow-y-auto max-h-[240px]">
+            <div className="divide-y divide-border-light overflow-y-auto max-h-[240px]">
               {notes.map(note => (
                 <NoteTableRow
                   key={note.id}
@@ -743,7 +743,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
   const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
 
   return (
-    <div className="relative border-[0.5px] border-[#00000033]  rounded-[10px] p-3">
+    <div className="relative border-[0.5px] border-border-card  rounded-[10px] p-3">
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-xl" />
       <div className="flex items-center justify-between relative z-10">
         <div className="flex items-center gap-3">
@@ -752,7 +752,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
             <span className="text-sm font-medium text-black">
               {formattedAmount} {symbol}
             </span>
-            <span className="text-xs text-grey-500">
+            <span className="text-xs text-text-muted">
               {t('from')}: {senderDisplay}
             </span>
           </div>

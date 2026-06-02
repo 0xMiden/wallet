@@ -130,7 +130,7 @@ const RevealSeedPhrase: FC = () => {
               }}
               className={classNames(
                 'flex items-center gap-1.5 px-4 py-1.5',
-                'border border-[#00000033] rounded-2xl',
+                'border border-border-card rounded-2xl',
                 'text-sm font-medium text-heading-gray',
                 'hover:opacity-80 cursor-pointer'
               )}

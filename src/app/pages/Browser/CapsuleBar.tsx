@@ -198,7 +198,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           >
             {displayTitle}
           </motion.span>
-          {showHostnameRow && <span className="truncate text-xs text-grey-500">{hostname}</span>}
+          {showHostnameRow && <span className="truncate text-xs text-text-muted">{hostname}</span>}
         </div>
 
         {/* Minimize button — drag handle is the gesture path on real devices,
@@ -211,9 +211,9 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               onMinimize();
             }}
             aria-label={t('minimize') ?? 'Minimize'}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
           >
-            <Icon name={IconName.ArrowDown} size="sm" className="text-grey-700" fill="currentColor" />
+            <Icon name={IconName.ArrowDown} size="sm" className="text-black" fill="currentColor" />
           </button>
         )}
 
@@ -224,9 +224,9 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           type="button"
           onClick={handleReload}
           aria-label={t('reload') ?? 'Reload'}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
         >
-          <Icon name={IconName.Refresh} size="sm" className="text-grey-700" fill="currentColor" />
+          <Icon name={IconName.Refresh} size="sm" className="text-black" fill="currentColor" />
         </button>
 
         {/* Close button */}
@@ -234,9 +234,9 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           type="button"
           onClick={handleClose}
           aria-label={t('close') ?? 'Close'}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
         >
-          <Icon name={IconName.Close} size="sm" className="text-grey-700" fill="currentColor" />
+          <Icon name={IconName.Close} size="sm" className="text-black" fill="currentColor" />
         </button>
 
         {/* PR-5 card switcher button — sits after Close so it visually
@@ -251,10 +251,10 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               onOpenSwitcher();
             }}
             aria-label={t('switchDapps') ?? 'Switch dApps'}
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
           >
-            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-grey-700">
-              <span className="text-[10px] font-bold leading-none text-grey-700">{tabsCount}</span>
+            <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-black">
+              <span className="text-[10px] font-bold leading-none text-black">{tabsCount}</span>
             </div>
           </button>
         )}
@@ -269,15 +269,15 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
               onOpenActions();
             }}
             aria-label={t('dappActionsSheet') ?? 'dApp actions'}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-grey-100"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100"
           >
-            <Icon name={IconName.More} size="sm" className="text-grey-700" fill="currentColor" />
+            <Icon name={IconName.More} size="sm" className="text-black" fill="currentColor" />
           </button>
         )}
       </div>
 
       {/* Hairline at the bottom edge */}
-      <div className="h-px w-full bg-grey-100" />
+      <div className="h-px w-full bg-border-light" />
     </header>
   );
 };
