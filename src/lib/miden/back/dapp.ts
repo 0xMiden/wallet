@@ -899,6 +899,46 @@ const generatePromisifyTransaction = async (
   req: MidenDAppTransactionRequest,
   sessionId?: string
 ) => {
+  // The generalized TransactionRequest carries a tagged `MidenTransaction`
+  // ({ type, payload }). A `send`/`consume` payload is not a custom-transaction
+  // payload, so delegate those to their dedicated flows (preview, confirmation
+  // UI and execution) instead of validating them as a CustomTransaction —
+  // otherwise they fail with "Invalid CustomTransaction payload". Only `custom`
+  // (and bare/legacy payloads) fall through to the custom flow below. Issue #88.
+  // `req.transaction.type` is a string enum from `MidenTransaction`
+  // ('send' | 'consume' | 'custom'). Compare by value rather than importing
+  // the `TransactionType` enum as a runtime value: adapter-base is consumed
+  // type-only in this module, and its runtime exports aren't loadable in the
+  // unit-test (jest) setup. The string values are part of the dApp↔wallet
+  // wire contract, so they're stable.
+  const type: string = req.transaction.type;
+  if (type === 'send') {
+    return generatePromisifySendTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppSendTransactionResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppSendTransactionRequest,
+      sessionId
+    );
+  }
+  if (type === 'consume') {
+    return generatePromisifyConsumeTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppConsumeResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppConsumeRequest,
+      sessionId
+    );
+  }
+
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 

@@ -171,4 +171,26 @@ describe('importAllNotes', () => {
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['late']);
     jest.useRealTimers();
   });
+
+  it('falls back to an empty queue when storage is cleared during the import pass', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['only'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockImplementation(async () => {
+      // The stored queue disappears mid-pass (e.g. a concurrent wallet reset).
+      // The post-pass re-fetch must then fall back to [] rather than throw on a
+      // null/undefined read.
+      delete _g.__notesTest.store['miden-notes-pending-import'];
+    });
+
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await expect(p).resolves.toBeUndefined();
+
+    // The note imported successfully (not retried); the rebuilt queue is empty
+    // because the re-fetch saw no stored value and used the [] fallback.
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    jest.useRealTimers();
+  });
 });
