@@ -1381,5 +1381,23 @@ describe('MidenClientInterface', () => {
       );
       expect(importMock).not.toHaveBeenCalled();
     });
+
+    it('stringifies non-Error throwables when reporting the neither-NoteFile-nor-Note error', async () => {
+      // Deserializers can throw non-Error values; the error message must still
+      // surface their details via String(...) rather than printing [object].
+      // Throw through an indirection so the intentional non-Error throw doesn't
+      // trip eslint's no-throw-literal.
+      const reject = (value: unknown) => {
+        throw value;
+      };
+      const noteFileDeserialize = jest.fn(() => reject('raw-notefile-failure'));
+      const noteDeserialize = jest.fn(() => reject('raw-note-failure'));
+      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+
+      await expect(client.importNoteBytes(new Uint8Array([0]))).rejects.toThrow(
+        /NoteFile parse error: raw-notefile-failure; Note parse error: raw-note-failure/
+      );
+      expect(importMock).not.toHaveBeenCalled();
+    });
   });
 });
