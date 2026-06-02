@@ -398,6 +398,55 @@
     "message": "Dies kann je nach Netzwerkverkehr einen Moment dauern",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "Konto wird synchronisiert",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "Rufen Sie Ihren aktuellen Kontostatus ab.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "Transaktion wird gesendet",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "Aufbau und Nachweis Ihrer Transaktion.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "Anspruch auf note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "Transaktion wird ausgeführt",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "Bestätigung an der Kette",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "Warten auf Netzwerkbestätigung.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "Lieferung von note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "note sicher an den Empfänger senden.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ Transaktionen in Bearbeitung",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "Status",
     "englishSource": "Status"

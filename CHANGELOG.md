@@ -2,6 +2,12 @@
 
 ## 1.14.2 (TBD)
 
+### Features
+
+* [FEATURE][all] Typed sign-callback failure recovery via SDK `lastAuthError()`. When the wallet gets locked mid-transaction, the transaction is left Queued for retry after unlock instead of marked Failed. (#189)
+* [FEATURE][all] `ApplyTransactionAfterSubmitFailed` handling via SDK `errorCode` dispatch. Transactions that submit on-chain but fail to apply locally are marked Completed (not Failed). (#189)
+* [FEATURE][e2e] Transport-failure perturbation (`STRESS_TRANSPORT_FAIL_PROB`) in the stress suite for end-to-end coverage of the SDK's durable relay outbox (miden-client#2127). (#189)
+
 ### Fixes
 
 * [FIX][all] Gated page-side SDK WASM init. `fetchTokenMetadata` and `SendDetails` used to race the SDK's lazy wasm-bindgen load when constructing `Endpoint`/`RpcClient` directly on the page thread, hitting `Cannot read properties of undefined (reading '__wbindgen_malloc')` and blacklisting the token via `autoFetchMetadataFails` for the rest of the session. New `ensureSdkWasmReady()` helper actively triggers the SDK's `loadWasm()` via a Vite-aliased deep import and probes readiness, wired up before any page-side RPC construction. (#187)

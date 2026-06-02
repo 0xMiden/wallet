@@ -398,6 +398,55 @@
     "message": "네트워크 트래픽 수준에 따라 다소 시간이 걸릴 수 있습니다.",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "계정 동기화 중",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "최신 계정 상태를 가져오는 중입니다.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "거래 보내기",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "거래를 구축하고 증명합니다.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "note 소유권 주장",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "거래 실행 중",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "체인에서 확인 중",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "네트워크 확인을 기다리는 중입니다.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "note 배달 중",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "note을(를) 수신자에게 안전하게 보내는 중입니다.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$개 거래 진행 중",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "상태",
     "englishSource": "Status"

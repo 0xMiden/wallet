@@ -601,9 +601,14 @@ describe('transactions utilities', () => {
         // Expected to fail on TransactionResult.deserialize — that's fine
       }
 
-      // Verify syncState was called BEFORE updateStatus
-      expect(callOrder[0]).toBe('syncState');
-      expect(callOrder[1]).toBe('updateStatus');
+      // Verify syncState runs before the status flip to GeneratingTransaction.
+      // An earlier `updateStatus` entry is the stage='syncing' marker — that's
+      // an informational write; what matters is that syncState completes
+      // before the final status flip (the last `updateStatus`).
+      const syncIdx = callOrder.indexOf('syncState');
+      const lastStatusIdx = callOrder.lastIndexOf('updateStatus');
+      expect(syncIdx).toBeGreaterThanOrEqual(0);
+      expect(syncIdx).toBeLessThan(lastStatusIdx);
       expect(mockSyncState).toHaveBeenCalled();
     });
   });

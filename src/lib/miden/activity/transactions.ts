@@ -11,6 +11,7 @@ import { logger } from 'shared/logger';
 import {
   ConsumeTransaction,
   ITransaction,
+  ITransactionStage,
   ITransactionStatus,
   SendTransaction,
   Transaction,
@@ -28,6 +29,40 @@ import { compareAccountIds } from './utils';
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
 export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins on mobile, 30 mins on desktop (in seconds)
+
+/**
+ * Stable tags attached to errors the sign callback throws, so the catch
+ * site for a failed executeTransaction can pattern-match on the raw
+ * thrown value (recovered via `midenClient.lastAuthError()`) and treat
+ * each failure mode differently — e.g. retry a `locked` failure after
+ * the wallet unlocks instead of marking the tx permanently Failed.
+ */
+export type SignCallbackReason = 'locked' | 'rejected' | 'not_found' | 'internal';
+
+export interface SignCallbackError extends Error {
+  reason: SignCallbackReason;
+}
+
+/**
+ * Wrap an underlying sign failure in a typed Error that the SDK will
+ * capture verbatim (see `WebClient.lastAuthError`). Classifies by
+ * inspecting the underlying error's shape — current signals are the
+ * Zustand-store locked state (string "Not initialized" from
+ * `assertInited`) and generic TypeError for null-vault access.
+ */
+function buildSignCallbackError(err: unknown): SignCallbackError {
+  const underlying = err instanceof Error ? err : new Error(String(err));
+  let reason: SignCallbackReason = 'internal';
+  const msg = underlying.message || '';
+  if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
+    reason = 'locked';
+  }
+  const wrapped = Object.assign(new Error(`Sign callback failed (${reason}): ${msg}`), {
+    reason,
+    cause: underlying
+  }) as SignCallbackError;
+  return wrapped;
+}
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
@@ -302,47 +337,36 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   const outputNoteIds = noteId ? [noteId] : [];
 
   if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
-    // Wrap all WASM client operations in a lock to prevent concurrent access
-    type SendResult = { success: true } | { success: false; errorType: 'init' | 'transport'; error: unknown };
-    const sendResult = await withWasmClientLock<SendResult>(async () => {
-      try {
+    // Wrap all WASM client operations in a lock to prevent concurrent access.
+    // The SDK persists the relay payload to its durable outbox before invoking
+    // transport (miden-client#2127); if the transport call fails, the SDK
+    // retries the blob on every subsequent sync_state. So a transport-level
+    // failure here is not a wallet-side concern — the on-chain tx is durable
+    // and the SDK will deliver the blob eventually. We just log and move on.
+    await setTransactionStage(tx.id, 'confirming');
+    try {
+      await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
         await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-        await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
-        return { success: true };
-      } catch (error) {
-        return { success: false, errorType: 'transport', error };
-      }
-    }).catch(error => ({ success: false, errorType: 'init' as const, error }));
-
-    if (!sendResult.success) {
-      if (sendResult.errorType === 'transport') {
-        console.error('Failed to send private note through the transport layer', {
-          txId: tx.id,
-          secondaryAccountId: tx.secondaryAccountId,
-          error: sendResult.error
-        });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport error',
-          displayIcon: 'FAILED',
-          transactionId: executedTx.id().toHex(),
-          outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
-        });
-      } else {
-        console.error('Failed to initialize Miden client for private note send', {
-          txId: tx.id,
-          error: sendResult.error
-        });
-        await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-          displayMessage: 'Send failed: transport init error',
-          displayIcon: 'FAILED',
-          transactionId: executedTx.id().toHex(),
-          outputNoteIds,
-          completedAt: Math.floor(Date.now() / 1000) // seconds
-        });
-      }
-      return;
+        await setTransactionStage(tx.id, 'delivering');
+        try {
+          await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
+        } catch (error) {
+          console.warn('Private-note transport failed; SDK outbox will retry on next sync', {
+            txId: tx.id,
+            noteId,
+            secondaryAccountId: tx.secondaryAccountId,
+            error
+          });
+        }
+      });
+    } catch (error) {
+      // Lock acquisition or pre-transport step (e.g. waitForTransactionCommit)
+      // failed. The on-chain tx may not be confirmed yet from this client's
+      // perspective; falling through to the normal Completed path is still
+      // correct because executedTx.id() is the canonical id and the chain
+      // is the source of truth — subsequent sync_state will reconcile.
+      console.warn('Pre-transport step failed during private send; relying on SDK reconcile', { txId: tx.id, error });
     }
   } else if (tx.noteType === NoteTypeEnum.Private && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });
@@ -391,6 +415,23 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
     t.status = status;
+  });
+};
+
+/**
+ * Informational stage write. Called at phase boundaries inside
+ * `generateTransaction` / `completeSendTransaction` so the progress modal
+ * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
+ * a single opaque "Generating transaction". Does not gate on status —
+ * late writes after `Completed` are no-ops via the `.modify` callback
+ * (the stage field is informational and only read while status is
+ * pre-terminal).
+ */
+export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
+      tx.stage = stage;
+    }
   });
 };
 
@@ -584,10 +625,7 @@ export const generateTransaction = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
 ) => {
   // Sync state first to ensure we have latest account state
-  // Separate lock acquisition to avoid holding lock during network call
-  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
-  // catch block which cancels the transaction — this is intentional fail-fast behavior,
-  // since the transaction can't be submitted without network anyway
+  await setTransactionStage(transaction.id, 'syncing');
   await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
     await midenClient.syncState();
@@ -595,14 +633,24 @@ export const generateTransaction = async (
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
-    processingStartedAt: Math.floor(Date.now() / 1000) // seconds
+    processingStartedAt: Math.floor(Date.now() / 1000), // seconds
+    stage: 'sending'
   });
 
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       const keyString = Buffer.from(publicKey).toString('hex');
       const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
+      try {
+        return await signCallback(keyString, signingInputsString);
+      } catch (err) {
+        // The SDK (WebKeyStore) captures the raw thrown value and exposes
+        // it via `midenClient.lastAuthError()`. Attach a stable `reason`
+        // tag so callers that catch the eventual executeTransaction
+        // failure can distinguish "wallet got locked mid-sign" from other
+        // failure modes (user rejection, keystore IO error, etc.).
+        throw buildSignCallbackError(err);
+      }
     }
   };
 
@@ -611,12 +659,12 @@ export const generateTransaction = async (
     const midenClient = await getMidenClient(options);
     switch (transaction.type) {
       case 'send':
-        return midenClient.sendTransaction(transaction as SendTransaction);
+        return await midenClient.sendTransaction(transaction as SendTransaction);
       case 'consume':
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'execute':
       default:
-        return midenClient.newTransaction(
+        return await midenClient.newTransaction(
           transaction.accountId,
           transaction.requestBytes!,
           transaction.delegateTransaction
@@ -692,12 +740,87 @@ export const generateTransactionsLoop = async (
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
+    // The SDK attaches a stable `errorCode` string to thrown errors for
+    // variants callers are expected to dispatch on. See
+    // `error_code_from_client_error` in miden-client.
+    const errorCode = extractSdkErrorCode(e);
+
+    // If the failure was caused by the wallet being locked mid-sign,
+    // leave the tx Queued rather than marking it Failed — the next
+    // auto-consume cycle (after the wallet unlocks) will retry it.
+    // This prevents the note-loss scenario the 1000-op stress run
+    // surfaced: lock during executeTransaction → tx cancelled → next
+    // cycle starts fresh but some races can leave the note stuck.
+    const authReason = await readLastAuthReason();
+    if (authReason === 'locked') {
+      logger.warning('Sign callback reported locked wallet; leaving tx queued for retry');
+      return false;
+    }
+
+    // Submit succeeded but apply failed: the tx IS live on chain. Mark
+    // as Completed (not Failed) so the activity tab shows the right
+    // outcome; the next sync will reconcile note states via
+    // ConsumedExternal. Retrying would hit the node's nullifier check
+    // and produce a misleading "already consumed" error.
+    if (errorCode === 'ApplyTransactionAfterSubmitFailed') {
+      logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
+      const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
+      if (tx && tx.status !== ITransactionStatus.Completed) {
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Completed',
+          completedAt: Math.floor(Date.now() / 1000)
+        });
+      }
+      return false;
+    }
+
+    // If the input note was already consumed on chain, the pre-flight
+    // nullifier check transitioned it to ConsumedExternal. Mark this tx
+    // Failed (it never reached chain) but the note is already reconciled
+    // — subsequent cycles won't retry it.
+    if (errorCode === 'InputNoteAlreadyConsumedOnChain') {
+      logger.warning('Input note already consumed on chain; tx unnecessary');
+    }
+
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
     return false;
   }
 };
+
+/**
+ * Pulls the stable SDK error code off a thrown value, if present. The
+ * SDK attaches `errorCode` via `Reflect::set` on JsError — see
+ * `js_error_with_context` in miden-client.
+ */
+function extractSdkErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const code = (err as { errorCode?: unknown }).errorCode;
+  return typeof code === 'string' ? code : undefined;
+}
+
+/**
+ * Reads the SDK-captured last auth error and extracts a `reason` tag if
+ * present. Returns undefined if there was no auth failure or the thrown
+ * value didn't carry a reason.
+ */
+async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
+  try {
+    const midenClient = await getMidenClient();
+    const rawClient = (midenClient as any).client;
+    if (!rawClient || typeof rawClient.lastAuthError !== 'function') return undefined;
+    const raw = rawClient.lastAuthError();
+    if (!raw || typeof raw !== 'object') return undefined;
+    const reason = (raw as { reason?: unknown }).reason;
+    if (reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal') {
+      return reason;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export const safeGenerateTransactionsLoop = async (
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>

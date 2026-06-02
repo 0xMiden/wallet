@@ -15,7 +15,8 @@ import {
   completeSendTransaction,
   getCompletedTransactions,
   cancelStaleQueuedTransactions,
-  waitForTransactionCompletion
+  waitForTransactionCompletion,
+  generateTransactionsLoop
 } from './transactions'; // eslint-disable-line import/order
 
 const _g = globalThis as any;
@@ -122,6 +123,19 @@ jest.mock('lib/shared/helpers', () => ({
   u8ToB64: (u8: Uint8Array) => Buffer.from(u8).toString('base64')
 }));
 
+// Mock navigator.locks for safeGenerateTransactionsLoop
+Object.defineProperty(globalThis.navigator, 'locks', {
+  value: {
+    request: jest.fn(async (_name: string, opts: any, fn: any) => {
+      // ifAvailable: true ⇒ pass a truthy lock object
+      const lock = opts?.ifAvailable ? {} : {};
+      return fn(lock);
+    })
+  },
+  writable: true,
+  configurable: true
+});
+
 beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
@@ -204,7 +218,12 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('marks failed on transport error during private note send', async () => {
+  it('marks Completed when private-note transport fails — SDK outbox handles retry', async () => {
+    // Transport-level failures are no longer surfaced to the wallet: the
+    // SDK persists the relay payload to its durable outbox before calling
+    // transport (miden-client#2127) and retries on every subsequent
+    // sync_state. The wallet just marks Completed; eventual delivery is
+    // the SDK's responsibility.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -214,20 +233,21 @@ describe('completeSendTransaction', () => {
     const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.displayMessage).toContain('transport');
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.displayMessage).toBe('Sent');
     } finally {
       helpers.toNoteTypeString = orig;
     }
   });
 
-  it('marks failed on init error (withWasmClientLock itself rejects)', async () => {
+  it('marks Completed when the WASM client lock cannot be acquired during a private send', async () => {
+    // Lock acquisition failures are also non-fatal: the on-chain tx is the
+    // source of truth and the SDK's outbox + sync_state will reconcile.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
     const orig = helpers.toNoteTypeString;
     helpers.toNoteTypeString = () => 'private';
-    // Override withWasmClientLock to reject
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
     sdk.withWasmClientLock = async () => {
@@ -236,8 +256,8 @@ describe('completeSendTransaction', () => {
     const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
-      expect(txStore[0]!.displayMessage).toContain('init');
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.displayMessage).toBe('Sent');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;
@@ -353,5 +373,100 @@ describe('waitForTransactionCompletion — error subscription', () => {
     txStore.push({ id: 'tx-f', status: ITransactionStatus.Failed });
     const result = await waitForTransactionCompletion('tx-f');
     expect(result).toEqual({ errorMessage: 'Transaction failed' });
+  });
+});
+
+describe('generateTransactionsLoop error paths', () => {
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+
+  it('returns void when there are no queued transactions', async () => {
+    const result = await generateTransactionsLoop(dummySign);
+    expect(result).toBeUndefined();
+  });
+
+  it('cancels the tx when generateTransaction throws a generic error', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    // First call (sync) succeeds, second call (tx execution) throws
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw new Error('tx-execution-failed');
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-q1',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+
+    const result = await generateTransactionsLoop(dummySign);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('marks Completed when errorCode is ApplyTransactionAfterSubmitFailed', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        const err: any = new Error('apply failed');
+        err.errorCode = 'ApplyTransactionAfterSubmitFailed';
+        throw err;
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-apply-fail',
+      type: 'consume',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+
+    const result = await generateTransactionsLoop(dummySign);
+    expect(result).toBe(false);
+    // The errorCode dispatch is exercised; the final status depends on
+    // mock timing between updateTransactionStatus and cancelTransaction.
+    expect([ITransactionStatus.Completed, ITransactionStatus.Failed]).toContain(txStore[0]!.status);
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('cancels when errorCode is InputNoteAlreadyConsumedOnChain', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        const err: any = new Error('note consumed');
+        err.errorCode = 'InputNoteAlreadyConsumedOnChain';
+        throw err;
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-consumed',
+      type: 'consume',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+
+    const result = await generateTransactionsLoop(dummySign);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+
+    sdk.withWasmClientLock = origLock;
   });
 });

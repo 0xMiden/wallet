@@ -398,6 +398,55 @@
     "message": "Це може зайняти деякий час залежно від рівня мережевого трафіку",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionStageSyncing": {
+    "message": "Синхронізація облікового запису",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "Отримання останнього стану облікового запису.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "Відправка транзакції",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "Побудова та підтвердження вашої транзакції.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "Вимагання note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "Виконання транзакції",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageConfirming": {
+    "message": "Підтвердження по ланцюжку",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "Очікування підтвердження мережі.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageDelivering": {
+    "message": "Доставка note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "Безпечне надсилання note одержувачу.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ поточних транзакцій",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "status": {
     "message": "Статус",
     "englishSource": "Status"
