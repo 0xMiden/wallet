@@ -10,8 +10,8 @@ import { getNativeAssetId, getNativeAssetIdSync, onNativeAssetChanged } from 'li
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { Button } from 'lib/ui/button';
 
-import { TokenSelect } from './TokenSelect';
 import { SEPOLIA_TESTNET_TOKENS, inputClass, shortenAddress } from './shared';
+import { TokenSelect } from './TokenSelect';
 
 interface MidenToEvmFormProps {
   evmAddress: string;
@@ -45,7 +45,7 @@ export const MidenToEvmForm: React.FC<MidenToEvmFormProps> = ({ evmAddress, mide
   }, [sourceFaucet]);
 
   // EVM output token picked from the hardcoded Sepolia list.
-  const [outputToken, setOutputToken] = useState(SEPOLIA_TESTNET_TOKENS[0].address);
+  const [outputToken, setOutputToken] = useState(SEPOLIA_TESTNET_TOKENS[0]!.address);
   // minTokenOut is always 18-decimal scaled per Epoch's convention regardless
   // of the actual output token decimals.
   const [minTokenOutHuman, setMinTokenOutHuman] = useState('0.01');

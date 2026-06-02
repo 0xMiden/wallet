@@ -92,7 +92,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // verify with a direct eth_chainId query before continuing.
       const provider = await getProvider();
       await useWcStore.getState().switchChain(sepolia.id);
-      const activeHex = await provider.request<string>({ method: 'eth_chainId' });
+      const activeHex = await provider.request({ method: 'eth_chainId' });
       const activeId = typeof activeHex === 'string' ? parseInt(activeHex, 16) : Number(activeHex);
       console.log('[epoch] post-switch eth_chainId', { activeHex, activeId });
       if (activeId !== sepolia.id) {
