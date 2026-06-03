@@ -347,7 +347,7 @@ export async function generatePromisifyRequestPermission(
         if (confirmReq?.type === MidenMessageType.DAppPermConfirmationRequest && confirmReq?.id === id) {
           const { confirmed, accountPublicKey, privateDataPermission } = confirmReq;
           if (confirmed && accountPublicKey) {
-            let publicKey = null;
+            let publicKey: string | null = null;
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
@@ -358,23 +358,32 @@ export async function generatePromisifyRequestPermission(
             } catch (e) {
               console.error('Error fetching account public key:', e);
             }
-            if (!existingPermission)
-              await setDApp(origin, {
-                network,
-                appMeta,
+            if (publicKey == null) {
+              // A failed public-key fetch must fail the connect, not persist a
+              // session with publicKey: null. The direct-return path hands that
+              // null pubkey back verbatim on every later connect, wedging the
+              // dApp at "Connecting…" until the session is cleared. Mirrors the
+              // non-extension branch, which throws NotGranted on the same failure.
+              decline();
+            } else {
+              if (!existingPermission)
+                await setDApp(origin, {
+                  network,
+                  appMeta,
+                  accountId: accountPublicKey,
+                  privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+                  allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+                  publicKey
+                });
+              resolve({
+                type: MidenDAppMessageType.PermissionResponse,
                 accountId: accountPublicKey,
+                network,
                 privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
                 allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-                publicKey: publicKey!
+                publicKey
               });
-            resolve({
-              type: MidenDAppMessageType.PermissionResponse,
-              accountId: accountPublicKey,
-              network,
-              privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-              allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-              publicKey: publicKey!
-            });
+            }
           } else {
             decline();
           }
