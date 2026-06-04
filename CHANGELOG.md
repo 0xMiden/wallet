@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- [FIX][all] **The "Cannot reach the Miden node" banner no longer flaps on a slow-but-healthy node.** Two issues compounded: (1) `SYNC_TIMEOUT_MS` was 5s while a testnet sync can legitimately take 5-25s, so healthy syncs routinely tripped the watchdog — and the timeout never actually freed the WASM client mutex early (`withTimeout` only rejects the outer promise; the underlying `syncState` keeps running and holding the lock until it settles), so the aggressive ceiling bought nothing and only manufactured false failures; (2) `markConnectivityIssue` ran on the _first_ failure, before the circuit-breaker check, so a single slow sync surfaced "node unreachable" even while block height was still advancing. `SYNC_TIMEOUT_MS` is raised to 30s (a true wedged-sync watchdog), and the connectivity banner is now gated on the same `MAX_CONSECUTIVE_SYNC_FAILURES` (3) streak that opens the circuit breaker, so it only appears when the node is persistently unreachable and clears on the next successful sync. Reported in #252.
+
 ## 1.14.6 (2026-06-03)
 
 ### Fixes

@@ -21,14 +21,16 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const ALARM_NAME = 'miden-sync';
 
-// syncState is capped aggressively. On testnet with slow RPC a single
-// syncState can legitimately take 5-25s; the previous 25s ceiling plus the
-// wasm-client mutex meant fetchBalances (triggered by the SelectToken TST
-// tile) could queue behind a sync long enough to exceed Playwright's 10s
-// click budget and cause UI timeouts under stress. 5s keeps the sync path
-// well below any UI click budget; if testnet RPC is genuinely slow, the
-// circuit breaker (below) trips and we back off rather than hammering.
-const SYNC_TIMEOUT_MS = 5_000;
+// Watchdog ceiling for a single syncState call. On testnet with slow RPC a
+// sync can legitimately take 5-25s, so this is set well above the typical
+// worst case: it exists to catch a genuinely wedged sync, not to cap a
+// slow-but-healthy one. Note this timeout does NOT release the WASM client
+// mutex early — withTimeout (below) only rejects the outer promise; the
+// underlying syncState keeps running and holding the lock until it truly
+// settles. So an aggressive ceiling buys nothing for lock contention and
+// merely turns healthy slow syncs into spurious "node unreachable" reports.
+// On a real breach the circuit breaker (below) trips and we back off.
+const SYNC_TIMEOUT_MS = 30_000;
 
 // Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
 // a row we skip sync attempts for BACKOFF_MS, then allow one probe. A
@@ -106,16 +108,24 @@ async function runSync(): Promise<void> {
         `[SyncManager] syncState failed (${consecutiveSyncFailures}/${MAX_CONSECUTIVE_SYNC_FAILURES}):`,
         err
       );
-      // Categorize the sync failure as network (browser is offline) or
-      // node (we can reach the open net but the Miden RPC didn't answer).
-      // Skip semantic / non-transport errors so a malformed-response bug
-      // in the SDK doesn't masquerade as connectivity. Suppressing the
-      // synthetic `Sync timeout` from withTimeout is intentional —
-      // timeouts are themselves transport-shaped.
-      if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
-        markConnectivityIssue(classifySyncError(err));
-      }
+      // Only surface a connectivity banner once failures are *sustained*.
+      // Testnet RPC syncs can legitimately run longer than the watchdog
+      // window, so a lone failure (especially a synthetic `Sync timeout`)
+      // routinely fires while the node is healthy and block height is still
+      // advancing; banner-ing on it produces a flapping false "node
+      // unreachable". Gate the banner on the same MAX_CONSECUTIVE_SYNC_FAILURES
+      // streak that opens the circuit breaker, so it only appears when the node
+      // is persistently unreachable. A later successful sync resets the counter
+      // and clears the banner via clearReachabilityIssues().
       if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
+        // Categorize as network (browser is offline) or node (we reached the
+        // open net but the Miden RPC didn't answer). Skip semantic /
+        // non-transport errors so a malformed-response bug in the SDK doesn't
+        // masquerade as connectivity. The synthetic `Sync timeout` from
+        // withTimeout counts — timeouts are themselves transport-shaped.
+        if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
+          markConnectivityIssue(classifySyncError(err));
+        }
         syncBackoffUntilMs = Date.now() + BACKOFF_MS;
         consecutiveSyncFailures = 0;
         console.warn(`[SyncManager] circuit breaker open — skipping syncs for ${BACKOFF_MS}ms`);
