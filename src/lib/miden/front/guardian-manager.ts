@@ -85,12 +85,14 @@ export async function getOrCreateMultisigService(
     } catch (error) {}
   }
 
-  // Coalesce concurrent inits: the guardian sync runs every 3s and does not
-  // await previous ticks, so without this an in-flight init can start again
-  // before its resolved service reaches the cache.
-  const inflight = guardianServiceInflight.get(accountPublicKey);
-  if (inflight) {
-    return inflight;
+  // Get the Account object from Miden client
+  const sdkAccount = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    return midenClient.getAccount(accountPublicKey);
+  });
+
+  if (!sdkAccount) {
+    throw new Error('Account not found in local storage');
   }
 
   console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');

@@ -1,8 +1,9 @@
 import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
+import { getConnection } from '@wagmi/core';
 import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
-import { getProvider, useWcStore } from 'lib/walletconnect';
+import { wagmiConfig } from 'lib/walletconnect/appkit';
 
 import {
   type CrossChainQuote,
@@ -90,14 +91,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // anything (often mainnet) — our store's chainId mirrors the session,
       // NOT the wallet's eth_chainId. So we always force a switch and then
       // verify with a direct eth_chainId query before continuing.
-      const provider = await getProvider();
-      await useWcStore.getState().switchChain(sepolia.id);
-      const activeHex = await provider.request({ method: 'eth_chainId' });
-      const activeId = typeof activeHex === 'string' ? parseInt(activeHex, 16) : Number(activeHex);
-      console.log('[epoch] post-switch eth_chainId', { activeHex, activeId });
-      if (activeId !== sepolia.id) {
+      const connection = getConnection(wagmiConfig);
+      if (connection.chainId !== sepolia.id) {
         throw new Error(
-          `Wallet did not switch to Sepolia (currently ${activeId}). Please switch the network in your wallet and try again.`
+          `Wallet did not switch to Sepolia (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
         );
       }
       const sdk = await getEpochSdk();
@@ -162,7 +159,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
 
   async poll() {
     const { intent } = get();
-    const address = useWcStore.getState().address;
+    const { address } = getConnection(wagmiConfig);
     const nonce = intent?.intentNonce ?? intent?.solveResult?.nonce;
     if (!address || !nonce) return;
     try {

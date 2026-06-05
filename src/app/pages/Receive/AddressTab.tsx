@@ -3,9 +3,9 @@ import React, { useCallback, useState } from 'react';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
-import EvmConnectModal from 'app/templates/EvmConnectModal';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
+import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';

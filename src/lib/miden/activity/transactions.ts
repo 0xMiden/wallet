@@ -17,6 +17,11 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import * as Repo from 'lib/miden/repo';
+import {
+  DEFAULT_NETWORK,
+  MIDEN_NETWORK_ENDPOINTS,
+  MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS
+} from 'lib/miden-chain/constants';
 import { isExtension, isMobile } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -45,11 +50,6 @@ import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../typ
 import { interpretTransactionResult } from './helpers';
 import { importAllNotes, queueNoteImport } from './notes';
 import { compareAccountIds } from './utils';
-import {
-  DEFAULT_NETWORK,
-  MIDEN_NETWORK_ENDPOINTS,
-  MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS
-} from 'lib/miden-chain/constants';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs

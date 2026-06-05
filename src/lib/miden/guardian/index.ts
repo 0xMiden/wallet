@@ -1,4 +1,4 @@
-import { Account, TransactionRequest, Word } from '@miden-sdk/miden-sdk/lazy';
+import { Account, NoteArray, TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 import {
   Multisig,
   MultisigClient,
@@ -126,23 +126,7 @@ export class MultisigService {
    * This is used for 'execute' type transactions.
    */
   async createCustomProposal(summaryBytes: Uint8Array): Promise<Proposal> {
-    const txSummaryBase64 = u8ToB64(summaryBytes);
-
-    // Sync state to ensure we have the latest nonce
-    await this.multisig.syncState();
-    const account = this.multisig.account;
-    if (!account) {
-      throw new Error('Account not found in MultisigService');
-    }
-    // Create metadata for unknown/custom proposal type
-    const metadata: ProposalMetadata = {
-      proposalType: 'unknown',
-      description: 'Custom transaction'
-    };
-    console.log('proposal metadata', metadata);
-    const proposal = await this.multisig.createProposal(Date.now(), txSummaryBase64, metadata);
-
-    return proposal;
+    return this.multisig.createCustomProposal(summaryBytes, 'b2agg');
   }
 
   /**
@@ -160,13 +144,29 @@ export class MultisigService {
     await this.multisig.executeProposal(id);
   }
 
-  async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
+  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
     const singedProposal = await this.multisig.signProposal(id);
-    console.log('Signed proposal, creating transaction request with id:', singedProposal.signatures);
+    if (singedProposal.metadata.proposalType === 'custom') {
+      if (!requestBytes) {
+        throw new Error('Request Bytes are required for custom execution');
+      }
+      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+      const request = TransactionRequest.deserialize(requestBytes);
+      const outputNotes = request.expectedOutputOwnNotes();
+
+      // build the request again with the advice map
+      const newRequest = new TransactionRequestBuilder()
+        .withOwnOutputNotes(new NoteArray(outputNotes))
+        .extendAdviceMap(advice)
+        .build();
+
+      return newRequest;
+    }
     return await this.multisig.createTransactionProposalRequest(id);
   }
 
   async sync(): Promise<void> {
+    console.log('syncing');
     try {
       await this.multisig.syncState();
       this.syncRetryCount = 0; // Reset retry count on successful sync

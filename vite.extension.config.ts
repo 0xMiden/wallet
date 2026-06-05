@@ -376,12 +376,14 @@ export default defineConfig({
   },
 
   resolve: {
-    // See vite.background.config.ts comment — same reason: the mt-wasm SDK
-    // is symlinked, and we need module resolution to walk through the
-    // symlink path (where the wallet's node_modules is reachable) rather
-    // than the real path (where peer packages like vite-plugin-node-polyfills
-    // aren't installed).
-    preserveSymlinks: true,
+    // The file-linked web-sdk (@miden-sdk/miden-sdk 0.14.10) and the multisig-client's
+    // nested @miden-sdk/miden-sdk (0.14.5) each INLINE their own dexie (4.4.2 vs 4.0.8)
+    // into their wasm-glue chunks. Two different dexie versions trip dexie's global guard
+    // ("Two different versions of Dexie loaded in the same app"). Dedupe @miden-sdk/miden-sdk
+    // so only the single root copy (0.14.10) is ever resolved — this also prevents two
+    // separate WebClient/WASM instances. Dedupe dexie too for any non-inlined imports
+    // (root dexie is pinned to 4.4.2 via package.json resolutions).
+    dedupe: ['dexie', '@miden-sdk/miden-sdk'],
     alias: {
       ...sharedAlias,
       // Chrome extension pages get cross-origin isolation from the

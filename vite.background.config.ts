@@ -269,14 +269,14 @@ export default defineConfig({
   },
 
   resolve: {
-    // The mt-wasm SDK is symlinked into node_modules/@miden-sdk/miden-sdk for
-    // local dev. With preserveSymlinks=false (Vite default), Rolldown resolves
-    // the SDK file through the symlink to its real path (web-sdk worktree),
-    // and then can't find peer-of-the-wallet packages like
-    // `vite-plugin-node-polyfills/shims/global` because that package is only
-    // installed in the wallet's node_modules, not in the SDK's. Keeping the
-    // symlink path makes module resolution find the wallet's node_modules.
-    preserveSymlinks: true,
+    // The file-linked web-sdk (@miden-sdk/miden-sdk 0.14.10) and the multisig-client's
+    // nested @miden-sdk/miden-sdk (0.14.5) each INLINE their own dexie (4.4.2 vs 4.0.8)
+    // into their wasm-glue chunks. Two different dexie versions trip dexie's global guard
+    // ("Two different versions of Dexie loaded in the same app"). Dedupe @miden-sdk/miden-sdk
+    // so only the single root copy (0.14.10) is ever resolved — this also prevents two
+    // separate WebClient/WASM instances. Dedupe dexie too for any non-inlined imports
+    // (root dexie is pinned to 4.4.2 via package.json resolutions).
+    dedupe: ['dexie', '@miden-sdk/miden-sdk'],
     alias: [
       // Two concerns, one redirect target (`@miden-sdk/miden-sdk/mt/lazy`):
       //
