@@ -2503,20 +2503,16 @@
   resolved "https://registry.yarnpkg.com/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz#3dc35ba0f1e66b403c00b39344f870298ebb1c8e"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@openzeppelin/guardian-client@0.14.6", "@openzeppelin/guardian-client@^0.14.6":
-  version "0.14.6"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.14.6.tgz#7e7c25b0a1270aa304d40d4b4cf025603ef128b6"
-  integrity sha512-+obykBGEzTfdjODfdhyrdrlFL8A5SQ6rfeuUBGz0RJE2BAGN2jn6IcrJzKddUECW/3hrLukLCAuhqdzdW/KaPg==
+"@openzeppelin/guardian-client@^0.14.8", "@openzeppelin/guardian-client@file:../private-state-manager/packages/guardian-client":
+  version "0.14.8"
 
-"@openzeppelin/miden-multisig-client@0.14.6":
-  version "0.14.6"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.14.6.tgz#efddbea4b398ab7f44546dab86afeb3b5e582748"
-  integrity sha512-Ow0gwE2qUN3DDr1qnjRF+DV4dlBm+dqM+X/8hko9vdpKyP8ID5r7RN7Ui6gALFxiG7SlBZjoVD66LYFPHyyxwQ==
+"@openzeppelin/miden-multisig-client@file:../private-state-manager/packages/miden-multisig-client":
+  version "0.14.8"
   dependencies:
     "@miden-sdk/miden-sdk" "0.14.5"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.14.6"
+    "@openzeppelin/guardian-client" "^0.14.8"
 
 "@oxc-project/types@=0.124.0":
   version "0.124.0"
@@ -2656,10 +2652,10 @@
     redux-thunk "^3.1.0"
     reselect "^5.1.0"
 
-"@reown/appkit-adapter-ethers@^1.8.20":
+"@reown/appkit-adapter-wagmi@^1.8.20":
   version "1.8.20"
-  resolved "https://registry.yarnpkg.com/@reown/appkit-adapter-ethers/-/appkit-adapter-ethers-1.8.20.tgz#966e3b58cb7f3af56d35324ce03163f2cef471a5"
-  integrity sha512-vmDPHtBMkeLqCUISkS383zsyANQN5oBabcbyyu/qPXmthMeDX9xVx5LdZ7LJkyFASeI8XkLJkl9Ltcx3jVgIeQ==
+  resolved "https://registry.yarnpkg.com/@reown/appkit-adapter-wagmi/-/appkit-adapter-wagmi-1.8.20.tgz#48f4bb7f575445b1689bad9196b84ca82a2fe2f7"
+  integrity sha512-HVCOyYrW5NYjj2BtdAaOabrC7q2GkdpsQ9KviwD+dvZhBu0rM0/SdD36WbLVTjezJLKS2/3/WfKbl5rdqvKpZw==
   dependencies:
     "@reown/appkit" "1.8.20"
     "@reown/appkit-common" "1.8.20"
@@ -2670,6 +2666,8 @@
     "@reown/appkit-wallet" "1.8.20"
     "@walletconnect/universal-provider" "2.23.7"
     valtio "2.1.7"
+  optionalDependencies:
+    "@wagmi/connectors" ">=5.9.9"
 
 "@reown/appkit-common@1.8.20":
   version "1.8.20"
@@ -4396,6 +4394,18 @@
     "@tailwindcss/oxide" "4.2.2"
     tailwindcss "4.2.2"
 
+"@tanstack/query-core@5.100.14":
+  version "5.100.14"
+  resolved "https://registry.yarnpkg.com/@tanstack/query-core/-/query-core-5.100.14.tgz#6bf11c9a6a33dbbbba21f05d880b93930d80000c"
+  integrity sha512-5X41dGpxgeaHISCRW2oYwcSycZeULZzAunaudXT9ov1KOTj9xwt0CH6hbwqP1/z74ZWF7rYFnDpyYH07XFcZew==
+
+"@tanstack/react-query@^5.100.14":
+  version "5.100.14"
+  resolved "https://registry.yarnpkg.com/@tanstack/react-query/-/react-query-5.100.14.tgz#799fe305421fd84bf2f6df40930c859c945b42ab"
+  integrity sha512-oOr6aRdSFEwWhzxEkD/9ZcItM3+LjBSkeVmadWKwUssAHTsqd/7bOjWrX4AbvEkoEhgAxzN0Xk6H/aYzXiYBAw==
+  dependencies:
+    "@tanstack/query-core" "5.100.14"
+
 "@tauri-apps/api@^2.0.0":
   version "2.9.1"
   resolved "https://registry.yarnpkg.com/@tauri-apps/api/-/api-2.9.1.tgz#e539bfa437e53864fd5e7ed0f28e8217fbc74de1"
@@ -5302,6 +5312,20 @@
     "@vitest/pretty-format" "2.1.9"
     loupe "^3.1.2"
     tinyrainbow "^1.2.0"
+
+"@wagmi/connectors@8.0.15", "@wagmi/connectors@>=5.9.9":
+  version "8.0.15"
+  resolved "https://registry.yarnpkg.com/@wagmi/connectors/-/connectors-8.0.15.tgz#cca3cf0413c8b9cad2ad5820713a9827f9cbef90"
+  integrity sha512-LNr73YNs2KY6y6GXUWRXsDG0xSB5YpkO/9BSp3/2IAcM5XDPWcS4V1HfstXnP/ms9LARKLe2BAOCG44LajTWjw==
+
+"@wagmi/core@3.5.0":
+  version "3.5.0"
+  resolved "https://registry.yarnpkg.com/@wagmi/core/-/core-3.5.0.tgz#02e81ee27c47ee066755812abdaa70d1de87299d"
+  integrity sha512-OcbdnZA6XPyDOHtY6GR8MFzRa89/EkMFCxdrWV4cgKjfsLi02NzEbMG6LQEO7VJ9ltwmLwpRQgcWnn6pBJPo7Q==
+  dependencies:
+    eventemitter3 "5.0.1"
+    mipd "0.0.7"
+    zustand "5.0.0"
 
 "@wallet-standard/base@^1.1.0":
   version "1.1.0"
@@ -7780,15 +7804,10 @@ devlop@^1.0.0, devlop@^1.1.0:
   dependencies:
     dequal "^2.0.0"
 
-dexie@^3.2.2:
-  version "3.2.7"
-  resolved "https://registry.yarnpkg.com/dexie/-/dexie-3.2.7.tgz#1346541c9c81e3bc6055a042a928837890595e3a"
-  integrity sha512-2a+BXvVhY5op+smDRLxeBAivE7YcYaneXJ1la3HOkUfX9zKkE/AJ8CNgjiXbtXepFyFmJNGSbmjOwqbT749r/w==
-
-dexie@^4.0.1:
-  version "4.2.1"
-  resolved "https://registry.yarnpkg.com/dexie/-/dexie-4.2.1.tgz#70d111ae8d2dabf53f424fca79f6f918c407e6db"
-  integrity sha512-Ckej0NS6jxQ4Po3OrSQBFddayRhTCic2DoCAG5zacOfOVB9P2Q5Xc5uL/nVa7ZVs+HdMnvUPzLFCB/JwpB6Csg==
+dexie@4.4.2, dexie@^4.0.1:
+  version "4.4.2"
+  resolved "https://registry.yarnpkg.com/dexie/-/dexie-4.4.2.tgz#447511328c982baaf6a88c736ddc08484916886c"
+  integrity sha512-zMtV8q79EFE5U8FKZvt0Y/77PCU/Hr/RDxv1EDeo228L+m/HTbeN2AjoQm674rhQCX8n3ljK87lajt7UQuZfvw==
 
 diff@^4.0.1:
   version "4.0.4"
@@ -8629,7 +8648,7 @@ etag@^1.8.1, etag@~1.8.1:
   resolved "https://registry.yarnpkg.com/etag/-/etag-1.8.1.tgz#41ae2eeb65efa62268aebfea83ac7d79299b0887"
   integrity sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==
 
-ethers@^6.0.0, ethers@^6.16.0:
+ethers@^6.0.0:
   version "6.16.0"
   resolved "https://registry.yarnpkg.com/ethers/-/ethers-6.16.0.tgz#fff9b4f05d7a359c774ad6e91085a800f7fccf65"
   integrity sha512-U1wulmetNymijEhpSEQ7Ct/P/Jw9/e7R1j5XIbPRydgV2DjLVMsULDlNksq3RQnFgKoLlZf88ijYtWEXcPa07A==
@@ -11776,6 +11795,11 @@ minizlib@^2.1.1:
   dependencies:
     minipass "^3.0.0"
     yallist "^4.0.0"
+
+mipd@0.0.7:
+  version "0.0.7"
+  resolved "https://registry.yarnpkg.com/mipd/-/mipd-0.0.7.tgz#bb5559e21fa18dc3d9fe1c08902ef14b7ce32fd9"
+  integrity sha512-aAPZPNDQ3uMTdKbuO2YmAw2TxLHO0moa4YKAyETM/DTj5FloZo+a+8tU+iv4GmW+sOxKLSRwcSFuczk+Cpt6fg==
 
 mkdirp@^1.0.3:
   version "1.0.4"
@@ -15621,6 +15645,11 @@ use-latest@^1.2.1:
   dependencies:
     use-isomorphic-layout-effect "^1.1.1"
 
+use-sync-external-store@1.4.0:
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/use-sync-external-store/-/use-sync-external-store-1.4.0.tgz#adbc795d8eeb47029963016cefdf89dc799fcebc"
+  integrity sha512-9WXSPC5fMv61vaupRkCKCxsPxBocVnwakBEkMIHHpkTTg6icbJtg6jzgtLDm4bl3cSHAca52rYWih0k4K3PfHw==
+
 use-sync-external-store@^1.2.0, use-sync-external-store@^1.2.2, use-sync-external-store@^1.4.0:
   version "1.6.0"
   resolved "https://registry.yarnpkg.com/use-sync-external-store/-/use-sync-external-store-1.6.0.tgz#b174bfa65cb2b526732d9f2ac0a408027876f32d"
@@ -15825,6 +15854,15 @@ w3c-xmlserializer@^5.0.0:
   integrity sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==
   dependencies:
     xml-name-validator "^5.0.0"
+
+wagmi@^3.6.16:
+  version "3.6.16"
+  resolved "https://registry.yarnpkg.com/wagmi/-/wagmi-3.6.16.tgz#b61d73e80351580ea4914621b7314901bd4870da"
+  integrity sha512-tM6/81vwmiNrJneApCL+qJdQoAyn2Fyd6bL88dC8A0Zp13MVeK7/cp1wzia5AoY0yqJRQHjEGk2Zzqrkdht/kA==
+  dependencies:
+    "@wagmi/connectors" "8.0.15"
+    "@wagmi/core" "3.5.0"
+    use-sync-external-store "1.4.0"
 
 walker@^1.0.8:
   version "1.0.8"
@@ -16363,6 +16401,11 @@ zod@^3.25.76:
   version "3.25.76"
   resolved "https://registry.yarnpkg.com/zod/-/zod-3.25.76.tgz#26841c3f6fd22a6a2760e7ccb719179768471e34"
   integrity sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==
+
+zustand@5.0.0:
+  version "5.0.0"
+  resolved "https://registry.yarnpkg.com/zustand/-/zustand-5.0.0.tgz#71f8aaecf185592a3ba2743d7516607361899da9"
+  integrity sha512-LE+VcmbartOPM+auOjCCLQOsQ05zUTp8RkgwRzefUk+2jISdMMFnxvyTjA4YNWr5ZGXYbVsEMZosttuxUBkojQ==
 
 zustand@5.0.3:
   version "5.0.3"

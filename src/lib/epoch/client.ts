@@ -1,7 +1,8 @@
+import { getWalletClient } from '@wagmi/core';
 import { type Chain, type WalletClient, createWalletClient, custom } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { getProvider } from 'lib/walletconnect';
+import { wagmiConfig } from 'lib/walletconnect/appkit';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 
@@ -19,7 +20,7 @@ export async function buildEpochWalletClient(
   address: `0x${string}`,
   opts?: { chainOverride?: number }
 ): Promise<WalletClient> {
-  const provider = await getProvider();
+  const provider = await getWalletClient(wagmiConfig);
   const chain: Chain =
     opts?.chainOverride !== undefined && opts.chainOverride !== sepolia.id
       ? { ...sepolia, id: opts.chainOverride }

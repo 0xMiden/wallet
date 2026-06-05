@@ -1,4 +1,4 @@
-import type {
+import {
   CollateralType,
   EpochIntentSDK,
   GetTaskDataParams,
@@ -173,7 +173,7 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
   }
 
   const taskDataParams = {
-    taskType: 'gettokenout' as TaskType,
+    taskType: TaskType.GetTokenOut,
     intentData: {
       isNative: false,
       depositTokenAddress: params.evmTokenAddress,

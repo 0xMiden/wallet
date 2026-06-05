@@ -81,10 +81,9 @@ export async function getOrCreateMultisigService(
   console.log('[Guardian Manager] Found Guardian account in provider:', account);
 
   // Get the Account object from Miden client
-  const { sdkAccount } = await withWasmClientLock(async () => {
+  const sdkAccount = await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
-    const sdkAccount = await midenClient.getAccount(accountPublicKey);
-    return { sdkAccount };
+    return midenClient.getAccount(accountPublicKey);
   });
 
   if (!sdkAccount) {

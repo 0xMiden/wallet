@@ -31,15 +31,14 @@ export const zustandProvider: GuardianAccountProvider = {
  */
 export async function syncGuardianAccounts(): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
-  const guardianAccounts = accounts.filter(
-    acc => acc.type === WalletType.Guardian && !acc.requiresHotKeyRotation
-  );
+  const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && !acc.requiresHotKeyRotation);
 
   if (guardianAccounts.length === 0) return;
 
   for (const account of guardianAccounts) {
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
+      console.log('got the service', service);
       await service.sync();
     } catch (error) {
       console.log(account);

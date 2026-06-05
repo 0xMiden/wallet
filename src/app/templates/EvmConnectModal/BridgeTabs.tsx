@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 
 import { useEpochStore } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
+import { AppKitProvider } from 'lib/walletconnect/appkit';
 
 import { AgglayerEvmToMidenForm } from './AgglayerEvmToMidenForm';
 import { AgglayerMidenToEvmForm } from './AgglayerMidenToEvmForm';
@@ -13,7 +14,6 @@ interface BridgeTabsProps {
   evmAddress: string;
   midenAccount: string;
 }
-
 const segmentClass = (active: boolean) =>
   `flex-1 rounded-md py-1.5 font-medium transition ${active ? 'bg-white text-heading-gray shadow-sm' : 'text-grey-500'}`;
 
@@ -78,7 +78,9 @@ export const BridgeTabs: React.FC<BridgeTabsProps> = ({ evmAddress, midenAccount
       ) : tab === 'miden-to-evm' ? (
         <AgglayerMidenToEvmForm evmAddress={evmAddress} midenAccount={midenAccount} />
       ) : (
-        <AgglayerEvmToMidenForm evmAddress={evmAddress} midenRecipient={midenAccount} />
+        <AppKitProvider>
+          <AgglayerEvmToMidenForm evmAddress={evmAddress} midenRecipient={midenAccount} />
+        </AppKitProvider>
       )}
     </div>
   );

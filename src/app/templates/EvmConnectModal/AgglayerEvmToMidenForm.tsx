@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAppKitBalance, useAppKitProvider } from '@reown/appkit/react';
-import { EIP1193Provider } from 'viem';
+import { EIP1193Provider, parseUnits } from 'viem';
+import { useWriteContract } from 'wagmi';
 
-import { bridgeAgglayer } from 'lib/agglayer';
+import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { Button } from 'lib/ui/button';
 
@@ -41,28 +42,49 @@ export const AgglayerEvmToMidenForm: React.FC<AgglayerEvmToMidenFormProps> = ({ 
 
   const canBridge = !!walletProvider && !!amount.trim() && parseFloat(amount) > 0 && status !== 'signing';
 
+  const writeContract = useWriteContract();
+
   const handleBridge = useCallback(async () => {
     if (!walletProvider) return;
     hapticMedium();
     setStatus('signing');
     setError(null);
     try {
-      await bridgeAgglayer({
-        toMidenAddress: midenRecipient,
-        amount: amount.trim(),
-        provider: walletProvider,
-        tokenAddr: 'native',
-        network: 'sepolia'
-      });
+      // await bridgeAgglayer({
+      //   toMidenAddress: midenRecipient,
+      //   amount: amount.trim(),
+      //   provider: walletProvider,
+      //   tokenAddr: 'native',
+      //   network: 'sepolia'
+      // });
       // The Activity tab polls the indexer for the destination address, so the
       // in-progress banner appears on its own — no need to record the tx here.
+      const midenEvmAddr = midenAddrToEvmAddr(midenRecipient);
+      const amountInBaseUnits = parseUnits(amount, 18);
+
+      const tx = await writeContract.mutateAsync({
+        abi: AGGLAYER_BRIDGE_ABI,
+        address: AGGLAYER_CONTRACT_ADDRESS.get('sepolia')! as `0x${string}`,
+        functionName: 'bridgeAsset',
+        args: [
+          MIDEN_CHAIN_ID,
+          midenEvmAddr,
+          amountInBaseUnits,
+          '0x0000000000000000000000000000000000000000',
+          true,
+          '0x'
+        ],
+        value: amountInBaseUnits
+      });
+
+      console.log('Transaction sumbitted on evm', tx);
       setStatus('submitted');
     } catch (err) {
       console.error('[agglayer] bridge failed', err);
       setError(err instanceof Error ? err.message : 'Bridge failed');
       setStatus('failed');
     }
-  }, [walletProvider, midenRecipient, amount]);
+  }, [walletProvider, midenRecipient, amount, writeContract]);
 
   const handleReset = useCallback(() => {
     hapticLight();

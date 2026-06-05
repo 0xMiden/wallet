@@ -1,11 +1,11 @@
 import React, { useMemo } from 'react';
 
-import { formatUnits } from 'ethers';
 import { useTranslation } from 'react-i18next';
+import { formatUnits } from 'viem';
 
+import { Loader } from 'components/Loader';
 import { midenAddrToEvmAddr, useIncomingBridge } from 'lib/agglayer';
 import { useAccount } from 'lib/miden/front';
-import { Loader } from 'components/Loader';
 
 // Pinned banner shown above the Activity list while an Agglayer bridge is still
 // settling. Polls the bridge indexer for the current account's destination
