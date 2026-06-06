@@ -8,8 +8,13 @@ import { fetchFromStorage } from './storage';
 import { getSignerDetailsFromAccount } from '../guardian/account';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
-// Cache MultisigService instances to avoid re-initialization on every sync cycle
+// Cache MultisigService instances to avoid re-initialization on every sync cycle.
 const guardianServiceCache = new Map<string, MultisigService>();
+
+// In-flight MultisigService.init promises, keyed by accountPublicKey. The
+// guardian sync runs every 3s and does not await previous ticks; without this,
+// each tick can start a fresh init before the resolved service reaches the cache.
+const guardianServiceInflight = new Map<string, Promise<MultisigService>>();
 
 /**
  * Callbacks for resolving account data.
@@ -45,33 +50,52 @@ export async function getOrCreateMultisigService(
     guardianServiceCache.delete(accountPublicKey);
   }
 
-  // Verify this is a Guardian account
-  const accounts = await provider.getAccounts();
-  const account = accounts.find(acc => acc.publicKey === accountPublicKey);
-  if (!account || account.type !== WalletType.Guardian) {
-    throw new Error('Account is not a Guardian account');
+  const inflight = guardianServiceInflight.get(accountPublicKey);
+  if (inflight) {
+    return inflight;
   }
 
-  // Get the Account object from Miden client
-  const { sdkAccount } = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    const sdkAccount = await midenClient.getAccount(accountPublicKey);
-    return { sdkAccount };
-  });
+  const initPromise = (async () => {
+    // Verify this is a Guardian account
+    const accounts = await provider.getAccounts();
+    const account = accounts.find(acc => acc.publicKey === accountPublicKey);
+    if (!account || account.type !== WalletType.Guardian) {
+      throw new Error('Account is not a Guardian account');
+    }
 
-  if (!sdkAccount) {
-    throw new Error('Account not found in local storage');
+    console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
+    console.log('[Guardian Manager] Found Guardian account in provider:', account);
+
+    // Get the Account object from Miden client
+    const { sdkAccount } = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      const sdkAccount = await midenClient.getAccount(accountPublicKey);
+      return { sdkAccount };
+    });
+
+    if (!sdkAccount) {
+      throw new Error('Account not found in local storage');
+    }
+
+    const { commitment, publicKey } = await getSignerDetailsFromAccount(sdkAccount, provider.getPublicKeyForCommitment);
+    console.log('[Guardian Manager] Retrieved signer details - commitment:', commitment, 'publicKey:', publicKey);
+    // Initialize MultisigService with the account, public key, commitment, and signWord function
+    const service = await MultisigService.init(sdkAccount, `0x${publicKey}`, `0x${commitment}`, provider.signWord);
+
+    // Cache for future use
+    guardianServiceCache.set(accountPublicKey, service);
+
+    return service;
+  })();
+
+  guardianServiceInflight.set(accountPublicKey, initPromise);
+  try {
+    return await initPromise;
+  } finally {
+    // Evict on settle (success or failure) so a failed init can be retried on
+    // the next sync tick while successful inits use guardianServiceCache.
+    guardianServiceInflight.delete(accountPublicKey);
   }
-
-  const { commitment, publicKey } = await getSignerDetailsFromAccount(sdkAccount, provider.getPublicKeyForCommitment);
-  console.log('[Guardian Manager] Retrieved signer details - commitment:', commitment, 'publicKey:', publicKey);
-  // Initialize MultisigService with the account, public key, commitment, and signWord function
-  const service = await MultisigService.init(sdkAccount, `0x${publicKey}`, `0x${commitment}`, provider.signWord);
-
-  // Cache for future use
-  guardianServiceCache.set(accountPublicKey, service);
-
-  return service;
 }
 
 /**
@@ -90,6 +114,7 @@ export async function isGuardianAccount(accountPublicKey: string, provider: Guar
  */
 export function clearGuardianCache(): void {
   guardianServiceCache.clear();
+  guardianServiceInflight.clear();
 }
 
 /**
@@ -99,4 +124,5 @@ export function clearGuardianCache(): void {
  */
 export function clearGuardianServiceFor(accountPublicKey: string): void {
   guardianServiceCache.delete(accountPublicKey);
+  guardianServiceInflight.delete(accountPublicKey);
 }
