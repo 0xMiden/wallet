@@ -16,8 +16,12 @@ type CacheEntry = { service: MultisigService; hotPublicKey: string };
 const guardianServiceCache = new Map<string, CacheEntry>();
 
 // In-flight MultisigService.init promises, keyed by accountPublicKey. The
-// guardian sync runs every 3s and does not await previous ticks; without this,
-// each tick can start a fresh init before the resolved service reaches the cache.
+// guardian sync runs every 3s (fire-and-forget, no await), and MultisigService.init
+// is slow (loads from the guardian server + touches WASM client resources). Without
+// coalescing, each tick re-enters before the previous init resolves and caches,
+// spawning a brand-new service — and a leaked web-client worker — every 3s. We cache
+// the in-flight promise so concurrent callers share one init, and evict it on
+// settle so a failed init can be retried (but never two at once).
 const guardianServiceInflight = new Map<string, Promise<MultisigService>>();
 
 /**
@@ -84,39 +88,51 @@ export async function getOrCreateMultisigService(
       guardianServiceCache.delete(accountPublicKey);
     } catch (error) {}
   }
-
-  // Get the Account object from Miden client
-  const sdkAccount = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    return midenClient.getAccount(accountPublicKey);
-  });
-
-  if (!sdkAccount) {
-    throw new Error('Account not found in local storage');
+  // Coalesce concurrent inits for the same account. The 3s guardian sync is
+  // fire-and-forget, so it re-enters here before the (slow) first init resolves
+  // and populates guardianServiceCache — without this guard every tick starts a
+  // fresh MultisigService.init and leaks its web-client worker.
+  const inflight = guardianServiceInflight.get(accountPublicKey);
+  if (inflight) {
+    return inflight;
   }
 
   console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
+  console.log('[Guardian Manager] Found Guardian account in provider:', account);
 
   const initPromise = (async () => {
-    // Get the Account object from the Miden client.
-    const { sdkAccount } = await withWasmClientLock(async () => {
+    // Get the Account object from Miden client
+    const sdkAccount = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
-      const sdkAccount = await midenClient.getAccount(accountPublicKey);
-      return { sdkAccount };
+      return midenClient.getAccount(accountPublicKey);
     });
 
     if (!sdkAccount) {
       throw new Error('Account not found in local storage');
     }
 
-    // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
     const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
-    // Bind the service to the hot signer — the popup signs with the hot key.
-    const service = await MultisigService.init(sdkAccount, `0x${hotPublicKey}`, `0x${commitment}`, provider.signWord);
+    console.log(
+      '[Guardian Manager] Retrieved signer details - commitment:',
+      commitment,
+      'publicKey:',
+      account.hotPublicKey
+    );
+    console.log(
+      '[Guardian Manager] Initializing MultisigService with account and signer details...',
+      provider.signWord
+    );
+    // Initialize MultisigService with the account, public key, commitment, and signWord function
+    const service = await MultisigService.init(
+      sdkAccount,
+      `0x${account.hotPublicKey}`,
+      `0x${commitment}`,
+      provider.signWord
+    );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
     // next access can detect rotation and force a re-init.
-    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey });
+    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey: account.hotPublicKey });
 
     return service;
   })();
@@ -126,7 +142,7 @@ export async function getOrCreateMultisigService(
     return await initPromise;
   } finally {
     // Evict on settle (success or failure) so a failed init can be retried on
-    // the next sync tick while successful inits use guardianServiceCache.
+    // the next sync tick — but the resolved service is now in guardianServiceCache.
     guardianServiceInflight.delete(accountPublicKey);
   }
 }
