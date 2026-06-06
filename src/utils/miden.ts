@@ -14,3 +14,24 @@ const isValidBech32Address = (address: string) => {
 export const isValidMidenAddress = (address: string) => {
   return isValidBech32Address(address);
 };
+
+const ETH_ADDRESS_RGX = /^0x[a-fA-F0-9]{40}$/;
+
+/** A full Ethereum hex address: `0x` followed by 40 hex characters. */
+export const isValidEthereumAddress = (address: string) => ETH_ADDRESS_RGX.test((address ?? '').trim());
+
+/** Chain-aware recipient validity: a Miden bech32 address OR an Ethereum hex address. */
+export const isValidRecipientAddress = (address: string) =>
+  isValidMidenAddress(address) || isValidEthereumAddress(address);
+
+export type AddressChain = 'miden' | 'ethereum';
+
+/**
+ * Detect which chain a recipient address targets, for UI affordances like the
+ * send-flow "To" badge. A hex (`0x…`) address reads as Ethereum (cross-chain);
+ * a Miden bech32 address — and any other / partial / empty input — reads as
+ * Miden (same-chain), so the badge defaults to Miden until a `0x` is typed.
+ */
+export const detectAddressChain = (address: string): AddressChain => {
+  return isHexAddress(address.trim()) ? 'ethereum' : 'miden';
+};
