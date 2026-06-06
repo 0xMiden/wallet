@@ -3,6 +3,7 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'r
 import { yupResolver } from '@hookform/resolvers/yup';
 import classNames from 'clsx';
 import { SubmitHandler, useForm } from 'react-hook-form';
+import { useDebouncedCallback } from 'use-debounce';
 import * as yup from 'yup';
 
 import { useAppEnv } from 'app/env';
@@ -21,30 +22,20 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
-import { isValidMidenAddress } from 'utils/miden';
+import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
 
-import { AccountsList } from './AccountsList';
 import { ReviewTransaction } from './ReviewTransaction';
-import { SelectToken } from './SelectToken';
-import { SendDetails } from './SendDetails';
+import { SelectContactDrawer } from './SelectContactDrawer';
+import { SelectTokenDrawer } from './SelectTokenDrawer';
+import { SendForm } from './SendForm';
 import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
   {
-    name: SendFlowStep.SelectToken,
+    name: SendFlowStep.SendForm,
     animationIn: 'push',
     animationOut: 'pop'
-  },
-  {
-    name: SendFlowStep.SendDetails,
-    animationIn: 'push',
-    animationOut: 'pop'
-  },
-  {
-    name: SendFlowStep.AccountsList,
-    animationIn: 'present',
-    animationOut: 'dismiss'
   },
   {
     name: SendFlowStep.ReviewTransaction,
@@ -64,7 +55,7 @@ const validations = {
   recipientAddress: yup
     .string()
     .required()
-    .test('is-valid-address', 'Invalid address', value => isValidMidenAddress(value)),
+    .test('is-valid-address', 'Invalid address', value => isValidRecipientAddress(value ?? '')),
   recallBlocks: yup.number(),
   delegateTransaction: yup.boolean().required()
 };
@@ -84,7 +75,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
-  const [note, setNote] = useState('');
+  const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  const [showContactDrawer, setShowContactDrawer] = useState(false);
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
@@ -117,14 +109,22 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
 
   // Handle mobile back button/gesture
   useMobileBackHandler(() => {
-    if (cardStack.length > 1) {
-      goBack(); // Go to previous step
+    if (showTokenDrawer) {
+      setShowTokenDrawer(false);
       return true;
     }
-    // On first step, close entire flow
+    if (showContactDrawer) {
+      setShowContactDrawer(false);
+      return true;
+    }
+    if (cardStack.length > 1) {
+      goBack(); // Go to previous step (e.g. back from review)
+      return true;
+    }
+    // On the root step, close the entire flow
     onClose();
     return true;
-  }, [cardStack.length, goBack, onClose]);
+  }, [showTokenDrawer, showContactDrawer, cardStack.length, goBack, onClose]);
 
   const onGenerateTransaction = useCallback(async () => {
     // On mobile, open the modal and go back to home
@@ -182,9 +182,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const delegateTransaction = watch('delegateTransaction');
   const token = watch('token');
 
-  // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+
+  // Pre-select token when navigating from a token detail page.
   useEffect(() => {
     if (!preselectedTokenId || !balanceData) return;
     const match = balanceData.find(t => t.tokenId === preselectedTokenId);
@@ -198,6 +199,21 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     };
     setValue('token', uiToken);
   }, [preselectedTokenId, balanceData, setValue]);
+
+  // Default-select the first token so the single screen always shows a token
+  // (matches the design where a token + balance is shown by default).
+  useEffect(() => {
+    if (token || !balanceData || balanceData.length === 0) return;
+    const first = balanceData[0];
+    if (!first) return;
+    setValue('token', {
+      id: first.tokenId,
+      name: first.metadata.symbol,
+      decimals: first.metadata.decimals,
+      balance: first.balance,
+      fiatPrice: first.fiatPrice
+    });
+  }, [token, balanceData, setValue]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -296,20 +312,47 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     token
   ]);
 
+  // Chain-aware address validation: 0x → Ethereum (hex), otherwise Miden bech32.
+  // The error copy matches the detected chain so an Ethereum address no longer
+  // shows the "Invalid Miden account ID" message.
+  const validateAddress = useCallback(
+    (address: string) => {
+      const trimmed = address.trim();
+      if (!trimmed) {
+        clearErrors('recipientAddress');
+        return;
+      }
+      const chain = detectAddressChain(trimmed);
+      const valid = chain === 'ethereum' ? isValidEthereumAddress(trimmed) : isValidMidenAddress(trimmed);
+      if (valid) {
+        clearErrors('recipientAddress');
+      } else {
+        setError('recipientAddress', {
+          type: 'manual',
+          message: chain === 'ethereum' ? 'invalidEthereumAddress' : 'invalidMidenAccountId'
+        });
+      }
+    },
+    [setError, clearErrors]
+  );
+
+  // Only validate once the user pauses typing, so the "invalid" message doesn't
+  // flash on every keystroke while a long address is being entered/pasted.
+  const debouncedValidateAddress = useDebouncedCallback(validateAddress, 400);
+
   const onAddressChange = useCallback(
-    (event: ChangeEvent<HTMLTextAreaElement>) => {
+    (event: ChangeEvent<HTMLInputElement>) => {
       const address = event.target.value;
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      if (!isValidMidenAddress(address)) {
-        setError('recipientAddress', { type: 'manual', message: 'invalidMidenAccountId' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      // Clear any prior error while typing; the debounced validator re-checks
+      // once the user stops.
+      clearErrors('recipientAddress');
+      debouncedValidateAddress(address);
     },
-    [onAction, setError, clearErrors]
+    [onAction, clearErrors, debouncedValidateAddress]
   );
 
   const onSelectContact = useCallback(
@@ -319,9 +362,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: contact.id }
       });
-      setTimeout(() => goBack(), 300);
+      setShowContactDrawer(false);
     },
-    [onAction, goBack, clearErrors]
+    [onAction, clearErrors]
   );
 
   const onAmountChange = useCallback(
@@ -343,20 +386,19 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     [onAction, token, setError, clearErrors]
   );
 
-  const goToStep = useCallback(
-    (step: SendFlowStep) => {
-      onAction({ id: SendFlowActionId.Navigate, step });
-    },
-    [onAction]
-  );
+  const onMax = useCallback(() => {
+    if (!token) return;
+    onAmountChange(String(token.balance));
+  }, [token, onAmountChange]);
 
-  const onClearAddress = useCallback(() => {
-    onAction({
-      id: SendFlowActionId.SetFormValues,
-      payload: { recipientAddress: '' }
-    });
-    clearErrors('recipientAddress');
-  }, [onAction, clearErrors]);
+  const onSelectToken = useCallback(
+    (selected: UIToken) => {
+      setValue('token', selected);
+      // Re-validate the amount against the newly selected token's balance.
+      if (amount) onAmountChange(amount);
+    },
+    [setValue, amount, onAmountChange]
+  );
 
   const onScannedAddress = useCallback(
     (address: string) => {
@@ -364,24 +406,19 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      if (!isValidMidenAddress(address)) {
-        setError('recipientAddress', { type: 'manual', message: 'invalidMidenAccountId' });
-      } else {
-        clearErrors('recipientAddress');
-      }
+      // A scan yields a complete address — validate it right away.
+      debouncedValidateAddress.cancel();
+      validateAddress(address);
     },
-    [onAction, setError, clearErrors]
+    [onAction, debouncedValidateAddress, validateAddress]
   );
 
   const renderStep = useCallback(
     (route: Route) => {
       switch (route.name) {
-        case SendFlowStep.SelectToken:
-          return <SelectToken onAction={onAction} />;
-        case SendFlowStep.SendDetails:
-          if (!token) return null;
+        case SendFlowStep.SendForm:
           return (
-            <SendDetails
+            <SendForm
               token={token}
               amount={amount || ''}
               recipientAddress={recipientAddress || ''}
@@ -394,26 +431,15 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               addressError={errors.recipientAddress?.message?.toString()}
               recallTime={recallTime}
               recallDate={recallDate}
-              note={note}
               onAction={onAction}
-              onGoBack={preselectedTokenId ? onClose : goBack}
               onAmountChange={onAmountChange}
               onAddressChange={onAddressChange}
               onScannedAddress={onScannedAddress}
-              onClearAddress={onClearAddress}
-              onYourAccounts={() => goToStep(SendFlowStep.AccountsList)}
+              onMax={onMax}
+              onOpenTokenDrawer={() => setShowTokenDrawer(true)}
+              onOpenContactDrawer={() => setShowContactDrawer(true)}
               onRecallDateChange={setRecallDate}
               onRecallTimeChange={setRecallTime}
-              onNoteChange={setNote}
-            />
-          );
-        case SendFlowStep.AccountsList:
-          return (
-            <AccountsList
-              recipientAccountId={recipientAddress}
-              accounts={allContactsList}
-              onClose={goBack}
-              onSelectContact={onSelectContact}
             />
           );
         case SendFlowStep.ReviewTransaction:
@@ -421,6 +447,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
             <ReviewTransaction
               amount={amount || ''}
               token={token?.name || ''}
+              fiatValue={token ? parseFloat(amount || '0') * token.fiatPrice : 0}
               recipientAddress={recipientAddress}
               sharePrivately={sharePrivately}
               delegateTransaction={delegateTransaction}
@@ -429,6 +456,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               recallDate={recallDate}
               onAction={onAction}
               onGoBack={goBack}
+              onClose={onClose}
               onSubmit={handleSubmit(onSubmit)}
             />
           );
@@ -439,28 +467,23 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     [
       token,
       recipientAddress,
-      allContactsList,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
       onScannedAddress,
-      onClearAddress,
+      onMax,
       goBack,
-      onSelectContact,
       amount,
       onAmountChange,
       onAction,
+      onClose,
       sharePrivately,
       delegateTransaction,
       recallBlocks,
-      goToStep,
       handleSubmit,
       onSubmit,
       recallDate,
-      recallTime,
-      note,
-      onClose,
-      preselectedTokenId
+      recallTime
     ]
   );
 
@@ -483,6 +506,19 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 h-full min-h-0">
         <Navigator renderRoute={renderStep} />
       </form>
+
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onClose={() => setShowTokenDrawer(false)}
+        onSelectToken={onSelectToken}
+      />
+      <SelectContactDrawer
+        open={showContactDrawer}
+        onClose={() => setShowContactDrawer(false)}
+        recipientAccountId={recipientAddress}
+        accounts={allContactsList}
+        onSelectContact={onSelectContact}
+      />
     </div>
   );
 };
@@ -490,10 +526,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
 const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   const { search } = useLocation();
   const preselectedTokenId = new URLSearchParams(search).get('tokenId');
-  const initialRoute = preselectedTokenId ? SendFlowStep.SendDetails : SendFlowStep.SelectToken;
 
   return (
-    <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
+    <NavigatorProvider routes={ROUTES} initialRouteName={SendFlowStep.SendForm}>
       <SendManager {...props} preselectedTokenId={preselectedTokenId} />
     </NavigatorProvider>
   );
