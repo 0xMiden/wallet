@@ -30,8 +30,11 @@ import { getIntercom } from 'lib/store';
 import { logger } from 'shared/logger';
 
 import {
-  BridgeTransaction,
+  BridgedSendTransaction,
   ConsumeTransaction,
+  IBridgeClaimStatus,
+  IBridgedSendExtraInputs,
+  IBridgeProvider,
   ITransaction,
   ITransactionStage,
   ITransactionStatus,
@@ -418,26 +421,30 @@ export const initiateSendTransaction = async (
 };
 
 /**
- * Queue a Miden→EVM Agglayer bridge transaction. `requestBytes` is a pre-built
- * B2AGG `TransactionRequest` (own output note); the standard pipeline proves +
- * submits it via `newTransaction`, and `completeBridgeTransaction` records it.
+ * Queue a cross-chain Miden→EVM send (`bridged-send`). For the agglayer (Slow)
+ * route, `requestBytes` is a pre-built B2AGG `TransactionRequest` (own output
+ * note) and the standard pipeline proves + submits it via `newTransaction`, then
+ * `completeBridgedSendTransaction` records it. For the epoch (Fast) route there
+ * are no `requestBytes` — `bridgeEpochSend` drives the row out-of-band.
  */
-export const initiateBridgeTransaction = async (
+export const initiateBridgedSendTransaction = async (
   accountId: string,
-  requestBytes: Uint8Array,
   amount: bigint,
   faucetId: string,
   destinationAddress: string,
   destinationNetwork: number,
+  provider: IBridgeProvider,
+  requestBytes?: Uint8Array,
   delegateTransaction?: boolean
 ): Promise<string> => {
-  const dbTransaction = new BridgeTransaction(
+  const dbTransaction = new BridgedSendTransaction(
     accountId,
-    requestBytes,
     amount,
-    faucetId,
     destinationAddress,
     destinationNetwork,
+    provider,
+    faucetId,
+    requestBytes,
     delegateTransaction
   );
   await Repo.transactions.add(dbTransaction);
@@ -650,7 +657,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   }
 };
 
-export const completeBridgeTransaction = async (tx: BridgeTransaction, result: TransactionResult) => {
+export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
   const note = extractFullNote(result);
   const noteId = note?.id().toString();
@@ -662,6 +669,23 @@ export const completeBridgeTransaction = async (tx: BridgeTransaction, result: T
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes: result.serialize()
+  });
+};
+
+/**
+ * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
+ * long after the Miden-side send has reached `Completed`, so this mutates ONLY
+ * `extraInputs` and never touches `status` (which `updateTransactionStatus`
+ * would reject as "already finalized"). Used by the activity-detail claim flow.
+ */
+export const updateBridgeClaimStatus = async (
+  id: string,
+  claimStatus: IBridgeClaimStatus,
+  extra?: Partial<Pick<IBridgedSendExtraInputs, 'depositReady' | 'claimTxHash' | 'evmTxHash'>>
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei = (tx.extraInputs ?? {}) as IBridgedSendExtraInputs;
+    tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
   });
 };
 
@@ -996,7 +1020,7 @@ export const generateTransaction = async (
       case 'consume':
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'execute':
-      case 'bridge':
+      case 'bridged-send':
       default:
         return await midenClient.newTransaction(
           transaction.accountId,
@@ -1014,8 +1038,8 @@ export const generateTransaction = async (
     case 'consume':
       await completeConsumeTransaction(transaction.id, result);
       break;
-    case 'bridge':
-      await completeBridgeTransaction(transaction as BridgeTransaction, result);
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'execute':
     default:
@@ -1105,7 +1129,7 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'execute':
-    case 'bridge': {
+    case 'bridged-send': {
       // For custom / bridge transactions, preview the request into a
       // TransactionSummary and create a custom multisig proposal from it.
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
@@ -1223,8 +1247,8 @@ const generateGuardianTransaction = async (
         guardianProvider
       );
       break;
-    case 'bridge':
-      await completeBridgeTransaction(transaction as BridgeTransaction, transactionResult);
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, transactionResult);
       break;
     // case 'execute':
     // default:

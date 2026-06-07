@@ -6,23 +6,22 @@ import { SubmitHandler, useForm } from 'react-hook-form';
 import { useDebouncedCallback } from 'use-debounce';
 import * as yup from 'yup';
 
-import { useAppEnv } from 'app/env';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { bridgeB2Agg } from 'lib/agglayer/b2agg';
+import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSpeculateInvalidate,
-  requestSpeculateSend,
-  requestSWTransactionProcessing,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
+import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { useMidenContext } from 'lib/miden/front/client';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
 
@@ -73,7 +72,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const { navigateTo, goBack, cardStack } = useNavigator();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const { fullPage } = useAppEnv();
+  const { signTransaction } = useMidenContext();
+  const { address: evmAddress, isConnected: evmConnected, connect: connectEvm } = useEvmWalletProvider();
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
@@ -128,65 +128,16 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     return true;
   }, [showTokenDrawer, showContactDrawer, cardStack.length, goBack, onClose]);
 
-  // Dismiss any stale completion modal on send-flow entry.
-  //
-  // After PR #230, the TransactionProgressModal auto-dismiss is gated on
-  // terminal-state signals so the "Done" screen stays visible until the
-  // user explicitly taps Done. The modal renders as `fixed inset-0` with
-  // `zIndex: 9999` and no `pointer-events: none` — while it's open it
-  // intercepts every click in the viewport.
-  //
-  // The modal is shared across the wallet: SendManager opens it for
-  // sends, Receive opens it for claims, ConfirmPage opens it for dApp
-  // requests. Any of those completing leaves it sticky. In stress and in
-  // any user flow that initiates a send while a previous send/claim/dApp
-  // tx's completion screen is still up, navigating to `/send` finds the
-  // SelectToken tile blocked behind the modal — Playwright sees
-  // `locator.click` time out against
-  // `getByTestId('send-flow').locator('div.cursor-pointer')`. An
-  // earlier fix gated on `lastCompletedTxHash !== null`, which only
-  // catches the send-completion case (that hash is set by SendManager's
-  // onSubmit only) — claim/dApp completions still produced sticky
-  // modals because they leave the hash null but still flip
-  // `transactionComplete` true via the Dexie queue going empty.
-  //
-  // Entering /send is a clear "I'm starting a new transaction" signal,
-  // equivalent to tapping Done on whatever was open. Close
-  // unconditionally on mount: in-flight modals can't reach this code
-  // path here because PR #217's `pathname`-watching effect in the modal
-  // already auto-dismisses non-terminal opens on navigation away from
-  // `settledPathname`, so the only `isTransactionModalOpen === true`
-  // state reachable at SendManager-mount time is terminal.
-  useEffect(() => {
-    const state = useWalletStore.getState();
-    if (state.isTransactionModalOpen) {
-      state.closeTransactionModal(true);
-    }
-    if (state.lastCompletedTxHash !== null) {
-      state.setLastCompletedTxHash(null);
-    }
-    // Intentionally empty deps — run once on send-flow entry.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const navigateToGeneratingTransaction = useCallback((txId?: string) => {
+    navigate({
+      pathname: '/generating-transaction-full',
+      search: txId ? `?txId=${encodeURIComponent(txId)}` : ''
+    });
   }, []);
 
-  const onGenerateTransaction = useCallback(async () => {
-    // On mobile, open the modal and go back to home
-    // The modal handles the entire transaction flow
-    if (isMobile()) {
-      useWalletStore.getState().openTransactionModal();
-      // Don't navigate - stay on page to see if modal appears
-      // navigate('/');
-      return;
-    }
-
-    if (fullPage) {
-      navigate('/generating-transaction-full');
-      return;
-    }
-
-    useWalletStore.getState().openTransactionModal();
-    navigate('/');
-  }, [fullPage]);
+  const onGenerateTransaction = useCallback(() => {
+    navigateToGeneratingTransaction();
+  }, [navigateToGeneratingTransaction]);
 
   const {
     register,
@@ -203,7 +154,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       sharePrivately: true,
       recipientAddress: undefined,
       recallBlocks: undefined,
-      token: undefined
+      delegateTransaction: delegateEnabled,
+      token: undefined,
+      bridgeRoute: 'epoch'
     },
     resolver: yupResolver(validationSchema) as any
   });
@@ -214,6 +167,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     register('recipientAddress');
     register('recallBlocks');
     register('token');
+    register('bridgeRoute');
   }, [register]);
 
   const amount = watch('amount');
@@ -221,88 +175,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const recipientAddress = watch('recipientAddress');
   const recallBlocks = watch('recallBlocks');
   const token = watch('token');
-  // delegateTransaction is now driven exclusively by the global setting in
-  // General Settings — the per-send toggle was removed because mt-wasm +
-  // offscreen-doc proving makes local proving fast enough that the per-tx
-  // escape hatch isn't worth the UI surface. Read fresh on each render so
-  // a settings change while the send flow is open takes effect.
-  const delegateTransaction = delegateEnabled;
+  const bridgeRoute = watch('bridgeRoute');
 
-  // Speculative pre-prove: kick off execute + offscreen prove in the SW
-  // as soon as the SendDetails form is valid, so the proof can finish
-  // (~5-10s) while the user is still on details/review. Without an early
-  // trigger, the user reaches review with the proof not yet started; their
-  // typical 2-3s on review isn't enough to absorb the 10s prove cost.
-  //
-  // Cache lives in SW memory keyed by params hash; consumed by
-  // MidenClientInterface.proveLocallyViaOffscreen on actual submit. If
-  // the user clicks Confirm BEFORE the speculation finishes,
-  // proveLocallyViaOffscreen calls SpeculationManager.awaitMatching to
-  // wait on the in-flight prove instead of starting a duplicate one
-  // (Fix B).
-  //
-  // Discarded-CPU bound: the SpeculationManager already serializes (one
-  // active + one pending slot). Rapid form changes replace `pending`
-  // before it ever runs, and the in-flight `active` is marked stale and
-  // its result discarded. Worst case: ONE extra prove's worth of CPU per
-  // session of form edits, regardless of how many keystrokes. The 500ms
-  // React-level debounce below further trims churn during typing.
-  //
-  // Gates:
-  //   - feature flag MIDEN_USE_SPECULATIVE_PROVING
-  //   - extension context only (intercom doesn't exist on mobile/desktop)
-  //   - global setting must be local proving (delegate path is just an RPC)
-  //   - form must be valid (recipient is a Miden address, amount > 0
-  //     and <= balance)
-  //   - skip when recallBlocks is set (block-height drift between
-  //     speculate-time and commit-time would invalidate the cached
-  //     reclaim height — corner case, easier to skip than handle)
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    if (delegateEnabled) return; // delegated proving — no point speculating
-    if (!publicKey || !recipientAddress || !token || !amount) return;
-    if (recallBlocks) return;
-    if (!isValidMidenAddress(recipientAddress)) return;
-    const amountFloat = parseFloat(amount);
-    if (!(amountFloat > 0)) return;
-    if (amountFloat > token.balance) return;
-    let amountBig: bigint;
-    try {
-      amountBig = stringToBigInt(amount, token.decimals);
-    } catch {
-      return;
-    }
-    const timer = setTimeout(() => {
-      requestSpeculateSend({
-        accountId: publicKey,
-        recipientAccountId: recipientAddress,
-        faucetId: token.id,
-        noteType: sharePrivately ? 'private' : 'public',
-        amount: amountBig
-      });
-    }, 500);
-    return () => {
-      // Clear the debounced trigger if deps change before it fires.
-      // We do NOT call requestSpeculateInvalidate here — the in-SW
-      // SpeculationManager already replaces pending on each new
-      // speculate() and discards stale active results. Invalidating on
-      // every keystroke would defeat the cache.
-      clearTimeout(timer);
-    };
-  }, [delegateEnabled, publicKey, recipientAddress, token, amount, sharePrivately, recallBlocks]);
-
-  // One-time invalidation when the SendManager unmounts entirely (user
-  // backs out of the send flow, or the tab closes). Drops any cached
-  // completed entry and marks any active as stale so we don't carry
-  // speculative state into a future send.
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    return () => {
-      requestSpeculateInvalidate();
-    };
-  }, []);
+  // Cross-chain sends are restricted to the single bridgeable faucet token.
+  const isBridgeableToken = !!token && token.id.toLowerCase() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
 
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -378,6 +254,53 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       // button pointing at the previous hash.
       useWalletStore.getState().setLastCompletedTxHash(null);
 
+      // Cross-chain (0x) recipient → bridge instead of a Miden send. Restricted
+      // to the bridgeable token; Fast=Epoch / Slow=Agglayer per the selected route.
+      if (detectAddressChain(recipientAddress!) === 'ethereum') {
+        if (!isBridgeableToken) {
+          setError('root', { type: 'manual', message: 'onlyBridgeableTokenSupported' });
+          return;
+        }
+        // Fast (Epoch) needs a connected EVM wallet as the intent sponsor.
+        if (bridgeRoute !== 'agglayer' && !evmAddress) {
+          setError('root', { type: 'manual', message: 'connectEvmWalletFirst' });
+          return;
+        }
+        const amountBase = stringToBigInt(amount!, token!.decimals);
+        useWalletStore.getState().openTransactionModal();
+        try {
+          if (bridgeRoute === 'agglayer') {
+            const { txHash } = await bridgeB2Agg({
+              amount: amountBase,
+              destinationAddress: recipientAddress as `0x${string}`,
+              senderPublicKey: publicKey!,
+              destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
+              deps: { signTransaction, guardianProvider: zustandProvider }
+            });
+            useWalletStore.getState().setLastCompletedTxHash(txHash);
+          } else {
+            await bridgeEpochSend({
+              amount: amountBase,
+              destinationAddress: recipientAddress as `0x${string}`,
+              senderPublicKey: publicKey!,
+              sponsorAddress: evmAddress as `0x${string}`,
+              deps: { signTransaction, guardianProvider: zustandProvider }
+            });
+          }
+          if (isMobile()) {
+            navigate('/');
+          } else {
+            onAction({ id: SendFlowActionId.GenerateTransaction });
+          }
+        } catch (bridgeErr: any) {
+          if (bridgeErr?.message) {
+            setError('root', { type: 'manual', message: bridgeErr.message });
+          }
+          console.error(bridgeErr);
+        }
+        return;
+      }
+
       // Step 1: Create the transaction (same as Receive's initiateConsumeTransaction)
       const txId = await initiateSendTransaction(
         publicKey!,
@@ -389,31 +312,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         delegateTransaction
       );
 
-      // Step 2: Open the loading modal
-      useWalletStore.getState().openTransactionModal();
-
       if (isExtension()) {
         // On extension: tell SW to process, then wait for Dexie updates
         requestSWTransactionProcessing();
       }
 
-      // Step 3: Wait for transaction completion (Dexie liveQuery works cross-context)
-      const result = await waitForTransactionCompletion(txId);
-
-      if ('errorMessage' in result) {
-        setError('root', { type: 'manual', message: result.errorMessage });
-      } else {
-        // Stash the on-chain tx hash so the completion modal can render a
-        // "View on Midenscan" button. Set before navigation so the modal
-        // transitions to its complete state with the hash already present.
-        useWalletStore.getState().setLastCompletedTxHash(result.txHash);
-        // Success - navigate to home on mobile, or completion screen on desktop
-        if (isMobile()) {
-          navigate('/');
-        } else {
-          onAction({ id: SendFlowActionId.GenerateTransaction });
-        }
-      }
+      navigateToGeneratingTransaction(txId);
     } catch (e: any) {
       if (e.message) {
         setError('root', { type: 'manual', message: e.message });
@@ -431,7 +335,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     amount,
     recallBlocks,
     setError,
-    token
+    token,
+    bridgeRoute,
+    isBridgeableToken,
+    evmAddress,
+    signTransaction,
+    navigateToGeneratingTransaction
   ]);
 
   // Chain-aware address validation: 0x → Ethereum (hex), otherwise Miden bech32.
@@ -550,6 +459,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
               amountError={errors.amount?.message?.toString()}
               addressError={errors.recipientAddress?.message?.toString()}
+              bridgeRoute={bridgeRoute}
+              isBridgeableToken={isBridgeableToken}
+              evmConnected={evmConnected}
+              senderPublicKey={publicKey}
+              sponsorAddress={evmAddress}
               recallTime={recallTime}
               recallDate={recallDate}
               onAction={onAction}
@@ -559,6 +473,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               onMax={onMax}
               onOpenTokenDrawer={() => setShowTokenDrawer(true)}
               onOpenContactDrawer={() => setShowContactDrawer(true)}
+              onBridgeRouteChange={route => setValue('bridgeRoute', route)}
+              onConnectEvm={connectEvm}
               onRecallDateChange={setRecallDate}
               onRecallTimeChange={setRecallTime}
             />
@@ -570,6 +486,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               token={token?.name || ''}
               fiatValue={token ? parseFloat(amount || '0') * token.fiatPrice : 0}
               recipientAddress={recipientAddress}
+              recipientChain={detectAddressChain(recipientAddress || '')}
+              bridgeRoute={bridgeRoute}
               sharePrivately={sharePrivately}
               recallBlocks={recallBlocks}
               recallTime={recallTime}
@@ -602,7 +520,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       handleSubmit,
       onSubmit,
       recallDate,
-      recallTime
+      recallTime,
+      bridgeRoute,
+      isBridgeableToken,
+      evmConnected,
+      evmAddress,
+      publicKey,
+      connectEvm,
+      setValue
     ]
   );
 

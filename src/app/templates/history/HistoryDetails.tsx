@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import PageLayout from 'app/layouts/PageLayout';
 import { getTransactionById } from 'lib/miden/activity';
+import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
@@ -13,6 +14,7 @@ import { WalletAccount } from 'lib/shared/types';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
+import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
@@ -64,6 +66,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       const tx = await getTransactionById(transactionId);
       const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
       console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
+      const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
@@ -72,14 +75,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         transactionIcon: tx.displayIcon,
         amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
         token: tokenMetadata ? tokenMetadata.symbol : undefined,
-        secondaryAddress: tx.secondaryAccountId,
+        secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
         txId: tx.id,
         noteType: tx.noteType,
         noteId: tx.outputNoteIds?.[0],
         externalTxId: tx.transactionId,
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
-        txType: tx.type
+        txType: tx.type,
+        bridgeProvider: bridge?.provider,
+        bridgeDestinationAddress: bridge?.destinationAddress,
+        bridgeDestinationNetwork: bridge?.destinationNetwork,
+        bridgeClaimStatus: bridge?.claimStatus
       } as IHistoryEntry;
 
       setEntry(historyEntry);
@@ -93,8 +100,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
 
-  const fromAddress = entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
-  const toAddress = entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
+  const isBridge = entry?.txType === 'bridged-send';
+  // For a bridge the sender is always the Miden account; the EVM destination is
+  // shown in the BridgeClaimSection (with the right explorer link), so the Miden
+  // "to" row is omitted here.
+  const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
+  const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
 
@@ -143,7 +154,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
 
               {fromAddress && (
-                <DetailRow label={t('from')}>
+                <DetailRow label={t('from')} isLast={!toAddress}>
                   <ExternalLinkValue
                     displayValue={<AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />}
                     href={`https://testnet.midenscan.com/account/${fromAddress}`}
@@ -161,6 +172,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
             </DetailCard>
           </div>
+
+          {/* Bridge route + claim (bridged-send only) */}
+          {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
 
           {/* Notes */}
           {hasNoteData && (

@@ -9,15 +9,17 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
 import { useNativeNavbarAction } from 'lib/dapp-browser';
+import { stringToBigInt } from 'lib/i18n/numbers';
 import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { detectAddressChain } from 'utils/miden';
 
 import { AdvancedOptions } from './AdvancedOptions';
-import { BridgeOptions } from './BridgeOptions';
+import { BridgeOptions, BridgeRoute } from './BridgeOptions';
 import { CalendarDrawer } from './CalendarDrawer';
 import { SendFlowAction, SendFlowActionId, SendFlowStep, UIToken } from './types';
+import { useEpochQuote } from './useEpochQuote';
 
 /** Trim trailing zeros so "200.000" renders as "200" but "200.5" stays intact. */
 function formatBalance(value: number): string {
@@ -46,6 +48,16 @@ export interface SendFormProps {
   recallTime: string;
   amountError?: string;
   addressError?: string;
+  /** Selected cross-chain route (Fast=epoch / Slow=agglayer) for 0x recipients. */
+  bridgeRoute?: BridgeRoute;
+  /** Whether the selected token can be bridged to an Ethereum recipient. */
+  isBridgeableToken: boolean;
+  /** Whether an EVM wallet is connected (required for the Fast/Epoch route). */
+  evmConnected: boolean;
+  /** Sender's Miden account (bech32) — for the Epoch quote preview. */
+  senderPublicKey?: string;
+  /** Connected EVM wallet address — Epoch's intent sponsor for the quote preview. */
+  sponsorAddress?: string;
   onAction: (action: SendFlowAction) => void;
   onAmountChange: (amount: string) => void;
   onAddressChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -53,6 +65,8 @@ export interface SendFormProps {
   onMax: () => void;
   onOpenTokenDrawer: () => void;
   onOpenContactDrawer: () => void;
+  onBridgeRouteChange: (route: BridgeRoute) => void;
+  onConnectEvm: () => void;
   onRecallDateChange: (date: Date | undefined) => void;
   onRecallTimeChange: (time: string) => void;
 }
@@ -67,6 +81,11 @@ export const SendForm: React.FC<SendFormProps> = ({
   isValidAddress,
   amountError,
   addressError,
+  bridgeRoute,
+  isBridgeableToken,
+  evmConnected,
+  senderPublicKey,
+  sponsorAddress,
   recallDate,
   recallTime,
   onAction,
@@ -76,6 +95,8 @@ export const SendForm: React.FC<SendFormProps> = ({
   onMax,
   onOpenTokenDrawer,
   onOpenContactDrawer,
+  onBridgeRouteChange,
+  onConnectEvm,
   onRecallDateChange,
   onRecallTimeChange
 }) => {
@@ -120,10 +141,34 @@ export const SendForm: React.FC<SendFormProps> = ({
   // Drive the "To" chain badge + bridge UI off the typed address: hex (0x…) →
   // Ethereum (cross-chain), Miden bech32 / anything else → Miden (same-chain).
   const recipientChain = detectAddressChain(recipientAddress);
+  const isBridge = recipientChain === 'ethereum';
+  const route: BridgeRoute = bridgeRoute ?? 'epoch';
 
-  // Ethereum (bridge) submit isn't wired yet, so keep Continue gated to Miden
-  // sends — a valid 0x address shows the bridge UI but can't yet be submitted.
-  const canProceed = !!token && isValidAmount && isValidAddress && recipientChain === 'miden';
+  // Cross-chain sends are restricted to the bridgeable token, and the Fast
+  // (Epoch) route additionally needs a connected EVM wallet as the intent
+  // sponsor. The Slow (Agglayer) route submits purely from Miden, so it stays
+  // enabled with no EVM wallet.
+  const fastNeedsWallet = isBridge && route === 'epoch' && !evmConnected;
+  const canProceed =
+    !!token && isValidAmount && isValidAddress && (!isBridge || (isBridgeableToken && !fastNeedsWallet));
+
+  // Debounced forward-quote of the EVM output for the Fast (Epoch) route.
+  const amountBaseUnits = useMemo(() => {
+    if (!token || !amount || !isValidAmount) return undefined;
+    try {
+      return stringToBigInt(amount, token.decimals);
+    } catch {
+      return undefined;
+    }
+  }, [token, amount, isValidAmount]);
+
+  const epochQuote = useEpochQuote({
+    amount: amountBaseUnits,
+    destinationAddress: recipientAddress,
+    senderPublicKey,
+    sponsorAddress,
+    enabled: isBridge && route === 'epoch' && isBridgeableToken && evmConnected && isValidAmount && isValidAddress
+  });
 
   const handleContinue = useCallback(() => {
     if (!canProceed) return;
@@ -136,9 +181,9 @@ export const SendForm: React.FC<SendFormProps> = ({
   return (
     <div className="flex flex-col h-full min-h-0 bg-app-bg text-black px-4 ">
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar relative w-full pt-4">
-        <div className="flex flex-col pb-22 pt-4 border-t border-border-faint">
+        <div className="flex flex-col pb-22 pt-4 border-t border-border-faint justify-center items-center w-full">
           {/* Recipient Address */}
-          <div className="pb-6 border-b border-border-faint">
+          <div className="pb-6 border-b border-border-fain w-full">
             <div className="flex items-center justify-between">
               <h3 className="text-sm leading-none font-semibold text-heading-gray">{t('to')}</h3>
               <span
@@ -240,11 +285,14 @@ export const SendForm: React.FC<SendFormProps> = ({
               )}
               <Icon name={IconName.ChevronDown} size="xs" fill="currentColor" />
             </button>
+            {isBridge && !isBridgeableToken && (
+              <p className="text-red-500 text-xs mt-2 self-start w-full">{t('onlyBridgeableTokenSupported')}</p>
+            )}
           </div>
 
           {/* Ethereum recipient → bridge route + details; Miden → Advanced Options */}
-          {recipientChain === 'ethereum' ? (
-            <BridgeOptions />
+          {isBridge ? (
+            <BridgeOptions route={route} onRouteChange={onBridgeRouteChange} quote={epochQuote} />
           ) : (
             <AdvancedOptions
               sharePrivately={sharePrivately}
@@ -253,6 +301,14 @@ export const SendForm: React.FC<SendFormProps> = ({
               recallTime={recallTime}
               onAction={onAction}
               onOpenCalendar={() => setShowCalendar(true)}
+            />
+          )}
+          {fastNeedsWallet && (
+            <Button
+              title={t('connectEvmWallet')}
+              variant={ButtonVariant.Secondary}
+              onClick={onConnectEvm}
+              className="w-full rounded-[10px] text-base font-semibold mb-2"
             />
           )}
           <Button

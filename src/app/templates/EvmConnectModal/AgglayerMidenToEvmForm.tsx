@@ -1,8 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
-import { useAppKitProvider } from '@reown/appkit/react';
-import { EIP1193Provider } from 'viem';
-
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
 import { bridgeB2Agg } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
@@ -11,6 +8,7 @@ import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { Button } from 'lib/ui/button';
+import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 
 import { inputClass } from './shared';
 
@@ -31,7 +29,9 @@ function toBaseUnits(value: string, decimals: number): bigint {
 
 export const AgglayerMidenToEvmForm: React.FC<AgglayerMidenToEvmFormProps> = ({ evmAddress }) => {
   const { currentAccount, signTransaction } = useMidenContext();
-  const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
+  // Unified across web (AppKit) and native (Reown plugin) so the claim works on
+  // device too — the bare `useAppKitProvider` is undefined on iOS/Android.
+  const { provider: walletProvider } = useEvmWalletProvider();
 
   const senderPublicKey = currentAccount?.publicKey ?? '';
 

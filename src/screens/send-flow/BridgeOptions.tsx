@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { hapticLight } from 'lib/mobile/haptics';
 import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 
+import { EpochQuoteState } from './useEpochQuote';
+
 /** Bridge route → underlying provider. Fast = Epoch (settles in seconds), Slow = Agglayer. */
 export type BridgeRoute = 'epoch' | 'agglayer';
 
@@ -17,6 +19,8 @@ export interface BridgeOptionsProps {
   /** Controlled selected route. Omit to let the component own the state. */
   route?: BridgeRoute;
   onRouteChange?: (route: BridgeRoute) => void;
+  /** Forward-quote preview for the Fast (Epoch) route. */
+  quote?: EpochQuoteState;
 }
 
 /**
@@ -25,11 +29,14 @@ export interface BridgeOptionsProps {
  * picks the route (Epoch vs Agglayer); the details below are time-only for now —
  * fees aren't a thing on testnet, so only the arrival estimate is shown.
  */
-export const BridgeOptions: React.FC<BridgeOptionsProps> = ({ route: controlledRoute, onRouteChange }) => {
+export const BridgeOptions: React.FC<BridgeOptionsProps> = ({ route: controlledRoute, onRouteChange, quote }) => {
   const { t } = useTranslation();
   const [internalRoute, setInternalRoute] = useState<BridgeRoute>('epoch');
   const route = controlledRoute ?? internalRoute;
   const active = route === 'agglayer' ? AGGLAYER_ROUTE : EPOCH_ROUTE;
+
+  // The Fast (Epoch) route forward-quotes the EVM output; show it (or a skeleton).
+  const showQuoteRow = route === 'epoch' && !!quote && (quote.loading || quote.amount !== undefined);
 
   const selectRoute = (next: BridgeRoute) => {
     if (next === route) return;
@@ -57,8 +64,17 @@ export const BridgeOptions: React.FC<BridgeOptionsProps> = ({ route: controlledR
           </button>
         ))}
       </div>
-      {/* Details — time only (no fees on testnet) */}
+      {/* Details — estimated output (Epoch) + arrival time (no fees on testnet) */}
       <DetailCard>
+        {showQuoteRow && (
+          <DetailRow label={t('youReceive')}>
+            {quote!.loading ? (
+              <div className="h-4 w-20 animate-pulse rounded bg-heading-gray/10" />
+            ) : (
+              <span className="text-sm font-semibold text-heading-gray">{`≈ ${quote!.amount} ${quote!.symbol}`}</span>
+            )}
+          </DetailRow>
+        )}
         <DetailRow label={t('arrives')} isLast>
           <span className="flex items-center gap-1.5 text-sm font-semibold text-heading-gray">
             <span className="h-1.5 w-1.5 rounded-full bg-heading-gray" />
