@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAppKitBalance, useAppKitProvider } from '@reown/appkit/react';
-import { EIP1193Provider, parseUnits } from 'viem';
+import { encodeFunctionData, EIP1193Provider, parseUnits, toHex } from 'viem';
 import { useWriteContract } from 'wagmi';
 
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { Button } from 'lib/ui/button';
+import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
+import { isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
 
 import { inputClass } from './shared';
 
@@ -17,9 +19,10 @@ interface AgglayerEvmToMidenFormProps {
 
 type Status = 'idle' | 'signing' | 'submitted' | 'failed';
 
-export const AgglayerEvmToMidenForm: React.FC<AgglayerEvmToMidenFormProps> = ({ midenRecipient }) => {
+export const AgglayerEvmToMidenForm: React.FC<AgglayerEvmToMidenFormProps> = ({ evmAddress, midenRecipient }) => {
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
   const { fetchBalance } = useAppKitBalance();
+  const nativeReownAvailable = isNativeReownAvailable();
 
   const [amount, setAmount] = useState('');
   const [balance, setBalance] = useState<string | null>(null);
@@ -40,12 +43,16 @@ export const AgglayerEvmToMidenForm: React.FC<AgglayerEvmToMidenFormProps> = ({ 
     };
   }, [fetchBalance]);
 
-  const canBridge = !!walletProvider && !!amount.trim() && parseFloat(amount) > 0 && status !== 'signing';
+  const canBridge =
+    ((nativeReownAvailable && !!evmAddress) || !!walletProvider) &&
+    !!amount.trim() &&
+    parseFloat(amount) > 0 &&
+    status !== 'signing';
 
   const writeContract = useWriteContract();
 
   const handleBridge = useCallback(async () => {
-    if (!walletProvider) return;
+    if (!nativeReownAvailable && !walletProvider) return;
     hapticMedium();
     setStatus('signing');
     setError(null);
@@ -61,30 +68,51 @@ export const AgglayerEvmToMidenForm: React.FC<AgglayerEvmToMidenFormProps> = ({ 
       // in-progress banner appears on its own — no need to record the tx here.
       const midenEvmAddr = midenAddrToEvmAddr(midenRecipient);
       const amountInBaseUnits = parseUnits(amount, 18);
+      const contractAddress = AGGLAYER_CONTRACT_ADDRESS.get('sepolia')! as `0x${string}`;
+      const args = [
+        MIDEN_CHAIN_ID,
+        midenEvmAddr,
+        amountInBaseUnits,
+        '0x0000000000000000000000000000000000000000',
+        true,
+        '0x'
+      ] as const;
+
+      if (nativeReownAvailable) {
+        const data = encodeFunctionData({
+          abi: AGGLAYER_BRIDGE_ABI,
+          functionName: 'bridgeAsset',
+          args
+        });
+        const tx = await NativeReown.sendTransaction({
+          chainId: DEFAULT_CHAIN_ID,
+          from: evmAddress,
+          to: contractAddress,
+          value: toHex(amountInBaseUnits),
+          data
+        });
+
+        console.log('Transaction submitted on evm', tx.hash);
+        setStatus('submitted');
+        return;
+      }
 
       const tx = await writeContract.mutateAsync({
         abi: AGGLAYER_BRIDGE_ABI,
-        address: AGGLAYER_CONTRACT_ADDRESS.get('sepolia')! as `0x${string}`,
+        address: contractAddress,
         functionName: 'bridgeAsset',
-        args: [
-          MIDEN_CHAIN_ID,
-          midenEvmAddr,
-          amountInBaseUnits,
-          '0x0000000000000000000000000000000000000000',
-          true,
-          '0x'
-        ],
+        args,
         value: amountInBaseUnits
       });
 
-      console.log('Transaction sumbitted on evm', tx);
+      console.log('Transaction submitted on evm', tx);
       setStatus('submitted');
     } catch (err) {
       console.error('[agglayer] bridge failed', err);
       setError(err instanceof Error ? err.message : 'Bridge failed');
       setStatus('failed');
     }
-  }, [walletProvider, midenRecipient, amount, writeContract]);
+  }, [nativeReownAvailable, walletProvider, evmAddress, midenRecipient, amount, writeContract]);
 
   const handleReset = useCallback(() => {
     hapticLight();

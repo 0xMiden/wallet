@@ -19,6 +19,7 @@ import { MidenProvider } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { DialogsProvider } from 'lib/ui/dialog';
+import { AppKitProvider } from 'lib/walletconnect/appkit';
 import * as Woozie from 'lib/woozie';
 import '../i18n';
 
@@ -90,7 +91,9 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
             <DesktopDappConfirmationModal />
           </Suspense>
         )}
-        <MidenProvider>{children}</MidenProvider>
+        <AppKitProvider>
+          <MidenProvider>{children}</MidenProvider>
+        </AppKitProvider>
       </Woozie.Provider>
     </AppEnvProvider>
   );

@@ -2,12 +2,9 @@ import { useEffect, useState } from 'react';
 
 import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitAccount } from '@reown/appkit/react';
-import { getConnection } from '@wagmi/core';
 import { sepolia } from 'viem/chains';
 
-import { wagmiConfig } from 'lib/walletconnect/appkit';
-
-import { buildEpochWalletClient } from './client';
+import { buildEpochWalletClient, getEvmConnection } from './client';
 import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
 
 type SdkCache = { address: string; chainId: number; sdk: EpochIntentSDK };
@@ -33,7 +30,7 @@ async function buildSdk(address: `0x${string}`, chainOverride?: number): Promise
  * session don't rebuild. Resets via `resetEpochSdk()` (called on WC disconnect).
  */
 export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<EpochIntentSDK | null> {
-  const { address } = getConnection(wagmiConfig);
+  const { address } = await getEvmConnection();
   if (!address) {
     // WC disconnected — invalidate any SDK still pointing at a now-stale
     // provider/account so the next connect rebuilds cleanly.
