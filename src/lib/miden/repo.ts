@@ -30,6 +30,43 @@ db.version(1.2).stores({
   [Table.Transactions]: indexes('id', 'accountId', 'transactionId', 'initiatedAt', 'completedAt', 'noteId')
 });
 
+// v1.3 — `bridge` → `bridged-send`. Adds an index on the EVM destination so the
+// activity-detail claim flow can look a bridged send up by recipient, and
+// rewrites legacy `bridge` rows into the richer `BridgedSendTransaction` shape
+// (structured `extraInputs` with provider + claim status) so readers only ever
+// deal with one discriminator. All legacy rows were Agglayer Miden→EVM bridges.
+db.version(1.3)
+  .stores({
+    [Table.Transactions]: indexes(
+      'id',
+      'accountId',
+      'transactionId',
+      'initiatedAt',
+      'completedAt',
+      'noteId',
+      'extraInputs.destinationAddress'
+    )
+  })
+  .upgrade(async (tx: Transaction) => {
+    await tx.db
+      .table<any, string>(Table.Transactions)
+      .toCollection()
+      .modify(t => {
+        if (t.type !== 'bridge') return;
+        const prev = t.extraInputs ?? {};
+        t.type = 'bridged-send';
+        t.extraInputs = {
+          provider: 'agglayer',
+          destinationAddress: prev.destinationAddress ?? '',
+          destinationNetwork: prev.destinationNetwork ?? 0,
+          sourceFaucetId: t.faucetId ?? '',
+          // ITransactionStatus.Completed === 2. A completed Miden-side bridge may
+          // still need an L1 claim; anything else never reached that point.
+          claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
+        };
+      });
+  });
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
 function indexes(...items: string[]) {

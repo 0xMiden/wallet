@@ -1,4 +1,4 @@
-import { ITransactionIcon, ITransactionType } from 'lib/miden/db/types';
+import { IBridgeClaimStatus, IBridgeProvider, ITransactionIcon, ITransactionType } from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
   key: string;
@@ -23,6 +23,12 @@ export interface IHistoryEntry {
   faucetId?: string;
   blockNumber?: number;
   outputNoteIds?: string[];
+
+  // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
+  bridgeProvider?: IBridgeProvider;
+  bridgeDestinationAddress?: string;
+  bridgeDestinationNetwork?: number;
+  bridgeClaimStatus?: IBridgeClaimStatus;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

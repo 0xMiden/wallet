@@ -2,7 +2,7 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
-import { formatTransactionStatus, ITransactionStatus } from 'lib/miden/db/types';
+import { formatTransactionStatus, IBridgedSendExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -142,6 +142,7 @@ async function fetchTransactionsAsHistoryEntries(
     const updateMessageForFailed = tx.status === ITransactionStatus.Failed ? 'Transaction failed' : tx.displayMessage;
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
+    const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
@@ -151,11 +152,16 @@ async function fetchTransactionsAsHistoryEntries(
       transactionIcon: icon,
       amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: tokenMetadata ? tokenMetadata.symbol : undefined,
-      secondaryAddress: tx.secondaryAccountId,
+      // Bridge rows have no Miden recipient — surface the EVM destination instead.
+      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
-      txType: tx.type
+      txType: tx.type,
+      bridgeProvider: bridge?.provider,
+      bridgeDestinationAddress: bridge?.destinationAddress,
+      bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeClaimStatus: bridge?.claimStatus
     } as IHistoryEntry;
 
     return entry;
@@ -173,6 +179,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
         ? HistoryEntryType.ProcessingTransaction
         : HistoryEntryType.PendingTransaction;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
+    const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     return {
       key: `pending-${tx.id}`,
       address: address,
@@ -181,12 +188,16 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       message: tx.displayMessage || 'Generating transaction',
       amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: tokenMetadata ? tokenMetadata.symbol : undefined,
-      secondaryAddress: tx.secondaryAccountId,
+      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
       type: entryType,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
-      txType: tx.type
+      txType: tx.type,
+      bridgeProvider: bridge?.provider,
+      bridgeDestinationAddress: bridge?.destinationAddress,
+      bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeClaimStatus: bridge?.claimStatus
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

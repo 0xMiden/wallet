@@ -10,6 +10,8 @@ export type SendFlowForm = {
   recallBlocks?: string;
   delegateTransaction: boolean;
   token?: UIToken;
+  /** Cross-chain route, only meaningful when the recipient is a 0x (Ethereum) address. */
+  bridgeRoute?: 'epoch' | 'agglayer';
 };
 
 export enum SendFlowActionId {

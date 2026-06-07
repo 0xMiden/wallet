@@ -8,7 +8,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import {
-  initiateBridgeTransaction,
+  initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing,
   waitForTransactionCompletion
@@ -46,12 +46,15 @@ export interface B2AggBridgeDeps {
  * Bridge Miden → EVM by creating the B2AGG note and queuing it as a dedicated
  * `bridge` transaction. The note + transaction request are built on the front
  * under the WASM lock, then handed to the normal transaction pipeline
- * (`initiateBridgeTransaction` → SW / background processor → `newTransaction` →
- * `completeBridgeTransaction`) so it proves + submits and shows up in the
+ * (`initiateBridgedSendTransaction` → SW / background processor → `newTransaction` →
+ * `completeBridgedSendTransaction`) so it proves + submits and shows up in the
  * activity list exactly like every other wallet transaction.
  *
  * Mirrors `createBridgeP2IDNote`: nudge the SW on extension, run the in-page
  * background processor on mobile/desktop, then wait for the queued tx to settle.
+ *
+ * Recorded as a `bridged-send` row with `provider: 'agglayer'` so the activity
+ * detail can surface the EVM destination + L1 claim status.
  */
 export async function bridgeB2Agg(args: {
   amount: bigint;
@@ -72,13 +75,14 @@ export async function bridgeB2Agg(args: {
 
   // Delegate to the remote prover (mobile always delegates anyway) to avoid
   // OOMing the SW / WebView while proving the bridge note.
-  const txId = await initiateBridgeTransaction(
+  const txId = await initiateBridgedSendTransaction(
     senderPublicKey,
-    requestBytes,
     amount,
     MIDEN_AGGLAYER_FAUCET_ID,
     destinationAddress,
     destinationNetwork,
+    'agglayer',
+    requestBytes,
     true
   );
 

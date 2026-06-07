@@ -262,17 +262,19 @@ export async function buildEVMToMidenIntent(
   }
 }
 
-/** Step 1 of the minTokenOut route: get a reverse quote without executing. */
+/**
+ * Get a cross-chain quote without executing. Forward route when `params.midenAmount`
+ * is set (compute `tokenOut` from the given Miden input); reverse route when it's
+ * absent/"0" (backend derives the required input from `minTokenOut`).
+ * `buildEpochTaskDataParams` defaults `tokenInAmount` to "0", so omitting
+ * `midenAmount` keeps the reverse behaviour for callers that rely on it.
+ */
 export async function getCrossChainQuote(
   sdk: EpochIntentSDK,
   params: CrossChainIntentParams,
   sponsorAddress: string
 ): Promise<CrossChainQuote> {
-  // tokenInAmount: "0" signals reverse quote — backend computes required input from minTokenOut
-  const taskDataParams = buildEpochTaskDataParams({
-    ...params,
-    midenAmount: '0'
-  });
+  const taskDataParams = buildEpochTaskDataParams(params);
   const { taskTypeString, intentData } = await sdk.getTaskData(taskDataParams);
 
   const quoteResult = await sdk.getIntentQuote({

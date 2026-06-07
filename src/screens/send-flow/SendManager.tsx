@@ -6,21 +6,22 @@ import { SubmitHandler, useForm } from 'react-hook-form';
 import { useDebouncedCallback } from 'use-debounce';
 import * as yup from 'yup';
 
-import { useAppEnv } from 'app/env';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { bridgeB2Agg } from 'lib/agglayer/b2agg';
+import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSWTransactionProcessing,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
+import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { useMidenContext } from 'lib/miden/front/client';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
 
@@ -71,7 +72,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const { navigateTo, goBack, cardStack } = useNavigator();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const { fullPage } = useAppEnv();
+  const { signTransaction } = useMidenContext();
+  const { address: evmAddress, isConnected: evmConnected, connect: connectEvm } = useEvmWalletProvider();
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
@@ -126,24 +128,16 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     return true;
   }, [showTokenDrawer, showContactDrawer, cardStack.length, goBack, onClose]);
 
-  const onGenerateTransaction = useCallback(async () => {
-    // On mobile, open the modal and go back to home
-    // The modal handles the entire transaction flow
-    if (isMobile()) {
-      useWalletStore.getState().openTransactionModal();
-      // Don't navigate - stay on page to see if modal appears
-      // navigate('/');
-      return;
-    }
+  const navigateToGeneratingTransaction = useCallback((txId?: string) => {
+    navigate({
+      pathname: '/generating-transaction-full',
+      search: txId ? `?txId=${encodeURIComponent(txId)}` : ''
+    });
+  }, []);
 
-    if (fullPage) {
-      navigate('/generating-transaction-full');
-      return;
-    }
-
-    useWalletStore.getState().openTransactionModal();
-    navigate('/');
-  }, [fullPage]);
+  const onGenerateTransaction = useCallback(() => {
+    navigateToGeneratingTransaction();
+  }, [navigateToGeneratingTransaction]);
 
   const {
     register,
@@ -161,7 +155,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       recipientAddress: undefined,
       recallBlocks: undefined,
       delegateTransaction: delegateEnabled,
-      token: undefined
+      token: undefined,
+      bridgeRoute: 'epoch'
     },
     resolver: yupResolver(validationSchema) as any
   });
@@ -173,6 +168,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     register('recallBlocks');
     register('delegateTransaction');
     register('token');
+    register('bridgeRoute');
   }, [register]);
 
   const amount = watch('amount');
@@ -181,6 +177,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const recallBlocks = watch('recallBlocks');
   const delegateTransaction = watch('delegateTransaction');
   const token = watch('token');
+  const bridgeRoute = watch('bridgeRoute');
+
+  // Cross-chain sends are restricted to the single bridgeable faucet token.
+  const isBridgeableToken = !!token && token.id.toLowerCase() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
 
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -256,6 +256,53 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       // button pointing at the previous hash.
       useWalletStore.getState().setLastCompletedTxHash(null);
 
+      // Cross-chain (0x) recipient → bridge instead of a Miden send. Restricted
+      // to the bridgeable token; Fast=Epoch / Slow=Agglayer per the selected route.
+      if (detectAddressChain(recipientAddress!) === 'ethereum') {
+        if (!isBridgeableToken) {
+          setError('root', { type: 'manual', message: 'onlyBridgeableTokenSupported' });
+          return;
+        }
+        // Fast (Epoch) needs a connected EVM wallet as the intent sponsor.
+        if (bridgeRoute !== 'agglayer' && !evmAddress) {
+          setError('root', { type: 'manual', message: 'connectEvmWalletFirst' });
+          return;
+        }
+        const amountBase = stringToBigInt(amount!, token!.decimals);
+        useWalletStore.getState().openTransactionModal();
+        try {
+          if (bridgeRoute === 'agglayer') {
+            const { txHash } = await bridgeB2Agg({
+              amount: amountBase,
+              destinationAddress: recipientAddress as `0x${string}`,
+              senderPublicKey: publicKey!,
+              destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
+              deps: { signTransaction, guardianProvider: zustandProvider }
+            });
+            useWalletStore.getState().setLastCompletedTxHash(txHash);
+          } else {
+            await bridgeEpochSend({
+              amount: amountBase,
+              destinationAddress: recipientAddress as `0x${string}`,
+              senderPublicKey: publicKey!,
+              sponsorAddress: evmAddress as `0x${string}`,
+              deps: { signTransaction, guardianProvider: zustandProvider }
+            });
+          }
+          if (isMobile()) {
+            navigate('/');
+          } else {
+            onAction({ id: SendFlowActionId.GenerateTransaction });
+          }
+        } catch (bridgeErr: any) {
+          if (bridgeErr?.message) {
+            setError('root', { type: 'manual', message: bridgeErr.message });
+          }
+          console.error(bridgeErr);
+        }
+        return;
+      }
+
       // Step 1: Create the transaction (same as Receive's initiateConsumeTransaction)
       const txId = await initiateSendTransaction(
         publicKey!,
@@ -267,31 +314,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         delegateTransaction
       );
 
-      // Step 2: Open the loading modal
-      useWalletStore.getState().openTransactionModal();
-
       if (isExtension()) {
         // On extension: tell SW to process, then wait for Dexie updates
         requestSWTransactionProcessing();
       }
 
-      // Step 3: Wait for transaction completion (Dexie liveQuery works cross-context)
-      const result = await waitForTransactionCompletion(txId);
-
-      if ('errorMessage' in result) {
-        setError('root', { type: 'manual', message: result.errorMessage });
-      } else {
-        // Stash the on-chain tx hash so the completion modal can render a
-        // "View on Midenscan" button. Set before navigation so the modal
-        // transitions to its complete state with the hash already present.
-        useWalletStore.getState().setLastCompletedTxHash(result.txHash);
-        // Success - navigate to home on mobile, or completion screen on desktop
-        if (isMobile()) {
-          navigate('/');
-        } else {
-          onAction({ id: SendFlowActionId.GenerateTransaction });
-        }
-      }
+      navigateToGeneratingTransaction(txId);
     } catch (e: any) {
       if (e.message) {
         setError('root', { type: 'manual', message: e.message });
@@ -309,7 +337,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     amount,
     recallBlocks,
     setError,
-    token
+    token,
+    bridgeRoute,
+    isBridgeableToken,
+    evmAddress,
+    signTransaction,
+    navigateToGeneratingTransaction
   ]);
 
   // Chain-aware address validation: 0x → Ethereum (hex), otherwise Miden bech32.
@@ -429,6 +462,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
               amountError={errors.amount?.message?.toString()}
               addressError={errors.recipientAddress?.message?.toString()}
+              bridgeRoute={bridgeRoute}
+              isBridgeableToken={isBridgeableToken}
+              evmConnected={evmConnected}
+              senderPublicKey={publicKey}
+              sponsorAddress={evmAddress}
               recallTime={recallTime}
               recallDate={recallDate}
               onAction={onAction}
@@ -438,6 +476,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               onMax={onMax}
               onOpenTokenDrawer={() => setShowTokenDrawer(true)}
               onOpenContactDrawer={() => setShowContactDrawer(true)}
+              onBridgeRouteChange={route => setValue('bridgeRoute', route)}
+              onConnectEvm={connectEvm}
               onRecallDateChange={setRecallDate}
               onRecallTimeChange={setRecallTime}
             />
@@ -449,6 +489,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               token={token?.name || ''}
               fiatValue={token ? parseFloat(amount || '0') * token.fiatPrice : 0}
               recipientAddress={recipientAddress}
+              recipientChain={detectAddressChain(recipientAddress || '')}
+              bridgeRoute={bridgeRoute}
               sharePrivately={sharePrivately}
               delegateTransaction={delegateTransaction}
               recallBlocks={recallBlocks}
@@ -483,7 +525,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       handleSubmit,
       onSubmit,
       recallDate,
-      recallTime
+      recallTime,
+      bridgeRoute,
+      isBridgeableToken,
+      evmConnected,
+      evmAddress,
+      publicKey,
+      connectEvm,
+      setValue
     ]
   );
 

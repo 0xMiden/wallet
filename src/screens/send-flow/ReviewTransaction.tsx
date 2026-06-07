@@ -3,12 +3,13 @@ import React from 'react';
 import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { ScreenHeader } from 'components/ScreenHeader';
 import { useAccount } from 'lib/miden/front';
 import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 import { truncateAddress } from 'utils/string';
 
+import { BridgeRoute } from './BridgeOptions';
 import { SendFlowAction } from './types';
 
 export interface ReviewTransactionProps {
@@ -22,6 +23,8 @@ export interface ReviewTransactionProps {
   sharePrivately: boolean;
   delegateTransaction: boolean;
   recipientAddress?: string;
+  recipientChain?: 'miden' | 'ethereum';
+  bridgeRoute?: BridgeRoute;
   recallBlocks?: string;
   recallDate?: Date;
   recallTime: string;
@@ -32,6 +35,8 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   token,
   fiatValue,
   recipientAddress,
+  recipientChain,
+  bridgeRoute,
   sharePrivately,
   delegateTransaction,
   recallBlocks,
@@ -44,23 +49,14 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   const { t } = useTranslation();
   const { publicKey } = useAccount();
 
+  const isBridge = recipientChain === 'ethereum';
+  const route: BridgeRoute = bridgeRoute ?? 'epoch';
   const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
-  const hasRecall = !!recallBlocks && parseInt(recallBlocks) > 0;
+  const hasRecall = !isBridge && !!recallBlocks && parseInt(recallBlocks) > 0;
 
   return (
     <div className="flex flex-col bg-app-bg h-full px-4">
-      {/* Header */}
-      <div className="flex items-center justify-between  py-4 border-b border-border-faint">
-        <h1 className="text-[28px] font-bold leading-none text-heading-gray">{t('reviewDetails')}</h1>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t('close')}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100"
-        >
-          <Icon name={IconName.Close} size="sm" fill="currentColor" className="text-heading-gray" />
-        </button>
-      </div>
+      <ScreenHeader title={t('reviewDetails')} closeLabel={t('close')} onClose={onClose} />
 
       <div className="flex flex-col flex-1 min-h-0 ">
         <div className="flex-1 overflow-y-auto no-scrollbar">
@@ -82,21 +78,34 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
             {hasRecall && <DetailRow label={t('recallBy')} value={displayRecallLabel} isLast />}
           </DetailCard>
 
-          {/* Advanced details */}
-          <h4 className="text-sm font-semibold text-heading-gray mt-6 mb-2">{t('advancedDetails')}</h4>
-          <DetailCard>
-            <DetailRow label={t('privatePayment')}>
-              <StatusText enabled={sharePrivately} />
-            </DetailRow>
-            <DetailRow label={t('delegateProving')} isLast={!hasRecall}>
-              <StatusText enabled={delegateTransaction} />
-            </DetailRow>
-            {hasRecall && (
-              <DetailRow label={t('recallEnabled')} isLast>
-                <StatusText enabled />
-              </DetailRow>
-            )}
-          </DetailCard>
+          {isBridge ? (
+            <>
+              {/* Bridge details */}
+              <h4 className="text-sm font-semibold text-heading-gray mt-6 mb-2">{t('bridgeDetails')}</h4>
+              <DetailCard>
+                <DetailRow label={t('route')} value={route === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')} />
+                <DetailRow label={t('destinationNetwork')} value="Sepolia" isLast />
+              </DetailCard>
+            </>
+          ) : (
+            <>
+              {/* Advanced details */}
+              <h4 className="text-sm font-semibold text-heading-gray mt-6 mb-2">{t('advancedDetails')}</h4>
+              <DetailCard>
+                <DetailRow label={t('privatePayment')}>
+                  <StatusText enabled={sharePrivately} />
+                </DetailRow>
+                <DetailRow label={t('delegateProving')} isLast={!hasRecall}>
+                  <StatusText enabled={delegateTransaction} />
+                </DetailRow>
+                {hasRecall && (
+                  <DetailRow label={t('recallEnabled')} isLast>
+                    <StatusText enabled />
+                  </DetailRow>
+                )}
+              </DetailCard>
+            </>
+          )}
         </div>
 
         <div className="shrink-0 pt-6 pb-4 flex flex-col gap-y-2">

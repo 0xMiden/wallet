@@ -15,7 +15,36 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-export type ITransactionType = 'send' | 'consume' | 'execute' | 'bridge' | 'switch-guardian' | 'replace-hot-key';
+export type ITransactionType = 'send' | 'consume' | 'execute' | 'bridged-send' | 'switch-guardian' | 'replace-hot-key';
+
+/** Which cross-chain bridge route a `bridged-send` used. */
+export type IBridgeProvider = 'epoch' | 'agglayer';
+
+/**
+ * Lifecycle of the EVM-side claim for a `bridged-send`. Epoch (Fast) auto-settles
+ * on the destination chain, so it is `'not-applicable'`. Agglayer (Slow) requires
+ * the recipient to claim on L1: it starts `'pending'`, flips to `'ready'` once the
+ * deposit is claimable, then `'claiming'` → `'claimed'` (or `'failed'`).
+ */
+export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
+
+/** `extraInputs` shape for a `BridgedSendTransaction`. */
+export interface IBridgedSendExtraInputs {
+  provider: IBridgeProvider;
+  /** 0x EVM recipient. */
+  destinationAddress: string;
+  /** EVM destination network: `EVM_AGGLAYER_NETWORK_ID` (agglayer) or chain id (epoch). */
+  destinationNetwork: number;
+  /** Miden faucet the bridged asset was sourced from. */
+  sourceFaucetId: string;
+  claimStatus: IBridgeClaimStatus;
+  /** agglayer: a deposit to `destinationAddress` is claimable on L1. */
+  depositReady?: boolean;
+  /** agglayer: L1 claim tx hash once claimed. */
+  claimTxHash?: string;
+  /** epoch: solver/intent hash (informational). */
+  evmTxHash?: string;
+}
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -201,19 +230,23 @@ export class ConsumeTransaction implements ITransaction {
 }
 
 /**
- * Miden → EVM Agglayer bridge transaction. Created from a pre-built B2AGG
- * `TransactionRequest` (own output note) serialized into `requestBytes`, so the
- * standard pipeline proves + submits it via `newTransaction` like a custom
- * `execute` tx — but as its own kind so the activity list shows it as a bridge.
- * `extraInputs` carries the EVM destination for display / later claim.
+ * Cross-chain Miden → EVM send. Two routes share this record:
+ *   - agglayer (Slow): built from a pre-built B2AGG `TransactionRequest` (own
+ *     output note) in `requestBytes`, so the standard pipeline proves + submits it
+ *     via `newTransaction` like a custom `execute` tx, then `completeBridgedSendTransaction`
+ *     records it. The EVM-side asset is claimed later by the recipient on L1.
+ *   - epoch (Fast): driven out-of-band by `bridgeEpochSend` (no `requestBytes`);
+ *     auto-settles on the destination chain, so there is no manual claim.
+ * `extraInputs` (`IBridgedSendExtraInputs`) carries the route/provider, EVM
+ * destination + network, and claim status for the activity detail view.
  */
-export class BridgeTransaction implements ITransaction {
+export class BridgedSendTransaction implements ITransaction {
   id: string;
   type: ITransactionType;
   accountId: string;
   amount: bigint;
   faucetId: string;
-  requestBytes: Uint8Array;
+  requestBytes?: Uint8Array;
   transactionId?: string;
   outputNoteIds?: string[];
   status: ITransactionStatus;
@@ -223,19 +256,20 @@ export class BridgeTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
-  extraInputs: { destinationAddress: string; destinationNetwork: number };
+  extraInputs: IBridgedSendExtraInputs;
 
   constructor(
     accountId: string,
-    requestBytes: Uint8Array,
     amount: bigint,
-    faucetId: string,
     destinationAddress: string,
     destinationNetwork: number,
+    provider: IBridgeProvider,
+    faucetId: string,
+    requestBytes?: Uint8Array,
     delegateTransaction?: boolean
   ) {
     this.id = uuid();
-    this.type = 'bridge';
+    this.type = 'bridged-send';
     this.accountId = accountId;
     this.requestBytes = requestBytes;
     this.amount = amount;
@@ -245,7 +279,14 @@ export class BridgeTransaction implements ITransaction {
     this.displayIcon = 'SEND';
     this.displayMessage = 'Bridging';
     this.delegateTransaction = delegateTransaction;
-    this.extraInputs = { destinationAddress, destinationNetwork };
+    this.extraInputs = {
+      provider,
+      destinationAddress,
+      destinationNetwork,
+      sourceFaucetId: faucetId,
+      // Agglayer needs a manual L1 claim; Epoch auto-settles.
+      claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable'
+    };
   }
 }
 
