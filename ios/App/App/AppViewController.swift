@@ -6,5 +6,6 @@ class AppViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(LocalBiometricPlugin())
         bridge?.registerPluginInstance(BarcodeScannerPlugin())
         bridge?.registerPluginInstance(HotKeyPlugin())
+        bridge?.registerPluginInstance(ReownPlugin())
     }
 }

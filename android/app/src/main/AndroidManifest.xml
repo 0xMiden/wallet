@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <queries>
+        <package android:name="io.metamask" />
+        <package android:name="me.rainbow" />
+        <package android:name="com.wallet.crypto.trustapp" />
+        <package android:name="io.safe.global" />
+        <package android:name="io.zerion.android" />
+        <package android:name="com.ledger.live" />
+        <package android:name="com.uniswap.mobile" />
+        <package android:name="com.okinc.okex.gp" />
+        <package android:name="org.toshi" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -21,6 +33,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="com.miden.wallet" />
             </intent-filter>
 
         </activity>

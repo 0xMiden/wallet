@@ -2,7 +2,6 @@ import React, { useCallback, useState } from 'react';
 
 import { useEpochStore } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
-import { AppKitProvider } from 'lib/walletconnect/appkit';
 
 import { AgglayerEvmToMidenForm } from './AgglayerEvmToMidenForm';
 import { AgglayerMidenToEvmForm } from './AgglayerMidenToEvmForm';
@@ -78,9 +77,7 @@ export const BridgeTabs: React.FC<BridgeTabsProps> = ({ evmAddress, midenAccount
       ) : tab === 'miden-to-evm' ? (
         <AgglayerMidenToEvmForm evmAddress={evmAddress} midenAccount={midenAccount} />
       ) : (
-        <AppKitProvider>
-          <AgglayerEvmToMidenForm evmAddress={evmAddress} midenRecipient={midenAccount} />
-        </AppKitProvider>
+        <AgglayerEvmToMidenForm evmAddress={evmAddress} midenRecipient={midenAccount} />
       )}
     </div>
   );

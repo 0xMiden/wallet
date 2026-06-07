@@ -1,9 +1,6 @@
 import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
-import { getConnection } from '@wagmi/core';
 import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
-
-import { wagmiConfig } from 'lib/walletconnect/appkit';
 
 import {
   type CrossChainQuote,
@@ -13,6 +10,7 @@ import {
   getCrossChainQuote,
   getEVMToMidenQuote
 } from './bridge';
+import { getEvmConnection } from './client';
 import { getEpochSdk } from './sdk';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
 
@@ -57,7 +55,32 @@ const INITIAL_STATE: EpochState = {
   error: null
 };
 
+function firstString(source: unknown, keys: string[]): string | undefined {
+  if (!source || typeof source !== 'object') return undefined;
+  for (const key of keys) {
+    const value: unknown = Reflect.get(source, key);
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 function errorMessage(err: unknown): string {
+  if (err && typeof err === 'object') {
+    // viem buries the wallet/RPC's real error several layers deep and shows a
+    // generic top line (e.g. "An unknown RPC error occurred" — which on native
+    // is what every wallet failure collapses to, since the native plugin
+    // forwards only the message string and drops the JSON-RPC code). walk()
+    // returns the root cause, whose details/shortMessage carry the actual
+    // reason (e.g. "execution reverted", "user rejected", relay errors).
+    const walk = Reflect.get(err, 'walk');
+    if (typeof walk === 'function') {
+      const root: unknown = Reflect.apply(walk, err, []);
+      const rootMessage = firstString(root, ['details', 'shortMessage', 'message']);
+      if (rootMessage) return rootMessage;
+    }
+    const message = firstString(err, ['details', 'shortMessage', 'message']);
+    if (message) return message;
+  }
   return err instanceof Error ? err.message : 'Unknown error';
 }
 
@@ -89,10 +112,14 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // doesn't match the wallet's currently-selected chain. The WC session
       // namespace declares Sepolia but MetaMask's active chain can still be
       // anything (often mainnet) — our store's chainId mirrors the session,
-      // NOT the wallet's eth_chainId. So we always force a switch and then
-      // verify with a direct eth_chainId query before continuing.
-      const connection = getConnection(wagmiConfig);
-      if (connection.chainId !== sepolia.id) {
+      // NOT the wallet's eth_chainId. So on web we verify the active chain
+      // before continuing. The native Reown session carries the target chain
+      // id in every signing request, so there is no active-chain to guard.
+      const connection = await getEvmConnection();
+      if (!connection.address) {
+        throw new Error('Connect an EVM wallet first');
+      }
+      if (!connection.isNative && connection.chainId !== sepolia.id) {
         throw new Error(
           `Wallet did not switch to Sepolia (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
         );
@@ -159,7 +186,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
 
   async poll() {
     const { intent } = get();
-    const { address } = getConnection(wagmiConfig);
+    const { address } = await getEvmConnection();
     const nonce = intent?.intentNonce ?? intent?.solveResult?.nonce;
     if (!address || !nonce) return;
     try {
