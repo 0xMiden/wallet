@@ -70,9 +70,7 @@ export const useWalletStore = create<WalletStore>()(
     lastSyncedAt: null,
     hasCompletedInitialSync: false,
 
-    // Initial transaction modal state
-    isTransactionModalOpen: false,
-    isTransactionModalDismissedByUser: false,
+    // Initial transaction and dApp browser UI state
     isDappBrowserOpen: false,
     activeDappSessionId: null,
     lastCompletedTxHash: null,
@@ -565,27 +563,7 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
-    // Transaction modal actions
-    openTransactionModal: () => {
-      // Reset dismissed flag when explicitly opening the modal (new transaction initiated).
-      // Note: `lastCompletedTxHash` is intentionally NOT cleared here — SendManager
-      // calls `openTransactionModal()` a second time after a successful completion
-      // (via the GenerateTransaction action), and clearing would wipe the hash we
-      // just set. Clearing happens on `closeTransactionModal` and at the start of
-      // a fresh send in `SendManager.onSubmit`.
-      set({ isTransactionModalOpen: true, isTransactionModalDismissedByUser: false });
-    },
-    closeTransactionModal: (dismissedByUser = false) => {
-      set({
-        isTransactionModalOpen: false,
-        // Track if user explicitly dismissed (prevents auto-reopen until transactions complete)
-        isTransactionModalDismissedByUser: dismissedByUser,
-        lastCompletedTxHash: null
-      });
-    },
-    resetTransactionModalDismiss: () => {
-      set({ isTransactionModalDismissedByUser: false });
-    },
+    // Transaction UI actions
     setLastCompletedTxHash: (txHash: string | null) => {
       set({ lastCompletedTxHash: txHash });
     },

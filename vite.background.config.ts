@@ -45,7 +45,26 @@ export default defineConfig({
       },
       load(id) {
         if (id.startsWith('\0stub:')) {
-          return 'export default {}; export const useTranslation = () => ({ t: (k) => k, i18n: {} });';
+          // These modules are frontend-only but get dragged into the SW bundle
+          // via the dapp → activity → store chain. None of them are ever rendered
+          // or invoked in the SW; the stub just has to EXPORT every named import
+          // the bundler sees so resolution succeeds. react-i18next gets a working
+          // `useTranslation`; framer-motion gets inert no-ops (components pass
+          // children through, hooks return neutral values).
+          return [
+            'export default {};',
+            'export const useTranslation = () => ({ t: (k) => k, i18n: {} });',
+            'export const motion = new Proxy(() => null, { get: () => () => null });',
+            'export const AnimatePresence = ({ children }) => children;',
+            'export const MotionConfig = ({ children }) => children;',
+            'export const LayoutGroup = ({ children }) => children;',
+            'export const useReducedMotion = () => false;',
+            'export const useMotionValue = (v) => ({ get: () => v, set: () => {}, on: () => () => {} });',
+            'export const useTransform = () => ({ get: () => 0, set: () => {}, on: () => () => {} });',
+            'export const useSpring = (v) => ({ get: () => v, set: () => {}, on: () => () => {} });',
+            'export const useAnimationControls = () => ({ start: () => Promise.resolve(), stop: () => {}, set: () => {} });',
+            'export const animate = () => ({ stop: () => {} });'
+          ].join('\n');
         }
       }
     } satisfies Plugin,

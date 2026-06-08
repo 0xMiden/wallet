@@ -7,14 +7,12 @@ import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt } from 'lib/i18n/numbers';
-import { initiateConsumeTransaction, requestSWTransactionProcessing, waitForConsumeTx } from 'lib/miden/activity';
+import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { AssetMetadata } from 'lib/miden/front';
-import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
@@ -22,7 +20,7 @@ import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { HistoryAction, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 export type NoteWithMetadata = NonNullable<ConsumableNote & { metadata: AssetMetadata }>;
@@ -38,7 +36,6 @@ interface PendingTabProps {
   safeClaimableNotes: NoteWithMetadata[];
   unclaimedNotesCount: number;
   account: WalletAccount;
-  mutateClaimableNotes: ReturnType<typeof useClaimableNotes>['mutate'];
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
   failedNoteIds: Set<string>;
@@ -64,7 +61,6 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   safeClaimableNotes,
   unclaimedNotesCount,
   account,
-  mutateClaimableNotes,
   isDelegatedProvingEnabled,
   claimingNoteIds,
   failedNoteIds,
@@ -107,14 +103,6 @@ export const PendingTab: React.FC<PendingTabProps> = ({
     }
   }, [selectedFaucetId, selectedGroup]);
 
-  useEffect(() => {
-    if (!selectedFaucetId) return;
-    return registerBackHandler(() => {
-      hapticLight();
-      setSelectedFaucetId(null);
-    });
-  }, [selectedFaucetId, registerBackHandler]);
-
   const handleSelectGroup = useCallback((faucetId: string) => {
     hapticLight();
     setSelectedFaucetId(faucetId);
@@ -125,20 +113,23 @@ export const PendingTab: React.FC<PendingTabProps> = ({
     setSelectedFaucetId(null);
   }, []);
 
+  useEffect(() => {
+    if (!selectedFaucetId) return;
+    return registerBackHandler(handleBack);
+  }, [selectedFaucetId, handleBack, registerBackHandler]);
+
   if (selectedGroup) {
     return (
       <AssetPendingDetail
         group={selectedGroup}
         tokenPrices={tokenPrices}
         account={account}
-        mutateClaimableNotes={mutateClaimableNotes}
         isDelegatedProvingEnabled={isDelegatedProvingEnabled}
         claimingNoteIds={claimingNoteIds}
         failedNoteIds={failedNoteIds}
         checkingNoteIds={checkingNoteIds}
         onClaimingStateChange={onClaimingStateChange}
         onClaimGroup={onClaimGroup}
-        onBack={handleBack}
       />
     );
   }
@@ -256,7 +247,7 @@ interface AssetSummaryRowProps {
 
 const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, claimingNoteIds, onClick }) => {
   const { t } = useTranslation();
-  const { metadata, faucetId, notes, totalAmount } = group;
+  const { metadata, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
   const decimals = metadata?.decimals ?? 6;
   const formattedTotal = formatBigInt(totalAmount, decimals);
@@ -294,28 +285,24 @@ interface AssetPendingDetailProps {
   group: AssetNoteGroup;
   tokenPrices: ReturnType<typeof useWalletStore.getState>['tokenPrices'];
   account: WalletAccount;
-  mutateClaimableNotes: ReturnType<typeof useClaimableNotes>['mutate'];
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
   failedNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimGroup?: (faucetId: string) => void;
-  onBack: () => void;
 }
 
 const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   group,
   tokenPrices,
   account,
-  mutateClaimableNotes,
   isDelegatedProvingEnabled,
   claimingNoteIds,
   failedNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
-  onClaimGroup,
-  onBack
+  onClaimGroup
 }) => {
   const { t } = useTranslation();
   const { metadata, faucetId, notes, totalAmount } = group;
@@ -365,7 +352,6 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
                 key={note.id}
                 note={note}
                 account={account}
-                mutateClaimableNotes={mutateClaimableNotes}
                 isDelegatedProvingEnabled={isDelegatedProvingEnabled}
                 isClaimingFromParent={claimingNoteIds.has(note.id)}
                 hasFailedFromParent={failedNoteIds.has(note.id)}
@@ -398,7 +384,6 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
 interface DetailNoteRowProps {
   note: NoteWithMetadata;
   account: WalletAccount;
-  mutateClaimableNotes: ReturnType<typeof useClaimableNotes>['mutate'];
   isDelegatedProvingEnabled: boolean;
   isClaimingFromParent?: boolean;
   hasFailedFromParent?: boolean;
@@ -410,7 +395,6 @@ interface DetailNoteRowProps {
 const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   note,
   account,
-  mutateClaimableNotes,
   isDelegatedProvingEnabled,
   isClaimingFromParent = false,
   hasFailedFromParent = false,
@@ -449,21 +433,13 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
 
       if (isExtension()) {
         requestSWTransactionProcessing();
-        try {
-          await waitForConsumeTx(id, signal);
-          await mutateClaimableNotes();
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') return;
-          setError(t('failedToClaimNote'));
-          setIsLoading(false);
-        }
-      } else {
-        useWalletStore.getState().openTransactionModal();
-        await waitForConsumeTx(id, signal);
-        const remainingNotes = await mutateClaimableNotes();
-        if (isMobile() && (!remainingNotes || remainingNotes.length === 0)) {
-          navigate('/', HistoryAction.Replace);
-        }
+      }
+
+      if (!signal.aborted) {
+        navigate({
+          pathname: '/generating-transaction-full',
+          search: `?txId=${encodeURIComponent(id)}`
+        });
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -474,7 +450,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
         setIsLoading(false);
       }
     }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
+  }, [account, isDelegatedProvingEnabled, note, t]);
 
   const { metadata } = note;
   const decimals = metadata?.decimals ?? 6;

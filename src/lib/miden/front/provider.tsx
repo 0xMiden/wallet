@@ -3,7 +3,6 @@ import React, { FC, useEffect, useMemo } from 'react';
 import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
-import { TransactionProgressModal } from 'components/TransactionProgressModal';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import {
@@ -21,16 +20,6 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 import { TokensMetadataProvider } from './assets';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
-
-// Pre-create the modal container to avoid flash when first opening
-if (typeof document !== 'undefined' && document.body) {
-  let modalRoot = document.getElementById('transaction-modal-root');
-  if (!modalRoot) {
-    modalRoot = document.createElement('div');
-    modalRoot.id = 'transaction-modal-root';
-    document.body.appendChild(modalRoot);
-  }
-}
 
 /**
  * MidenProvider
@@ -92,14 +81,6 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       <MidenContextProvider>
         <SdkMidenProvider config={sdkConfig}>
           <ConditionalProviders>{children}</ConditionalProviders>
-          {/*
-            TransactionProgressModal is rendered here (outside ConditionalProviders)
-            to prevent it from being remounted when the 'ready' state changes.
-            This fixes a bug where the modal wouldn't appear on the first transaction
-            because the component was remounting during the ready state transition.
-            The component handles platform check internally.
-          */}
-          <TransactionProgressModal />
         </SdkMidenProvider>
       </MidenContextProvider>
     </WalletStoreProvider>

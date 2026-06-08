@@ -46,7 +46,7 @@ export const BridgeOptions: React.FC<BridgeOptionsProps> = ({ route: controlledR
   };
 
   return (
-    <div className="flex flex-col gap-4 pb-4">
+    <div className="flex flex-col gap-4 pb-4 w-full">
       {/* Fast / Slow route toggle */}
       <div className="flex rounded-[10px] bg-input-bg p-1">
         {ROUTES.map(r => (

@@ -51,7 +51,6 @@ export async function getOrCreateMultisigService(
   accountPublicKey: string,
   provider: GuardianAccountProvider
 ): Promise<MultisigService> {
-  console.log(`[Guardian Manager] Getting/creating MultisigService for account: ${accountPublicKey}`);
   // Resolve the WalletAccount upfront — needed for both the cache drift
   // check (hotPublicKey can rotate) and any subsequent service init.
   const accounts = await provider.getAccounts();
@@ -95,9 +94,6 @@ export async function getOrCreateMultisigService(
     return inflight;
   }
 
-  console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
-  console.log('[Guardian Manager] Found Guardian account in provider:', account);
-
   const initPromise = (async () => {
     // Get the Account object from Miden client
     const sdkAccount = await withWasmClientLock(async () => {
@@ -130,7 +126,7 @@ export async function getOrCreateMultisigService(
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
     // next access can detect rotation and force a re-init.
-    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey: account.hotPublicKey });
+    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey: account.hotPublicKey! });
 
     return service;
   })();

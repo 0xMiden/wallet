@@ -38,7 +38,6 @@ export async function syncGuardianAccounts(): Promise<void> {
   for (const account of guardianAccounts) {
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
-      console.log('got the service', service);
       await service.sync();
     } catch (error) {
       console.log(account);

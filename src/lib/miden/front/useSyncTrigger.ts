@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { isExtension, isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -91,13 +91,11 @@ export function useSyncTrigger() {
 
       // Same guards the old AutoSync had: skip (don't wait for the lock) when
       // a tx is being generated, to avoid queuing sync behind a long prove.
-      const storeState = useWalletStore.getState();
       const onGeneratingTxPage =
         typeof window !== 'undefined' && window.location.href.includes('generating-transaction');
-      const mobileTxModalOpen = isMobile() && storeState.isTransactionModalOpen;
       const inSendFlow = isInsideSendFlow();
 
-      if (!onGeneratingTxPage && !mobileTxModalOpen && !inSendFlow) {
+      if (!onGeneratingTxPage && !inSendFlow) {
         useWalletStore.getState().setSyncStatus(true);
         try {
           await withWasmClientLock(async () => {

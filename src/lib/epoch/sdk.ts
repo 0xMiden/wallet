@@ -4,13 +4,14 @@ import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitAccount } from '@reown/appkit/react';
 import { sepolia } from 'viem/chains';
 
-import { buildEpochWalletClient, getEvmConnection } from './client';
+import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, getEvmConnection } from './client';
 import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
 
 type SdkCache = { address: string; chainId: number; sdk: EpochIntentSDK };
 
 let defaultCache: SdkCache | null = null;
 let midenCache: SdkCache | null = null;
+let readOnlyCache: SdkCache | null = null;
 
 async function buildSdk(address: `0x${string}`, chainOverride?: number): Promise<EpochIntentSDK> {
   const walletClient = await buildEpochWalletClient(address, { chainOverride });
@@ -53,9 +54,30 @@ export async function getEpochSdk(opts?: { forMidenFlow?: boolean }): Promise<Ep
   return sdk;
 }
 
+/**
+ * Read-only Miden→EVM SDK that needs NO connected EVM wallet — the EVM leg is
+ * solver-fulfilled against a Miden-side P2IDE note, so nothing is signed on EVM.
+ * `sponsorAddress` is the destination, which doubles as the walletClient account.
+ * Used by the send-flow Fast route (quote + send) so the user only supplies the
+ * recipient address. Caches one instance per destination.
+ */
+export async function getEpochReadOnlySdk(destinationAddress: `0x${string}`): Promise<EpochIntentSDK> {
+  const chainId = MIDEN_DESTINATION_CHAIN_ID;
+  if (readOnlyCache && readOnlyCache.address === destinationAddress && readOnlyCache.chainId === chainId) {
+    return readOnlyCache.sdk;
+  }
+  const walletClient = buildEpochReadOnlyWalletClient(destinationAddress, {
+    chainOverride: MIDEN_DESTINATION_CHAIN_ID
+  });
+  const sdk = new EpochIntentSDK({ apiBaseUrl: EPOCH_ALLOCATOR_URL, walletClient });
+  readOnlyCache = { address: destinationAddress, chainId, sdk };
+  return sdk;
+}
+
 export function resetEpochSdk(): void {
   defaultCache = null;
   midenCache = null;
+  readOnlyCache = null;
 }
 
 /**

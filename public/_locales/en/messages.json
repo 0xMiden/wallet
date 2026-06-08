@@ -428,6 +428,26 @@
     "message": "This may take a moment depending on the level network traffic",
     "englishSource": "This may take a moment depending on the level network traffic"
   },
+  "transactionProcessingHeader": {
+    "message": "Processing",
+    "englishSource": "Processing"
+  },
+  "transactionStepGuardianApproving": {
+    "message": "Guardian approving",
+    "englishSource": "Guardian approving"
+  },
+  "transactionStepGeneratingProof": {
+    "message": "Generating proof",
+    "englishSource": "Generating proof"
+  },
+  "transactionStepSubmitting": {
+    "message": "Submitting",
+    "englishSource": "Submitting"
+  },
+  "transactionStepSyncingGuardian": {
+    "message": "Syncing with Guardian",
+    "englishSource": "Syncing with Guardian"
+  },
   "transactionStageSyncing": {
     "message": "Syncing account",
     "englishSource": "Syncing account"

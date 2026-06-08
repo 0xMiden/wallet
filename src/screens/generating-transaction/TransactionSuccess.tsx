@@ -9,6 +9,7 @@ import { IBridgeProvider, IBridgedSendExtraInputs, ITransaction } from 'lib/mide
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
+import { Badge } from 'lib/ui/badge';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 interface TransactionSuccessProps {
@@ -89,21 +90,21 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = ({
   }, [amountText, destinationAddress, onViewExplorer, t, txHash]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
+    <div className="flex flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
       <ScreenHeader title={t('success', { defaultValue: 'Success!' })} closeLabel={t('close')} onClose={onDoneClick} />
 
-      <main className="flex min-h-0 flex-1 flex-col">
-        <section className="flex flex-1 flex-col items-center px-3 pt-[94px]">
+      <main className="flex min-h-0 flex-1 flex-col justify-center">
+        <section className="flex flex-1 flex-col items-center pt-10.75">
           <div
-            className="flex size-[124px] items-center justify-center rounded-[34px] border-2 border-[#44B474]"
+            className="flex size-32 items-center justify-center rounded-[34px] border-2 border-[#44B474]"
             style={{ backgroundColor: SUCCESS_GREEN }}
             aria-hidden="true"
           >
             <div
-              className="flex size-[68px] items-center justify-center rounded-full"
+              className="flex size-17.5 items-center justify-center rounded-full"
               style={{ backgroundColor: SUCCESS_GREEN_ACCENT }}
             >
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
                   d="M12 25.5L20.25 33.75L36 16.5"
                   stroke="white"
@@ -119,19 +120,21 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = ({
             {t('transactionComplete', { defaultValue: 'Transaction Complete!' })}
           </h2>
 
-          <div className="mt-8 h-1 w-full max-w-[650px] rounded-full bg-[#EEEEF0]" />
-
           {amountText && (
-            <div className="mt-10 flex w-full flex-col items-center">
-              <div className="text-center text-[32px] font-bold leading-none text-heading-gray">{amountText}</div>
+            <div className="mt-4 flex w-full flex-col items-center gap-2.5">
+              <div className="text-center text-[30px] font-bold leading-none text-black">{amountText}</div>
 
               {bridgedInputs && (
-                <div className="mt-6 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-base leading-none text-[#8E8E93]">
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs leading-none text-[#8E8E93]">
                   <span>{t('arrivingOnNetwork', { defaultValue: 'Arriving on Ethereum' })}</span>
                   {badgeLabel && (
-                    <span className="rounded-md bg-[#EEEEF0] px-2.5 py-1 text-sm font-bold leading-none text-heading-gray">
+                    <Badge
+                      size="xs"
+                      variant="secondary"
+                      className="rounded-md bg-[#EEEEF0] font-bold leading-none text-heading-gray"
+                    >
                       {badgeLabel}
-                    </span>
+                    </Badge>
                   )}
                 </div>
               )}
@@ -139,29 +142,27 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = ({
           )}
 
           {receiptRows.length > 0 && (
-            <div className="mt-[68px] w-full">
+            <div className="mt-4 w-full">
               {receiptRows.map((row, index) => (
                 <div
                   key={row.label}
                   className={classNames(
-                    'flex min-h-[54px] items-center justify-between gap-4 py-3',
-                    index < receiptRows.length - 1 && 'border-b border-[#E4E4E6]'
+                    'flex h-14 items-center justify-between w-full',
+                    index < receiptRows.length - 1 && 'border-b border-border-faint'
                   )}
                 >
-                  <span className="text-lg font-normal leading-tight text-[#8E8E93]">{row.label}</span>
+                  <span className="text-sm font-regular leading-tight text-[#8E8E93]">{row.label}</span>
                   {row.onClick ? (
                     <button
                       type="button"
                       aria-label={t('viewOnMidenscan')}
                       onClick={row.onClick}
-                      className="min-w-0 bg-transparent p-0 text-right text-lg font-bold leading-tight text-heading-gray underline-offset-2 hover:underline"
+                      className="min-w-0 bg-transparent p-0 text-right text-sm font-bold leading-tight text-black underline-offset-2 hover:underline"
                     >
                       {row.value}
                     </button>
                   ) : (
-                    <span className="min-w-0 text-right text-lg font-bold leading-tight text-heading-gray">
-                      {row.value}
-                    </span>
+                    <span className="min-w-0 text-right text-sm font-bold leading-tight text-black">{row.value}</span>
                   )}
                 </div>
               ))}
@@ -169,12 +170,10 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = ({
           )}
         </section>
 
-        <div className="w-full shrink-0 px-1 pt-10">
-          <p className="mb-8 text-center text-lg font-normal leading-[1.28] text-heading-gray/70">
-            {t('transactionSuccessDescription')}
-          </p>
+        <div className="w-full shrink-0 px-1 pt-6">
+          <p className="text-center text-base font-regular text-[#808080] mb-4">{t('transactionSuccessDescription')}</p>
           <Button type="button" variant={ButtonVariant.Primary} onClick={onDoneClick} className="w-full">
-            <span className="text-lg font-semibold text-pure-white">{t('done')}</span>
+            {t('done')}
           </Button>
         </div>
       </main>

@@ -3,27 +3,19 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import GuardianReplaceHotKey from 'app/templates/GuardianReplaceHotKey';
-import {
-  initiateSwitchGuardianTransaction,
-  requestSWTransactionProcessing,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
+import { initiateSwitchGuardianTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { navigate } from 'lib/woozie';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
-type Props = {
-  onClose?: () => void;
-};
-
-const GuardianSettings: FC<Props> = ({ onClose }) => {
+const GuardianSettings: FC = () => {
   const { t } = useTranslation();
-  const { endpoint: currentEndpoint, refresh: refreshCurrentEndpoint } = useCurrentGuardianEndpoint();
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   // Two-stage submit: first click validates + enters confirming, second click fires the tx.
   // switch_guardian requires the cold key (co-signed by the current guardian),
   // so the confirmation step mirrors the cold-signing acknowledgement pattern.
@@ -39,7 +31,6 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
       if (!currentAccount) return;
       setSubmitting(true);
       setError(null);
-      setSubmitSuccess(false);
       try {
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
@@ -47,21 +38,11 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
           isDelegateProofEnabled(),
           zustandProvider
         );
-        useWalletStore.getState().openTransactionModal();
         if (isExtension()) requestSWTransactionProcessing();
-
-        const result = await waitForTransactionCompletion(txId);
-        if ('errorMessage' in result) {
-          setError(result.errorMessage);
-          return;
-        }
-
-        setSubmitSuccess(true);
-        setConfirming(false);
-        setPendingEndpoint(null);
-        // Pull the new endpoint back from storage so the "Current guardian"
-        // display reflects the switch on platforms without storage-change events.
-        refreshCurrentEndpoint();
+        navigate({
+          pathname: '/generating-transaction-full',
+          search: `?txId=${encodeURIComponent(txId)}`
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
@@ -69,13 +50,12 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         setSubmitting(false);
       }
     },
-    [currentAccount, refreshCurrentEndpoint]
+    [currentAccount]
   );
 
   const handleSubmit = useCallback(
     ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
       if (submitting || !currentAccount) return;
-      setSubmitSuccess(false);
 
       if (guardianEndpoint === currentEndpoint) {
         setError(t('guardianEndpointUnchanged'));
@@ -108,32 +88,18 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         onSubmit={handleSubmit}
         currentEndpoint={currentEndpoint}
         hideHeader
-        submitLabel={
-          submitting
-            ? t('loading')
-            : confirming
-            ? t('confirmSwitchGuardian')
-            : t('switchGuardian')
-        }
+        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
       />
 
-      {confirming && !submitting && !submitSuccess && (
+      {confirming && !submitting && (
         <div className="text-xs text-heading-gray mt-3 select-text">{t('switchGuardianConfirmation')}</div>
       )}
 
-      {error && (
-        <div className="mt-3 text-red-500 text-xs select-text">{error}</div>
-      )}
-
-      {submitSuccess && (
-        <div className="mt-4 text-green-600 text-sm font-medium" onAnimationEnd={() => onClose?.()}>
-          {t('guardianSwitched')}
-        </div>
-      )}
+      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
 
       <hr className="my-6" />
 
-      <GuardianReplaceHotKey onClose={onClose} />
+      <GuardianReplaceHotKey />
     </div>
   );
 };

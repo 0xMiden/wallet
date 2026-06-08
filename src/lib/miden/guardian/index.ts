@@ -125,8 +125,8 @@ export class MultisigService {
    * Create a custom transaction proposal from a TransactionSummary.
    * This is used for 'execute' type transactions.
    */
-  async createCustomProposal(summaryBytes: Uint8Array): Promise<Proposal> {
-    return this.multisig.createCustomProposal(summaryBytes, 'b2agg');
+  async createCustomProposal(requestBytes: Uint8Array): Promise<Proposal> {
+    return this.multisig.createCustomProposal(requestBytes, 'b2agg');
   }
 
   /**
@@ -150,6 +150,7 @@ export class MultisigService {
       if (!requestBytes) {
         throw new Error('Request Bytes are required for custom execution');
       }
+      console.log('Singing and creating transaction request and deserialising');
       const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
       const request = TransactionRequest.deserialize(requestBytes);
       const outputNotes = request.expectedOutputOwnNotes();

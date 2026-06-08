@@ -1,5 +1,5 @@
 import { getConnection, getWalletClient } from '@wagmi/core';
-import { type Chain, type WalletClient, createWalletClient, custom } from 'viem';
+import { type Chain, type WalletClient, createWalletClient, custom, http } from 'viem';
 import { sepolia } from 'viem/chains';
 
 import { wagmiConfig } from 'lib/walletconnect/appkit';
@@ -56,6 +56,30 @@ export async function buildEpochWalletClient(
     account: address,
     chain,
     transport
+  });
+}
+
+/**
+ * Build a READ-ONLY viem WalletClient for Miden→EVM Miden-collateral sends. Those
+ * never sign an EVM transaction (the collateral is a P2IDE note on Miden and the
+ * EVM leg is solver-fulfilled), so no connected EVM wallet is required — the SDK
+ * just needs *a* walletClient whose `account` doubles as the intent sponsor. We
+ * back it with a plain HTTP transport and use the destination address as the
+ * account. This lets the Fast route quote + send with only the recipient address.
+ */
+export function buildEpochReadOnlyWalletClient(
+  address: `0x${string}`,
+  opts?: { chainOverride?: number }
+): WalletClient {
+  const chain: Chain =
+    opts?.chainOverride !== undefined && opts.chainOverride !== sepolia.id
+      ? { ...sepolia, id: opts.chainOverride }
+      : sepolia;
+  const rpcUrl = sepolia.rpcUrls.default.http[0] ?? '';
+  return createWalletClient({
+    account: address,
+    chain,
+    transport: http(rpcUrl)
   });
 }
 
