@@ -12,8 +12,7 @@ import {
   getFailedTransactions,
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
-  verifyStuckTransactionsFromNode,
-  waitForConsumeTx
+  verifyStuckTransactionsFromNode
 } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
@@ -22,8 +21,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
-import { getIntercom, useWalletStore } from 'lib/store';
-import { HistoryAction, navigate } from 'lib/woozie';
+import { getIntercom } from 'lib/store';
+import { navigate } from 'lib/woozie';
 
 export interface ReceiveProps {}
 
@@ -205,27 +204,14 @@ export const Receive: React.FC<ReceiveProps> = () => {
           // Notes show "claiming" spinner via claimingNoteIds + NoteClaimStarted broadcast.
           // Notes disappear when sync cycle removes them from getConsumableNotes().
           requestSWTransactionProcessing();
-        } else {
-          useWalletStore.getState().openTransactionModal();
+        }
 
-          for (const { noteId, txId } of transactionIds) {
-            if (signal.aborted) break;
-            try {
-              await waitForConsumeTx(txId, signal);
-            } catch (err) {
-              if (err instanceof DOMException && err.name === 'AbortError') {
-                break;
-              }
-              console.error('Error waiting for transaction:', txId, err);
-              setFailedNoteIds(prev => new Set(prev).add(noteId));
-            }
-          }
-
-          await mutateClaimableNotes();
-
-          if (isMobile()) {
-            navigate('/', HistoryAction.Replace);
-          }
+        const firstTxId = transactionIds[0]?.txId;
+        if (firstTxId && !signal.aborted) {
+          navigate({
+            pathname: '/generating-transaction-full',
+            search: `?txId=${encodeURIComponent(firstTxId)}`
+          });
         }
       } finally {
         if (!isExtension()) {
@@ -323,7 +309,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
           safeClaimableNotes={safeClaimableNotes}
           unclaimedNotesCount={unclaimedNotes.length}
           account={account}
-          mutateClaimableNotes={mutateClaimableNotes}
           isDelegatedProvingEnabled={isDelegatedProvingEnabled}
           claimingNoteIds={claimingNoteIds}
           failedNoteIds={failedNoteIds}

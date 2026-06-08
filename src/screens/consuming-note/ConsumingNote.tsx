@@ -11,7 +11,7 @@ import { Alert, AlertVariant } from 'components/Alert';
 import { Button, ButtonVariant } from 'components/Button';
 import { useAccount } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
-import { useWalletStore } from 'lib/store';
+import { navigate } from 'lib/woozie';
 import { truncateHash } from 'utils/string';
 
 const AUTO_CLOSE_TIMEOUT = 5_000;
@@ -37,7 +37,7 @@ export const ConsumingNotePage: FC<ConsumingNotePageProps> = ({ noteId }) => {
     if (!hash.includes('consuming-note')) {
       return;
     }
-    useWalletStore.getState().closeTransactionModal();
+    navigate('/');
   }, []);
 
   // Consume the note via SDK (guarded to prevent double-execution if consume ref changes)

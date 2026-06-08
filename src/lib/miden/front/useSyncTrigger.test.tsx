@@ -22,12 +22,10 @@ import { useSyncTrigger } from './useSyncTrigger';
 const storeState: {
   status: WalletStatus;
   accounts: Array<{ publicKey: string; type: WalletType }>;
-  isTransactionModalOpen: boolean;
   setSyncStatus: jest.Mock;
 } = {
   status: WalletStatus.Ready,
   accounts: [],
-  isTransactionModalOpen: false,
   setSyncStatus: jest.fn()
 };
 
@@ -54,10 +52,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 
 const mockIsExtension = jest.fn((..._args: unknown[]) => false);
-const mockIsMobile = jest.fn((..._args: unknown[]) => false);
 jest.mock('lib/platform', () => ({
-  isExtension: (...args: unknown[]) => mockIsExtension(...args),
-  isMobile: (...args: unknown[]) => mockIsMobile(...args)
+  isExtension: (...args: unknown[]) => mockIsExtension(...args)
 }));
 
 const mockSyncGuardianAccounts = jest.fn(async (..._args: unknown[]) => {});
@@ -75,11 +71,10 @@ const flush = () => new Promise(res => setTimeout(res, 0));
 describe('useSyncTrigger', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.location.hash = '';
     storeState.status = WalletStatus.Ready;
     storeState.accounts = [];
-    storeState.isTransactionModalOpen = false;
     mockIsExtension.mockReturnValue(false);
-    mockIsMobile.mockReturnValue(false);
   });
 
   it('does nothing when wallet status is not Ready', () => {
@@ -140,9 +135,8 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
-  it('mobile/desktop: skips sync while the mobile transaction modal is open', async () => {
-    mockIsMobile.mockReturnValue(true);
-    storeState.isTransactionModalOpen = true;
+  it('mobile/desktop: skips sync while the generating transaction page is active', async () => {
+    window.location.hash = '#/generating-transaction-full';
 
     const { unmount } = render(<HookHost />);
 

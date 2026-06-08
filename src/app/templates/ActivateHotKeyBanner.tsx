@@ -9,7 +9,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { useWalletStore } from 'lib/store';
+import { navigate } from 'lib/woozie';
 
 interface Props {
   className?: string;
@@ -37,9 +37,12 @@ export const ActivateHotKeyBanner: FC<Props> = ({ className }) => {
     setSubmitting(true);
     setError(null);
     try {
-      await initiateReplaceHotKeyTransaction(account.publicKey, isDelegateProofEnabled(), zustandProvider);
-      useWalletStore.getState().openTransactionModal();
+      const txId = await initiateReplaceHotKeyTransaction(account.publicKey, isDelegateProofEnabled(), zustandProvider);
       if (isExtension()) requestSWTransactionProcessing();
+      navigate({
+        pathname: '/generating-transaction-full',
+        search: `?txId=${encodeURIComponent(txId)}`
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);

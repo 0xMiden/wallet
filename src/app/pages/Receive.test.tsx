@@ -17,10 +17,7 @@ jest.mock('app/env', () => ({
 
 jest.mock('lib/store', () => ({
   useWalletStore: Object.assign(() => ({}), {
-    getState: () => ({
-      openTransactionModal: jest.fn(),
-      closeTransactionModal: jest.fn()
-    })
+    getState: () => ({})
   }),
   getIntercom: () => ({
     request: jest.fn().mockResolvedValue({})
@@ -46,6 +43,11 @@ jest.mock('app/icons/qr-new.svg', () => ({
 
 jest.mock('app/templates/AssetIcon', () => ({
   AssetIcon: () => null
+}));
+
+jest.mock('app/templates/EvmConnectModal', () => ({
+  __esModule: true,
+  default: () => null
 }));
 
 jest.mock('components/Button', () => ({

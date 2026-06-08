@@ -21,11 +21,10 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { formatAmount } from 'lib/shared/format';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
 import useTippy from 'lib/ui/useTippy';
-import { useLocation } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
@@ -532,11 +531,12 @@ const ConfirmDAppForm: FC = () => {
             payload.allowedPrivateData
           );
         case 'transaction':
-          useWalletStore.getState().openTransactionModal();
-          return confirmDAppTransaction(id, confirmed, delegate);
         case 'consume':
-          useWalletStore.getState().openTransactionModal();
-          return confirmDAppTransaction(id, confirmed, delegate);
+          await confirmDAppTransaction(id, confirmed, delegate);
+          if (confirmed) {
+            navigate('/generating-transaction-full');
+          }
+          return;
         case 'privateNotes':
           return confirmDAppPrivateNotes(id, confirmed);
         case 'sign':

@@ -32,7 +32,7 @@ export const AdvancedOptions = ({
   const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
   return (
-    <div className="py-4">
+    <div className="py-4 w-full">
       <button
         type="button"
         className={clsx(

@@ -66,13 +66,9 @@ export interface SyncSlice {
 }
 
 /**
- * Transaction modal state
+ * Transaction and dApp browser UI state
  */
-export interface TransactionModalSlice {
-  /** Whether the transaction progress modal is open */
-  isTransactionModalOpen: boolean;
-  /** Whether the user explicitly dismissed the modal (prevents auto-reopen until transactions complete) */
-  isTransactionModalDismissedByUser: boolean;
+export interface TransactionUiSlice {
   /**
    * Whether the dApp browser is open (mobile only).
    *
@@ -210,14 +206,9 @@ export interface SyncActions {
 }
 
 /**
- * Transaction modal actions
+ * Transaction and dApp browser UI actions
  */
-export interface TransactionModalActions {
-  openTransactionModal: () => void;
-  /** Close the modal. If dismissedByUser is true, prevents auto-reopen until transactions complete */
-  closeTransactionModal: (dismissedByUser?: boolean) => void;
-  /** Reset the dismissed flag (called when all transactions complete) */
-  resetTransactionModalDismiss: () => void;
+export interface TransactionUiActions {
   setDappBrowserOpen: (isOpen: boolean) => void;
   /**
    * Set the active dApp session id (or clear it). Updates `isDappBrowserOpen`
@@ -271,7 +262,7 @@ export interface WalletStore
     UISlice,
     FiatCurrencySlice,
     SyncSlice,
-    TransactionModalSlice,
+    TransactionUiSlice,
     NoteToastSlice,
     ExtensionSyncSlice,
     WalletActions,
@@ -279,6 +270,6 @@ export interface WalletStore
     AssetActions,
     FiatCurrencyActions,
     SyncActions,
-    TransactionModalActions,
+    TransactionUiActions,
     NoteToastActions,
     ExtensionSyncActions {}

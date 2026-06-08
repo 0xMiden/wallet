@@ -4,6 +4,7 @@ import {
   Note,
   NoteArray,
   NoteAssets,
+  TransactionRequest,
   TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk/lazy';
 
@@ -70,7 +71,16 @@ export async function bridgeB2Agg(args: {
   const requestBytes = await withWasmClientLock(async () => {
     const note = await createB2AggNote(amount, destinationAddress, senderPublicKey, destinationNetwork);
     const request = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
-    return request.serialize();
+    const serialisedReq = request.serialize();
+    console.log('Got the serialised transaction request', serialisedReq);
+    try {
+      TransactionRequest.deserialize(serialisedReq);
+      console.log('Deserialisation test passes');
+    } catch (err) {
+      console.log('Basic deser ser failed', err);
+      throw err;
+    }
+    return serialisedReq;
   });
 
   // Delegate to the remote prover (mobile always delegates anyway) to avoid
