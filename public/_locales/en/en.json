@@ -837,7 +837,7 @@
   "evmWalletConnectedDescription": "You can now bridge assets from the connected wallet.",
   "connectEvmWallet": "Connect an EVM wallet",
   "connectEvmWalletDescription": "Connect a wallet to bridge assets to and from Miden.",
-  "onlyBridgeableTokenSupported": "Only the bridgeable token can be sent to an Ethereum address.",
+  "onlyBridgeableTokenSupported": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens.",
   "connectEvmWalletFirst": "Connect an EVM wallet to use the Fast route.",
   "connectDestinationWalletToClaim": "Connect the destination wallet to claim.",
   "bridgeDetails": "Bridge details",

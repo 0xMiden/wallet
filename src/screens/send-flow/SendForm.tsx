@@ -52,12 +52,8 @@ export interface SendFormProps {
   bridgeRoute?: BridgeRoute;
   /** Whether the selected token can be bridged to an Ethereum recipient. */
   isBridgeableToken: boolean;
-  /** Whether an EVM wallet is connected (required for the Fast/Epoch route). */
-  evmConnected: boolean;
   /** Sender's Miden account (bech32) — for the Epoch quote preview. */
   senderPublicKey?: string;
-  /** Connected EVM wallet address — Epoch's intent sponsor for the quote preview. */
-  sponsorAddress?: string;
   onAction: (action: SendFlowAction) => void;
   onAmountChange: (amount: string) => void;
   onAddressChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -66,7 +62,6 @@ export interface SendFormProps {
   onOpenTokenDrawer: () => void;
   onOpenContactDrawer: () => void;
   onBridgeRouteChange: (route: BridgeRoute) => void;
-  onConnectEvm: () => void;
   onRecallDateChange: (date: Date | undefined) => void;
   onRecallTimeChange: (time: string) => void;
 }
@@ -83,9 +78,7 @@ export const SendForm: React.FC<SendFormProps> = ({
   addressError,
   bridgeRoute,
   isBridgeableToken,
-  evmConnected,
   senderPublicKey,
-  sponsorAddress,
   recallDate,
   recallTime,
   onAction,
@@ -96,7 +89,6 @@ export const SendForm: React.FC<SendFormProps> = ({
   onOpenTokenDrawer,
   onOpenContactDrawer,
   onBridgeRouteChange,
-  onConnectEvm,
   onRecallDateChange,
   onRecallTimeChange
 }) => {
@@ -144,13 +136,12 @@ export const SendForm: React.FC<SendFormProps> = ({
   const isBridge = recipientChain === 'ethereum';
   const route: BridgeRoute = bridgeRoute ?? 'epoch';
 
-  // Cross-chain sends are restricted to the bridgeable token, and the Fast
-  // (Epoch) route additionally needs a connected EVM wallet as the intent
-  // sponsor. The Slow (Agglayer) route submits purely from Miden, so it stays
-  // enabled with no EVM wallet.
-  const fastNeedsWallet = isBridge && route === 'epoch' && !evmConnected;
-  const canProceed =
-    !!token && isValidAmount && isValidAddress && (!isBridge || (isBridgeableToken && !fastNeedsWallet));
+  // Agglayer (Slow) can only bridge the dedicated agglayer faucet token; Epoch
+  // (Fast) bridges any token. Neither route needs a connected EVM wallet to SEND —
+  // Agglayer submits purely from Miden, and Epoch is solver-fulfilled against a
+  // Miden-side note (the recipient address is the only EVM detail required).
+  const bridgeTokenAllowed = !isBridge || route === 'epoch' || isBridgeableToken;
+  const canProceed = !!token && isValidAmount && isValidAddress && bridgeTokenAllowed;
 
   // Debounced forward-quote of the EVM output for the Fast (Epoch) route.
   const amountBaseUnits = useMemo(() => {
@@ -164,10 +155,10 @@ export const SendForm: React.FC<SendFormProps> = ({
 
   const epochQuote = useEpochQuote({
     amount: amountBaseUnits,
+    faucetId: token?.id,
     destinationAddress: recipientAddress,
     senderPublicKey,
-    sponsorAddress,
-    enabled: isBridge && route === 'epoch' && isBridgeableToken && evmConnected && isValidAmount && isValidAddress
+    enabled: isBridge && route === 'epoch' && isValidAmount && isValidAddress
   });
 
   const handleContinue = useCallback(() => {
@@ -285,7 +276,7 @@ export const SendForm: React.FC<SendFormProps> = ({
               )}
               <Icon name={IconName.ChevronDown} size="xs" fill="currentColor" />
             </button>
-            {isBridge && !isBridgeableToken && (
+            {isBridge && route === 'agglayer' && !isBridgeableToken && (
               <p className="text-red-500 text-xs mt-2 self-start w-full">{t('onlyBridgeableTokenSupported')}</p>
             )}
           </div>
@@ -301,14 +292,6 @@ export const SendForm: React.FC<SendFormProps> = ({
               recallTime={recallTime}
               onAction={onAction}
               onOpenCalendar={() => setShowCalendar(true)}
-            />
-          )}
-          {fastNeedsWallet && (
-            <Button
-              title={t('connectEvmWallet')}
-              variant={ButtonVariant.Secondary}
-              onClick={onConnectEvm}
-              className="w-full rounded-[10px] text-base font-semibold mb-2"
             />
           )}
           <Button

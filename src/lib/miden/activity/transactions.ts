@@ -34,6 +34,7 @@ import {
   ConsumeTransaction,
   IBridgeClaimStatus,
   IBridgedSendExtraInputs,
+  IBridgedSendNoteParams,
   IBridgeProvider,
   ITransaction,
   ITransactionStage,
@@ -435,7 +436,8 @@ export const initiateBridgedSendTransaction = async (
   destinationNetwork: number,
   provider: IBridgeProvider,
   requestBytes?: Uint8Array,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  sendParams?: IBridgedSendNoteParams
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -445,7 +447,8 @@ export const initiateBridgedSendTransaction = async (
     provider,
     faucetId,
     requestBytes,
-    delegateTransaction
+    delegateTransaction,
+    sendParams
   );
   await Repo.transactions.add(dbTransaction);
 
@@ -1019,8 +1022,18 @@ export const generateTransaction = async (
         return await midenClient.sendTransaction(transaction as SendTransaction);
       case 'consume':
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
-      case 'execute':
       case 'bridged-send':
+        // Epoch bridges by sending a recallable P2IDE note (send-style, no
+        // `requestBytes`); Agglayer carries a pre-built request.
+        if (!transaction.requestBytes) {
+          return midenClient.sendTransaction(transaction as SendTransaction);
+        }
+        return midenClient.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes,
+          transaction.delegateTransaction
+        );
+      case 'execute':
       default:
         return await midenClient.newTransaction(
           transaction.accountId,
@@ -1128,25 +1141,31 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
-    case 'execute':
     case 'bridged-send': {
-      // For custom / bridge transactions, preview the request into a
-      // TransactionSummary and create a custom multisig proposal from it.
+      const bridgeTx = transaction as BridgedSendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      const summaryBytes = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        const rawClient = await WasmWebClient.createClient(
-          MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!,
-          MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(DEFAULT_NETWORK)!,
-          undefined,
-          midenClient.client.storeIdentifier(),
-          undefined,
-          undefined
+      if (bridgeTx.requestBytes) {
+        // Agglayer: preview the pre-built request into a custom multisig proposal.
+        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes);
+      } else {
+        // Epoch: a recallable P2IDE note to the solver's allocator — propose it as
+        // a send. (The multisig send proposal is P2ID today, so the Epoch recall
+        // safety net is not yet available on Guardian accounts.)
+        proposalResult = await service.createSendProposal(
+          bridgeTx.secondaryAccountId!,
+          bridgeTx.faucetId,
+          BigInt(bridgeTx.amount)
         );
-        const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
-        return (await rawClient.executeForSummary(accountIdStringToSdk(transaction.accountId), txRequest)).serialize();
-      });
-      proposalResult = await service.createCustomProposal(summaryBytes);
+      }
+      console.log('got the proposal result', proposalResult);
+      break;
+    }
+    case 'execute': {
+      // For custom transactions, preview the request into a TransactionSummary and
+      // create a custom multisig proposal from it.
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await service.createCustomProposal(transaction.requestBytes!);
+      console.log('got the proposal result', proposalResult);
       break;
     }
     default: {
@@ -1182,7 +1201,7 @@ const generateGuardianTransaction = async (
     await coldService.signProposal(proposalResult.id);
   }
 
-  const tr = await service.signAndCreateTransactionRequest(proposalResult.id);
+  const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
   console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {

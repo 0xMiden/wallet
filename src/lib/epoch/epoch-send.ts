@@ -1,27 +1,20 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
 import { formatUnits } from 'viem';
 
-import {
-  cancelTransactionById,
-  initiateBridgedSendTransaction,
-  updateBridgeClaimStatus,
-  updateTransactionStatus
-} from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
+import { updateBridgeClaimStatus } from 'lib/miden/activity';
 
-import { getCrossChainQuote } from './bridge';
+import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
 import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-  BRIDGEABLE_MIDEN_FAUCET_ID,
   EPOCH_DESTINATION_CHAIN_ID,
   isBridgeableEvmTokenConfigured
 } from './bridgeable-token';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS } from './chain';
 import { createBridgeP2IDNote, type BridgeNoteDeps } from './miden-note';
-import { getEpochSdk } from './sdk';
-import { useEpochStore } from './store';
+import { getEpochReadOnlySdk } from './sdk';
+import type { CrossChainIntentParams } from './types';
 
 export interface EpochQuoteOutput {
   /** Estimated EVM output, human-formatted (18 decimals). */
@@ -42,38 +35,56 @@ function formatQuoteAmount(raw: string, decimals: number): string {
 }
 
 /**
+ * Shared forward-quote params for a Miden→EVM send. The `evmRecipient` doubles as
+ * the intent sponsor (Miden collateral → solver-fulfilled EVM leg), so NO connected
+ * EVM wallet is needed — only the destination address. `minTokenOut: '0'` = no
+ * slippage floor (testnet); the backend computes the output from `midenAmount`.
+ */
+function buildEpochSendParams(
+  amount: bigint,
+  faucetId: string,
+  destinationAddress: `0x${string}`,
+  senderPublicKey: string,
+  currentBlock: number
+): CrossChainIntentParams {
+  return {
+    midenAccountId: senderPublicKey,
+    midenFaucetId: faucetId,
+    midenAmount: amount.toString(),
+    evmRecipient: destinationAddress,
+    destinationChainId: EPOCH_DESTINATION_CHAIN_ID,
+    outputTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
+    outputTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
+    minTokenOut: '0',
+    midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS
+  };
+}
+
+/**
  * Forward-quote the EVM output for a given Miden input WITHOUT executing. Backs
- * the send-flow Epoch tab's "you receive ~N USDC" preview. Calls the SDK quote
- * directly (not via the store) so it never disturbs the send-execution state.
+ * the send-flow Epoch tab's "you receive ~N USDC" preview. Uses the read-only SDK
+ * (no connected EVM wallet) and never touches the store, so it can't disturb a
+ * send in progress.
  */
 export async function quoteEpochSendOutput(args: {
   amount: bigint;
+  faucetId: string;
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
-  sponsorAddress: `0x${string}`;
 }): Promise<EpochQuoteOutput> {
   if (!isBridgeableEvmTokenConfigured()) {
     throw new Error('The Fast (Epoch) route is not configured yet.');
   }
-  const sdk = await getEpochSdk({ forMidenFlow: true });
-  if (!sdk) throw new Error('Connect an EVM wallet first');
-
+  const sdk = await getEpochReadOnlySdk(args.destinationAddress);
   const currentBlock = await getCurrentMidenBlock();
-  const quote = await getCrossChainQuote(
-    sdk,
-    {
-      midenAccountId: args.senderPublicKey,
-      midenFaucetId: BRIDGEABLE_MIDEN_FAUCET_ID,
-      midenAmount: args.amount.toString(),
-      evmRecipient: args.destinationAddress,
-      destinationChainId: EPOCH_DESTINATION_CHAIN_ID,
-      outputTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-      outputTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
-      minTokenOut: '0',
-      midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS
-    },
-    args.sponsorAddress
+  const params = buildEpochSendParams(
+    args.amount,
+    args.faucetId,
+    args.destinationAddress,
+    args.senderPublicKey,
+    currentBlock
   );
+  const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
 
   const raw = quote.quoteResult.tokenOut != null ? String(quote.quoteResult.tokenOut) : '0';
   return {
@@ -83,108 +94,80 @@ export async function quoteEpochSendOutput(args: {
 }
 
 export interface EpochSendArgs {
-  /** Base units of the bridgeable Miden faucet token the user is sending. */
+  /** Base units of the Miden faucet token the user is sending. */
   amount: bigint;
-  /** EVM recipient (0x). */
+  /** Miden faucet id of the token being bridged. Epoch accepts any token (hex or bech32). */
+  faucetId: string;
+  /** EVM recipient (0x) — also the intent sponsor; no connected wallet required. */
   destinationAddress: `0x${string}`;
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
-  /** Connected EVM wallet address — Epoch's sponsor for the intent. */
-  sponsorAddress: `0x${string}`;
   deps: BridgeNoteDeps;
 }
 
 /**
- * Fast (Epoch) Miden → EVM send. Unlike the Agglayer route, Epoch does not flow
- * through the queued background processor — it drives the Epoch store directly.
- * We bracket the quote → execute with a `bridged-send` activity row so the send
- * shows up in the progress modal and history exactly like every other tx.
+ * Fast (Epoch) Miden → EVM send. Needs only the destination address — the EVM leg
+ * is solver-fulfilled against a Miden-side P2IDE note, so the user signs nothing on
+ * EVM and no wallet connection is required. Drives the SDK directly (read-only
+ * client) rather than the wallet-bound store.
  *
- * The row is created already in `GeneratingTransaction` (with `processingStartedAt`
- * set so the stuck-canceller doesn't reap it) and carries NO `requestBytes`, so
- * the background loop — which only picks up `Queued` rows — never tries to
- * `newTransaction` it. `createMidenP2IDNote` creates a separate inner `send` row
- * (the actual on-chain Miden P2IDE note); the outer `bridged-send` row records
- * the bridge intent + EVM destination. Epoch auto-settles on the destination
+ * There is exactly ONE on-chain transaction: the recallable P2IDE note created by
+ * the `createMidenP2IDNote` callback (`createBridgeP2IDNote`). That note IS the
+ * `bridged-send` activity row — created, proved, and submitted by the normal send
+ * pipeline, then marked "Bridged to EVM" by `completeBridgedSendTransaction`.
+ * bridgeEpochSend itself creates NO row; it only runs the quote → solve and patches
+ * the row with the EVM solve hash afterwards. Epoch auto-settles on the destination
  * chain, so there is no manual claim (`claimStatus: 'not-applicable'`).
  */
-export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId: string }> {
+export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: string }> {
   if (!isBridgeableEvmTokenConfigured()) {
     throw new Error('The Fast (Epoch) route is not configured yet — missing the EVM output token address.');
   }
 
-  // Create the activity row first so it appears in the modal/history immediately.
-  const txId = await initiateBridgedSendTransaction(
-    args.senderPublicKey,
+  const sdk = await getEpochReadOnlySdk(args.destinationAddress);
+  const currentBlock = await getCurrentMidenBlock();
+  const params = buildEpochSendParams(
     args.amount,
-    BRIDGEABLE_MIDEN_FAUCET_ID,
+    args.faucetId,
     args.destinationAddress,
-    EPOCH_DESTINATION_CHAIN_ID,
-    'epoch',
-    undefined,
-    true
+    args.senderPublicKey,
+    currentBlock
   );
-  // Move to GeneratingTransaction + stamp processingStartedAt so the queued loop
-  // skips it (Queued-only) and `cancelStuckTransactions` doesn't reap it.
-  await updateTransactionStatus(txId, ITransactionStatus.GeneratingTransaction, {
-    processingStartedAt: Math.floor(Date.now() / 1000),
-    stage: 'sending'
+
+  // Forward quote (input → output), then solve. `createMidenP2IDNote` blocks until
+  // the P2IDE `bridged-send` row is committed on Miden before the intent is
+  // submitted. The sponsor is the recipient (set inside buildCrossChainIntent). We
+  // capture the row id from the callback so we can patch the EVM solve hash on it.
+  let bridgeTxId: string | undefined;
+  const quote = await getCrossChainQuote(sdk, params, args.destinationAddress);
+  const intent = await buildCrossChainIntent(sdk, {
+    ...params,
+    preFetchedQuote: quote,
+    collateralType: CollateralType.Miden,
+    midenSourceAccount: args.senderPublicKey,
+    createMidenP2IDNote: async (faucet, amount, allocatorId) => {
+      const res = await createBridgeP2IDNote({
+        senderAccountId: args.senderPublicKey,
+        faucetId: faucet,
+        amount,
+        allocatorId,
+        destinationAddress: args.destinationAddress,
+        destinationNetwork: EPOCH_DESTINATION_CHAIN_ID,
+        deps: args.deps
+      });
+      bridgeTxId = res.txId;
+      return { success: res.success, noteId: res.noteId };
+    }
   });
-
-  try {
-    const store = useEpochStore.getState();
-    store.reset();
-
-    const currentBlock = await getCurrentMidenBlock();
-
-    // Forward quote: the user enters the Miden input amount, so pass it as
-    // `midenAmount` and let the backend compute the EVM output. `minTokenOut: '0'`
-    // means no slippage floor (testnet); a quote preview can tighten this later.
-    await store.quoteMidenToEVM(
-      {
-        midenAccountId: args.senderPublicKey,
-        midenFaucetId: BRIDGEABLE_MIDEN_FAUCET_ID,
-        midenAmount: args.amount.toString(),
-        evmRecipient: args.destinationAddress,
-        destinationChainId: EPOCH_DESTINATION_CHAIN_ID,
-        outputTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-        outputTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
-        minTokenOut: '0',
-        midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS
-      },
-      args.sponsorAddress
-    );
-
-    if (useEpochStore.getState().status !== 'quoted') {
-      throw new Error(useEpochStore.getState().error ?? 'Bridge quote failed');
-    }
-
-    // Execute. createMidenP2IDNote blocks until the inner P2IDE `send` row is
-    // committed on Miden, then the intent is solved/submitted (status -> pending).
-    await store.executeMidenToEVM({
-      collateralType: CollateralType.Miden,
-      midenSourceAccount: args.senderPublicKey,
-      createMidenP2IDNote: (faucet, amount, allocatorId) =>
-        createBridgeP2IDNote(args.senderPublicKey, faucet, amount, allocatorId, args.deps)
-    });
-
-    const after = useEpochStore.getState();
-    if (after.status === 'failed') {
-      throw new Error(after.error ?? 'Bridge failed');
-    }
-
-    // Record the solver/intent hash (informational) and mark the bridge done.
-    const evmTxHash = after.intent?.solveResult?.hash;
-    if (evmTxHash) {
-      await updateBridgeClaimStatus(txId, 'not-applicable', { evmTxHash });
-    }
-    await updateTransactionStatus(txId, ITransactionStatus.Completed, {
-      displayMessage: 'Bridged to EVM',
-      completedAt: Math.floor(Date.now() / 1000)
-    });
-    return { txId };
-  } catch (err) {
-    await cancelTransactionById(txId, err);
-    throw err;
+  if (intent.error) {
+    throw new Error(intent.error);
   }
+
+  // Record the solver/intent hash (informational). `updateBridgeClaimStatus`
+  // mutates extraInputs only, so it's fine that the row is already Completed.
+  const evmTxHash = intent.solveResult?.hash;
+  if (bridgeTxId && evmTxHash) {
+    await updateBridgeClaimStatus(bridgeTxId, 'not-applicable', { evmTxHash });
+  }
+  return { txId: bridgeTxId };
 }

@@ -44,6 +44,11 @@ export interface IBridgedSendExtraInputs {
   claimTxHash?: string;
   /** epoch: solver/intent hash (informational). */
   evmTxHash?: string;
+  /**
+   * epoch: blocks-until-reclaim for the send-style P2IDE bridge note. Read by
+   * `sendTransaction` (its presence makes the note a recallable P2IDE).
+   */
+  recallBlocks?: number;
 }
 
 /**
@@ -240,12 +245,28 @@ export class ConsumeTransaction implements ITransaction {
  * `extraInputs` (`IBridgedSendExtraInputs`) carries the route/provider, EVM
  * destination + network, and claim status for the activity detail view.
  */
+/**
+ * Send-style fields for an Epoch `bridged-send`. Epoch bridges by sending a
+ * recallable P2IDE note to the solver's allocator account, so the row is
+ * processed by the normal send pipeline (`sendTransaction`) rather than a
+ * pre-built request. Absent for Agglayer, which carries `requestBytes`.
+ */
+export interface IBridgedSendNoteParams {
+  /** Allocator account the P2IDE note is sent to. */
+  recipientId: string;
+  noteType: NoteType;
+  recallBlocks: number;
+}
+
 export class BridgedSendTransaction implements ITransaction {
   id: string;
   type: ITransactionType;
   accountId: string;
   amount: bigint;
   faucetId: string;
+  /** Set for the send-style (Epoch) path so `sendTransaction` can route the note. */
+  secondaryAccountId?: string;
+  noteType?: NoteType;
   requestBytes?: Uint8Array;
   transactionId?: string;
   outputNoteIds?: string[];
@@ -266,7 +287,8 @@ export class BridgedSendTransaction implements ITransaction {
     provider: IBridgeProvider,
     faucetId: string,
     requestBytes?: Uint8Array,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    sendParams?: IBridgedSendNoteParams
   ) {
     this.id = uuid();
     this.type = 'bridged-send';
@@ -274,6 +296,8 @@ export class BridgedSendTransaction implements ITransaction {
     this.requestBytes = requestBytes;
     this.amount = amount;
     this.faucetId = faucetId;
+    this.secondaryAccountId = sendParams?.recipientId;
+    this.noteType = sendParams?.noteType;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'SEND';
@@ -285,7 +309,8 @@ export class BridgedSendTransaction implements ITransaction {
       destinationNetwork,
       sourceFaucetId: faucetId,
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
-      claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable'
+      claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
+      recallBlocks: sendParams?.recallBlocks
     };
   }
 }
