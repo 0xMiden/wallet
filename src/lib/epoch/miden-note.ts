@@ -1,7 +1,7 @@
 import { AccountId, NetworkId, AccountInterface } from '@miden-sdk/miden-sdk';
 
 import {
-  initiateSendTransaction,
+  initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing,
   waitForTransactionCompletion
@@ -29,39 +29,56 @@ function ifHextoBech32(addr: string) {
   }
   return addr;
 }
+export interface CreateBridgeP2IDNoteArgs {
+  senderAccountId: string;
+  faucetId: string;
+  amount: string;
+  allocatorId: string;
+  /** 0x EVM recipient — recorded on the bridge row (the note goes to the allocator). */
+  destinationAddress: string;
+  /** EVM destination chain id (Epoch). */
+  destinationNetwork: number;
+  deps: BridgeNoteDeps;
+}
+
 /**
  * Bridge-side P2IDE note creator. Wired to the Epoch SDK's
  * `createMidenP2IDNote` callback for Miden→EVM intents:
  *
  * - SDK passes the faucet, amount, and the allocator's Miden account id.
- * - We queue a wallet send transaction with `recallBlocks =
+ * - We queue a single `bridged-send` (Epoch) transaction with `recallBlocks =
  *   MIDEN_MIN_RECLAIM_BLOCKS` so the resulting note is a recallable P2IDE
  *   (the Miden SDK uses presence of `reclaimAfter` to choose P2IDE over
- *   P2ID).
+ *   P2ID). This row IS the bridge — the send pipeline proves + submits it and
+ *   `completeBridgedSendTransaction` marks it "Bridged to EVM". There is no
+ *   separate outer row.
  * - Service worker (extension) or in-page background processor
  *   (mobile/desktop) prove + submit the tx.
  * - We wait via Dexie liveQuery, then read the committed `outputNoteIds[0]`
  *   off the tx record and hand it back to the SDK.
  */
 export async function createBridgeP2IDNote(
-  senderAccountId: string,
-  faucetId: string,
-  amount: string,
-  allocatorId: string,
-  deps: BridgeNoteDeps
-): Promise<{ success: boolean; noteId?: string }> {
+  args: CreateBridgeP2IDNoteArgs
+): Promise<{ success: boolean; noteId?: string; txId?: string }> {
+  const { senderAccountId, faucetId, amount, allocatorId, destinationAddress, destinationNetwork, deps } = args;
   try {
     console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId });
-    const txId = await initiateSendTransaction(
+    const txId = await initiateBridgedSendTransaction(
       ifHextoBech32(senderAccountId),
-      ifHextoBech32(allocatorId),
-      ifHextoBech32(faucetId),
-      NoteTypeEnum.Public,
       BigInt(amount),
-      MIDEN_MIN_RECLAIM_BLOCKS,
+      ifHextoBech32(faucetId),
+      destinationAddress,
+      destinationNetwork,
+      'epoch',
+      undefined,
       // Delegate to the remote prover. Local proving this Guardian P2IDE note
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
-      true
+      true,
+      {
+        recipientId: ifHextoBech32(allocatorId),
+        noteType: NoteTypeEnum.Public,
+        recallBlocks: MIDEN_MIN_RECLAIM_BLOCKS
+      }
     );
 
     if (isExtension()) {
@@ -73,17 +90,17 @@ export async function createBridgeP2IDNote(
     const result = await waitForTransactionCompletion(txId);
     if ('errorMessage' in result) {
       console.error('[epoch] bridge note tx failed', result.errorMessage);
-      return { success: false };
+      return { success: false, txId };
     }
 
     const tx = await Repo.transactions.where({ id: txId }).first();
     const noteId = tx?.outputNoteIds?.[0];
     if (!noteId) {
       console.error('[epoch] bridge note tx completed but no outputNoteIds');
-      return { success: false };
+      return { success: false, txId };
     }
     console.log('[epoch] bridge note created', { noteId, txHash: result.txHash });
-    return { success: true, noteId };
+    return { success: true, noteId, txId };
   } catch (err) {
     console.error('[epoch] createBridgeP2IDNote threw', err);
     return { success: false };

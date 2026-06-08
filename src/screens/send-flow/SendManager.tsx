@@ -16,12 +16,12 @@ import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } 
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
 
@@ -73,7 +73,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
   const { signTransaction } = useMidenContext();
-  const { address: evmAddress, isConnected: evmConnected, connect: connectEvm } = useEvmWalletProvider();
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
@@ -180,7 +179,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const bridgeRoute = watch('bridgeRoute');
 
   // Cross-chain sends are restricted to the single bridgeable faucet token.
-  const isBridgeableToken = !!token && token.id.toLowerCase() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
+  const isBridgeableToken =
+    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
 
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -259,17 +259,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       // Cross-chain (0x) recipient → bridge instead of a Miden send. Restricted
       // to the bridgeable token; Fast=Epoch / Slow=Agglayer per the selected route.
       if (detectAddressChain(recipientAddress!) === 'ethereum') {
-        if (!isBridgeableToken) {
+        // Agglayer (Slow) can only bridge the dedicated agglayer faucet token;
+        // Epoch (Fast) bridges any token.
+        if (bridgeRoute === 'agglayer' && !isBridgeableToken) {
           setError('root', { type: 'manual', message: 'onlyBridgeableTokenSupported' });
           return;
         }
-        // Fast (Epoch) needs a connected EVM wallet as the intent sponsor.
-        if (bridgeRoute !== 'agglayer' && !evmAddress) {
-          setError('root', { type: 'manual', message: 'connectEvmWalletFirst' });
-          return;
-        }
         const amountBase = stringToBigInt(amount!, token!.decimals);
-        useWalletStore.getState().openTransactionModal();
+        navigateToGeneratingTransaction();
         try {
           if (bridgeRoute === 'agglayer') {
             const { txHash } = await bridgeB2Agg({
@@ -283,9 +280,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
           } else {
             await bridgeEpochSend({
               amount: amountBase,
+              faucetId: token!.id,
               destinationAddress: recipientAddress as `0x${string}`,
               senderPublicKey: publicKey!,
-              sponsorAddress: evmAddress as `0x${string}`,
               deps: { signTransaction, guardianProvider: zustandProvider }
             });
           }
@@ -340,7 +337,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     token,
     bridgeRoute,
     isBridgeableToken,
-    evmAddress,
     signTransaction,
     navigateToGeneratingTransaction
   ]);
@@ -464,9 +460,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               addressError={errors.recipientAddress?.message?.toString()}
               bridgeRoute={bridgeRoute}
               isBridgeableToken={isBridgeableToken}
-              evmConnected={evmConnected}
               senderPublicKey={publicKey}
-              sponsorAddress={evmAddress}
               recallTime={recallTime}
               recallDate={recallDate}
               onAction={onAction}
@@ -477,7 +471,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               onOpenTokenDrawer={() => setShowTokenDrawer(true)}
               onOpenContactDrawer={() => setShowContactDrawer(true)}
               onBridgeRouteChange={route => setValue('bridgeRoute', route)}
-              onConnectEvm={connectEvm}
               onRecallDateChange={setRecallDate}
               onRecallTimeChange={setRecallTime}
             />
@@ -528,10 +521,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       recallTime,
       bridgeRoute,
       isBridgeableToken,
-      evmConnected,
-      evmAddress,
       publicKey,
-      connectEvm,
       setValue
     ]
   );
