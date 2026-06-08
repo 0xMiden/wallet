@@ -3,27 +3,32 @@
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { Alert, AlertVariant } from 'components/Alert';
+import { Button, ButtonVariant } from 'components/Button';
+import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
+import { easings, springs, useMotion } from 'lib/animation';
 import {
   safeGenerateTransactionsLoop as dbTransactionsLoop,
   getAllUncompletedTransactions,
-  getFailedTransactions
+  getTransactionById,
+  getFailedTransactions,
+  waitForTransactionCompletion
 } from 'lib/miden/activity';
-import { ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
-import { isExtension, isMobile } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
-import { PRIMARY_HEX, PRIMARY_HEX_LIGHT_ALPHA } from 'utils/brand-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
+
+import { TransactionSuccess } from './TransactionSuccess';
 
 /**
  * Picks the transaction whose stage the modal should display. Prefers the
@@ -31,11 +36,26 @@ import { PRIMARY_HEX, PRIMARY_HEX_LIGHT_ALPHA } from 'utils/brand-colors';
  * one so the user sees "Syncing" immediately rather than a blank label
  * before the SDK call starts.
  */
-const pickActiveTx = (
-  txs: Array<{ status: ITransactionStatus; stage?: ITransactionStage; type: ITransactionType }>
-) => {
+const pickActiveTx = <T extends { status: ITransactionStatus; stage?: ITransactionStage; type: ITransactionType }>(
+  txs: T[]
+): T | undefined => {
   const processing = txs.find(tx => tx.status === ITransactionStatus.GeneratingTransaction);
   return processing ?? txs[0];
+};
+
+const getTrackedTransactionSearch = () => {
+  if (typeof window === 'undefined') return '';
+
+  const hashPath = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  if (hashPath) {
+    try {
+      return new URL(hashPath, window.location.origin).search;
+    } catch {
+      return '';
+    }
+  }
+
+  return window.location.search;
 };
 
 export interface GeneratingTransactionPageProps {
@@ -50,6 +70,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const [failedCount, setFailedCount] = useState(0);
   // Track if we've started processing (to know when we can show Done on mobile)
   const [hasStartedProcessing, setHasStartedProcessing] = useState(false);
+  const [receiptTransaction, setReceiptTransaction] = useState<ITransaction>();
   // Track initial failed count to calculate new failures during this session
   const initialFailedCountRef = useRef<number | null>(null);
 
@@ -91,24 +112,33 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const onClose = useCallback(() => {
     const { hash } = window.location;
     if (!hash.includes('generating-transaction')) {
-      // If we're not on the generating transaction page, don't close the window
       return;
     }
 
-    if (keepOpen) {
-      navigate('/');
-      return;
-    }
-
-    useWalletStore.getState().closeTransactionModal();
-  }, [keepOpen]);
+    navigate('/');
+  }, []);
 
   useEffect(() => {
     pageEvent('GeneratingTransaction', '');
   }, [pageEvent]);
 
   const transactions = useMemo(() => txs || [], [txs]);
+  const trackedTransactionId = useMemo(() => new URLSearchParams(getTrackedTransactionSearch()).get('txId'), []);
   const prevTransactionsLength = useRef<number>();
+
+  useEffect(() => {
+    if (!trackedTransactionId) return;
+
+    let cancelled = false;
+    waitForTransactionCompletion(trackedTransactionId).then(result => {
+      if (cancelled || 'errorMessage' in result) return;
+      useWalletStore.getState().setLastCompletedTxHash(result.txHash);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trackedTransactionId]);
 
   // Debug: log transaction state changes
   useEffect(() => {
@@ -169,8 +199,34 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const activeType = active?.type;
   const remainingCount = transactions.length;
 
+  useEffect(() => {
+    if (active) {
+      setReceiptTransaction(active);
+    }
+  }, [active]);
+
+  useEffect(() => {
+    if (!transactionComplete || !receiptTransaction?.id) return;
+
+    let cancelled = false;
+    getTransactionById(receiptTransaction.id)
+      .then(tx => {
+        if (cancelled) return;
+        setReceiptTransaction(tx);
+        if (tx.transactionId) {
+          useWalletStore.getState().setLastCompletedTxHash(tx.transactionId);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [transactionComplete, receiptTransaction?.id]);
+
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
-  const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
+  const receiptTxHash = lastCompletedTxHash ?? receiptTransaction?.transactionId ?? null;
+  const explorerUrl = receiptTxHash ? getExplorerTxUrl(receiptTxHash) : undefined;
   const onViewExplorer = useCallback(() => {
     if (!explorerUrl) return;
     openExternalUrl({ url: explorerUrl, title: 'Midenscan' });
@@ -197,6 +253,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           activeStage={activeStage}
           activeType={activeType}
           remainingCount={remainingCount}
+          completedTransaction={receiptTransaction}
+          completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
         />
       </div>
@@ -217,76 +275,227 @@ export interface GeneratingTransactionProps {
   activeType?: ITransactionType;
   /** Number of tx still in-flight (queued + generating). */
   remainingCount?: number;
+  /** Last transaction shown before the queue completed, used by the success receipt. */
+  completedTransaction?: ITransaction;
+  /** On-chain hash for the completed transaction receipt. */
+  completedTxHash?: string | null;
   /**
-   * When provided and the tx completed successfully, renders a "View on
-   * Midenscan" button below the success message. Parent decides how to
-   * open the URL (new tab on desktop, InAppBrowser overlay on mobile).
+   * When provided and the tx completed successfully, lets the success receipt
+   * open the source transaction in Midenscan.
    */
   onViewExplorer?: () => void;
 }
 
+type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
+
+const SUCCESS_GREEN = '#2BA84A';
+const PROCESSING_ORANGE = '#D44B00';
+const PENDING_STEP_COLOR = '#C7C7CC';
+
+const TRANSACTION_STEPS = [
+  {
+    id: 'guardian-approving',
+    labelKey: 'transactionStepGuardianApproving',
+    defaultLabel: 'Guardian approving'
+  },
+  {
+    id: 'generating-proof',
+    labelKey: 'transactionStepGeneratingProof',
+    defaultLabel: 'Generating proof'
+  },
+  {
+    id: 'submitting',
+    labelKey: 'transactionStepSubmitting',
+    defaultLabel: 'Submitting'
+  },
+  {
+    id: 'syncing-guardian',
+    labelKey: 'transactionStepSyncingGuardian',
+    defaultLabel: 'Syncing with Guardian'
+  }
+] as const;
+
+const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
+  if (!stage || stage === 'syncing' || stage === 'creating-proposal' || stage === 'signing-proposal') {
+    return 0;
+  }
+  if (stage === 'sending') {
+    return 1;
+  }
+  if (stage === 'submitting') {
+    return 2;
+  }
+  return 3;
+};
+
+const getTransactionStepState = (
+  index: number,
+  activeStepIndex: number,
+  transactionComplete: boolean,
+  hasErrors: boolean
+): TransactionStepState => {
+  if (transactionComplete) {
+    return hasErrors && index === TRANSACTION_STEPS.length - 1 ? 'failed' : 'complete';
+  }
+  if (index < activeStepIndex) {
+    return 'complete';
+  }
+  if (index === activeStepIndex) {
+    return 'active';
+  }
+  return 'pending';
+};
+
+const TransactionHeroIcon: React.FC<{ state: 'processing' | 'complete' | 'failed' }> = ({ state }) => {
+  const reduceMotion = useReducedMotion();
+  const entranceTransition = useMotion(springs.standard);
+
+  return (
+    <motion.div
+      className="flex size-32 items-center justify-center"
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={entranceTransition}
+    >
+      {state === 'failed' ? (
+        <svg viewBox="0 0 142 142" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="71" cy="71" r="52" fill="rgba(197, 26, 10, 0.12)" />
+          <circle cx="71" cy="71" r="36" fill="var(--status-negative)" />
+          <path
+            d="M57 57L85 85M85 57L57 85"
+            stroke="white"
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : state === 'complete' ? (
+        <svg viewBox="0 0 142 142" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="71" cy="71" r="52" fill="rgba(56, 130, 74, 0.12)" />
+          <circle cx="71" cy="71" r="36" fill={SUCCESS_GREEN} />
+          <path d="M53 72L65 84L90 59" stroke="white" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect width="128" height="128" rx="30" fill={PROCESSING_ORANGE} />
+          <circle cx="64" cy="64" r="27" stroke="rgba(255,255,255,0.22)" strokeWidth="16" />
+          <motion.circle
+            cx="64"
+            cy="64"
+            r="27"
+            stroke="white"
+            strokeWidth="16"
+            strokeLinecap="butt"
+            strokeDasharray="56 170"
+            animate={reduceMotion ? undefined : { rotate: 360 }}
+            transition={reduceMotion ? undefined : { duration: 1.4, ease: 'linear', repeat: Infinity }}
+            style={{ transformOrigin: '64px 64px' }}
+          />
+          <circle cx="64" cy="64" r="19" fill={PROCESSING_ORANGE} />
+        </svg>
+      )}
+    </motion.div>
+  );
+};
+
+const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) => {
+  const reduceMotion = useReducedMotion();
+  const glyphTransition = useMotion({ duration: 0.2, ease: easings.easeOutCubic });
+
+  return (
+    <span className="relative flex size-5 shrink-0 items-center justify-center">
+      <AnimatePresence mode="wait" initial={false}>
+        {state === 'complete' && (
+          <motion.span
+            key="complete"
+            className="flex size-5 items-center justify-center rounded-full"
+            style={{ backgroundColor: SUCCESS_GREEN }}
+            initial={{ opacity: 0, scale: 0.68 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.72 }}
+            transition={glyphTransition}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M2.25 5.1L4.1 6.9L7.75 3.1"
+                stroke="white"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </motion.span>
+        )}
+        {state === 'active' && (
+          <motion.span
+            key="active"
+            className="flex size-5 items-center justify-center rounded-full"
+            initial={{ opacity: 0, scale: 0.68 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.72 }}
+            transition={glyphTransition}
+          >
+            <motion.svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              animate={reduceMotion ? undefined : { rotate: 360 }}
+              transition={reduceMotion ? undefined : { duration: 1, ease: 'linear', repeat: Infinity }}
+            >
+              <circle cx="10" cy="10" r="8" stroke={PRIMARY_HEX} strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M10 2A8 8 0 0 1 18 10" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
+            </motion.svg>
+          </motion.span>
+        )}
+        {state === 'pending' && (
+          <motion.span
+            key="pending"
+            className="size-5 rounded-full border-2 bg-transparent"
+            style={{ borderColor: PENDING_STEP_COLOR }}
+            initial={{ opacity: 0, scale: 0.68 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.72 }}
+            transition={glyphTransition}
+          />
+        )}
+        {state === 'failed' && (
+          <motion.span
+            key="failed"
+            className="flex size-5 items-center justify-center rounded-full bg-status-negative"
+            initial={{ opacity: 0, scale: 0.68 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.72 }}
+            transition={glyphTransition}
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2.5 2.5L7.5 7.5M7.5 2.5L2.5 7.5" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
+  );
+};
+
 export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
+  onDoneClick,
   transactionComplete,
   hasErrors = false,
   failedCount = 0,
   keepOpen,
+  progress,
   activeStage,
   activeType,
   remainingCount = 0,
+  completedTransaction,
+  completedTxHash,
   onViewExplorer
 }) => {
   const { t } = useTranslation();
-  const inExtension = isExtension();
-
-  const renderIcon = useCallback(() => {
-    const iconSize = inExtension ? 'xl' : '3xl';
-
-    if (transactionComplete && hasErrors) {
-      return <Icon name={IconName.Failed} size={iconSize} />;
-    }
-    if (transactionComplete) {
-      return (
-        <svg className="size-32" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="64" cy="64" r="64" fill={PRIMARY_HEX_LIGHT_ALPHA} />
-          <circle cx="64" cy="64" r="42" fill={PRIMARY_HEX} />
-          <path
-            d="M48 64L58 74L80 52"
-            stroke="white"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-          />
-        </svg>
-      );
-    }
-
-    return (
-      <svg className="size-32" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0.5" y="0.5" width="179" height="179" rx="40" stroke="rgba(0,0,0,0.06)" strokeWidth="1" />
-        <circle cx="90" cy="90" r="74" fill="rgba(255,85,0,0.10)" stroke="rgba(255,85,0,0.25)" strokeWidth="2" />
-        <circle cx="90" cy="90" r="23" fill="rgba(255,85,0,0.08)" stroke="rgba(255,85,0,0.15)" strokeWidth="2" />
-        <g className="origin-center animate-spin" style={{ animationDuration: '1.5s', transformOrigin: '90px 90px' }}>
-          <defs>
-            <linearGradient id="spinner-gradient" x1="62" y1="90" x2="118" y2="90" gradientUnits="userSpaceOnUse">
-              <stop stopColor="rgba(255,85,0,1)" />
-              <stop offset="1" stopColor="rgba(255,85,0,0.2)" />
-            </linearGradient>
-          </defs>
-          <circle
-            cx="90"
-            cy="90"
-            r="27"
-            fill="none"
-            stroke="url(#spinner-gradient)"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeDasharray="130 170"
-          />
-        </g>
-      </svg>
-    );
-  }, [transactionComplete, hasErrors, inExtension]);
+  const progressTransition = useMotion({ duration: 0.45, ease: easings.easeOutCubic });
+  const rowTransition = useMotion(springs.snappy);
 
   /**
    * Stage label picks up the tx type so a claim flow reads "Claiming
@@ -348,7 +557,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     return t(stageDescriptionKey(activeStage));
   }, [transactionComplete, hasErrors, failedCount, t, stageDescriptionKey, activeStage]);
 
-  const alertText = useCallback(() => {
+  const dismissalDescription = useMemo(() => {
     if (keepOpen) {
       return t('doNotCloseWindowNavigateHome');
     }
@@ -356,41 +565,76 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     return t('doNotCloseWindowAutoClose');
   }, [keepOpen, t]);
 
+  const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
+  const visibleTitle = transactionComplete ? headerText() : t('generatingTransaction');
+  const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');
+  const activeStepIndex = transactionComplete ? TRANSACTION_STEPS.length : getActiveTransactionStepIndex(activeStage);
+  const fallbackProgress = transactionComplete
+    ? 100
+    : Math.min(92, ((activeStepIndex + 1) / TRANSACTION_STEPS.length) * 100);
+  const currentProgress = transactionComplete
+    ? 100
+    : Math.min(95, Math.max(8, progress && progress > 0 ? progress : fallbackProgress));
+  const heroState = transactionComplete ? (hasErrors ? 'failed' : 'complete') : 'processing';
+  const actionTitle = transactionComplete ? t('done') : t('hide');
+
+  if (transactionComplete && !hasErrors) {
+    return (
+      <TransactionSuccess
+        transaction={completedTransaction}
+        txHash={completedTxHash}
+        onDoneClick={onDoneClick}
+        onViewExplorer={onViewExplorer}
+      />
+    );
+  }
+
   return (
-    <div className="flex flex-1 flex-col">
-      {/* Warning alert for desktop */}
-      {!transactionComplete && !isMobile() && !inExtension && (
-        <div className="px-6 pt-6">
-          <Alert variant={AlertVariant.Warning} title={alertText()} />
-        </div>
-      )}
+    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
+      <ScreenHeader title={processingTitle} closeLabel={t('close')} onClose={onDoneClick} />
 
-      {/* Main white card area */}
-      <div className="flex-1 flex flex-col justify-center items-center bg-app-bg rounded-3xl py-8">
-        <div className="flex flex-col items-center">
-          {/* Icon / Spinner */}
-          <div className="mb-6">{renderIcon()}</div>
+      <main className="flex flex-1 flex-col ">
+        <section className="flex w-full flex-1 flex-col items-center justify-center pt-11">
+          <TransactionHeroIcon state={heroState} />
 
-          {/* Title */}
-          <h1 className="font-semibold text-heading-gray text-center" style={{ fontSize: 28, lineHeight: '130%' }}>
-            {headerText()}
-          </h1>
+          <h2 className="mt-4 w-full px-1 text-center text-[32px] font-semibold leading-[1.16] text-heading-gray">
+            {visibleTitle}
+          </h2>
 
-          {/* Description */}
-          {descriptionText() && (
-            <p className="text-heading-gray text-center mt-2 max-w-70" style={{ fontSize: 14, lineHeight: '130%' }}>
-              {descriptionText()}
-            </p>
-          )}
+          <div className="mt-4 h-1 w-65 overflow-hidden rounded-xs bg-[#EEEEF0]">
+            <motion.div
+              className="h-full rounded-xs bg-primary-500"
+              initial={false}
+              animate={{ width: `${currentProgress}%` }}
+              transition={progressTransition}
+            />
+          </div>
 
-          {/* Batch subtitle — only when more than one tx is in flight */}
+          <div className="mt-5 flex flex-col gap-4">
+            {TRANSACTION_STEPS.map((step, index) => {
+              const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
+              return (
+                <motion.div key={step.id} className="flex items-center gap-2.5" layout transition={rowTransition}>
+                  <StatusIndicator state={state} />
+                  <span
+                    className={classNames(
+                      'min-w-0 text-base leading-none font-medium',
+                      state === 'pending' ? 'text-[#C7C7CC]' : ''
+                    )}
+                  >
+                    {t(step.labelKey, { defaultValue: step.defaultLabel })}
+                  </span>
+                </motion.div>
+              );
+            })}
+          </div>
+
           {!transactionComplete && remainingCount > 1 && (
-            <p className="text-heading-gray/60 text-center mt-3" style={{ fontSize: 12, lineHeight: '130%' }}>
+            <p className="mt-5 text-center text-sm leading-[1.3] text-heading-gray/60">
               {t('transactionsRemainingInBatch', { count: remainingCount })}
             </p>
           )}
 
-          {/* View on Midenscan — only on success, and only when parent wired up a URL. */}
           {transactionComplete && !hasErrors && onViewExplorer && (
             <button
               type="button"
@@ -416,8 +660,21 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               </svg>
             </button>
           )}
+
+          <div className="sr-only" aria-live="polite">
+            <p>{headerText()}</p>
+            <p>{descriptionText()}</p>
+            {!transactionComplete && <p>{dismissalDescription}</p>}
+          </div>
+        </section>
+
+        <div className="w-full shrink-0 flex flex-col gap-5 items-center pt-16">
+          {footerDescription && <p className="w-full text-center text-base text-heading-gray">{footerDescription}</p>}
+          <Button type="button" variant={ButtonVariant.Primary} onClick={onDoneClick} className="w-full">
+            <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
+          </Button>
         </div>
-      </div>
+      </main>
     </div>
   );
 };
