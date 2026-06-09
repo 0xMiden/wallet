@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.14.7 (2026-06-09)
 
 ### Fixes
 
