@@ -97,10 +97,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               {t('receive')}
             </button>
           </div>
-          <hr className="bg-[#BABABA] opacity-20 h-px mt-4 mb-4" />
+          <hr className="bg-border-card opacity-20 h-px mt-4 mb-4" />
           <PriceChart symbol={symbol} priceInfo={priceInfo} />
 
-          <hr className="bg-[#BABABA] opacity-20 h-px mt-4 mb-4" />
+          <hr className="bg-border-card opacity-20 h-px mt-4 mb-4" />
           {/* Token Info Card */}
           <TokenInfoCard tokenId={tokenId} />
 
@@ -148,7 +148,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
           <span
             className={classNames(
               'text-xs font-semibold px-2 py-0.5 rounded-full',
-              priceInfo.change24h >= 0 ? 'text-green-200 bg-green-50' : 'text-red-600 bg-red-50'
+              priceInfo.change24h >= 0
+                ? 'text-green-200 bg-green-50 dark:bg-green-500/15 dark:text-green-500'
+                : 'text-red-600 bg-red-50 dark:bg-red-500/15 dark:text-red-500'
             )}
           >
             {priceInfo.change24h >= 0 ? '+' : ''}
@@ -235,7 +237,7 @@ const TokenInfoCard: FC<{ tokenId: string }> = ({ tokenId }) => {
               {truncateAddress(tokenId)}
               <button
                 onClick={() => navigator.clipboard.writeText(tokenId)}
-                className="w-6.5 h-6.5 bg-[#00000012] rounded-lg flex items-center justify-center cursor-pointer"
+                className="w-6.5 h-6.5 bg-chip-bg rounded-lg flex items-center justify-center cursor-pointer"
               >
                 <Icon
                   name={IconName.Copy}

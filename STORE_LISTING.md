@@ -8,7 +8,8 @@ This document contains the metadata needed for App Store (iOS) and Google Play (
 
 - **App Name:** Miden Wallet
 - **Bundle ID / Package Name:** com.miden.wallet
-- **Version:** 1.1.6
+- **Version:** 1.14.4
+- **Android versionCode:** 11404001
 - **Category:** Finance
 - **Content Rating:** Everyone / 4+
 
@@ -67,8 +68,7 @@ SECURITY REMINDERS
 Miden Wallet is open source. Visit our website to learn more about the Miden blockchain and our commitment to privacy and security.
 
 Website: https://miden.fi
-Privacy Policy: https://miden.fi/privacy
-Terms of Service: https://miden.fi/terms
+Privacy Policy: https://0xmiden.github.io/wallet/privacy/
 ```
 
 ---
@@ -81,13 +81,43 @@ miden,wallet,crypto,blockchain,privacy,zero-knowledge,zk,defi,tokens,secure,fina
 
 ---
 
-## What's New (Release Notes) - Version 1.1.6
+## What's New (Release Notes) — Version 1.14.4
+
+Full developer-facing changelog: `CHANGELOG.md`. User-facing summary below.
+
+### Long form (App Store / website)
 
 ```
-• Improved auto-consume for faucet tokens
-• Fixed activity list display on mobile devices
-• Enhanced version display in Settings
-• Performance improvements and bug fixes
+What's new in 1.14.4:
+
+• Native Rust prover on iOS and Android — proving local transactions is now
+  5-50× faster than before. Toggle in Settings → General → Local proving.
+• Mobile sync fix — first auto-sync after wallet creation no longer hangs;
+  newly received public notes now surface in the Receive screen on first
+  launch.
+• Private key import & export — back up or transfer individual accounts via
+  a hex secret in Settings → Reveal Private Key and Import Account → Private
+  Key.
+• Connectivity banners revamped — separate signals for network / node /
+  prover issues with a clear Retry action instead of a single misleading
+  warning.
+• View on Midenscan from the transaction-complete screen; explorer opens
+  in-app on mobile so dismissing returns to the confirmation.
+• Several reliability fixes around transaction-progress modal lifecycle and
+  encrypted-wallet-file import preserving secret keys for every account.
+```
+
+### Play Store release notes (≤500 characters)
+
+```
+• Native Rust prover on iOS + Android — local proving now 5-50× faster.
+• Mobile sync fix: first sync after wallet creation no longer hangs;
+  newly received public notes appear right away.
+• Private key import & export per account.
+• Connectivity banner now separates network / node / prover issues
+  with a clear Retry action.
+• View on Midenscan from the transaction-complete screen.
+• Several stability + dApp browser fixes.
 ```
 
 ---
@@ -128,10 +158,10 @@ Current icons are located at:
 
 ## Privacy Policy & Support
 
-- **Privacy Policy URL:** https://miden.fi/privacy
-- **Terms of Service URL:** https://miden.fi/terms
+- **Privacy Policy URL:** `https://0xmiden.github.io/wallet/privacy/` — served by GitHub Pages from `docs/privacy/index.md` in this repo. Requires Pages to be enabled at Settings → Pages → Source = `Deploy from a branch`, Branch = `main`, Folder = `/docs`. URL becomes live ~1-2 min after Pages is enabled and `main` contains this commit.
+- **Terms of Service URL:** N/A — Play Console allows omitting Terms of Service; only Privacy Policy is required.
 - **Support URL:** https://miden.fi
-- **Support Email:** (Add support email)
+- **Support Email:** privacy@miden.team
 
 ---
 
@@ -172,21 +202,24 @@ The app requires network connectivity to sync with the Miden blockchain for send
 
 ---
 
-## Data Safety (Google Play)
+## Data Safety (Google Play) — answers ready to paste into Play Console
 
-### Data Collected
-- **Financial info:** Cryptocurrency wallet addresses and balances (stored locally only)
+### Data collection summary
+- **Personal info:** None collected, none shared.
+- **Financial info — User payment info:** NOT collected (no card / payment processing).
+- **Financial info — Other financial info:** Local-only. Account addresses, balances, transaction history stored on-device, not transmitted. Declare in Play Console: *collected (on device), not shared, "Data is encrypted in transit" — N/A since not transmitted.*
+- **Crypto-related — Crypto assets:** User-controlled. Seed phrase / private keys stored encrypted on-device, never transmitted. Declare: *collected, not shared, data deletion supported (in-app "Delete wallet" + uninstall).*
+- **App activity:** None tracked.
+- **App info and performance — Crash logs / Diagnostics:** None collected (no crash reporter).
+- **Device IDs:** None.
 
-### Data NOT Collected
-- Personal info (name, email, phone)
-- Location
-- App activity analytics
-- Device identifiers for advertising
+### Data shared with third parties
+**None.** RPC/transport traffic to `rpc.testnet.miden.io` + `transport.miden.io` is public chain data, not user PII.
 
-### Security Practices
-- Data encrypted in transit (HTTPS)
-- Data encrypted at rest (local encryption)
-- Users can request data deletion (by removing the app/wallet)
+### Security practices
+- Data encrypted at rest on device (Android Keystore / iOS Secure Enclave when biometric protection enabled)
+- Users can request data deletion in-app ("Delete wallet" in Settings, plus uninstall)
+- App is open source: https://github.com/0xMiden/miden-wallet
 
 ---
 

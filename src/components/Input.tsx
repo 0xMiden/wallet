@@ -31,12 +31,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             'flex flex-row items-center',
             'transition duration-300 ease-in-out',
             'overflow-hidden',
-            'border border-grey-200 hover:border-grey-300 rounded-lg'
+            'border border-border-light hover:border-border-light rounded-lg'
           )}
         >
           {prefix && (
             <div className="absolute inset-y-0 left-0 flex items-center">
-              <span className="w-8 text-right text-gray-400 text-base">{prefix}</span>
+              <span className="w-8 text-right text-text-muted text-base">{prefix}</span>
             </div>
           )}
           <input
@@ -56,7 +56,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {icon && (
             <div className={classNames('flex items-center justify-center', 'py-2 pr-2', iconClassName)}>{icon}</div>
           )}
-          {suffix && <div className="flex text-gray-800 text-sm font-bold mr-4">{suffix}</div>}
+          {suffix && <div className="flex text-heading-gray text-sm font-bold mr-4">{suffix}</div>}
         </div>
       </div>
     );
@@ -82,7 +82,7 @@ export const CurrencyInput: React.FC<CurrencyInputProps> = ({
           'flex flex-row items-center',
           'transition duration-300 ease-in-out',
           'overflow-hidden',
-          'border border-grey-200 hover:border-grey-300 rounded-lg',
+          'border border-border-light hover:border-border-light rounded-lg',
           'has-[:focus]:outline-none has-[:focus]:border-primary-500 has-[:focus]:ring-1 has-[:focus]:ring-primary-500'
         )}
       >

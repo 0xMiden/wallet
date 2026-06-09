@@ -46,7 +46,7 @@ const AddressBook: React.FC = () => {
     <div className="w-full mx-auto">
       <AddNewContactForm />
 
-      <hr className="border-gray-300 my-8" />
+      <hr className="border-border-light my-8" />
 
       <div className="flex flex-col gap-4">
         <span className="text-heading-gray font-medium text-base">{t('currentContacts')}</span>
@@ -58,7 +58,7 @@ const AddressBook: React.FC = () => {
           className={classNames(
             'w-full h-14 px-4',
             'bg-gray-25 border border-gray-100 rounded-10',
-            'text-base placeholder:text-gray-600 placeholder:font-medium',
+            'text-base placeholder:text-text-muted placeholder:font-medium',
             'outline-none focus:border-gray-100'
           )}
         />
@@ -66,7 +66,7 @@ const AddressBook: React.FC = () => {
 
       <div className="flex flex-col gap-y-2 mt-4">
         {filteredContacts.length === 0 ? (
-          <p className="text-center text-grey-600 text-sm py-4">{t('noContactsFound')}</p>
+          <p className="text-center text-text-muted text-sm py-4">{t('noContactsFound')}</p>
         ) : (
           filteredContacts.map(contact => (
             <CardItem
@@ -146,7 +146,7 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
           errorCaption={errors.name?.message}
           containerClassName="bg-gray-25 border-gray-100 border rounded-10"
           maxLength={50}
-          className="bg-gray-25 h-14 active:border-none focus:border-none  placeholder:text-gray-600 placeholder:font-medium rounded-10"
+          className="bg-gray-25 h-14 active:border-none focus:border-none  placeholder:text-text-muted placeholder:font-medium rounded-10"
           fieldWrapperBottomMargin={false}
         />
         <FormField
@@ -158,7 +158,7 @@ const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
           name="address"
           placeholder={t('enterAddress')}
           errorCaption={errors.address?.message}
-          className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-gray-600 rounded-10"
+          className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-text-muted rounded-10"
           fieldWrapperBottomMargin={false}
           containerClassName="bg-gray-25 border-gray-100 border rounded-10"
         />

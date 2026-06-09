@@ -45,7 +45,7 @@ export const RecentsRow: FC<RecentsRowProps> = ({ recents, category, onOpen }) =
 
   return (
     <section>
-      <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-grey-500">
+      <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-text-muted">
         {t('recents') ?? 'Recents'}
       </h2>
       <div className="grid grid-cols-4 gap-1 px-2">

@@ -69,18 +69,18 @@ function Calendar({
           'select-none font-medium',
           captionLayout === 'label'
             ? 'text-sm'
-            : 'cn-calendar-caption-label rounded-(--cell-radius) flex items-center gap-1 text-sm  [&>svg]:text-grey-500 [&>svg]:size-3.5',
+            : 'cn-calendar-caption-label rounded-(--cell-radius) flex items-center gap-1 text-sm  [&>svg]:text-text-muted [&>svg]:size-3.5',
           defaultClassNames.caption_label
         ),
         table: 'w-full border-collapse',
         weekdays: cn('flex', defaultClassNames.weekdays),
         weekday: cn(
-          'text-grey-500 rounded-(--cell-radius) flex-1 font-normal text-[0.8rem] select-none',
+          'text-text-muted rounded-(--cell-radius) flex-1 font-normal text-[0.8rem] select-none',
           defaultClassNames.weekday
         ),
         week: cn('flex w-full mt-2', defaultClassNames.week),
         week_number_header: cn('select-none w-(--cell-size)', defaultClassNames.week_number_header),
-        week_number: cn('text-[0.8rem] select-none text-grey-500', defaultClassNames.week_number),
+        week_number: cn('text-[0.8rem] select-none text-text-muted', defaultClassNames.week_number),
         day: cn(
           'relative w-full rounded-(--cell-radius) h-full p-0 text-center [&:last-child[data-selected=true]_button]:rounded-r-(--cell-radius) group/day aspect-square select-none',
           props.showWeekNumber
@@ -89,20 +89,20 @@ function Calendar({
           defaultClassNames.day
         ),
         range_start: cn(
-          'rounded-l-(--cell-radius) bg-grey-100 relative after:bg-grey-100 after:absolute after:inset-y-0 after:w-4 after:right-0 z-0 isolate',
+          'rounded-l-(--cell-radius) bg-gray-50 relative after:bg-gray-50 after:absolute after:inset-y-0 after:w-4 after:right-0 z-0 isolate',
           defaultClassNames.range_start
         ),
         range_middle: cn('rounded-none', defaultClassNames.range_middle),
         range_end: cn(
-          'rounded-r-(--cell-radius) bg-grey-100 relative after:bg-grey-100 after:absolute after:inset-y-0 after:w-4 after:left-0 z-0 isolate',
+          'rounded-r-(--cell-radius) bg-gray-50 relative after:bg-gray-50 after:absolute after:inset-y-0 after:w-4 after:left-0 z-0 isolate',
           defaultClassNames.range_end
         ),
         today: cn(
-          'bg-grey-100 text-heading-gray rounded-(--cell-radius) data-[selected=true]:rounded-none',
+          'bg-gray-50 text-heading-gray rounded-(--cell-radius) data-[selected=true]:rounded-none',
           defaultClassNames.today
         ),
-        outside: cn('text-grey-500 aria-selected:text-grey-500', defaultClassNames.outside),
-        disabled: cn('text-grey-500 opacity-50', defaultClassNames.disabled),
+        outside: cn('text-text-muted aria-selected:text-text-muted', defaultClassNames.outside),
+        disabled: cn('text-text-muted opacity-50', defaultClassNames.disabled),
         hidden: cn('invisible', defaultClassNames.hidden),
         ...classNames
       }}
@@ -163,7 +163,7 @@ function CalendarDayButton({
       data-range-end={modifiers.range_end}
       data-range-middle={modifiers.range_middle}
       className={cn(
-        'data-[selected-single=true]:bg-primary-500 data-[selected-single=true]:text-pure-white data-[range-middle=true]:bg-grey-100 data-[range-middle=true]:text-heading-gray data-[range-start=true]:bg-primary-500 data-[range-start=true]:text-pure-white data-[range-end=true]:bg-primary-500 data-[range-end=true]:text-pure-white group-data-[focused=true]/day:border-primary-500 group-data-[focused=true]/day:ring-primary-500/50 hover:text-heading-gray relative isolate z-10 flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 border-0 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:ring-[3px] data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-middle=true]:rounded-none data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) [&>span]:text-xs [&>span]:opacity-70',
+        'data-[selected-single=true]:bg-primary-500 data-[selected-single=true]:text-pure-white data-[range-middle=true]:bg-gray-50 data-[range-middle=true]:text-heading-gray data-[range-start=true]:bg-primary-500 data-[range-start=true]:text-pure-white data-[range-end=true]:bg-primary-500 data-[range-end=true]:text-pure-white group-data-[focused=true]/day:border-primary-500 group-data-[focused=true]/day:ring-primary-500/50 hover:text-heading-gray relative isolate z-10 flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 border-0 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:ring-[3px] data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-middle=true]:rounded-none data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) [&>span]:text-xs [&>span]:opacity-70',
         defaultClassNames.day,
         className
       )}

@@ -23,7 +23,7 @@ const AccountBanner = memo<AccountBannerProps>(({ className, account }) => {
         <Icon name={IconName.Wallet} fill="currentColor" size="sm" />
 
         <div className="flex items-center ml-3 text-sm">
-          <Name className="text-gray-600 mr-3">{account!.name}</Name>
+          <Name className="text-heading-gray mr-3">{account!.name}</Name>
           <AddressShortView address={account!.publicKey} />
         </div>
       </div>

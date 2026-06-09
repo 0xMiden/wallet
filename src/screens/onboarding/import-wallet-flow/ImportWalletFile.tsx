@@ -210,7 +210,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
           className={classNames(
             'p-10',
             'flex flex-col items-center gap-y-2 mb-6',
-            'border border-dashed border-grey-200 rounded-2xl',
+            'border border-dashed border-border-card rounded-2xl',
             isDragging && 'border-blue-500'
           )}
           onDrop={onDropFile}
@@ -224,7 +224,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
           <p className="text-sm">
             {t('dragAndDropFile')} {uploadFileComponent()}
           </p>
-          <p className="text-sm text-gray-200">{t('jsonFileType')}</p>
+          <p className="text-sm text-text-muted">{t('jsonFileType')}</p>
           <div>
             <input style={{ display: 'none' }} ref={walletFileRef} onChange={onUploadFile} type="file" />
           </div>
@@ -233,7 +233,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         <div
           className={classNames(
             'flex justify-between items-center',
-            'bg-grey-25 rounded-2xl',
+            'bg-surface-solid rounded-2xl',
             'w-[360px] py-5 px-3',
             'mx-auto'
           )}
@@ -268,7 +268,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       )}
 
       {pendingRestore != null && (
-        <div className="w-[360px] mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="w-[360px] mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-500">
           {t('encryptedFileImportedAccountsOmittedRestoreNotice', {
             importedCount: String(pendingRestore.omittedImportedAccountCount)
           })}

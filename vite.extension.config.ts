@@ -276,12 +276,17 @@ export default defineConfig({
       name: 'extension-html-fixes',
       enforce: 'post',
       transformIndexHtml(html) {
-        return (
-          html
-            .replace(/ crossorigin/g, '')
-            // Inject process global via external script (inline scripts blocked by CSP)
-            .replace('<script type="module"', '<script src="/globals.js"></script>\n    <script type="module"')
-        );
+        let out = html
+          .replace(/ crossorigin/g, '')
+          // Inject process global via external script (inline scripts blocked by CSP)
+          .replace('<script type="module"', '<script src="/globals.js"></script>\n    <script type="module"');
+        // Devnet builds: swap the tab favicon to the blue devnet icon, mirroring
+        // the manifest icon swap above, so a wallet tab is recognizable as devnet
+        // instead of showing the orange production logo.
+        if (MIDEN_NETWORK === 'devnet') {
+          out = out.replace(/logo-white-bg(-\d+)?\.png/g, (_, suffix) => `logo-devnet${suffix ?? ''}.png`);
+        }
+        return out;
       },
       // Inject global React + Buffer for CJS dependencies that expect them.
       // Rolldown's CJS-to-ESM interop scopes `var React = require_react()` inside

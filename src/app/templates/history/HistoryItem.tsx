@@ -42,7 +42,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       className={classNames(
         'w-full flex items-center gap-3 py-4 cursor-pointer transition-colors duration-200 hover:bg-gray-100',
         !lastEntry && 'border-b',
-        fullHistory && !lastEntry ? 'border-b-[#00000033] border-b-[0.27px]' : ''
+        fullHistory && !lastEntry ? 'border-b-border-card border-b-[0.27px]' : ''
       )}
     >
       {/* Icon */}
@@ -58,7 +58,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         <span className="text-black font-medium truncate text-sm leading-none">{title}</span>
 
         {entry.secondaryAddress && (
-          <span className="text-xs text-grey-500 truncate flex gap-0.5">
+          <span className="text-xs text-text-muted truncate flex gap-0.5">
             <p className="font-medium">{`${isReceive ? t('from') : t('to')}: `}</p>
             <AddressShortView address={entry.secondaryAddress} trim={isMobile() || compact} />
           </span>
@@ -84,7 +84,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       {/* Cancel button for pending */}
       {entry.cancel && (
         <Button
-          className="hover:bg-grey-100 rounded-md p-1 shrink-0"
+          className="hover:bg-gray-100 rounded-md p-1 shrink-0"
           onClick={handleCancelClick}
           testID={ExploreSelectors.CancelTransaction}
         >

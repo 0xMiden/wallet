@@ -178,7 +178,7 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               'py-2 pl-4',
               getInnerClassName(isPasswordInput, extraInner),
               errorCaption ? 'border-red-500' : 'border-gray-100',
-              secretBannerDisplayed ? 'border border-gray-600' : 'border',
+              secretBannerDisplayed ? 'border border-border-light' : 'border',
               'bg-gray-25 focus:bg-transparent',
               // text-black maps to --color-text-primary → black in light,
               // white in dark. Without this the <input> inherits the browser
@@ -188,7 +188,7 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               'outline-none',
               'transition ease-in-out duration-200',
               'leading-tight',
-              'placeholder:text-gray-600 placeholder:font-medium placeholder:text-sm',
+              'placeholder:text-text-muted placeholder:font-medium placeholder:text-sm',
               className
             )}
             style={{
@@ -273,7 +273,7 @@ const SecretBanner: React.FC<SecretBannerProps> = ({ secretBannerDisplayed, hand
       <div className="rounded-lg flex flex-col items-center">
         <EyeClosedIcon className="m-auto h-5 w-5 opacity-60" />
 
-        <p className="mt-1 flex items-center text-sm text-gray-600">
+        <p className="mt-1 flex items-center text-sm text-text-muted">
           <span>{t('clickToRevealField')}</span>
         </p>
       </div>

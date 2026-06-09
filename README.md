@@ -261,10 +261,11 @@ All knobs are env vars — set on the command line to override. Full list in `pl
 | `STRESS_LOCK_EVERY` | 15 | lock/unlock cycle frequency |
 | `STRESS_RELOAD_EVERY` | 20 | page reload cycle frequency |
 | `STRESS_CONCURRENT_PROB` | 0.15 | both wallets send at the same tick |
+| `STRESS_TRANSPORT_FAIL_PROB` | 0 | probability of intercepting + failing the SendNote gRPC call on a private send, so the wallet's transport-retry loop is exercised end-to-end |
 | `STRESS_SEED` | `Date.now()` | reproducibility |
 | `STRESS_CONSERVATION_STRICT` | true | fail if final total != initial |
 
-Set any of the `*_EVERY` knobs (or `STRESS_CONCURRENT_PROB`) to `0` to disable that perturbation entirely.
+Set any of the `*_EVERY` knobs (or `STRESS_CONCURRENT_PROB` / `STRESS_TRANSPORT_FAIL_PROB`) to `0` to disable that perturbation entirely.
 
 Example usage:
 

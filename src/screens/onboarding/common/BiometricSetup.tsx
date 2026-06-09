@@ -97,7 +97,7 @@ export const BiometricSetupScreen: React.FC<BiometricSetupScreenProps> = ({ pass
     <div className={classNames('flex-1', 'flex flex-col', 'bg-app-bg gap-y-8 p-6')}>
       <div className="flex flex-col items-center grow justify-center">
         {/* Biometric Icon */}
-        <div className="w-32 h-32 rounded-full bg-grey-50 flex items-center justify-center mb-8">
+        <div className="w-32 h-32 rounded-full bg-gray-50 flex items-center justify-center mb-8">
           <Icon name={IconName.FaceId} size="3xl" className="text-primary-500" />
         </div>
 
@@ -105,12 +105,12 @@ export const BiometricSetupScreen: React.FC<BiometricSetupScreenProps> = ({ pass
         <h1 className="text-2xl font-semibold text-center mb-4">{t('biometricSetup')}</h1>
 
         {/* Description */}
-        <p className="text-sm text-grey-600 text-center max-w-xs mb-2">{t('biometricSetupDescription')}</p>
-        <p className="text-sm text-grey-500 text-center max-w-xs">{t('biometricSetupSubtitle')}</p>
+        <p className="text-sm text-text-muted text-center max-w-xs mb-2">{t('biometricSetupDescription')}</p>
+        <p className="text-sm text-text-muted text-center max-w-xs">{t('biometricSetupSubtitle')}</p>
 
         {/* Biometric Type Info */}
-        <div className="mt-6 px-4 py-3 bg-grey-50 rounded-lg">
-          <p className="text-sm text-grey-600">
+        <div className="mt-6 px-4 py-3 bg-gray-50 rounded-lg">
+          <p className="text-sm text-text-muted">
             {t('biometricType')}: <span className="font-medium text-black">{getBiometricLabel()}</span>
           </p>
         </div>
