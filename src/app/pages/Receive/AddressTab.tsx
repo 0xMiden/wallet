@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
@@ -11,7 +11,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { Button } from 'lib/ui/button';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { truncateAddress } from 'utils/string';
+import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
+import { navigate } from 'lib/woozie';
 
 interface AddressTabProps {
   address: string;
@@ -21,11 +22,26 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
   const { t } = useTranslation();
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
+  const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
+
+  const openBridgeDeposit = useCallback(() => {
+    navigate('/bridge/deposit');
+  }, []);
 
   const handleOpenEvm = useCallback(() => {
     hapticLight();
+    if (evmConnected && evmAddress) {
+      openBridgeDeposit();
+      return;
+    }
     setEvmOpen(true);
-  }, []);
+  }, [evmAddress, evmConnected, openBridgeDeposit]);
+
+  useEffect(() => {
+    if (!evmOpen || !evmConnected || !evmAddress) return;
+    setEvmOpen(false);
+    openBridgeDeposit();
+  }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
 
   const handleShare = useCallback(async () => {
     hapticLight();
@@ -80,9 +96,16 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
               <span className="text-base font-semibold text-heading-gray">{copied ? t('copied') : t('copy')}</span>
             </button>
           </div>
-          <Button variant="secondary" size="lg" onClick={handleOpenEvm} className="w-full">
-            {t('receiveFromEvm')}
-          </Button>
+          <div className="w-full border-t border-rule-strong pt-4">
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={handleOpenEvm}
+              className="h-14 w-full rounded-xl border-border-button bg-white text-base font-semibold text-heading-gray hover:bg-white"
+            >
+              {t('receiveFromEvm')}
+            </Button>
+          </div>
         </div>
       </div>
       <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />

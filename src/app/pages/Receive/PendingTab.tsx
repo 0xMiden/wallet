@@ -346,7 +346,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
             {formatUsd(usdValue)}
           </div>
 
-          <div className="mt-5 rounded-2xl border border-rule-default bg-white overflow-hidden">
+          <div className="mt-5 rounded-2xl border border-rule-default bg-white overflow-hidden w-full">
             {notes.map((note, index) => (
               <DetailNoteRow
                 key={note.id}
@@ -429,7 +429,9 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
     const signal = abortControllerRef.current.signal;
 
     try {
-      const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+      // Explicit user tap (Claim / Retry) — bypass the auto-consume backoff gate
+      // so a retry after a failure always queues a fresh attempt.
+      const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
 
       if (isExtension()) {
         requestSWTransactionProcessing();
@@ -460,7 +462,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
 
   return (
-    <div className={classNames('relative', showDivider && 'border-b border-rule-default')}>
+    <div className={classNames('relative', showDivider && 'border-b border-rule-default w-full')}>
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
       <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3 relative z-10">
         <span className="text-sm text-text-primary-token truncate">{senderDisplay}</span>

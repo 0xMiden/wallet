@@ -121,6 +121,10 @@ jest.mock('lib/ui/useCopyToClipboard', () => ({
   default: () => ({ fieldRef: { current: null }, copy: jest.fn(), copied: false })
 }));
 
+jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
+  useEvmWalletConnection: () => ({ address: undefined, connected: false })
+}));
+
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn(),
