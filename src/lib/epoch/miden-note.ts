@@ -39,6 +39,14 @@ export interface CreateBridgeP2IDNoteArgs {
   /** EVM destination chain id (Epoch). */
   destinationNetwork: number;
   deps: BridgeNoteDeps;
+  /**
+   * Fired the instant the `bridged-send` row is created (before proving/submit).
+   * The send flow uses this to navigate to the generating-transaction screen
+   * WITH the txId — like a normal send — so the screen tracks the real row
+   * instead of racing an empty queue. Not provided by callers that drive their
+   * own progress UI (e.g. the EvmConnectModal).
+   */
+  onRowCreated?: (txId: string) => void;
 }
 
 /**
@@ -60,7 +68,8 @@ export interface CreateBridgeP2IDNoteArgs {
 export async function createBridgeP2IDNote(
   args: CreateBridgeP2IDNoteArgs
 ): Promise<{ success: boolean; noteId?: string; txId?: string }> {
-  const { senderAccountId, faucetId, amount, allocatorId, destinationAddress, destinationNetwork, deps } = args;
+  const { senderAccountId, faucetId, amount, allocatorId, destinationAddress, destinationNetwork, deps, onRowCreated } =
+    args;
   try {
     console.log('[epoch] creating bridge note with', { senderAccountId, faucetId, amount, allocatorId });
     const txId = await initiateBridgedSendTransaction(
@@ -80,6 +89,10 @@ export async function createBridgeP2IDNote(
         recallBlocks: MIDEN_MIN_RECLAIM_BLOCKS
       }
     );
+
+    // Row exists now (Queued) — let the caller navigate to the progress screen
+    // before we block on proving/submission below.
+    onRowCreated?.(txId);
 
     if (isExtension()) {
       requestSWTransactionProcessing();

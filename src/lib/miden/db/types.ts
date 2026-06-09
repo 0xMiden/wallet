@@ -49,6 +49,21 @@ export interface IBridgedSendExtraInputs {
    * `sendTransaction` (its presence makes the note a recallable P2IDE).
    */
   recallBlocks?: number;
+  /**
+   * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
+   * `getIntentStatus` for the receiving-chain fill, captured at send time.
+   */
+  intentNonce?: string;
+  /** epoch: quoted destination output amount (human-formatted) for the activity hero. */
+  outputAmount?: string;
+  /** epoch: destination output token symbol (e.g. `USDC`). */
+  outputSymbol?: string;
+  /** epoch: receiving-chain (destination EVM) settlement tx hash, once the intent fills. */
+  fillTxHash?: string;
+  /** epoch: chain id the fill tx landed on (drives the destination explorer link). */
+  fillChainId?: number;
+  /** epoch: settlement status derived from polling `getIntentStatus`. */
+  epochStatus?: 'pending' | 'confirmed' | 'failed';
 }
 
 /**

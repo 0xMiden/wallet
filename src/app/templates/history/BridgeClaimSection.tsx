@@ -1,8 +1,9 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
+import { pollEpochIntentFill } from 'lib/epoch';
 import { updateBridgeClaimStatus } from 'lib/miden/activity';
 import { IBridgeClaimStatus } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
@@ -12,8 +13,16 @@ import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import HashChip from '../HashChip';
 import { DetailCard, DetailRow, ExternalLinkValue } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
+import { BridgeStatus } from './transactionUtils';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
+const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
+
+const EPOCH_STATUS_LABEL: Record<BridgeStatus, string> = {
+  pending: 'bridgeInProgress',
+  confirmed: 'confirmed',
+  failed: 'bridgeFailed'
+};
 
 const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
   'not-applicable': 'noManualClaimRequired',
@@ -44,10 +53,16 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
 
   const isAgglayer = entry.bridgeProvider === 'agglayer';
+  const isEpoch = entry.bridgeProvider === 'epoch';
   const destination = entry.bridgeDestinationAddress ?? '';
   const [status, setStatus] = useState<IBridgeClaimStatus>(entry.bridgeClaimStatus ?? 'not-applicable');
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Epoch (Fast) auto-settles on the destination chain — poll the allocator for
+  // the receiving-chain fill (status + tx hash) only while the detail is open.
+  const [epochStatus, setEpochStatus] = useState<BridgeStatus>(entry.bridgeEpochStatus ?? 'pending');
+  const [fillTxHash, setFillTxHash] = useState<string | undefined>(entry.bridgeFillTxHash);
 
   const connectedMatchesDestination = !!evmAddress && evmAddress.toLowerCase() === destination.toLowerCase();
 
@@ -68,6 +83,38 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
       return true;
     }
   });
+
+  // Epoch fill poll. Runs on mount + every 8s while still pending; persists the
+  // receiving tx hash / terminal status and reloads the row once it settles so
+  // the hero pill flips to Confirmed.
+  const intentNonce = entry.bridgeIntentNonce;
+  const txId = entry.txId;
+  useEffect(() => {
+    if (!isEpoch || epochStatus === 'confirmed' || epochStatus === 'failed') return;
+    if (!intentNonce || !destination || !txId) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      const fill = await pollEpochIntentFill({ destinationAddress: destination, intentNonce });
+      if (cancelled || !fill) return;
+      if (fill.fillTxHash) setFillTxHash(fill.fillTxHash);
+      setEpochStatus(fill.status);
+      if (fill.fillTxHash || fill.status !== 'pending') {
+        await updateBridgeClaimStatus(txId, 'not-applicable', {
+          epochStatus: fill.status,
+          fillTxHash: fill.fillTxHash,
+          fillChainId: fill.fillChainId
+        });
+      }
+      if (fill.status === 'confirmed' || fill.status === 'failed') onUpdated();
+    };
+    tick();
+    const id = setInterval(tick, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isEpoch, epochStatus, intentNonce, destination, txId, onUpdated]);
 
   const handleClaim = useCallback(async () => {
     if (!claimable || !evmProvider || !entry.txId) return;
@@ -107,13 +154,24 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
           </DetailRow>
         )}
         <DetailRow label={t('destinationNetwork')} value="Sepolia" />
-        <DetailRow label={t('claimStatus')} isLast>
-          <span className="text-sm text-heading-gray font-medium">{t(CLAIM_STATUS_LABEL[status])}</span>
+        <DetailRow label={isEpoch ? t('status') : t('claimStatus')} isLast={!(isEpoch && fillTxHash)}>
+          <span className="text-sm text-heading-gray font-medium">
+            {isEpoch ? t(EPOCH_STATUS_LABEL[epochStatus]) : t(CLAIM_STATUS_LABEL[status])}
+          </span>
         </DetailRow>
+        {isEpoch && fillTxHash && (
+          <DetailRow label={t('receivingTx')} isLast>
+            <ExternalLinkValue
+              displayValue={<HashChip hash={fillTxHash} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />}
+              href={SEPOLIA_TX_URL(fillTxHash)}
+            />
+          </DetailRow>
+        )}
       </DetailCard>
 
-      {isAgglayer ? (
-        status !== 'claimed' ? (
+      {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
+      {isAgglayer &&
+        (status !== 'claimed' ? (
           <div className="mt-3 flex flex-col gap-2">
             {error && (
               <p className="text-red-500 text-xs" role="alert">
@@ -134,10 +192,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
           </div>
         ) : (
           <div className="mt-3 text-xs text-[#1A9C52]">{t('claimAssetSubmitted')}</div>
-        )
-      ) : (
-        <p className="mt-3 text-xs text-heading-gray/60">{t('noManualClaimRequired')}</p>
-      )}
+        ))}
     </div>
   );
 };

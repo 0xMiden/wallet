@@ -57,17 +57,22 @@ export interface B2AggBridgeDeps {
  * Recorded as a `bridged-send` row with `provider: 'agglayer'` so the activity
  * detail can surface the EVM destination + L1 claim status.
  */
-export async function bridgeB2Agg(args: {
+/**
+ * Build the B2AGG note + request and queue it as a `bridged-send` (agglayer)
+ * row, returning the txId WITHOUT proving/submitting or waiting. Mirrors a normal
+ * send's `initiate*` step: the caller then nudges the processor and navigates to
+ * the generating-transaction screen with this id, which drives proving/submission.
+ */
+export async function initiateB2AggBridge(args: {
   amount: bigint;
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
   destinationNetwork: number;
-  deps: B2AggBridgeDeps;
-}): Promise<{ txHash: string }> {
-  const { amount, destinationAddress, senderPublicKey, destinationNetwork, deps } = args;
+}): Promise<string> {
+  const { amount, destinationAddress, senderPublicKey, destinationNetwork } = args;
 
   // Build the note + TransactionRequest under the WASM lock; the queue stores
-  // the serialized request and the background processor submits it.
+  // the serialized request and the processor submits it.
   const requestBytes = await withWasmClientLock(async () => {
     const note = await createB2AggNote(amount, destinationAddress, senderPublicKey, destinationNetwork);
     const request = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
@@ -85,7 +90,7 @@ export async function bridgeB2Agg(args: {
 
   // Delegate to the remote prover (mobile always delegates anyway) to avoid
   // OOMing the SW / WebView while proving the bridge note.
-  const txId = await initiateBridgedSendTransaction(
+  return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,
     MIDEN_AGGLAYER_FAUCET_ID,
@@ -95,6 +100,17 @@ export async function bridgeB2Agg(args: {
     requestBytes,
     true
   );
+}
+
+export async function bridgeB2Agg(args: {
+  amount: bigint;
+  destinationAddress: `0x${string}`;
+  senderPublicKey: string;
+  destinationNetwork: number;
+  deps: B2AggBridgeDeps;
+}): Promise<{ txHash: string }> {
+  const { deps, ...noteArgs } = args;
+  const txId = await initiateB2AggBridge(noteArgs);
 
   if (isExtension()) {
     requestSWTransactionProcessing();

@@ -4,9 +4,13 @@ import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { ReactComponent as SendIcon } from 'app/icons/send-new.svg';
+import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+
+/** Slate square behind the white swap glyph for bridge rows (matches the design). */
+const BRIDGE_ICON_BG = '#777487';
 
 type TransactionIconSize = 'sm' | 'lg';
 
@@ -24,6 +28,19 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
   const isPending =
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
+
+  // Bridge rows keep the swap glyph through every state (incl. pending) — the
+  // Pending/Confirmed status is surfaced in text, not by swapping the icon.
+  if (entry.txType === 'bridged-send') {
+    return (
+      <div
+        className={`${config.container} rounded-10 flex items-center justify-center`}
+        style={{ backgroundColor: BRIDGE_ICON_BG }}
+      >
+        <SwapIcon className={config.icon} />
+      </div>
+    );
+  }
 
   if (isPending) {
     return <PendingIcon className={`${config.pending} animate-spin`} />;

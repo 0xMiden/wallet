@@ -7,7 +7,7 @@ import { useDebouncedCallback } from 'use-debounce';
 import * as yup from 'yup';
 
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { bridgeB2Agg } from 'lib/agglayer/b2agg';
+import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -19,7 +19,7 @@ import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook'
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension, isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
@@ -266,30 +266,35 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
           return;
         }
         const amountBase = stringToBigInt(amount!, token!.decimals);
-        navigateToGeneratingTransaction();
+        // Both routes mirror a normal send: create the `bridged-send` row first,
+        // then navigate to the generating-transaction screen WITH its txId so the
+        // screen tracks the real row (no navigate-first race / success flash).
+        // Errors before the row exists (e.g. a failed Epoch quote) stay on the
+        // form, where they're visible.
         try {
           if (bridgeRoute === 'agglayer') {
-            const { txHash } = await bridgeB2Agg({
+            const txId = await initiateB2AggBridge({
               amount: amountBase,
               destinationAddress: recipientAddress as `0x${string}`,
               senderPublicKey: publicKey!,
-              destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
-              deps: { signTransaction, guardianProvider: zustandProvider }
+              destinationNetwork: EVM_AGGLAYER_NETWORK_ID
             });
-            useWalletStore.getState().setLastCompletedTxHash(txHash);
+            if (isExtension()) {
+              requestSWTransactionProcessing();
+            }
+            navigateToGeneratingTransaction(txId);
           } else {
+            // Epoch creates its row mid-solve; `onRowCreated` fires the moment it
+            // exists so we navigate then (the rest of the solve runs in the
+            // background while the screen drives the row to completion).
             await bridgeEpochSend({
               amount: amountBase,
               faucetId: token!.id,
               destinationAddress: recipientAddress as `0x${string}`,
               senderPublicKey: publicKey!,
-              deps: { signTransaction, guardianProvider: zustandProvider }
+              deps: { signTransaction, guardianProvider: zustandProvider },
+              onRowCreated: txId => navigateToGeneratingTransaction(txId)
             });
-          }
-          if (isMobile()) {
-            navigate('/');
-          } else {
-            onAction({ id: SendFlowActionId.GenerateTransaction });
           }
         } catch (bridgeErr: any) {
           if (bridgeErr?.message) {
@@ -326,7 +331,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   }, [
     isSubmitting,
     clearErrors,
-    onAction,
     publicKey,
     recipientAddress,
     sharePrivately,
@@ -493,6 +497,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               onGoBack={goBack}
               onClose={onClose}
               onSubmit={handleSubmit(onSubmit)}
+              isSubmitting={isSubmitting}
             />
           );
         default:
@@ -522,7 +527,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       bridgeRoute,
       isBridgeableToken,
       publicKey,
-      setValue
+      setValue,
+      isSubmitting
     ]
   );
 

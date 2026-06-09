@@ -23,12 +23,18 @@ export interface EpochQuoteOutput {
   symbol: string;
 }
 
-/** Format an Epoch quote amount (base units or already-human decimal) to a human string. */
+/**
+ * Format an Epoch quote amount (18-decimal base units, or an already-human
+ * decimal) to a display string rounded to 2 decimals. The raw `tokenOut` uses
+ * the output token's full 18-decimal precision; we only ever surface 2 decimals
+ * (USDC) in the send-quote preview and the activity row/detail.
+ */
 function formatQuoteAmount(raw: string, decimals: number): string {
-  if (!raw || raw === '0') return '0';
+  if (!raw || raw === '0') return '0.00';
   try {
-    if (/^\d+\.\d+$/.test(raw)) return raw; // already a human decimal
-    return formatUnits(BigInt(raw), decimals);
+    const human = /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
+    const n = Number(human);
+    return Number.isFinite(n) ? n.toFixed(2) : human;
   } catch {
     return raw;
   }
@@ -103,6 +109,12 @@ export interface EpochSendArgs {
   /** Sender's Miden account (bech32). */
   senderPublicKey: string;
   deps: BridgeNoteDeps;
+  /**
+   * Fired once the `bridged-send` row is created (mid-solve, before it proves +
+   * submits). The send flow navigates to the generating-transaction screen with
+   * this txId so it tracks the real row instead of racing an empty queue.
+   */
+  onRowCreated?: (txId: string) => void;
 }
 
 /**
@@ -153,7 +165,8 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
         allocatorId,
         destinationAddress: args.destinationAddress,
         destinationNetwork: EPOCH_DESTINATION_CHAIN_ID,
-        deps: args.deps
+        deps: args.deps,
+        onRowCreated: args.onRowCreated
       });
       bridgeTxId = res.txId;
       return { success: res.success, noteId: res.noteId };
@@ -163,11 +176,79 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     throw new Error(intent.error);
   }
 
-  // Record the solver/intent hash (informational). `updateBridgeClaimStatus`
-  // mutates extraInputs only, so it's fine that the row is already Completed.
+  // Persist the quote output + intent nonce so the activity view can render the
+  // "you received N USDC" side and later poll `getIntentStatus` for the
+  // receiving-chain fill. `updateBridgeClaimStatus` mutates extraInputs only, so
+  // it's fine that the row is already Completed.
   const evmTxHash = intent.solveResult?.hash;
-  if (bridgeTxId && evmTxHash) {
-    await updateBridgeClaimStatus(bridgeTxId, 'not-applicable', { evmTxHash });
+  const intentNonce = intent.intentNonce ?? intent.solveResult?.nonce;
+  const rawTokenOut = quote.quoteResult.tokenOut != null ? String(quote.quoteResult.tokenOut) : '0';
+  const outputAmount = formatQuoteAmount(rawTokenOut, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
+  if (bridgeTxId) {
+    await updateBridgeClaimStatus(bridgeTxId, 'not-applicable', {
+      evmTxHash,
+      intentNonce,
+      outputAmount,
+      outputSymbol: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+      epochStatus: 'pending'
+    });
   }
   return { txId: bridgeTxId };
+}
+
+export interface EpochIntentFill {
+  /** Settlement status: `confirmed` once the destination fill completes, else `pending`/`failed`. */
+  status: 'pending' | 'confirmed' | 'failed';
+  /** Receiving-chain (destination EVM) settlement tx hash, when available. */
+  fillTxHash?: string;
+  /** Chain id the fill tx landed on. */
+  fillChainId?: number;
+}
+
+const EPOCH_DONE_STATUSES = new Set(['completed', 'success', 'filled', 'settled']);
+const EPOCH_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reverted']);
+
+/** Narrow a plain string to a 0x EVM address without an `as` cast. */
+function isEvmAddress(value: string): value is `0x${string}` {
+  return /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
+/**
+ * Poll the Epoch allocator for the receiving-chain fill of a previously-submitted
+ * Miden→EVM intent. `getIntentStatus` is a read-only allocator API call, so it
+ * needs NO connected EVM wallet — the read-only SDK keyed on the destination
+ * address suffices. Returns the destination-chain tx hash + a normalized status,
+ * or `null` if nothing is queryable yet (no nonce, network error).
+ *
+ * The status array can carry entries for multiple chains; we prefer the entry on
+ * the destination EVM chain (`EPOCH_DESTINATION_CHAIN_ID`), falling back to the
+ * last entry. `confirmed` requires that entry to report a done status.
+ */
+export async function pollEpochIntentFill(args: {
+  destinationAddress: string;
+  intentNonce: string;
+}): Promise<EpochIntentFill | null> {
+  if (!args.intentNonce || !isEvmAddress(args.destinationAddress)) return null;
+  try {
+    const sdk = await getEpochReadOnlySdk(args.destinationAddress);
+    const results = await sdk.getIntentStatus(args.destinationAddress, args.intentNonce);
+    if (!results || results.length === 0) return { status: 'pending' };
+
+    const onDest = results.find(r => r.chainId === EPOCH_DESTINATION_CHAIN_ID);
+    const fill = onDest ?? results[results.length - 1]!;
+    const normalized = (fill.status ?? '').toLowerCase();
+
+    let status: EpochIntentFill['status'] = 'pending';
+    if (EPOCH_DONE_STATUSES.has(normalized)) status = 'confirmed';
+    else if (EPOCH_FAILED_STATUSES.has(normalized)) status = 'failed';
+
+    return {
+      status,
+      fillTxHash: fill.transactionHash || undefined,
+      fillChainId: fill.chainId
+    };
+  } catch (err) {
+    console.error('[epoch] pollEpochIntentFill failed', err);
+    return null;
+  }
 }
