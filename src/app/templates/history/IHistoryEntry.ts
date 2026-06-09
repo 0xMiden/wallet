@@ -29,6 +29,13 @@ export interface IHistoryEntry {
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
   bridgeClaimStatus?: IBridgeClaimStatus;
+  // Epoch (Fast) route: quoted destination output + intent-status tracking.
+  bridgeOutputAmount?: string;
+  bridgeOutputSymbol?: string;
+  bridgeIntentNonce?: string;
+  bridgeFillTxHash?: string;
+  bridgeFillChainId?: number;
+  bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

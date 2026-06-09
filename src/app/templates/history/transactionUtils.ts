@@ -18,6 +18,64 @@ export const isCompletedTransaction = (message: string): boolean => {
   return message === 'Sent' || message === 'Received' || message === 'Reclaimed' || message === 'Executed';
 };
 
+/**
+ * Round a bridge's (USDC) destination output to 2 decimals for display. The
+ * stored value is full 18-decimal precision; the row + detail only ever show 2.
+ * Passes non-numeric input through unchanged.
+ */
+export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
+  if (amount === undefined) return undefined;
+  const n = Number(amount);
+  return Number.isFinite(n) ? n.toFixed(2) : amount;
+};
+
+export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
+
+/**
+ * Normalize a `bridged-send` row to a single Pending/Confirmed/Failed status
+ * across both routes: Agglayer derives it from the L1 claim lifecycle, Epoch from
+ * the polled intent fill status.
+ */
+export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
+  if (entry.bridgeProvider === 'agglayer') {
+    if (entry.bridgeClaimStatus === 'claimed') return 'confirmed';
+    if (entry.bridgeClaimStatus === 'failed') return 'failed';
+    return 'pending';
+  }
+  return entry.bridgeEpochStatus ?? 'pending';
+};
+
+/** i18n key for each bridge status (shared by the summary row + full Activity row). */
+export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {
+  pending: 'pending',
+  confirmed: 'confirmed',
+  failed: 'bridgeFailed'
+};
+
+export interface BridgeRowDisplay {
+  inSymbol: string;
+  outSymbol: string;
+  /** Quoted destination output (2dp), falling back to the input amount for legacy/in-flight rows. */
+  outAmount?: string;
+  providerLabel: string;
+  network: string;
+  status: BridgeStatus;
+}
+
+/**
+ * Shared display fields for a `bridged-send` activity entry, so the summary row
+ * (`HistoryItem`) and the full Activity row (`HistoryView` → `ActivityRow`) render
+ * identically: "Bridge IN → OUT", "Via <provider> → <network>", output amount, status.
+ */
+export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+  const inSymbol = entry.token ?? '—';
+  const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
+  const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? entry.amount?.toString();
+  const providerLabel =
+    entry.bridgeProvider === 'agglayer' ? 'Agglayer' : entry.bridgeProvider === 'epoch' ? 'Epoch' : 'Bridge';
+  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
+};
+
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;
 };

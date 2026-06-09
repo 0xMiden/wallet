@@ -4,13 +4,17 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { getTransactionById } from 'lib/miden/activity';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { getTokenPrice } from 'lib/prices';
+import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
@@ -18,7 +22,60 @@ import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
-import { fontColorForType, formatDate } from './transactionUtils';
+import {
+  BridgeStatus,
+  bridgeStatusOf,
+  fontColorForType,
+  formatBridgeOutputAmount,
+  formatDate
+} from './transactionUtils';
+
+const formatUsd = (value: number): string =>
+  `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
+
+const BRIDGE_PILL_STYLE: Record<BridgeStatus, { bg: string; text: string; dot: string; labelKey: string }> = {
+  pending: { bg: 'bg-[#FBEEDD]', text: 'text-[#E8913A]', dot: 'bg-[#E8913A]', labelKey: 'pending' },
+  confirmed: { bg: 'bg-[#DAF1E2]', text: 'text-[#1A9C52]', dot: 'bg-[#1A9C52]', labelKey: 'confirmed' },
+  failed: { bg: 'bg-[#FBE3E3]', text: 'text-[#DC2626]', dot: 'bg-[#DC2626]', labelKey: 'bridgeFailed' }
+};
+
+const BridgeStatusPill: FC<{ status: BridgeStatus }> = ({ status }) => {
+  const { t } = useTranslation();
+  const s = BRIDGE_PILL_STYLE[status];
+  return (
+    <div className={clsx('flex items-center gap-1.5 px-3 py-1 rounded-5', s.bg)}>
+      <span className={clsx('w-1.5 h-1.5 rounded-full', s.dot)} />
+      <span className={clsx('text-xs font-medium', s.text)}>{t(s.labelKey)}</span>
+    </div>
+  );
+};
+
+/** Swap-style hero for a `bridged-send`: "IN → OUT" with greyed symbols, USD, status. */
+const BridgeHero: FC<{ entry: IHistoryEntry; tokenPrices: TokenPrices }> = ({ entry, tokenPrices }) => {
+  const inSymbol = entry.token ?? '—';
+  const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
+  const inAmount = entry.amount?.toString() ?? '—';
+  const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? inAmount;
+  const { price } = getTokenPrice(tokenPrices, inSymbol);
+  const usdValue = Number(entry.amount ?? '0') * price;
+
+  return (
+    <div className="flex flex-col items-center justify-center pt-4 pb-6 border-b border-[#BABABA33]">
+      <TransactionIcon entry={entry} size="lg" />
+      <div className="flex items-center gap-2 flex-wrap justify-center leading-none">
+        <span className="text-5xl font-extrabold text-heading-gray">{inAmount}</span>
+        <span className="text-3xl font-extrabold text-[#B5B5BD]">{inSymbol}</span>
+        <Icon name={IconName.ArrowRight} size="md" className="mx-0.5" fill="#1A1A1A" />
+        <span className="text-5xl font-extrabold text-heading-gray">{outAmount}</span>
+        <span className="text-3xl font-extrabold text-[#B5B5BD]">{outSymbol}</span>
+      </div>
+      {usdValue > 0 && <p className="mt-2 text-sm text-heading-gray">≈ {formatUsd(usdValue)}</p>}
+      <div className="mt-2">
+        <BridgeStatusPill status={bridgeStatusOf(entry)} />
+      </div>
+    </div>
+  );
+};
 
 interface HistoryDetailsProps {
   transactionId: string;
@@ -58,6 +115,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
   const allAccounts = useAllAccounts();
   const account = useAccount();
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const loadTransaction = useCallback(async () => {
@@ -86,7 +144,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         bridgeProvider: bridge?.provider,
         bridgeDestinationAddress: bridge?.destinationAddress,
         bridgeDestinationNetwork: bridge?.destinationNetwork,
-        bridgeClaimStatus: bridge?.claimStatus
+        bridgeClaimStatus: bridge?.claimStatus,
+        bridgeOutputAmount: bridge?.outputAmount,
+        bridgeOutputSymbol: bridge?.outputSymbol,
+        bridgeIntentNonce: bridge?.intentNonce,
+        bridgeFillTxHash: bridge?.fillTxHash,
+        bridgeFillChainId: bridge?.fillChainId,
+        bridgeEpochStatus: bridge?.epochStatus
       } as IHistoryEntry;
 
       setEntry(historyEntry);
@@ -122,18 +186,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       ) : (
         <div className="flex-1 flex flex-col px-4 py-2 overflow-y-auto">
           {/* Top Section */}
-          <div className="flex flex-col items-center justify-center pt-4 pb-6 border-b border-border-card">
-            <TransactionIcon entry={entry} size="lg" />
-            <p className="text-sm text-heading-gray mt-3">{entry.message}</p>
-            <p
-              className={clsx('text-5xl font-semibold leading-none text-heading-gray', fontColorForType(entry.txType))}
-            >
-              {entry.amount?.toString()} {entry.token}
-            </p>
-            <div className="mt-1">
-              <StatusPill message={entry.message} />
+          {isBridge ? (
+            <BridgeHero entry={entry} tokenPrices={tokenPrices} />
+          ) : (
+            <div className="flex flex-col items-center justify-center pt-4 pb-6 border-b border-[#BABABA33]">
+              <TransactionIcon entry={entry} size="lg" />
+              <p className="text-sm text-heading-gray mt-3">{entry.message}</p>
+              <p
+                className={clsx(
+                  'text-5xl font-semibold leading-none text-heading-gray',
+                  fontColorForType(entry.txType)
+                )}
+              >
+                {entry.amount?.toString()} {entry.token}
+              </p>
+              <div className="mt-1">
+                <StatusPill message={entry.message} />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Transfer Details */}
           <div className="mt-4">

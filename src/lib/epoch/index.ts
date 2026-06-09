@@ -6,10 +6,9 @@ export type { BridgeNoteDeps } from './miden-note';
 export { getEpochSdk, resetEpochSdk, useEpochSdk } from './sdk';
 export { useEpochStore } from './store';
 export type { EpochFlow, EpochStatus } from './store';
-export { bridgeEpochSend, quoteEpochSendOutput } from './epoch-send';
-export type { EpochSendArgs, EpochQuoteOutput } from './epoch-send';
+export { bridgeEpochSend, quoteEpochSendOutput, pollEpochIntentFill } from './epoch-send';
+export type { EpochSendArgs, EpochQuoteOutput, EpochIntentFill } from './epoch-send';
 export {
-  BRIDGEABLE_MIDEN_FAUCET_ID,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,

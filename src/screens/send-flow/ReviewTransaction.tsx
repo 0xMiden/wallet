@@ -20,6 +20,8 @@ export interface ReviewTransactionProps {
   onGoBack: () => void;
   onClose: () => void;
   onSubmit: () => void;
+  /** True while the tx is being initiated (e.g. an Epoch bridge quote/solve) — drives the confirm-button loader. */
+  isSubmitting?: boolean;
   sharePrivately: boolean;
   recipientAddress?: string;
   recipientChain?: 'miden' | 'ethereum';
@@ -42,7 +44,8 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   recallTime,
   onGoBack,
   onClose,
-  onSubmit
+  onSubmit,
+  isSubmitting = false
 }) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
@@ -107,8 +110,21 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
         </div>
 
         <div className="shrink-0 pt-6 pb-4 flex flex-col gap-y-2">
-          <Button type="submit" title={t('sendPayment')} variant={ButtonVariant.Primary} onClick={onSubmit} />
-          <Button type="button" onClick={onGoBack} variant={ButtonVariant.Secondary} title={t('back')} />
+          <Button
+            type="submit"
+            title={t('sendPayment')}
+            variant={ButtonVariant.Primary}
+            onClick={onSubmit}
+            isLoading={isSubmitting}
+            disabled={isSubmitting}
+          />
+          <Button
+            type="button"
+            onClick={onGoBack}
+            variant={ButtonVariant.Secondary}
+            title={t('back')}
+            disabled={isSubmitting}
+          />
         </div>
       </div>
     </div>

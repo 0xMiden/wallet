@@ -414,6 +414,48 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
     });
 
+    it('queues a fresh attempt on a manual retry even while the cooldown has not elapsed', async () => {
+      // The bounded-retry gate throttles auto-consume's background polling, but
+      // an explicit user retry (manualRetry=true) must bypass it — otherwise the
+      // Retry button silently no-ops for up to RETRY_COOLDOWN_SEC.
+      const nowSec = Math.floor(Date.now() / 1000);
+      const recentFailed = {
+        id: 'recent-failed-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.Failed,
+        initiatedAt: nowSec - 30,
+        completedAt: nowSec - 10
+      };
+      mockDedupQuery([recentFailed]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).not.toBe('recent-failed-tx');
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+    });
+
+    it('still dedups a manual retry against an in-flight consume for the same note', async () => {
+      // manualRetry only bypasses the Failed-row backoff — it must NOT double-queue
+      // when a Queued/Generating/Completed row is already in flight.
+      const existingTx = {
+        id: 'existing-tx',
+        type: 'consume',
+        noteId: 'note-123',
+        accountId: 'account-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100
+      };
+      mockDedupQuery([existingTx]);
+
+      const result = await initiateConsumeTransaction('account-1', note, undefined, true);
+
+      expect(result).toBe('existing-tx');
+      expect(mockTransactionsAdd).not.toHaveBeenCalled();
+    });
+
     it('blocks a new attempt after MAX_CONSECUTIVE_CONSUME_FAILURES inside the recent window', async () => {
       // The cap is on consecutive failures inside RECENT_FAILURE_WINDOW_SEC.
       // Build MAX_CONSECUTIVE recent failures, the most recent of which IS

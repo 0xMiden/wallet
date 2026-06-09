@@ -7,12 +7,13 @@ import InfiniteScroll from 'react-infinite-scroller';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityStatusTone } from 'components/ui';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest } from './transactionUtils';
+import { BRIDGE_STATUS_LABEL_KEY, bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 type HistoryViewProps = {
   entries: IHistoryEntry[];
@@ -52,7 +53,22 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 // Map an IHistoryEntry to the visual props ActivityRow expects: icon glyph,
 // colored square background, amount string with sign, and status pill (dot +
 // label). Faucet requests get their own dark-blue glyph regardless of icon.
-function buildRowProps(entry: IHistoryEntry, t: (k: string) => string) {
+function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string, unknown>) => string) {
+  // Bridge rows get a dedicated swap-style layout: "Bridge IN → OUT" / "Via
+  // <provider> → <network>" / output amount / status dot. The Miden-side icon
+  // (SEND) and signed amount don't apply.
+  if (entry.txType === 'bridged-send') {
+    const d = bridgeRowDisplay(entry);
+    return {
+      icon: <SwapIcon className="w-5 h-5" />,
+      iconBg: 'bg-[#777487]',
+      title: t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
+      subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
+      amount: d.outAmount ? { value: `${d.outAmount} ${d.outSymbol}`, direction: 'neutral' as const } : undefined,
+      status: { label: t(BRIDGE_STATUS_LABEL_KEY[d.status]), tone: d.status }
+    };
+  }
+
   const faucet = isFaucetRequest(entry);
   const icon = entry.transactionIcon ?? 'DEFAULT';
   const isFailed = icon === 'FAILED' || entry.message === 'Transaction failed';

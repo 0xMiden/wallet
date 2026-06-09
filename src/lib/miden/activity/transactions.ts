@@ -224,7 +224,16 @@ export const initiateConsumeTransactionFromId = async (
 export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  // True when this is an explicit user-initiated claim/retry (the Claim,
+  // Retry, Claim All / Claim Group buttons) rather than auto-consume's
+  // background polling. The bounded-retry failure gate below exists only to
+  // throttle auto-consume's retry storms (#215); it must NOT suppress a user
+  // who deliberately taps Retry, otherwise the button silently no-ops (it
+  // returns the stale Failed tx id, which the generating-transaction screen
+  // never reprocesses) for up to RETRY_COOLDOWN_SEC. The live/Completed dedup
+  // still applies for manual retries, so we never double-queue an in-flight tx.
+  manualRetry?: boolean
 ): Promise<string> => {
   const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
   // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
@@ -257,24 +266,29 @@ export const initiateConsumeTransaction = async (
     if (liveOrCompleted) return liveOrCompleted.id;
 
     // Bounded-retry gate: only Failed rows exist for this note+account.
-    const nowSec = Math.floor(Date.now() / 1000);
-    const recentFailures = sameAccount
-      .filter(tx => tx.status === ITransactionStatus.Failed)
-      .filter(tx => {
-        const completed = tx.completedAt ?? tx.initiatedAt;
-        return nowSec - completed <= RECENT_FAILURE_WINDOW_SEC;
-      })
-      .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
-    if (recentFailures.length > 0) {
-      const mostRecentFailed = recentFailures[0]!;
-      const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
-      const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
-      // Two gates compose: cap on consecutive failures inside the recent window
-      // AND a cooldown since the most recent failure. Either one being unsatisfied
-      // suppresses the new attempt and returns the most recent Failed row's id so
-      // callers see a stable "this note already has a tx" response.
-      if (recentFailures.length >= MAX_CONSECUTIVE_CONSUME_FAILURES || secsSinceLastFailure < RETRY_COOLDOWN_SEC) {
-        return mostRecentFailed.id;
+    // Skipped entirely for explicit user retries (`manualRetry`) — a deliberate
+    // tap must always queue a fresh attempt rather than be throttled by the
+    // auto-consume backoff.
+    if (!manualRetry) {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const recentFailures = sameAccount
+        .filter(tx => tx.status === ITransactionStatus.Failed)
+        .filter(tx => {
+          const completed = tx.completedAt ?? tx.initiatedAt;
+          return nowSec - completed <= RECENT_FAILURE_WINDOW_SEC;
+        })
+        .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
+      if (recentFailures.length > 0) {
+        const mostRecentFailed = recentFailures[0]!;
+        const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
+        const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
+        // Two gates compose: cap on consecutive failures inside the recent window
+        // AND a cooldown since the most recent failure. Either one being unsatisfied
+        // suppresses the new attempt and returns the most recent Failed row's id so
+        // callers see a stable "this note already has a tx" response.
+        if (recentFailures.length >= MAX_CONSECUTIVE_CONSUME_FAILURES || secsSinceLastFailure < RETRY_COOLDOWN_SEC) {
+          return mostRecentFailed.id;
+        }
       }
     }
 
@@ -684,7 +698,20 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
 export const updateBridgeClaimStatus = async (
   id: string,
   claimStatus: IBridgeClaimStatus,
-  extra?: Partial<Pick<IBridgedSendExtraInputs, 'depositReady' | 'claimTxHash' | 'evmTxHash'>>
+  extra?: Partial<
+    Pick<
+      IBridgedSendExtraInputs,
+      | 'depositReady'
+      | 'claimTxHash'
+      | 'evmTxHash'
+      | 'intentNonce'
+      | 'outputAmount'
+      | 'outputSymbol'
+      | 'fillTxHash'
+      | 'fillChainId'
+      | 'epochStatus'
+    >
+  >
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
     const ei = (tx.extraInputs ?? {}) as IBridgedSendExtraInputs;
