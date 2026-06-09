@@ -20,6 +20,7 @@ import { SendFlow } from 'screens/send-flow/SendManager';
 
 import RootSuspenseFallback from './a11y/RootSuspenseFallback';
 import AllHistory from './pages/AllHistory';
+import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import EditAccountName from './pages/EditAccountName';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
@@ -163,6 +164,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <Receive />
       </TabLayout>
+    ))
+  ],
+  [
+    '/bridge/deposit',
+    onlyReady(() => (
+      <FullScreenPage>
+        <BridgeDeposit />
+      </FullScreenPage>
     ))
   ],
   [

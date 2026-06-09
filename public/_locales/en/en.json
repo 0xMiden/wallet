@@ -816,7 +816,7 @@
   "faucetRequestTitle": "Faucet Request",
   "share": "Share",
   "copy": "Copy",
-  "receiveFromEvm": "Receive from EVM",
+  "receiveFromEvm": "From another chain?",
   "evmWalletConnected": "EVM wallet connected",
   "evmWalletConnectedDescription": "You can now bridge assets from the connected wallet.",
   "connectEvmWallet": "Connect an EVM wallet",

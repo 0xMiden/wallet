@@ -19,7 +19,7 @@ export interface CrossChainQuote {
   params: CrossChainIntentParams;
 }
 
-/** Pre-fetched EVM→Miden quote (reverse `tokenInAmount: "0"` + Miden `minTokenOut`). */
+/** Pre-fetched EVM->Miden quote for the typed EVM input amount. */
 export interface EVMToMidenQuote {
   taskTypeString: string;
   intentData: unknown;
@@ -195,17 +195,13 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
   return taskDataParams;
 }
 
-/** Step 1: reverse-quote EVM→Miden (required Miden `minTokenOut` in base units, `tokenInAmount: "0"`). */
+/** Step 1: quote EVM->Miden using the provided EVM input amount. */
 export async function getEVMToMidenQuote(
   sdk: EpochIntentSDK,
   params: EVMToMidenIntentParams,
   sponsorAddress: string
 ): Promise<EVMToMidenQuote> {
-  const quoteParams: EVMToMidenIntentParams = {
-    ...params,
-    evmAmount: undefined
-  };
-  const taskDataParams = buildEVMToMidenTaskDataParams(quoteParams);
+  const taskDataParams = buildEVMToMidenTaskDataParams(params);
   const { taskTypeString, intentData } = await sdk.getTaskData(taskDataParams);
 
   const quoteResult = await sdk.getIntentQuote({
@@ -219,7 +215,7 @@ export async function getEVMToMidenQuote(
     throw new Error(quoteResult.error ?? 'Quote failed');
   }
 
-  return { taskTypeString, intentData, quoteResult, params: quoteParams };
+  return { taskTypeString, intentData, quoteResult, params };
 }
 
 export async function buildEVMToMidenIntent(
