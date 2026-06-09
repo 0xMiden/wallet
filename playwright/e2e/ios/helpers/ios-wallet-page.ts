@@ -554,6 +554,12 @@ export class IosWalletPage implements WalletPage {
     await sleep(3_000);
   }
 
+  async setDelegateProofEnabled(enabled: boolean): Promise<void> {
+    await this.cdp.eval(
+      `localStorage.setItem('delegate_proof_setting_key', ${JSON.stringify(JSON.stringify(enabled))});`
+    );
+  }
+
   /**
    * Fire the currently-registered native navbar action on mobile. The
    * wallet's native iOS overlay (MidenNavbarOverlayWindow) lives in a

@@ -51,7 +51,18 @@ export function resolveCliPath(): string {
 
   console.log(`Installing miden-client-cli@${version} from crates.io (first run only)...`);
   try {
-    execSync(`cargo install miden-client-cli --version ${version}`, {
+    // `--locked` consumes the Cargo.lock shipped with the published crate,
+    // which pins `miden-assembly` (and every other transitive) to the same
+    // versions the SDK released against. Without it, cargo re-resolves
+    // each dep to the latest semver-compatible version at install time —
+    // and miden-assembly patch releases have moved BasicFungibleFaucet's
+    // procedure MAST roots (see miden-vm#3144). That drift causes the
+    // wallet (built against miden-assembly 0.22.1 via the bundled SDK)
+    // to fall through `BasicFungibleFaucetComponent::from_account` for
+    // CLI-deployed faucets, rendering the token as "Unknown" instead of
+    // its real symbol — which then breaks any test selector that filters
+    // by token symbol.
+    execSync(`cargo install miden-client-cli --version ${version} --locked`, {
       stdio: 'inherit',
       timeout: 600_000, // 10 min for compile
     });
