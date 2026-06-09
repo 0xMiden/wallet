@@ -66,12 +66,11 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const { signTransaction } = useMidenContext();
   const { pageEvent, trackEvent } = useAnalytics();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Track failed transaction count during this session
-  const [failedCount, setFailedCount] = useState(0);
+  const [hasFailedTransaction, setHasFailedTransaction] = useState(false);
   // Track if we've started processing (to know when we can show Done on mobile)
   const [hasStartedProcessing, setHasStartedProcessing] = useState(false);
   const [receiptTransaction, setReceiptTransaction] = useState<ITransaction>();
-  // Track initial failed count to calculate new failures during this session
+  const [implicitTransactionId, setImplicitTransactionId] = useState<string>();
   const initialFailedCountRef = useRef<number | null>(null);
 
   const { data: txs, mutate: mutateTx } = useRetryableSWR(
@@ -93,22 +92,6 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     dedupingInterval: 3_000
   });
 
-  // Track new failures during this session
-  useEffect(() => {
-    if (failedTxs) {
-      if (initialFailedCountRef.current === null) {
-        // First load - set initial count
-        initialFailedCountRef.current = failedTxs.length;
-      } else {
-        // Calculate new failures since session started
-        const newFailures = failedTxs.length - initialFailedCountRef.current;
-        if (newFailures > 0) {
-          setFailedCount(newFailures);
-        }
-      }
-    }
-  }, [failedTxs]);
-
   const onClose = useCallback(() => {
     const { hash } = window.location;
     if (!hash.includes('generating-transaction')) {
@@ -124,7 +107,22 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
   const transactions = useMemo(() => txs || [], [txs]);
   const trackedTransactionId = useMemo(() => new URLSearchParams(getTrackedTransactionSearch()).get('txId'), []);
-  const prevTransactionsLength = useRef<number>();
+  const targetTransactionId = trackedTransactionId ?? implicitTransactionId;
+  const active = useMemo(() => {
+    if (targetTransactionId) {
+      return transactions.find(tx => tx.id === targetTransactionId);
+    }
+
+    return pickActiveTx(transactions);
+  }, [targetTransactionId, transactions]);
+  const targetTransactionInFlight = Boolean(active);
+  const prevTargetTransactionInFlight = useRef<boolean>();
+
+  useEffect(() => {
+    if (!trackedTransactionId && !implicitTransactionId && active?.id) {
+      setImplicitTransactionId(active.id);
+    }
+  }, [active?.id, implicitTransactionId, trackedTransactionId]);
 
   useEffect(() => {
     if (!trackedTransactionId) return;
@@ -143,37 +141,54 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // Debug: log transaction state changes
   useEffect(() => {
     console.log('[GeneratingTransaction] State:', {
-      txCount: transactions.length,
+      transactionId: targetTransactionId ?? active?.id,
+      status: active?.status,
+      type: active?.type,
       hasStartedProcessing,
-      failedCount,
-      transactionIds: transactions.map(t => ({ id: t.id, status: t.status, type: t.type }))
+      hasFailedTransaction
     });
-  }, [transactions, hasStartedProcessing, failedCount]);
+  }, [active?.id, active?.status, active?.type, targetTransactionId, hasStartedProcessing, hasFailedTransaction]);
 
   useEffect(() => {
-    if (prevTransactionsLength.current && prevTransactionsLength.current > 0 && transactions.length === 0) {
+    if (prevTargetTransactionInFlight.current && !targetTransactionInFlight) {
       new Promise(res => setTimeout(res, 10_000)).then(async () => {
         await trackEvent('GeneratingTransaction Page Closed Automatically');
         isAutoCloseEnabled() && onClose();
       });
     }
 
-    prevTransactionsLength.current = transactions.length;
-  }, [transactions, trackEvent, onClose]);
+    prevTargetTransactionInFlight.current = targetTransactionInFlight;
+  }, [targetTransactionInFlight, trackEvent, onClose]);
+
+  // Track new failures during this session, scoped to the one tx shown by the modal.
+  useEffect(() => {
+    if (!failedTxs) return;
+
+    if (targetTransactionId) {
+      setHasFailedTransaction(failedTxs.some(tx => tx.id === targetTransactionId));
+      return;
+    }
+
+    if (initialFailedCountRef.current === null) {
+      initialFailedCountRef.current = failedTxs.length;
+      return;
+    }
+
+    if (failedTxs.length > initialFailedCountRef.current) {
+      setHasFailedTransaction(true);
+    }
+  }, [failedTxs, targetTransactionId]);
 
   const generateTransaction = useCallback(async () => {
     setHasStartedProcessing(true);
     try {
       const success = await dbTransactionsLoop(signTransaction, false, zustandProvider);
-      // Don't stop on failure - continue processing remaining transactions
-      // The failed transaction is already marked as Failed in IndexedDB
       if (success === false) {
-        console.log('[GeneratingTransaction] Transaction failed, continuing to process remaining transactions');
+        console.log('[GeneratingTransaction] Transaction loop reported failure');
       }
 
       mutateTx();
     } catch (e) {
-      // Log but don't stop - other transactions may still succeed
       console.error('[GeneratingTransaction] Error in transaction loop:', e);
       mutateTx();
     }
@@ -190,14 +205,14 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     };
   }, [generateTransaction]);
 
-  const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
-  const transactionComplete = transactions.length === 0 && hasStartedProcessing;
-  const hasErrors = failedCount > 0;
-
-  const active = pickActiveTx(transactions);
+  const hasLoadedTransactions = Boolean(txs);
+  const transactionComplete =
+    hasStartedProcessing &&
+    hasLoadedTransactions &&
+    (targetTransactionId ? !targetTransactionInFlight : transactions.length === 0);
+  const hasErrors = hasFailedTransaction;
   const activeStage = active?.stage;
   const activeType = active?.type;
-  const remainingCount = transactions.length;
 
   useEffect(() => {
     if (active) {
@@ -206,10 +221,11 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [active]);
 
   useEffect(() => {
-    if (!transactionComplete || !receiptTransaction?.id) return;
+    const receiptTransactionId = receiptTransaction?.id ?? targetTransactionId;
+    if (!transactionComplete || !receiptTransactionId) return;
 
     let cancelled = false;
-    getTransactionById(receiptTransaction.id)
+    getTransactionById(receiptTransactionId)
       .then(tx => {
         if (cancelled) return;
         setReceiptTransaction(tx);
@@ -222,7 +238,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     return () => {
       cancelled = true;
     };
-  }, [transactionComplete, receiptTransaction?.id]);
+  }, [transactionComplete, receiptTransaction?.id, targetTransactionId]);
 
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
   const receiptTxHash = lastCompletedTxHash ?? receiptTransaction?.transactionId ?? null;
@@ -244,15 +260,12 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     >
       <div className={classNames('flex flex-1 flex-col w-full')}>
         <GeneratingTransaction
-          progress={progress}
           onDoneClick={onClose}
           transactionComplete={transactionComplete}
           hasErrors={hasErrors}
-          failedCount={failedCount}
           keepOpen={keepOpen}
           activeStage={activeStage}
           activeType={activeType}
-          remainingCount={remainingCount}
           completedTransaction={receiptTransaction}
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
@@ -266,15 +279,11 @@ export interface GeneratingTransactionProps {
   onDoneClick: () => void;
   transactionComplete: boolean;
   hasErrors?: boolean;
-  failedCount?: number;
   keepOpen?: boolean;
-  progress?: number;
   /** Stage of the tx currently being processed (or head of queue). */
   activeStage?: ITransactionStage;
   /** Type of the tx currently being processed (for type-specific labels). */
   activeType?: ITransactionType;
-  /** Number of tx still in-flight (queued + generating). */
-  remainingCount?: number;
   /** Last transaction shown before the queue completed, used by the success receipt. */
   completedTransaction?: ITransaction;
   /** On-chain hash for the completed transaction receipt. */
@@ -291,6 +300,7 @@ type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
 const SUCCESS_GREEN = '#2BA84A';
 const PROCESSING_ORANGE = '#D44B00';
 const PENDING_STEP_COLOR = '#C7C7CC';
+const STEP_ADVANCE_DELAY_MS = 1_250;
 
 const TRANSACTION_STEPS = [
   {
@@ -326,6 +336,14 @@ const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
     return 2;
   }
   return 3;
+};
+
+const getTransactionProgress = (activeStepIndex: number, transactionComplete: boolean): number => {
+  if (transactionComplete) {
+    return 100;
+  }
+
+  return Math.min(92, Math.round(((activeStepIndex + 0.6) / TRANSACTION_STEPS.length) * 100));
 };
 
 const getTransactionStepState = (
@@ -404,7 +422,7 @@ const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) =
 
   return (
     <span className="relative flex size-5 shrink-0 items-center justify-center">
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence initial={false}>
         {state === 'complete' && (
           <motion.span
             key="complete"
@@ -435,18 +453,17 @@ const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) =
             exit={{ opacity: 0, scale: 0.72 }}
             transition={glyphTransition}
           >
-            <motion.svg
+            <svg
               width="20"
               height="20"
               viewBox="0 0 20 20"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
-              animate={reduceMotion ? undefined : { rotate: 360 }}
-              transition={reduceMotion ? undefined : { duration: 1, ease: 'linear', repeat: Infinity }}
+              className={classNames(!reduceMotion && 'animate-spin')}
             >
               <circle cx="10" cy="10" r="8" stroke={PRIMARY_HEX} strokeWidth="2.5" strokeLinecap="round" />
               <path d="M10 2A8 8 0 0 1 18 10" stroke="white" strokeWidth="3.5" strokeLinecap="round" />
-            </motion.svg>
+            </svg>
           </motion.span>
         )}
         {state === 'pending' && (
@@ -483,12 +500,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   onDoneClick,
   transactionComplete,
   hasErrors = false,
-  failedCount = 0,
   keepOpen,
-  progress,
   activeStage,
   activeType,
-  remainingCount = 0,
   completedTransaction,
   completedTxHash,
   onViewExplorer
@@ -546,16 +560,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
-      if (failedCount > 1) {
-        return t('multipleTransactionsFailed', { count: failedCount });
-      }
       return t('transactionErrorDescription');
     }
     if (transactionComplete) {
       return t('transactionSuccessDescription');
     }
     return t(stageDescriptionKey(activeStage));
-  }, [transactionComplete, hasErrors, failedCount, t, stageDescriptionKey, activeStage]);
+  }, [transactionComplete, hasErrors, t, stageDescriptionKey, activeStage]);
 
   const dismissalDescription = useMemo(() => {
     if (keepOpen) {
@@ -568,15 +579,36 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
   const visibleTitle = transactionComplete ? headerText() : t('generatingTransaction');
   const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');
-  const activeStepIndex = transactionComplete ? TRANSACTION_STEPS.length : getActiveTransactionStepIndex(activeStage);
-  const fallbackProgress = transactionComplete
-    ? 100
-    : Math.min(92, ((activeStepIndex + 1) / TRANSACTION_STEPS.length) * 100);
-  const currentProgress = transactionComplete
-    ? 100
-    : Math.min(95, Math.max(8, progress && progress > 0 ? progress : fallbackProgress));
+  const targetStepIndex = transactionComplete ? TRANSACTION_STEPS.length : getActiveTransactionStepIndex(activeStage);
+  const targetVisibleStepIndex = transactionComplete
+    ? TRANSACTION_STEPS.length
+    : Math.min(targetStepIndex, TRANSACTION_STEPS.length - 1);
+  const [visibleStepIndex, setVisibleStepIndex] = useState(transactionComplete ? TRANSACTION_STEPS.length : 0);
+  const activeStepIndex = transactionComplete ? TRANSACTION_STEPS.length : visibleStepIndex;
+  const currentProgress = getTransactionProgress(activeStepIndex, transactionComplete);
   const heroState = transactionComplete ? (hasErrors ? 'failed' : 'complete') : 'processing';
   const actionTitle = transactionComplete ? t('done') : t('hide');
+
+  useEffect(() => {
+    if (transactionComplete) {
+      setVisibleStepIndex(TRANSACTION_STEPS.length);
+      return;
+    }
+
+    setVisibleStepIndex(current => (current > targetVisibleStepIndex ? targetVisibleStepIndex : current));
+  }, [targetVisibleStepIndex, transactionComplete]);
+
+  useEffect(() => {
+    if (transactionComplete || visibleStepIndex >= targetVisibleStepIndex) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setVisibleStepIndex(current => (current < targetVisibleStepIndex ? current + 1 : current));
+    }, STEP_ADVANCE_DELAY_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [targetVisibleStepIndex, transactionComplete, visibleStepIndex]);
 
   if (transactionComplete && !hasErrors) {
     return (
@@ -603,6 +635,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
           <div className="mt-4 h-1 w-65 overflow-hidden rounded-xs bg-[#EEEEF0]">
             <motion.div
+              role="progressbar"
+              aria-label={processingTitle}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={currentProgress}
               className="h-full rounded-xs bg-primary-500"
               initial={false}
               animate={{ width: `${currentProgress}%` }}
@@ -614,7 +651,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             {TRANSACTION_STEPS.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
-                <motion.div key={step.id} className="flex items-center gap-2.5" layout transition={rowTransition}>
+                <motion.div
+                  key={step.id}
+                  className="flex items-center gap-2.5"
+                  data-transaction-step={step.id}
+                  data-state={state}
+                  layout
+                  transition={rowTransition}
+                >
                   <StatusIndicator state={state} />
                   <span
                     className={classNames(
@@ -628,12 +672,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               );
             })}
           </div>
-
-          {!transactionComplete && remainingCount > 1 && (
-            <p className="mt-5 text-center text-sm leading-[1.3] text-heading-gray/60">
-              {t('transactionsRemainingInBatch', { count: remainingCount })}
-            </p>
-          )}
 
           {transactionComplete && !hasErrors && onViewExplorer && (
             <button
