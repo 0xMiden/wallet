@@ -90,6 +90,12 @@
 
 ## 1.14.2 (TBD)
 
+### Features
+
+* [FEATURE][all] Typed sign-callback failure recovery via SDK `lastAuthError()`. When the wallet gets locked mid-transaction, the transaction is left Queued for retry after unlock instead of marked Failed. (#189)
+* [FEATURE][all] `ApplyTransactionAfterSubmitFailed` handling via SDK `errorCode` dispatch. Transactions that submit on-chain but fail to apply locally are marked Completed (not Failed). (#189)
+* [FEATURE][e2e] Transport-failure perturbation (`STRESS_TRANSPORT_FAIL_PROB`) in the stress suite for end-to-end coverage of the SDK's durable relay outbox (miden-client#2127). (#189)
+
 ### Fixes
 
 - [FIX][mobile] Switched all `@miden-sdk/miden-sdk` and `@miden-sdk/react` imports to the explicit `/lazy` subpath. Both SDKs' default entries (post-split) await WASM at module top level for ergonomic dApp use; Capacitor's `capacitor://localhost` scheme handler interacts poorly with that TLA and hangs the host WebView indefinitely (React tree never mounts). The `/lazy` entries omit the TLA, leaving readiness to `MidenProvider`'s existing `isReady` flag.
