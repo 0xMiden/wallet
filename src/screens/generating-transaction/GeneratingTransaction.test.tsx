@@ -225,6 +225,49 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  it('advances visual steps gradually when the backend stage starts ahead', async () => {
+    jest.useFakeTimers();
+    let root: ReturnType<typeof createRoot> | undefined;
+
+    try {
+      const rendered = await renderInto(
+        <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
+      );
+      const { container } = rendered;
+      root = rendered.root;
+      const stepStates = () =>
+        Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
+      const progressValue = () => container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow');
+      const activeSpinner = () =>
+        container.querySelector('[data-transaction-step][data-state="active"] svg') as SVGElement | null;
+
+      expect(stepStates()).toEqual(['active', 'pending', 'pending', 'pending']);
+      expect(progressValue()).toBe('15');
+      expect(activeSpinner()).toHaveClass('animate-spin');
+
+      await act(async () => {
+        jest.advanceTimersByTime(1_500);
+      });
+
+      expect(stepStates()).toEqual(['complete', 'active', 'pending', 'pending']);
+      expect(progressValue()).toBe('40');
+      expect(activeSpinner()).toHaveClass('animate-spin');
+
+      await act(async () => {
+        jest.advanceTimersByTime(1_500);
+      });
+
+      expect(stepStates()).toEqual(['complete', 'complete', 'active', 'pending']);
+      expect(progressValue()).toBe('65');
+      expect(activeSpinner()).toHaveClass('animate-spin');
+    } finally {
+      if (root) {
+        act(() => root!.unmount());
+      }
+      jest.useRealTimers();
+    }
+  });
+
   it('renders success state when transactionComplete + no errors', async () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
@@ -237,34 +280,10 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders failure state with single-failure description', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors failedCount={1} />
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors />
     );
     expect(container.textContent).toContain('transactionFailed');
     expect(container.textContent).toContain('transactionErrorDescription');
-    act(() => root.unmount());
-  });
-
-  it('renders failure state with multiple-failure description', async () => {
-    const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors failedCount={3} />
-    );
-    expect(container.textContent).toContain('multipleTransactionsFailed');
-    act(() => root.unmount());
-  });
-
-  it('renders batch subtitle when more than one tx is in flight', async () => {
-    const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} remainingCount={3} />
-    );
-    expect(container.textContent).toContain('transactionsRemainingInBatch');
-    act(() => root.unmount());
-  });
-
-  it('omits batch subtitle when only one tx in flight', async () => {
-    const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} remainingCount={1} />
-    );
-    expect(container.textContent).not.toContain('transactionsRemainingInBatch');
     act(() => root.unmount());
   });
 
@@ -302,13 +321,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('omits the View on Midenscan button on failure even when onViewExplorer is provided', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction
-        onDoneClick={() => {}}
-        transactionComplete
-        hasErrors
-        failedCount={1}
-        onViewExplorer={jest.fn()}
-      />
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors onViewExplorer={jest.fn()} />
     );
     expect(container.textContent).not.toContain('viewOnMidenscan');
     act(() => root.unmount());
