@@ -433,6 +433,7 @@
   "guardianSwitched": "Guardian switched successfully.",
   "guardianEndpointUnchanged": "That's already your current guardian.",
   "rotateGuardian": "Rotate Guardian",
+  "keys": "Keys",
   "guardianAboutDescription": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase.",
   "customGuardian": "Custom Guardian",
   "guardianProvider": "Provider",
