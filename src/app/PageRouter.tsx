@@ -31,6 +31,8 @@ import ImportNoteResult from './pages/ImportNoteResult';
 import ManageAssets from './pages/ManageAssets';
 import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
+import RotateGuardian from './pages/RotateGuardian';
+import RotateGuardianReview from './pages/RotateGuardianReview';
 import SelectAccount from './pages/SelectAccount';
 import TokenDetail from './pages/TokenDetail';
 import { HistoryDetails } from './templates/history/HistoryDetails';
@@ -172,6 +174,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage>
         <PendingNotes />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/rotate-guardian',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardian />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/rotate-guardian/review',
+    onlyReady(() => (
+      <FullScreenPage>
+        <RotateGuardianReview />
       </FullScreenPage>
     ))
   ],
