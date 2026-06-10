@@ -337,12 +337,13 @@ export class MidenClientInterface {
   }
 
   async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
-    const { accountId, noteId } = transaction;
+    const { accountId, noteId, noteIds } = transaction;
 
     return this.withProverFallback(async prover => {
       const { result } = await this.client.transactions.consume({
         account: accountId,
-        notes: [noteId],
+        // Batch claims consume every note in one transaction (one proof/submit).
+        notes: noteIds && noteIds.length > 0 ? noteIds : [noteId],
         prover
       });
       return result;
