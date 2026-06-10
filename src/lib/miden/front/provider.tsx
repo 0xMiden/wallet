@@ -3,6 +3,7 @@ import React, { FC, useEffect, useMemo, useState } from 'react';
 import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
+import { NotificationsReconciler } from 'components/NotificationsReconciler';
 import { FiatCurrencyProvider } from 'lib/fiat-curency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import {
@@ -135,6 +136,8 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             {children}
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
+            {/* NotificationsReconciler keeps the persisted notification center in sync */}
+            <NotificationsReconciler />
           </FiatCurrencyProvider>
         </TokensMetadataProvider>
       ) : (

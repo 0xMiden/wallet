@@ -21,10 +21,12 @@ export interface ActivityRowProps {
     value: string;
     direction?: ActivityAmountDirection;
   };
-  status: {
+  status?: {
     label: string;
     tone: ActivityStatusTone;
   };
+  /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
+  timestamp?: string;
   onClick?: () => void;
   className?: string;
 }
@@ -54,6 +56,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   subtitle,
   amount,
   status,
+  timestamp,
   onClick,
   className
 }) => {
@@ -96,15 +99,18 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {amount.value}
           </span>
         )}
-        <span
-          className={classNames(
-            'flex items-center gap-1 text-[10px] font-normal leading-none',
-            STATUS_TEXT[status.tone]
-          )}
-        >
-          <span className={classNames('w-1.5 h-1.5 rounded-full', STATUS_DOT[status.tone])} />
-          {status.label}
-        </span>
+        {status && (
+          <span
+            className={classNames(
+              'flex items-center gap-1 text-[10px] font-normal leading-none',
+              STATUS_TEXT[status.tone]
+            )}
+          >
+            <span className={classNames('w-1.5 h-1.5 rounded-full', STATUS_DOT[status.tone])} />
+            {status.label}
+          </span>
+        )}
+        {timestamp && <span className="text-[10px] text-[#8E8E93] font-regular">{timestamp}</span>}
       </div>
     </div>
   );

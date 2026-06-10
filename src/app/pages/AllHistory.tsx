@@ -6,9 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { AgglayerBridgeBanner } from 'app/templates/history/AgglayerBridgeBanner';
 import History from 'app/templates/history/History';
+import { NotificationsDrawer } from 'app/templates/NotificationsDrawer';
 import { SearchInput } from 'components/ui';
 import { useAccount } from 'lib/miden/front';
-import { hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 
 type AllHistoryProps = {
@@ -23,6 +25,10 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const hasUnread = useWalletStore(s =>
+    (s.notificationsByAccount[account.publicKey] ?? []).some(n => n.readAt === null)
+  );
 
   const filters = useMemo<Array<{ id: FilterId; label: string }>>(
     () => [
@@ -45,6 +51,18 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       <header className="shrink-0 px-4 py-4 flex items-center justify-between">
         <h1 className="text-[28px] font-semibold text-heading-gray dark:text-pure-white">{t('activity')}</h1>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label={t('notifications')}
+            onClick={() => {
+              hapticLight();
+              setNotificationsOpen(true);
+            }}
+            className="relative flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
+          >
+            <Icon name={IconName.Notifications} className="w-4 h-4" fill="currentColor" />
+            {hasUnread && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />}
+          </button>
           <button
             type="button"
             aria-label={t('settings')}
@@ -96,6 +114,8 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
           />
         </div>
       </div>
+
+      <NotificationsDrawer open={notificationsOpen} onOpenChange={setNotificationsOpen} />
     </div>
   );
 };

@@ -29,6 +29,7 @@ import { GetTokens } from './pages/GetTokens';
 import ImportNotePending from './pages/ImportNotePending';
 import ImportNoteResult from './pages/ImportNoteResult';
 import ManageAssets from './pages/ManageAssets';
+import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import SelectAccount from './pages/SelectAccount';
 import TokenDetail from './pages/TokenDetail';
@@ -164,6 +165,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <Receive />
       </TabLayout>
+    ))
+  ],
+  [
+    '/pending-notes',
+    onlyReady(() => (
+      <FullScreenPage>
+        <PendingNotes />
+      </FullScreenPage>
     ))
   ],
   [
