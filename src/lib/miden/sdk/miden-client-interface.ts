@@ -43,7 +43,9 @@ import { ConsumeTransaction, SendTransaction } from '../db/types';
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
+// guardian/native-http is cycle-safe (it only pulls constants + platform).
 import type { CreatedGuardianKeys } from '../guardian/account';
+import { registerGuardianOrigin } from '../guardian/native-http';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -319,6 +321,7 @@ export class MidenClientInterface {
 
     const recovered: RecoveredGuardianAccount[] = [];
 
+    registerGuardianOrigin(guardianEndpoint);
     for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
       const coldSeed = deriveColdSeed(hdIndex);
       const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);

@@ -17,6 +17,7 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { getSignerDetailsFromAccount } from './account';
+import { registerGuardianOrigin } from './native-http';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
@@ -64,6 +65,7 @@ export class MultisigService {
       // every init, so at most ONE shared raw worker is created total.
       const webClient = (await getMidenClient()).client;
 
+      registerGuardianOrigin(guardianEndpoint);
       const client = new MultisigClient(webClient, { guardianEndpoint });
       const multisig = await client.load(account.id().toString(), signer);
 
@@ -206,6 +208,7 @@ export class MultisigService {
     newGuardianEndpoint: string
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
+      registerGuardianOrigin(newGuardianEndpoint);
       const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
       const { commitment } = await newGuardian.getPubkey('ecdsa');
       const proposal = await this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment);
@@ -293,6 +296,7 @@ export class MultisigService {
         return u8ToB64(account.serialize());
       });
 
+      registerGuardianOrigin(newGuardianEndpoint);
       const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);
       const { commitment } = await nextGuardian.getPubkey('ecdsa');
 
