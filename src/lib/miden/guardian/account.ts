@@ -8,6 +8,7 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletAccount } from 'lib/shared/types';
 
 import { fetchFromStorage } from '../front/storage';
+import { registerGuardianOrigin } from './native-http';
 
 /**
  * Resolve the guardian operator endpoint for a Guardian account.
@@ -144,6 +145,8 @@ export async function createGuardianAccount(
       guardianEndpointOverride ??
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
       DEFAULT_GUARDIAN_ENDPOINT;
+
+    registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
     // Signer order is [hot, cold] by convention — the migration plan diagrams

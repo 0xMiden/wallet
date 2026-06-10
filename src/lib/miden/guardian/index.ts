@@ -18,6 +18,7 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
+import { registerGuardianOrigin } from './native-http';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
@@ -74,6 +75,7 @@ export class MultisigService {
       // every init, so at most ONE shared raw worker is created total.
       const webClient = (await getMidenClient()).client;
 
+      registerGuardianOrigin(guardianEndpoint);
       const client = new MultisigClient(webClient, { guardianEndpoint });
       // `load` drives the shared WASM web-client, so it must be serialized with
       // every other client operation via the global mutex.
@@ -331,6 +333,7 @@ export class MultisigService {
     newGuardianEndpoint: string
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
+      registerGuardianOrigin(newGuardianEndpoint);
       const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
       // Fetch the new guardian's ECDSA commitment to match the account's scheme.
       const { commitment } = await newGuardian.getPubkey('ecdsa');
@@ -428,6 +431,7 @@ export class MultisigService {
         return u8ToB64(account.serialize());
       });
 
+      registerGuardianOrigin(newGuardianEndpoint);
       const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);
       const { commitment } = await nextGuardian.getPubkey('ecdsa');
 
