@@ -47,6 +47,10 @@ jest.mock('components/NoteToastProvider', () => ({
   NoteToastProvider: () => null
 }));
 
+jest.mock('components/NotificationsReconciler', () => ({
+  NotificationsReconciler: () => null
+}));
+
 jest.mock('./useSyncTrigger', () => ({
   useSyncTrigger: jest.fn()
 }));
