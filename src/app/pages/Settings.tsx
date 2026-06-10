@@ -32,6 +32,7 @@ import DAppSettings from 'app/templates/DAppSettings';
 import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
+import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
@@ -162,20 +163,12 @@ const TAB_GROUPS: TabGroup[] = [
         hasOwnLayout: true
       },
       {
-        slug: 'reveal-private-key',
-        titleI18nKey: 'revealPrivateKey',
+        slug: 'keys',
+        titleI18nKey: 'keys',
         Icon: SecretKeyIcon,
-        Component: RevealPrivateKey,
-        testID: SettingsSelectors.RevealPrivateKeyButton
-      },
-      {
-        slug: 'reveal-hot-key',
-        titleI18nKey: 'revealHotKey',
-        Icon: SecretKeyIcon,
-        Component: RevealHotKey,
-        testID: SettingsSelectors.RevealHotKeyButton,
-        guardianOnly: true,
-        requiresActivatedHotKey: true
+        Component: KeysSettings,
+        testID: SettingsSelectors.KeysButton,
+        isDrawer: true
       },
       {
         slug: 'encrypted-wallet-file',
@@ -240,6 +233,22 @@ const TAB_GROUPS: TabGroup[] = [
 // Hidden tabs that are routable but not shown in the menu
 const HIDDEN_TABS: Tab[] = [
   {
+    slug: 'reveal-private-key',
+    titleI18nKey: 'revealPrivateKey',
+    Icon: SecretKeyIcon,
+    Component: RevealPrivateKey,
+    testID: SettingsSelectors.RevealPrivateKeyButton
+  },
+  {
+    slug: 'reveal-hot-key',
+    titleI18nKey: 'revealHotKey',
+    Icon: SecretKeyIcon,
+    Component: RevealHotKey,
+    testID: SettingsSelectors.RevealHotKeyButton,
+    guardianOnly: true,
+    requiresActivatedHotKey: true
+  },
+  {
     slug: 'edit-miden-faucet-id',
     titleI18nKey: 'editMidenFaucetId',
     Icon: SettingsIcon,
@@ -274,7 +283,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
-    [hasActivatedHotKey, isGuardianAccount]
+    [isGuardianAccount, hasActivatedHotKey]
   );
 
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
