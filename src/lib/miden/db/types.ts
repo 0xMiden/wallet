@@ -99,6 +99,8 @@ export interface ITransaction {
   secondaryAccountId?: string;
   faucetId?: string;
   noteId?: string;
+  /** All note ids for batch consume transactions (noteId is the first) */
+  noteIds?: string[];
   noteType?: NoteType;
   transactionId?: string;
   requestBytes?: Uint8Array;
@@ -221,7 +223,10 @@ export class ConsumeTransaction implements ITransaction {
   type: ITransactionType;
   accountId: string;
   amount?: bigint;
+  /** First note id — kept for back-compat (dedup index, single-note readers) */
   noteId: string;
+  /** Every note consumed by this transaction (batch claims consume many in one tx) */
+  noteIds: string[];
   secondaryAccountId?: string;
   faucetId: string;
   transactionId?: string;
@@ -233,14 +238,25 @@ export class ConsumeTransaction implements ITransaction {
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
 
-  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean) {
+  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
+    const list = Array.isArray(notes) ? notes : [notes];
+    const first = list[0];
+    if (!first) {
+      throw new Error('ConsumeTransaction requires at least one note');
+    }
     this.id = uuid();
     this.type = 'consume';
     this.accountId = accountId;
-    this.noteId = note.id;
-    this.faucetId = note.faucetId;
-    this.secondaryAccountId = note.senderAddress;
-    this.amount = note.amount !== '' ? BigInt(note.amount) : undefined;
+    this.noteId = first.id;
+    this.noteIds = list.map(n => n.id);
+    this.faucetId = first.faucetId;
+    this.secondaryAccountId = first.senderAddress;
+    // Display amount: sum of the notes sharing the first note's faucet. Notes
+    // of other faucets in a mixed batch aren't reflected here (display only).
+    this.amount =
+      first.amount !== ''
+        ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
+        : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';

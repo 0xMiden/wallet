@@ -164,7 +164,9 @@ async function fetchNotesFromLocalClient(
 
   const uncompletedTxs = await getUncompletedTransactions(publicAddress);
   const notesBeingClaimed = new Set(
-    uncompletedTxs.filter(tx => tx.type === 'consume' && tx.noteId != null).map(tx => tx.noteId!)
+    uncompletedTxs
+      .filter(tx => tx.type === 'consume')
+      .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
   );
 
   return parseNotes(rawNotes, notesBeingClaimed);

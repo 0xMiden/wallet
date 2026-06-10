@@ -235,73 +235,117 @@ export const initiateConsumeTransaction = async (
   // still applies for manual retries, so we never double-queue an in-flight tx.
   manualRetry?: boolean
 ): Promise<string> => {
-  const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
-  // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
-  // Reason: getConsumableNotes() can still return a note for a short window after a local
-  // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
-  // tx every 5s until the sync catches up. Failed txs are excluded by the existing-non-Failed
-  // dedup so retries can recover from transient failures, but bounded by the
-  // MAX_CONSECUTIVE_CONSUME_FAILURES + RETRY_COOLDOWN_SEC policy below to prevent
-  // unbounded retry storms when the failure is deterministic (issue #215).
-  //
-  // The check-and-add is wrapped in a Dexie `rw` transaction so concurrent callers for the
-  // same noteId are serialized at the DB layer. Without this, two callers that slip past
-  // the isBeingClaimed gate (e.g. two Explore re-renders racing the NoteClaimStarted
-  // intercom round-trip) both see `[]` from the check and both `.add()`, producing two
-  // queued consume rows — the second of which fails on-chain with "note has already been
-  // consumed" and spuriously trips the connectivity-issue banner.
-  const committedId = await Repo.db.transaction('rw', Repo.transactions, async () => {
-    // Read every consume row for this noteId once, then partition. We need both
-    // non-Failed (for the existing dedup) and recent Failed (for the bounded-retry
-    // gate) inside the same rw transaction so the check-and-add stays atomic.
-    const allByNote = await Repo.transactions
-      .where('noteId')
-      .equals(note.id)
-      .filter(tx => tx.type === 'consume')
-      .toArray();
-    const sameAccount = allByNote.filter(tx => compareAccountIds(tx.accountId, accountId));
+  return initiateConsumeNotesTransaction(accountId, [note], delegateTransaction, manualRetry);
+};
 
-    // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.
-    const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
-    if (liveOrCompleted) return liveOrCompleted.id;
+/**
+ * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
+ * both the WASM client (`transactions.consume({ notes })`) and the Guardian
+ * consume proposal accept multiple note ids, so batching is one proof/submit
+ * instead of N.
+ *
+ * Per-note dedup against all non-Failed consume txs, including Completed ones.
+ * Reason: getConsumableNotes() can still return a note for a short window after a local
+ * consume completes (chain-sync lag). Without this, auto-consume polling creates a new
+ * tx every 5s until the sync catches up. Notes that are already covered by a live row
+ * (scalar `noteId` or batch `noteIds` index) are dropped from the batch. Failed txs are
+ * excluded by the existing-non-Failed dedup so retries can recover from transient
+ * failures, but bounded by the MAX_CONSECUTIVE_CONSUME_FAILURES + RETRY_COOLDOWN_SEC
+ * policy to prevent unbounded retry storms when the failure is deterministic (#215).
+ *
+ * The check-and-add is wrapped in a Dexie `rw` transaction so concurrent callers for the
+ * same noteId are serialized at the DB layer. Without this, two callers that slip past
+ * the isBeingClaimed gate (e.g. two Explore re-renders racing the NoteClaimStarted
+ * intercom round-trip) both see `[]` from the check and both `.add()`, producing two
+ * queued consume rows — the second of which fails on-chain with "note has already been
+ * consumed" and spuriously trips the connectivity-issue banner.
+ *
+ * Returns the queued batch row id, or — when every note was deduped away — the
+ * id of the row that blocked the most recent note (live/Completed dedup winner
+ * or the most recent Failed row from the backoff gate), so callers always get
+ * a stable "this note already has a tx" response.
+ */
+export const initiateConsumeNotesTransaction = async (
+  accountId: string,
+  notes: ConsumableNote[],
+  delegateTransaction?: boolean,
+  manualRetry?: boolean
+): Promise<string> => {
+  if (notes.length === 0) {
+    throw new Error('initiateConsumeNotesTransaction requires at least one note');
+  }
 
-    // Bounded-retry gate: only Failed rows exist for this note+account.
-    // Skipped entirely for explicit user retries (`manualRetry`) — a deliberate
-    // tap must always queue a fresh attempt rather than be throttled by the
-    // auto-consume backoff.
-    if (!manualRetry) {
-      const nowSec = Math.floor(Date.now() / 1000);
-      const recentFailures = sameAccount
-        .filter(tx => tx.status === ITransactionStatus.Failed)
-        .filter(tx => {
-          const completed = tx.completedAt ?? tx.initiatedAt;
-          return nowSec - completed <= RECENT_FAILURE_WINDOW_SEC;
-        })
-        .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
-      if (recentFailures.length > 0) {
-        const mostRecentFailed = recentFailures[0]!;
-        const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
-        const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
-        // Two gates compose: cap on consecutive failures inside the recent window
-        // AND a cooldown since the most recent failure. Either one being unsatisfied
-        // suppresses the new attempt and returns the most recent Failed row's id so
-        // callers see a stable "this note already has a tx" response.
-        if (recentFailures.length >= MAX_CONSECUTIVE_CONSUME_FAILURES || secsSinceLastFailure < RETRY_COOLDOWN_SEC) {
-          return mostRecentFailed.id;
+  const { committedId, queuedNoteIds } = await Repo.db.transaction('rw', Repo.transactions, async () => {
+    const queueable: ConsumableNote[] = [];
+    let blockingId: string | null = null;
+
+    for (const note of notes) {
+      // Read every consume row covering this noteId once (scalar `noteId`
+      // index for legacy/single rows, multi-entry `noteIds` for batch rows),
+      // then partition. We need both non-Failed (dedup) and recent Failed
+      // (bounded-retry gate) inside the same rw transaction so the
+      // check-and-add stays atomic.
+      const byScalar = await Repo.transactions.where('noteId').equals(note.id).toArray();
+      const byBatch = await Repo.transactions.where('noteIds').equals(note.id).toArray();
+      const dedupedRows = new Map([...byScalar, ...byBatch].map(tx => [tx.id, tx]));
+      const sameAccount = [...dedupedRows.values()].filter(
+        tx => tx.type === 'consume' && compareAccountIds(tx.accountId, accountId)
+      );
+
+      // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.
+      const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
+      if (liveOrCompleted) {
+        blockingId = blockingId ?? liveOrCompleted.id;
+        continue;
+      }
+
+      // Bounded-retry gate: only Failed rows exist for this note+account.
+      // Skipped entirely for explicit user retries (`manualRetry`) — a deliberate
+      // tap must always queue a fresh attempt rather than be throttled by the
+      // auto-consume backoff.
+      if (!manualRetry) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const recentFailures = sameAccount
+          .filter(tx => tx.status === ITransactionStatus.Failed)
+          .filter(tx => {
+            const completed = tx.completedAt ?? tx.initiatedAt;
+            return nowSec - completed <= RECENT_FAILURE_WINDOW_SEC;
+          })
+          .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
+        if (recentFailures.length > 0) {
+          const mostRecentFailed = recentFailures[0]!;
+          const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
+          const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
+          // Two gates compose: cap on consecutive failures inside the recent window
+          // AND a cooldown since the most recent failure. Either one being unsatisfied
+          // suppresses the new attempt.
+          if (recentFailures.length >= MAX_CONSECUTIVE_CONSUME_FAILURES || secsSinceLastFailure < RETRY_COOLDOWN_SEC) {
+            blockingId = blockingId ?? mostRecentFailed.id;
+            continue;
+          }
         }
       }
+
+      queueable.push(note);
     }
 
+    if (queueable.length === 0) {
+      return { committedId: blockingId!, queuedNoteIds: [] as string[] };
+    }
+
+    const dbTransaction = new ConsumeTransaction(accountId, queueable, delegateTransaction);
     await Repo.transactions.add(dbTransaction);
-    return dbTransaction.id;
+    return { committedId: dbTransaction.id, queuedNoteIds: queueable.map(n => n.id) };
   });
 
-  // Only broadcast NoteClaimStarted if WE were the caller that actually queued the row —
+  // Only broadcast NoteClaimStarted for notes WE actually queued —
   // duplicate broadcasts for the same note are a no-op but wasteful.
-  if (committedId === dbTransaction.id && isExtension()) {
-    getIntercom()
-      .request({ type: WalletMessageType.NoteClaimStarted, noteId: note.id })
-      .catch(() => {});
+  if (queuedNoteIds.length > 0 && isExtension()) {
+    for (const noteId of queuedNoteIds) {
+      getIntercom()
+        .request({ type: WalletMessageType.NoteClaimStarted, noteId })
+        .catch(() => {});
+    }
   }
 
   return committedId;
@@ -381,7 +425,8 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 };
 
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
-  const firstInputNote = result.executedTransaction().inputNotes().notes()[0];
+  const inputNotes = result.executedTransaction().inputNotes().notes();
+  const firstInputNote = inputNotes[0];
   if (!firstInputNote) {
     throw new Error('completeConsumeTransaction: no input notes on executed transaction');
   }
@@ -398,7 +443,16 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  const amount = asset.amount();
+  // Batch consumes sum every input-note asset of the first note's faucet —
+  // assets of other faucets in a mixed batch aren't reflected (display only).
+  const amount = inputNotes.reduce((sum, inputNote) => {
+    for (const a of inputNote.note().assets().fungibleAssets()) {
+      if (getBech32AddressFromAccountId(a.faucetId()) === faucetId) {
+        sum += a.amount();
+      }
+    }
+    return sum;
+  }, 0n);
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
@@ -901,9 +955,10 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
   // Check each stuck consume transaction (AutoSync handles syncState separately)
   for (const tx of consumeTransactions) {
     try {
+      const txNoteIds = tx.noteIds ?? [tx.noteId];
       const noteDetails = await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
+        return await midenClient.getInputNoteDetails({ ids: txNoteIds });
       });
 
       const note = noteDetails[0];
@@ -911,15 +966,15 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
         continue;
       }
 
-      if (CONSUMED_NOTE_STATES.includes(note.state)) {
-        // Note has been consumed on-chain - mark transaction as completed
+      if (noteDetails.length > 0 && noteDetails.every(n => CONSUMED_NOTE_STATES.includes(n.state))) {
+        // All notes have been consumed on-chain - mark transaction as completed
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Received',
           completedAt: Math.floor(Date.now() / 1000)
         });
         resolvedCount++;
-      } else if (note.state === InputNoteState.Invalid) {
-        // Note is invalid - mark transaction as failed
+      } else if (noteDetails.some(n => n.state === InputNoteState.Invalid)) {
+        // A note is invalid - mark transaction as failed
         await cancelTransaction(tx, 'Note is invalid');
         resolvedCount++;
       } else if (
@@ -1126,7 +1181,7 @@ const generateGuardianTransaction = async (
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createConsumeNotesProposal([consumeTx.noteId]);
+      proposalResult = await service.createConsumeNotesProposal(consumeTx.noteIds ?? [consumeTx.noteId]);
       break;
     }
     case 'switch-guardian': {

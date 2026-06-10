@@ -309,14 +309,21 @@ describe('transactions utilities', () => {
       type: NoteTypeEnum.Private
     };
 
-    const mockDedupQuery = (rows: any[]) => {
-      mockTransactionsWhere.mockReturnValueOnce({
-        equals: jest.fn().mockReturnValueOnce({
-          filter: jest.fn().mockReturnValueOnce({
+    // The dedup reads two indexes per note: scalar `noteId` (legacy/single
+    // rows) and multi-entry `noteIds` (batch rows). Tests feed legacy rows
+    // through the scalar query; batch rows can be supplied separately.
+    const mockDedupQuery = (rows: any[], batchRows: any[] = []) => {
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
             toArray: jest.fn().mockResolvedValueOnce(rows)
           })
         })
-      });
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce(batchRows)
+          })
+        });
     };
 
     it('creates consume transaction when none exists', async () => {
@@ -635,13 +642,18 @@ describe('transactions utilities', () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })
       });
-      mockTransactionsWhere.mockReturnValueOnce({
-        equals: jest.fn().mockReturnValueOnce({
-          filter: jest.fn().mockReturnValueOnce({
+      // Scalar `noteId` query + multi-entry `noteIds` query (batch rows).
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
             toArray: jest.fn().mockResolvedValueOnce([])
           })
         })
-      });
+        .mockReturnValueOnce({
+          equals: jest.fn().mockReturnValueOnce({
+            toArray: jest.fn().mockResolvedValueOnce([])
+          })
+        });
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
       const result = await initiateConsumeTransactionFromId('account-1', 'note-456');

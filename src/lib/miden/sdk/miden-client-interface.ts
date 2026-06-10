@@ -560,55 +560,16 @@ export class MidenClientInterface {
   }
 
   async consumeNoteId(transaction: ConsumeTransaction): Promise<TransactionResult> {
-    const { accountId, noteId } = transaction;
+    const { accountId, noteId, noteIds } = transaction;
 
     recordProveTiming(`consumeNoteId entered noteId=${noteId} delegateTransaction=${transaction.delegateTransaction}`);
     return this.withProverFallback(async prover => {
-      recordProveTiming(`consumeNoteId closure entered, prover=${prover ? 'set' : 'undefined'}`);
-      if (this.shouldUseOffscreenProver(prover)) {
-        return await this.proveLocallyViaOffscreen(async (wasm, inner) => {
-          // The bundled `transactions.consume` resolves string note IDs via
-          // `inner.getInputNote(...)` and unwraps to `Note` via `.toNote()`,
-          // then passes a plain JS array `Note[]` to
-          // `newConsumeTransactionRequest`. wasm-bindgen converts the
-          // array to Vec<Note> internally — DO NOT use `wasm.NoteArray`
-          // here. wasm.NoteArray is a different wasm-bindgen type (a
-          // pre-built Vec<Note> handle); the request builder accepts the
-          // JS array form, and passing the typed-array handle silently
-          // produces a tx with zero input notes (the prove succeeds, then
-          // completeConsumeTransaction trips on `inputNotes().notes()[0]`
-          // being undefined).
-          recordProveTiming('consumeNoteId buildExecuteArgs: calling getInputNote');
-          const inputNoteRecord = await inner.getInputNote(noteId);
-          recordProveTiming(`consumeNoteId buildExecuteArgs: getInputNote returned, found=${!!inputNoteRecord}`);
-          if (!inputNoteRecord) {
-            throw new Error(`Note ${noteId} not found in store`);
-          }
-          const note: Note = inputNoteRecord.toNote();
-          recordProveTiming('consumeNoteId buildExecuteArgs: toNote done; calling newConsumeTransactionRequest');
-          const request: TransactionRequest = await inner.newConsumeTransactionRequest([note]);
-          recordProveTiming('consumeNoteId buildExecuteArgs: newConsumeTransactionRequest returned');
-          const acctId = resolveAccountId(wasm, accountId);
-          recordProveTiming('consumeNoteId buildExecuteArgs: resolveAccountId returned');
-          return { accountId: acctId, request };
-        });
-      }
-      recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
-      let result;
-      try {
-        const r = await this.client.transactions.consume({
-          account: accountId,
-          notes: [noteId],
-          prover
-        });
-        result = r.result;
-      } catch (err) {
-        recordProveTiming(
-          `consumeNoteId SDK consume THREW: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
-        );
-        throw err;
-      }
-      recordProveTiming('consumeNoteId SDK consume returned');
+      const { result } = await this.client.transactions.consume({
+        account: accountId,
+        // Batch claims consume every note in one transaction (one proof/submit).
+        notes: noteIds && noteIds.length > 0 ? noteIds : [noteId],
+        prover
+      });
       return result;
     }, transaction.delegateTransaction);
   }

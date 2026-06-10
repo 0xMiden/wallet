@@ -67,6 +67,34 @@ db.version(1.3)
       });
   });
 
+// v1.4 — batch consume. Multi-entry index on `noteIds` so the consume dedup can
+// find a note that's part of an in-flight batch row (whose scalar `noteId` only
+// holds the first note). Backfills `noteIds = [noteId]` on existing consume rows
+// so readers can rely on the array shape going forward.
+db.version(1.4)
+  .stores({
+    [Table.Transactions]: indexes(
+      'id',
+      'accountId',
+      'transactionId',
+      'initiatedAt',
+      'completedAt',
+      'noteId',
+      '*noteIds',
+      'extraInputs.destinationAddress'
+    )
+  })
+  .upgrade(async (tx: Transaction) => {
+    await tx.db
+      .table<any, string>(Table.Transactions)
+      .toCollection()
+      .modify(t => {
+        if (t.type === 'consume' && t.noteId && !Array.isArray(t.noteIds)) {
+          t.noteIds = [t.noteId];
+        }
+      });
+  });
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
 function indexes(...items: string[]) {
