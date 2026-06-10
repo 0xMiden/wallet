@@ -6,6 +6,7 @@ import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 import { fetchFromStorage } from '../front/storage';
+import { registerGuardianOrigin } from './native-http';
 
 // Re-export the slot names from the package for reading account state
 export const MULTISIG_SLOT_NAMES = {
@@ -113,6 +114,7 @@ export async function createGuardianAccount(
     }
     console.log('Using Guardian endpoint:', guardianEndpoint);
 
+    registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
     console.log('Guardian commitment:', guardianCommitment, guardianPubkey);
