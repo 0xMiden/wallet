@@ -1,141 +1,62 @@
-import React, { FC, useCallback, useEffect, useState } from 'react';
+import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import GuardianReplaceHotKey from 'app/templates/GuardianReplaceHotKey';
-import { initiateSwitchGuardianTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
-import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
-import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { isExtension } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { useWalletStore } from 'lib/store';
+import {
+  guardianEndpointHost,
+  guardianOptionForEndpoint,
+  useCurrentGuardianEndpoint
+} from 'app/hooks/useCurrentGuardianEndpoint';
+import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
+import { Button } from 'components/Button';
+import { hapticLight } from 'lib/mobile/haptics';
+import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 import { navigate } from 'lib/woozie';
-import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
 const GuardianSettings: FC = () => {
   const { t } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
-  // Two-stage submit: first click validates + enters confirming, second click fires the tx.
-  // switch_guardian requires the cold key (co-signed by the current guardian),
-  // so the confirmation step mirrors the cold-signing acknowledgement pattern.
-  const [confirming, setConfirming] = useState(false);
-  const [pendingEndpoint, setPendingEndpoint] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const currentAccount = useWalletStore(s => s.currentAccount);
+  const option = guardianOptionForEndpoint(currentEndpoint);
+  const guardianName = option?.name ?? (currentEndpoint ? t('customGuardian') : t('loading'));
 
-  const runSwitch = useCallback(
-    async (newEndpoint: string) => {
-      if (!currentAccount) return;
-      setSubmitting(true);
-      setError(null);
-      try {
-        const txId = await initiateSwitchGuardianTransaction(
-          currentAccount.publicKey,
-          newEndpoint,
-          isDelegateProofEnabled(),
-          zustandProvider
-        );
-        if (isExtension()) requestSWTransactionProcessing();
-        navigate({
-          pathname: '/generating-transaction-full',
-          search: `?txId=${encodeURIComponent(txId)}`
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message);
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [currentAccount]
-  );
-
-  const handleSubmit = useCallback(
-    ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
-      if (submitting || !currentAccount) return;
-
-      if (guardianEndpoint === currentEndpoint) {
-        setError(t('guardianEndpointUnchanged'));
-        setConfirming(false);
-        setPendingEndpoint(null);
-        return;
-      }
-
-      setError(null);
-
-      if (!confirming || pendingEndpoint !== guardianEndpoint) {
-        setConfirming(true);
-        setPendingEndpoint(guardianEndpoint);
-        return;
-      }
-
-      void runSwitch(guardianEndpoint);
-    },
-    [confirming, currentAccount, currentEndpoint, pendingEndpoint, runSwitch, submitting, t]
-  );
+  const handleRotate = () => {
+    hapticLight();
+    navigate('/rotate-guardian');
+  };
 
   return (
-    <div className="w-full max-w-sm p-2 mx-auto">
-      <div className="mb-4">
-        <p className="text-sm text-heading-gray font-medium mb-1">{t('currentGuardianEndpoint')}</p>
-        <p className="text-sm text-black break-all select-text">{currentEndpoint || t('loading')}</p>
+    <div className="w-full flex flex-col">
+      <div className="flex flex-col items-center pt-2">
+        <div className="w-16 h-16 rounded-10 bg-grey-100 dark:bg-grey-800 flex items-center justify-center">
+          <GuardianAvatar className="w-14 h-14" />
+        </div>
+        <h2 className="mt-3 text-xl font-bold font-heading text-heading-gray">{guardianName}</h2>
       </div>
 
-      <ChooseGuardianScreen
-        onSubmit={handleSubmit}
-        currentEndpoint={currentEndpoint}
-        hideHeader
-        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
-      />
+      <p className="mt-6 text-sm font-semibold text-text-tertiary-token">{t('about')}</p>
+      <p className="mt-2 text-base text-heading-gray leading-snug select-text">{t('guardianAboutDescription')}</p>
 
-      {confirming && !submitting && (
-        <div className="text-xs text-heading-gray mt-3 select-text">{t('switchGuardianConfirmation')}</div>
-      )}
+      <hr className="my-4" />
 
-      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
+      <p className="text-sm font-semibold text-text-tertiary-token">{t('details')}</p>
+      <div className="mt-2">
+        <DetailCard>
+          <DetailRow label={t('guardianProvider')} value={option?.operatedBy ?? t('customGuardian')} />
+          <DetailRow label={t('guardianEndpointLabel')} isLast={!option}>
+            <span className="text-sm font-medium text-heading-gray text-right break-all select-text">
+              {currentEndpoint ? guardianEndpointHost(currentEndpoint) : t('loading')}
+            </span>
+          </DetailRow>
+          {option && <DetailRow label={t('guardianRegion')} value={option.location} isLast />}
+        </DetailCard>
+      </div>
 
-      <hr className="my-6" />
-
-      <GuardianReplaceHotKey />
+      <div className="mt-6">
+        <Button title={t('rotateGuardian')} onClick={handleRotate} />
+      </div>
     </div>
   );
 };
 
 export default GuardianSettings;
-
-function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void } {
-  const [endpoint, setEndpoint] = useState<string>('');
-  const [nonce, setNonce] = useState(0);
-  const refresh = useCallback(() => setNonce(n => n + 1), []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
-      .then(stored => {
-        if (cancelled) return;
-        setEndpoint(stored ?? '');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setEndpoint('');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [nonce]);
-
-  // Extension builds get storage-change events for free; on mobile/desktop this
-  // is a no-op and the explicit refresh() call after switch handles the update.
-  useEffect(
-    () =>
-      onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
-        setEndpoint(next ?? '');
-      }),
-    []
-  );
-
-  return { endpoint, refresh };
-}

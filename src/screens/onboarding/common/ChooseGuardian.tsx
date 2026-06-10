@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
+import { Input } from 'components/Input';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { GuardianOption } from 'lib/shared/types';
@@ -24,6 +25,10 @@ export interface ChooseGuardianScreenProps {
   // When true, hide the page-level header (title/description/learn-more) so the
   // host screen can supply its own framing.
   hideHeader?: boolean;
+  // When true, show a free-form Guardian URL input below the grid (used by the
+  // rotation flow for self-hosted guardians). A non-empty input wins over the
+  // card selection.
+  showCustomEndpoint?: boolean;
 }
 
 export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
@@ -32,7 +37,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   title,
   description,
   submitLabel,
-  hideHeader = false
+  hideHeader = false,
+  showCustomEndpoint = false
 }) => {
   const { t } = useTranslation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -48,13 +54,20 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   }, [currentEndpoint, options]);
 
   const [selectedId, setSelectedId] = useState<string>(defaultId);
+  const [customEndpoint, setCustomEndpoint] = useState('');
+  const trimmedCustomEndpoint = customEndpoint.trim();
 
   const handleSelect = (id: string) => {
     hapticLight();
     setSelectedId(id);
+    setCustomEndpoint('');
   };
 
   const handleContinue = () => {
+    if (showCustomEndpoint && trimmedCustomEndpoint) {
+      onSubmit?.({ guardianId: 'custom', guardianEndpoint: trimmedCustomEndpoint });
+      return;
+    }
     const selected = options.find(o => o.id === selectedId) ?? options[0]!;
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
@@ -85,7 +98,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
         <div className="grid grid-cols-2 gap-3 mt-4.5">
           {options.map(option => {
-            const isSelected = selectedId === option.id;
+            const isSelected = selectedId === option.id && !trimmedCustomEndpoint;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
             return (
               <button
@@ -125,6 +138,21 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             );
           })}
         </div>
+
+        {showCustomEndpoint && (
+          <div className="mt-6 pt-5 border-t border-grey-100 dark:border-grey-800">
+            <h2 className="text-lg font-semibold text-heading-gray">{t('customEndpoint')}</h2>
+            <p className="text-sm text-text-tertiary-token mt-1">{t('customEndpointDescription')}</p>
+            <div className="mt-3">
+              <Input
+                id="custom-guardian-endpoint"
+                value={customEndpoint}
+                placeholder={t('customEndpointPlaceholder')}
+                onChange={event => setCustomEndpoint(event.target.value)}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="w-full flex flex-col items-center gap-4 pt-6 mt-auto shrink-0">
           <Button title={submitLabel ?? t('continue')} onClick={handleContinue} />
