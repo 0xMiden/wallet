@@ -222,23 +222,25 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
     // A partial (metadata-less) record: id() returns undefined until sync
     // completes the note. It must be filtered out, not crash the mapper.
-    fakeMidenClient.notes.list = jest.fn(async () => [
-      { id: () => undefined, nullifier: () => undefined },
-      {
-        id: () => ({ toString: () => 'note-2' }),
-        metadata: () => ({
-          noteType: () => 'type',
-          sender: () => 'sender'
-        }),
-        nullifier: () => 'nullifier',
-        state: () => 'state',
-        details: () => ({
-          assets: () => ({
-            fungibleAssets: () => []
+    fakeMidenClient.notes.list = jest.fn(
+      async (): Promise<any[]> => [
+        { id: () => undefined, nullifier: () => undefined },
+        {
+          id: () => ({ toString: () => 'note-2' }),
+          metadata: () => ({
+            noteType: () => 'type',
+            sender: () => 'sender'
+          }),
+          nullifier: () => 'nullifier',
+          state: () => 'state',
+          details: () => ({
+            assets: () => ({
+              fungibleAssets: () => []
+            })
           })
-        })
-      }
-    ]);
+        }
+      ]
+    );
 
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id)

@@ -70,8 +70,8 @@ ensureInit()
   });
 
 // One barebones WebClient instance, reused across prove calls. WebClient
-// has internal state (cached buffers, key store) but proveTransactionWithProver
-// is computational — no RPC, no DB. We don't call createClient(...) so it
+// has internal state (cached buffers, key store) but proveTransaction is
+// computational — no RPC, no DB. We don't call createClient(...) so it
 // stays a "prover-only" client. If a future SDK version requires init for
 // proving, we'll need to plumb rpcUrl + storeName through here.
 let prover: any = null;
@@ -111,7 +111,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         ? await wasmSdk.TransactionProver.deserialize(msg.proverDescriptor)
         : wasmSdk.TransactionProver.newLocalProver();
       const t = performance.now();
-      const proven = await getProver().proveTransactionWithProver(txResult, proverObj);
+      const proven = await getProver().proveTransaction(txResult, proverObj);
       const ms = performance.now() - t;
       console.log(`${TAG} prove duration_ms=${ms.toFixed(1)}`);
       const provenBytes = proven.serialize() as Uint8Array;

@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo } from 'react';
+import React, { FC, useEffect, useMemo, useState } from 'react';
 
 import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
@@ -10,6 +10,7 @@ import {
   DEFAULT_NETWORK,
   MIDEN_NETWORK_ENDPOINTS,
   MIDEN_PROVING_ENDPOINTS,
+  ensureSdkWasmReady,
   getNoteTransportUrl
 } from 'lib/miden-chain/constants';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -93,6 +94,26 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     }),
     []
   );
+
+  // Gate the SDK provider on WASM readiness. The /lazy entries perform no
+  // top-level await, and the SDK's MidenProvider resolves its prover config
+  // through WASM constructors during setup — mounting it before the module
+  // has initialized crashes the whole tree with `__wbindgen_malloc`
+  // undefined. Children that don't touch the SDK render immediately;
+  // SDK-dependent subtrees already wait on the provider's own ready state.
+  const [sdkWasmReady, setSdkWasmReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    ensureSdkWasmReady().then(() => {
+      if (!cancelled) setSdkWasmReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!sdkWasmReady) {
+    return null;
+  }
 
   return (
     <WalletStoreProvider>

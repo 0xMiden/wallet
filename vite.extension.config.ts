@@ -217,7 +217,10 @@ const sharedDefine = {
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
-  'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
+  // Default OFF on the 0.15 SDK line — the 0.15 prover hangs under the MT
+  // WASM build; see the rationale block in vite.background.config.ts and
+  // 0xMiden/web-sdk#180.
+  'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'false'),
   'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };

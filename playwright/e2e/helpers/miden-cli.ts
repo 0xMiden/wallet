@@ -189,7 +189,14 @@ export class MidenCli {
       }
       lastErr = createResult.stderr;
       const transient =
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
+        // miette folds the message at terminal width): the node's account
+        // state lags the store's optimistic post-submit state while a
+        // deploy or mint is still in flight, and miden-client's sqlite
+        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
+        // Clears as soon as the tx commits, so it retries like any other
+        // transient.
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
           lastErr
         );
       if (!transient || attempt === maxAttempts) break;
@@ -260,7 +267,14 @@ export class MidenCli {
       }
       lastErr = result.stderr;
       const transient =
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
+        // miette folds the message at terminal width): the node's account
+        // state lags the store's optimistic post-submit state while a
+        // deploy or mint is still in flight, and miden-client's sqlite
+        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
+        // Clears as soon as the tx commits, so it retries like any other
+        // transient.
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
           lastErr
         );
       if (!transient || attempt === maxAttempts) break;
@@ -283,7 +297,14 @@ export class MidenCli {
       if (result.exitCode === 0) return;
       lastErr = result.stderr;
       const transient =
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
+        // miette folds the message at terminal width): the node's account
+        // state lags the store's optimistic post-submit state while a
+        // deploy or mint is still in flight, and miden-client's sqlite
+        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
+        // Clears as soon as the tx commits, so it retries like any other
+        // transient.
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
           lastErr
         );
       if (!transient || attempt === maxAttempts) break;
