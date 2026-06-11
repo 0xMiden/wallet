@@ -157,7 +157,10 @@ async function runSync(): Promise<void> {
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
-              const noteId = note.id().toString();
+              // Partial (metadata-less) notes have no ID yet and cannot be
+              // consumed — skip until sync completes them.
+              const noteId = note.id()?.toString();
+              if (!noteId) return null;
               const noteMeta = note.metadata();
               const details = note.details();
               const fungibleAssets = details.assets().fungibleAssets();

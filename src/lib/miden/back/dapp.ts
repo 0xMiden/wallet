@@ -674,7 +674,13 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         const midenClient = await getMidenClient();
         await midenClient.syncState();
         const notes = await midenClient.getConsumableNotes(accountId);
-        const consumableNotesDetails = notes.map(note => {
+        const consumableNotesDetails = notes.flatMap(note => {
+          // Partial (metadata-less) notes have no ID yet and cannot be
+          // consumed — skip until sync completes them.
+          const noteId = note.id();
+          if (!noteId) {
+            return [];
+          }
           const assets = note
             .details()
             .assets()
@@ -683,15 +689,17 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
               amount: asset.amount().toString(),
               faucetId: asset.faucetId().toBech32(getNetworkId(), AccountInterface.BasicWallet)
             }));
-          return {
-            noteId: note.id().toString(),
-            noteType: note.metadata()?.noteType(),
-            senderAccountId:
-              note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
-            nullifier: note.nullifier(),
-            state: note.state(),
-            assets: assets
-          };
+          return [
+            {
+              noteId: noteId.toString(),
+              noteType: note.metadata()?.noteType(),
+              senderAccountId:
+                note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
+              nullifier: note.nullifier(),
+              state: note.state(),
+              assets: assets
+            }
+          ];
         });
         return consumableNotesDetails;
       });
@@ -863,7 +871,10 @@ export const generatePromisifyImportPrivateNote = async (
             });
             resolve({
               type: MidenDAppMessageType.ImportPrivateNoteResponse,
-              noteId: noteId.toString()
+              // Hex string: the note ID for metadata-bearing files, or the
+              // details commitment for details-only imports (the common
+              // dApp `noteBytes` path).
+              noteId
             });
           } catch (e) {
             reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));

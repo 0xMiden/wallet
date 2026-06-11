@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.15.0 (TBD)
+
+### Changes
+
+* [CHANGE][all] **Migrated to the Miden 0.15 protocol line** — `@miden-sdk/miden-sdk` and `@miden-sdk/react` bumped to the `0.15.0-alpha` series (npm `next` dist-tag; `@miden-sdk/vite-plugin` stays at `0.14.11`, which is SDK-version-agnostic). User-visible consequences of the protocol bump:
+  - **Local stores do not carry over.** 0.14 account IDs, note IDs, and nullifiers do not round-trip under 0.15 (account-ID version renumbered, note identity split into details-commitment + metadata-bearing ID, hashing changed). The SDK's IndexedDB store detects the version bump and re-creates itself; accounts re-register from the wallet seed and balances resync on unlock. Saved 0.14 wallet store files (Settings → export) cannot be imported into a 0.15 build.
+  - Faucets minted by pre-0.15 SDKs can no longer be introspected for token metadata (`BasicFungibleFaucetComponent.fromAccount` reads the new metadata slot); their assets now display as "Unknown" instead of being blacklisted for the session.
+  - The dApp `ImportPrivateNoteResponse.noteId` for details-only note imports (the common `noteBytes` path) now carries the note's **details-commitment hex** rather than a note-id hex, following `notes.import`'s new return contract.
+  - Network/fee-asset discovery follows the protocol rename (`BlockHeader.feeFaucetId()`, formerly `nativeAssetId()`); the discovery cache is keyed `v2` so 0.14-cached IDs are not reused.
+  - Account storage modes are `public`/`private` only (the chain's separate network-account flag is gone), and partial (metadata-less) input notes — which have no note ID until sync completes them — are filtered out of consumable/claimable listings.
+* [CHANGE][ci] Blockchain E2E installs `miden-client-cli` from a pinned git rev (`midenClientCliGit` in package.json) while the 0.15 CLI is unreleased on crates.io; testnet E2E is expected red until testnet upgrades to node 0.15 (devnet already runs it) — covered by the at-least-one-network gate.
+
 ## 1.14.7 (2026-06-09)
 
 ### Fixes

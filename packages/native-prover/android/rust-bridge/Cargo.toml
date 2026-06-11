@@ -16,13 +16,14 @@ crate-type = ["cdylib"]
 [workspace]
 
 [dependencies]
-miden-client = { version = "0.14.8", default-features = false, features = ["std"] }
-miden-protocol = { version = "0.14", default-features = false, features = ["std"] }
-# `concurrent` gives us miden-prover/concurrent transitively (rayon-backed
-# parallel proving). Cascading via miden-tx instead of miden-client because
-# miden-client 0.14.8's `concurrent` feature exists but pulls in the
-# whole transport stack we don't need.
-miden-tx = { version = "0.14.5", default-features = false, features = ["std", "concurrent"] }
+# miden-client 0.15 is not on crates.io yet — pin the exact `next` rev the
+# published @miden-sdk/miden-sdk WASM is built from (see the web-sdk repo's
+# workspace Cargo.lock / MIDEN_CLIENT_REF). The TransactionInputs /
+# ProvenTransaction wire format must match the SDK byte-for-byte, and the
+# committed .so binaries must be reproducible, so a moving branch ref is
+# not acceptable here. `concurrent` cascades rayon-backed parallel proving
+# through miden-tx → miden-prover.
+miden-client = { git = "https://github.com/0xMiden/miden-client", rev = "733720a7ce5886a390c848402b61079be1e6aa38", default-features = false, features = ["std", "concurrent"] }
 futures-executor = { version = "0.3", default-features = false, features = ["std"] }
 
 # JNI binding crate. Only depended on here because this lib is

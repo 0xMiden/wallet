@@ -140,8 +140,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       const built = {
         account: {
           id: () => ({ __marker: 'imported-account-id' }),
-          isFaucet: () => false,
-          isNetwork: () => false
+          isFaucet: () => false
         }
       };
       const builder: any = {
@@ -666,8 +665,7 @@ describe('Vault.spawnFromMidenClient', () => {
     // Default: miden client has one account whose id bech32s to 'pk-1'.
     const fakeAcc = {
       id: () => 'pk-1' as any,
-      isFaucet: () => false,
-      isNetwork: () => false
+      isFaucet: () => false
     };
     mockMidenClient.getAccounts.mockResolvedValue([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValue(fakeAcc);
@@ -701,8 +699,8 @@ describe('Vault.spawnFromMidenClient', () => {
   });
 
   it('derives + inserts a key for each HD account', async () => {
-    const acc1 = { id: () => 'pk-1' as any, isFaucet: () => false, isNetwork: () => false };
-    const acc2 = { id: () => 'pk-2' as any, isFaucet: () => false, isNetwork: () => false };
+    const acc1 = { id: () => 'pk-1' as any, isFaucet: () => false };
+    const acc2 = { id: () => 'pk-2' as any, isFaucet: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
     mockMidenClient.getAccount.mockResolvedValueOnce(acc1).mockResolvedValueOnce(acc2);
 
@@ -714,7 +712,7 @@ describe('Vault.spawnFromMidenClient', () => {
   });
 
   it('skips null accounts returned by getAccount', async () => {
-    const fakeAcc = { id: () => 'pk-1' as any, isFaucet: () => false, isNetwork: () => false };
+    const fakeAcc = { id: () => 'pk-1' as any, isFaucet: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValueOnce(null);
     const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [

@@ -551,9 +551,7 @@ async function driveConfirmation(
 
 describe('Full confirmation cycles in extension mode', () => {
   it('requestImportPrivateNote resolves with note id when confirmed', async () => {
-    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue({
-      toString: () => 'imported-note-id'
-    });
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue('imported-note-id');
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     const res = await driveConfirmation(
       () =>
@@ -627,6 +625,43 @@ describe('Full confirmation cycles in extension mode', () => {
       MidenMessageType.DAppConsumableNotesConfirmationRequest
     );
     expect(res.type).toBe(MidenDAppMessageType.ConsumableNotesResponse);
+  });
+
+  it('requestConsumableNotes maps full notes and skips partial (id-less) ones', async () => {
+    const partialNote = { id: () => undefined };
+    const fullNote = {
+      id: () => ({ toString: () => 'note-full' }),
+      metadata: () => ({
+        noteType: () => 'public',
+        sender: () => ({ toBech32: () => 'sender-bech32' })
+      }),
+      nullifier: () => 'nullifier-1',
+      state: () => 'committed',
+      details: () => ({
+        assets: () => ({
+          fungibleAssets: () => [
+            {
+              amount: () => ({ toString: () => '7' }),
+              faucetId: () => ({ toBech32: () => 'faucet-bech32' })
+            }
+          ]
+        })
+      })
+    };
+    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([partialNote, fullNote]);
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestConsumableNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest
+    );
+    expect(res.type).toBe(MidenDAppMessageType.ConsumableNotesResponse);
+    const notes = (res as any).consumableNotes;
+    expect(notes).toHaveLength(1);
+    expect(notes[0].noteId).toBe('note-full');
   });
 
   it('requestAssets resolves when confirmed', async () => {

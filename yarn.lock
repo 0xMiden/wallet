@@ -2236,18 +2236,37 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.14.11":
-  version "0.14.11"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.11.tgz#02d48703f1bf4a1518b1c9933444711d5230905b"
-  integrity sha512-puGqlzRORGHolT53vuk78C2D90lqwRjtfUiZ3Hzf8Vp+YtYgPQ0gIrnmiWP8lLD6sZUXYqCIiW/emR0cN5l4tw==
+"@miden-sdk/miden-sdk@0.15.0-alpha.4":
+  version "0.15.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.15.0-alpha.4.tgz#0f2595ce0c9c279b167154242c2932184cd96378"
+  integrity sha512-n8ZRUfsJS879w5L9xcU/kex/3gBFHI3PQxQTICQr6z0S7j6bcFiwPDtoNo77JhGGywAFtCjJzlCyaLd1+tXjtQ==
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
+  optionalDependencies:
+    "@miden-sdk/node-darwin-arm64" "0.15.0-alpha.4"
+    "@miden-sdk/node-darwin-x64" "0.15.0-alpha.4"
+    "@miden-sdk/node-linux-x64-gnu" "0.15.0-alpha.4"
 
-"@miden-sdk/react@0.14.11":
-  version "0.14.11"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.14.11.tgz#4d16e04c7ae6694e32d3d832e207a11d9908541a"
-  integrity sha512-7E4SyemSHH6PSlicSb/Dx+URXiymluKpbJBk3BkS6aGbplOVHAwPRbKNMU4XQsQdxUutt+t4CBaYmsMWeyNfiA==
+"@miden-sdk/node-darwin-arm64@0.15.0-alpha.4":
+  version "0.15.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.15.0-alpha.4.tgz#4aa8ed30c3e8a69e19fdf4149cc107224d5345a1"
+  integrity sha512-QjL2KNQk8EbDQXlkOU4QnyUrc85lVFgg6gfm1/+4VnpyWKbokB0Py2u4tq/lyEWEFVPnj3CrNPI5O2f8BzqESQ==
+
+"@miden-sdk/node-darwin-x64@0.15.0-alpha.4":
+  version "0.15.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.15.0-alpha.4.tgz#3e7cbd79d65f42ba65371b4100108058ffdf6d59"
+  integrity sha512-ylGxcTb1a9lfb9JOY4mllJw3EkprMNY9SYpXj3knSXCa5/gT7utP63DM7EtdoWA630/UZ9V3VN0+RHfAcybknA==
+
+"@miden-sdk/node-linux-x64-gnu@0.15.0-alpha.4":
+  version "0.15.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.15.0-alpha.4.tgz#462c3e29b3cea8f199c4a8d3b62e7c5190d52035"
+  integrity sha512-PSsVtc6uN+FARGBj9oFRyo6rsY3jGM25wdS5h/H/jdefEZL/yT4LcT0voFQsWFsZt8iTBjCN2o0QhgBUP3PsQg==
+
+"@miden-sdk/react@0.15.0-alpha.4":
+  version "0.15.0-alpha.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.15.0-alpha.4.tgz#29e721d14d86ad9fb01f62d9a71c63deb2e663cc"
+  integrity sha512-tGioaS3eSCDo9OiagvYzn38r6d6JKAbRHUuJFvPl8qBwVDj6xbGyW7tT17f9y/UIyrlwfqQhXVf6S+3zaaNNJw==
   dependencies:
     zustand "^5.0.0"
 
