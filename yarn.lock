@@ -2236,37 +2236,37 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@0.15.0-alpha.4":
-  version "0.15.0-alpha.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.15.0-alpha.4.tgz#0f2595ce0c9c279b167154242c2932184cd96378"
-  integrity sha512-n8ZRUfsJS879w5L9xcU/kex/3gBFHI3PQxQTICQr6z0S7j6bcFiwPDtoNo77JhGGywAFtCjJzlCyaLd1+tXjtQ==
+"@miden-sdk/miden-sdk@0.15.0-alpha.5":
+  version "0.15.0-alpha.5"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.15.0-alpha.5.tgz#ee32a88f25a5b103ab981fbd91c565a7600c5d42"
+  integrity sha512-aZSPLgzFushuWnDivDQhMFX84YW/dYZL/iAbtuPyOm5pj+wcacSsHBf5SJokbBF46aPW//jFTDIANTTEYG4H6w==
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
   optionalDependencies:
-    "@miden-sdk/node-darwin-arm64" "0.15.0-alpha.4"
-    "@miden-sdk/node-darwin-x64" "0.15.0-alpha.4"
-    "@miden-sdk/node-linux-x64-gnu" "0.15.0-alpha.4"
+    "@miden-sdk/node-darwin-arm64" "0.15.0-alpha.5"
+    "@miden-sdk/node-darwin-x64" "0.15.0-alpha.5"
+    "@miden-sdk/node-linux-x64-gnu" "0.15.0-alpha.5"
 
-"@miden-sdk/node-darwin-arm64@0.15.0-alpha.4":
-  version "0.15.0-alpha.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.15.0-alpha.4.tgz#4aa8ed30c3e8a69e19fdf4149cc107224d5345a1"
-  integrity sha512-QjL2KNQk8EbDQXlkOU4QnyUrc85lVFgg6gfm1/+4VnpyWKbokB0Py2u4tq/lyEWEFVPnj3CrNPI5O2f8BzqESQ==
+"@miden-sdk/node-darwin-arm64@0.15.0-alpha.5":
+  version "0.15.0-alpha.5"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.15.0-alpha.5.tgz#f4920307a911b8c09a98f7bab8b0e8a1d8caa669"
+  integrity sha512-nS8Vl70tqxbhW4mfZDMoqtj/V6h3oY0TwNe2PDl99hmxBIqFY0CLzJJq8a9fAJn5uBIyeuLn/IJA35ZtsQi40g==
 
-"@miden-sdk/node-darwin-x64@0.15.0-alpha.4":
-  version "0.15.0-alpha.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.15.0-alpha.4.tgz#3e7cbd79d65f42ba65371b4100108058ffdf6d59"
-  integrity sha512-ylGxcTb1a9lfb9JOY4mllJw3EkprMNY9SYpXj3knSXCa5/gT7utP63DM7EtdoWA630/UZ9V3VN0+RHfAcybknA==
+"@miden-sdk/node-darwin-x64@0.15.0-alpha.5":
+  version "0.15.0-alpha.5"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.15.0-alpha.5.tgz#7eab129f2353790f4f6338d84bb9982c23e666f6"
+  integrity sha512-cQe7nFBZQnKdIu/x4dB7XrSLONRi7hnxWMl4X6aDuRI8z5M/YUDhUGejQ1YE4YUETj6xMgrAM6pIjoyxWPdo3Q==
 
-"@miden-sdk/node-linux-x64-gnu@0.15.0-alpha.4":
-  version "0.15.0-alpha.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.15.0-alpha.4.tgz#462c3e29b3cea8f199c4a8d3b62e7c5190d52035"
-  integrity sha512-PSsVtc6uN+FARGBj9oFRyo6rsY3jGM25wdS5h/H/jdefEZL/yT4LcT0voFQsWFsZt8iTBjCN2o0QhgBUP3PsQg==
+"@miden-sdk/node-linux-x64-gnu@0.15.0-alpha.5":
+  version "0.15.0-alpha.5"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.15.0-alpha.5.tgz#4a08182b8d8fc3980bb3951ee3d0bdfe348eb533"
+  integrity sha512-LChx7jGidnWLSQnaj6uY8H9B3rDTrY5CTvJVnj/oW1Vc8NAJ5pkhkIjWe+2ZneOJhj4wIlqwY+vXLexE1xP/+g==
 
-"@miden-sdk/react@0.15.0-alpha.4":
-  version "0.15.0-alpha.4"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.15.0-alpha.4.tgz#29e721d14d86ad9fb01f62d9a71c63deb2e663cc"
-  integrity sha512-tGioaS3eSCDo9OiagvYzn38r6d6JKAbRHUuJFvPl8qBwVDj6xbGyW7tT17f9y/UIyrlwfqQhXVf6S+3zaaNNJw==
+"@miden-sdk/react@0.15.0-alpha.5":
+  version "0.15.0-alpha.5"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.15.0-alpha.5.tgz#0e49e296bbd5fe8d1527df3546a96204d11a394d"
+  integrity sha512-2j692KVPHogvTJ08Dp02GAAo/jUomLdfmz/89YxitmbD48qZDCfUDJb0BQ1EotZBHi5zQynVe4lPevSkmC7yvA==
   dependencies:
     zustand "^5.0.0"
 

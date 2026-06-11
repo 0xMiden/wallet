@@ -628,7 +628,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumableNotes maps full notes and skips partial (id-less) ones', async () => {
-    const partialNote = { id: () => undefined };
+    const partialNote = { id: () => undefined, nullifier: () => undefined };
     const fullNote = {
       id: () => ({ toString: () => 'note-full' }),
       metadata: () => ({

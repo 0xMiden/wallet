@@ -223,7 +223,7 @@ describe('MidenClientInterface', () => {
     // A partial (metadata-less) record: id() returns undefined until sync
     // completes the note. It must be filtered out, not crash the mapper.
     fakeMidenClient.notes.list = jest.fn(async () => [
-      { id: () => undefined },
+      { id: () => undefined, nullifier: () => undefined },
       {
         id: () => ({ toString: () => 'note-2' }),
         metadata: () => ({

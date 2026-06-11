@@ -262,10 +262,12 @@ export class MidenClientInterface {
   async getInputNoteDetails(query?: NoteQuery): Promise<InputNoteDetails[]> {
     const allInputNotes = await this.client.notes.list(query);
     return allInputNotes.flatMap(note => {
-      // A partial (metadata-less) record has no note ID yet; it cannot be
+      // A partial (metadata-less) record has no note ID — and, since 0.15
+      // nullifiers fold in metadata, no nullifier either. It cannot be
       // displayed or consumed, so skip it until sync completes it.
       const noteId = note.id();
-      if (!noteId) {
+      const nullifier = note.nullifier();
+      if (!noteId || !nullifier) {
         return [];
       }
       const assets = note
@@ -282,7 +284,7 @@ export class MidenClientInterface {
           noteId: noteId.toString(),
           noteType: noteMet?.noteType(),
           senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
-          nullifier: note.nullifier(),
+          nullifier,
           state: note.state(),
           assets
         }

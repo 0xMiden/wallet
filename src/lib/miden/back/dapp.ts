@@ -675,10 +675,12 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         await midenClient.syncState();
         const notes = await midenClient.getConsumableNotes(accountId);
         const consumableNotesDetails = notes.flatMap(note => {
-          // Partial (metadata-less) notes have no ID yet and cannot be
-          // consumed — skip until sync completes them.
+          // Partial (metadata-less) notes have no ID — and, since 0.15
+          // nullifiers fold in metadata, no nullifier either. They cannot
+          // be consumed, so skip until sync completes them.
           const noteId = note.id();
-          if (!noteId) {
+          const nullifier = note.nullifier();
+          if (!noteId || !nullifier) {
             return [];
           }
           const assets = note
@@ -695,7 +697,7 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
               noteType: note.metadata()?.noteType(),
               senderAccountId:
                 note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
-              nullifier: note.nullifier(),
+              nullifier,
               state: note.state(),
               assets: assets
             }
