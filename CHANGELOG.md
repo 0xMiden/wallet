@@ -2,6 +2,10 @@
 
 ## 1.15.0 (TBD)
 
+### Features
+
+* [FEATURE][all] **Default auth scheme for new accounts switched from Falcon to ECDSA.** Existing accounts are unaffected — Miden seals the auth component at on-chain creation and can never rotate it, so any account previously created stays Falcon and continues signing with its existing keystore secret. Restore paths handle both schemes: mnemonic-only restore (`Vault.spawn`) probes the chain under each scheme to find the user's actual hdIndex=0 account; encrypted-file restore reads the new optional `authScheme` field on `WalletAccount` (legacy entries with no field default to Falcon, matching the historical default 1:1). Private-key import detects the scheme from the deserialized `AuthSecretKey` via the SDK's per-scheme accessor. New accounts created post-upgrade get ECDSA stamped into their `WalletAccount` record. Encrypted-file format change is purely additive — old files round-trip through restore as Falcon. (#229)
+
 ### Changes
 
 * [CHANGE][all] **Migrated to the Miden 0.15 protocol line** — `@miden-sdk/miden-sdk` and `@miden-sdk/react` bumped to the `0.15.0-alpha` series (npm `next` dist-tag; `@miden-sdk/vite-plugin` stays at `0.14.11`, which is SDK-version-agnostic). User-visible consequences of the protocol bump:
