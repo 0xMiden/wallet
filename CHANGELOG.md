@@ -12,6 +12,10 @@
   - Account storage modes are `public`/`private` only (the chain's separate network-account flag is gone), and partial (metadata-less) input notes — which have no note ID until sync completes them — are filtered out of consumable/claimable listings.
 * [CHANGE][ci] Blockchain E2E installs `miden-client-cli` from a pinned git rev (`midenClientCliGit` in package.json) while the 0.15 CLI is unreleased on crates.io; testnet E2E is expected red until testnet upgrades to node 0.15 (devnet already runs it) — covered by the at-least-one-network gate.
 
+### Fixes
+
+* [FIX][extension] The offscreen prover document now constructs the SDK's raw wasm-bindgen `WebClient` (prover-only — `createClient()` is never called) instead of the worker-shim wrapper. The wrapper forwarded every prove to its own method worker — a WASM instance whose rayon pool the offscreen document never initialized — and its implicit worker INIT performed a network round-trip against the SDK's default RPC endpoint, making local proving silently dependent on that endpoint being reachable and version-compatible. Proves now run on the offscreen document's own thread pool with no implicit network access (so local proving works offline), completing in ~5–6 s on a 10-core machine. Requires `@miden-sdk/miden-sdk` ≥ `0.15.0-alpha.6` (the explicit-prover fix in [web-sdk#182](https://github.com/0xMiden/web-sdk/pull/182)). Root-cause analysis in [web-sdk#180](https://github.com/0xMiden/web-sdk/issues/180#issuecomment-4686218893).
+
 ## 1.14.7 (2026-06-09)
 
 ### Fixes
