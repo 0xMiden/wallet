@@ -307,11 +307,15 @@ jobs:
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
-          # Best-effort: on a cold runner CoreSimulatorService may not be
-          # ready yet ("Unable to boot the Simulator. launchd failed to
-          # respond", SimLaunchHostService code 4) — retry with backoff,
-          # and never fail the step: playwright's globalSetup hard-gates on
-          # bootstatus either way, this step only buys boot/build overlap.
+          # On a cold runner CoreSimulatorService may not respond ("Unable
+          # to boot the Simulator. launchd failed to respond",
+          # SimLaunchHostService code 4) — retry with backoff. If retries
+          # exhaust, the service is wedged, and a wedged CoreSimulatorService
+          # breaks MORE than booting: xcodebuild stops seeing any simulator
+          # destinations, so the build step would fail 25 minutes later
+          # anyway (observed). Restart the service once; if the subsystem
+          # still can't boot, fail the job HERE — minutes in, clearly
+          # attributed, and cheap to rerun.
           UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
           UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
           boot_with_retry() {
@@ -329,11 +333,22 @@ jobs:
               echo "boot attempt $attempt for $udid failed; retrying in 20s"
               sleep 20
             done
-            echo "pre-boot for $udid did not succeed; globalSetup will boot it (slower but gated)"
-            return 0
+            return 1
           }
-          boot_with_retry "$UDID_A"
-          boot_with_retry "$UDID_B"
+          ensure_bootable() {
+            local udid="$1"
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "CoreSimulatorService appears wedged; restarting it"
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 15
+            open -a Simulator || true
+            sleep 10
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
+            return 1
+          }
+          ensure_bootable "$UDID_A"
+          ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
       - name: Build iOS app
@@ -447,11 +462,15 @@ jobs:
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
-          # Best-effort: on a cold runner CoreSimulatorService may not be
-          # ready yet ("Unable to boot the Simulator. launchd failed to
-          # respond", SimLaunchHostService code 4) — retry with backoff,
-          # and never fail the step: playwright's globalSetup hard-gates on
-          # bootstatus either way, this step only buys boot/build overlap.
+          # On a cold runner CoreSimulatorService may not respond ("Unable
+          # to boot the Simulator. launchd failed to respond",
+          # SimLaunchHostService code 4) — retry with backoff. If retries
+          # exhaust, the service is wedged, and a wedged CoreSimulatorService
+          # breaks MORE than booting: xcodebuild stops seeing any simulator
+          # destinations, so the build step would fail 25 minutes later
+          # anyway (observed). Restart the service once; if the subsystem
+          # still can't boot, fail the job HERE — minutes in, clearly
+          # attributed, and cheap to rerun.
           UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
           UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
           boot_with_retry() {
@@ -469,11 +488,22 @@ jobs:
               echo "boot attempt $attempt for $udid failed; retrying in 20s"
               sleep 20
             done
-            echo "pre-boot for $udid did not succeed; globalSetup will boot it (slower but gated)"
-            return 0
+            return 1
           }
-          boot_with_retry "$UDID_A"
-          boot_with_retry "$UDID_B"
+          ensure_bootable() {
+            local udid="$1"
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "CoreSimulatorService appears wedged; restarting it"
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 15
+            open -a Simulator || true
+            sleep 10
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
+            return 1
+          }
+          ensure_bootable "$UDID_A"
+          ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
       - name: Build iOS app
