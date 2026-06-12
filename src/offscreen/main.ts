@@ -13,9 +13,10 @@
 // SW handles recreation. ~120-150 MB always-resident while the doc lives.
 //
 // Message protocol (chrome.runtime):
-//   request:  { type: "OFFSCREEN_PROVE", txResultBytes: ArrayBuffer,
-//               proverDescriptor: string | null }
-//   response: { ok: true, provenBytes: ArrayBuffer } | { ok: false, error: string }
+//   request:  { target: "offscreen", type: "OFFSCREEN_PROVE",
+//               txResultB64: string, proverDescriptor: string | null }
+//   response: { ok: true, provenB64: string, durationMs: number }
+//           | { ok: false, error: string }
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
@@ -69,14 +70,26 @@ ensureInit()
     console.error(`${TAG} init failed:`, err);
   });
 
-// One barebones WebClient instance, reused across prove calls. WebClient
-// has internal state (cached buffers, key store) but proveTransaction is
-// computational — no RPC, no DB. We don't call createClient(...) so it
-// stays a "prover-only" client. If a future SDK version requires init for
-// proving, we'll need to plumb rpcUrl + storeName through here.
+// One raw wasm-bindgen WebClient instance, reused across prove calls. The
+// SDK's export naming is treacherous: `WebClient` is the RAW wasm-bindgen
+// class, while `WasmWebClient` is the worker-shim JS wrapper. The raw class
+// is load-bearing here, for two reasons:
+//   1. The prove must run in THIS document's WASM instance — the one whose
+//      rayon pool init() just brought up. The wrapper forwards every method
+//      to its own method worker, a separate WASM instance whose pool this
+//      document never initialized.
+//   2. The wrapper's constructor implicitly INITs that worker via
+//      createClient(rpcUrl=undefined), which on 0.15 performs an eager RPC
+//      genesis fetch against the default endpoint. If that fails (wrong
+//      network version, offline), the wrapper's `ready` promise never
+//      settles and every method call awaits it forever — a silent hang.
+// We never call createClient(...) so this stays a "prover-only" client.
+// Proving with an explicit prover on an uninitialized client requires
+// web-sdk >= 0.15.0-alpha.6; older builds throw "Client not initialized"
+// (loud and immediate, never a hang).
 let prover: any = null;
 function getProver() {
-  if (!prover) prover = new (sdk as any).WasmWebClient();
+  if (!prover) prover = new (sdk as any).WebClient();
   return prover;
 }
 

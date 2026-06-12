@@ -306,19 +306,17 @@ export default defineConfig({
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
     // Falcon-512 accounts when it works.
     //
-    // Default OFF on the 0.15 SDK line: the 0.15 prover hangs indefinitely
-    // under the MT WASM build (pool bring-up, rayon dispatch, and the
-    // SW<->offscreen protocol all verified healthy in isolation — the hang
-    // is inside the prove itself; single-threaded prove of the same
-    // transaction completes). Tracked in 0xMiden/web-sdk#180; flip the
-    // default back to 'true' once that lands.
+    // The offscreen doc proves on a raw "prover-only" WebClient (no
+    // createClient), which requires the explicit-prover fix from
+    // 0xMiden/web-sdk#182 (>= 0.15.0-alpha.6): older 0.15 SDK builds reject
+    // the prove with "Client not initialized".
     //
     // Mobile (vite.mobile.config.ts) does NOT define this env, so its
     // runtime value is undefined and the `=== 'true'` check fails — mobile
     // always uses the bundled SDK path. Even if it somehow were true, the
     // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
     // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
-    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'false'),
+    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
     // Speculative pre-prove: when the user reaches the review screen, the
     // popup tells the SW to start proving with the form params so the proof
     // is ready by the time they click Confirm. Default ON for desktop chrome
