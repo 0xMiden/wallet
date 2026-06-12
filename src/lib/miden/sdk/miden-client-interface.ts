@@ -99,11 +99,7 @@ export class MidenClientInterface {
     this.client.terminate();
   }
 
-  async createMidenWallet(
-    walletType: WalletType,
-    seed?: Uint8Array,
-    auth?: AuthScheme
-  ): Promise<string> {
+  async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     const isPublic = walletType === WalletType.OnChain;
     const wallet: Account = await this.client.accounts.create({
       storage: isPublic ? 'public' : 'private',

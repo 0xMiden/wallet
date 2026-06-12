@@ -27,6 +27,11 @@ import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { AuthScheme, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { compareAccountIds } from '../activity/utils';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+
 // AUTH SCHEME POLICY
 // ============================================================================
 //
@@ -56,8 +61,7 @@ const LEGACY_AUTH_SCHEME: AuthScheme = 'falcon';
 const RESTORE_PROBE_SCHEMES: readonly AuthScheme[] = ['falcon', 'ecdsa'] as const;
 
 /** Returns the auth scheme for an account, applying the legacy fallback. */
-const getAccountAuthScheme = (account: WalletAccount): AuthScheme =>
-  account.authScheme ?? LEGACY_AUTH_SCHEME;
+const getAccountAuthScheme = (account: WalletAccount): AuthScheme => account.authScheme ?? LEGACY_AUTH_SCHEME;
 
 /**
  * Derives an `AuthSecretKey` from a mnemonic-derived seed under the given
@@ -65,9 +69,7 @@ const getAccountAuthScheme = (account: WalletAccount): AuthScheme =>
  * whose secret keys can be regenerated from the mnemonic.
  */
 const authSecretKeyFromSeed = (scheme: AuthScheme, seed: Uint8Array): AuthSecretKey =>
-  scheme === 'ecdsa'
-    ? AuthSecretKey.ecdsaWithRNG(seed)
-    : AuthSecretKey.rpoFalconWithRNG(seed);
+  scheme === 'ecdsa' ? AuthSecretKey.ecdsaWithRNG(seed) : AuthSecretKey.rpoFalconWithRNG(seed);
 
 /**
  * Detects the scheme of an `AuthSecretKey` deserialized from raw hex.
@@ -85,11 +87,6 @@ const detectAuthScheme = (key: AuthSecretKey): AuthScheme => {
     return 'falcon';
   }
 };
-
-import { compareAccountIds } from '../activity/utils';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
 const STORAGE_KEY_PREFIX = 'vault';
 const DEFAULT_SETTINGS = {};
