@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.8 (TBD)
+
+### Features
+
+* [FEATURE][all] **Default auth scheme for new accounts switched from Falcon to ECDSA.** Existing accounts are unaffected — Miden seals the auth component at on-chain creation and can never rotate it, so any account previously created stays Falcon and continues signing with its existing keystore secret. Restore paths handle both schemes: mnemonic-only restore (`Vault.spawn`) probes the chain under each scheme to find the user's actual hdIndex=0 account; encrypted-file restore reads the new optional `authScheme` field on `WalletAccount` (legacy entries with no field default to Falcon, matching the historical default 1:1). Private-key import detects the scheme from the deserialized `AuthSecretKey` via the SDK's per-scheme accessor. New accounts created post-upgrade get ECDSA stamped into their `WalletAccount` record. Encrypted-file format change is purely additive — old files round-trip through restore as Falcon. (#229)
+
 ## 1.14.7 (2026-06-09)
 
 ### Fixes
