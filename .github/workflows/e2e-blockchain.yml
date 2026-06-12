@@ -304,11 +304,34 @@ jobs:
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
+          # Best-effort: on a cold runner CoreSimulatorService may not be
+          # ready yet ("Unable to boot the Simulator. launchd failed to
+          # respond", SimLaunchHostService code 4) — retry with backoff,
+          # and never fail the step: playwright's globalSetup hard-gates on
+          # bootstatus either way, this step only buys boot/build overlap.
           UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
           UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
-          xcrun simctl boot "$UDID_A" || true
-          xcrun simctl boot "$UDID_B" || true
-          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B"
+          boot_with_retry() {
+            local udid="$1"
+            for attempt in 1 2 3 4; do
+              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
+              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
+                echo "$udid already $state"
+                return 0
+              fi
+              if xcrun simctl boot "$udid"; then
+                echo "$udid boot issued (attempt $attempt)"
+                return 0
+              fi
+              echo "boot attempt $attempt for $udid failed; retrying in 20s"
+              sleep 20
+            done
+            echo "pre-boot for $udid did not succeed; globalSetup will boot it (slower but gated)"
+            return 0
+          }
+          boot_with_retry "$UDID_A"
+          boot_with_retry "$UDID_B"
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
@@ -418,11 +441,34 @@ jobs:
       - name: Pre-boot simulators (async, overlaps build)
         shell: bash
         run: |
+          # Best-effort: on a cold runner CoreSimulatorService may not be
+          # ready yet ("Unable to boot the Simulator. launchd failed to
+          # respond", SimLaunchHostService code 4) — retry with backoff,
+          # and never fail the step: playwright's globalSetup hard-gates on
+          # bootstatus either way, this step only buys boot/build overlap.
           UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
           UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
-          xcrun simctl boot "$UDID_A" || true
-          xcrun simctl boot "$UDID_B" || true
-          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B"
+          boot_with_retry() {
+            local udid="$1"
+            for attempt in 1 2 3 4; do
+              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
+              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
+                echo "$udid already $state"
+                return 0
+              fi
+              if xcrun simctl boot "$udid"; then
+                echo "$udid boot issued (attempt $attempt)"
+                return 0
+              fi
+              echo "boot attempt $attempt for $udid failed; retrying in 20s"
+              sleep 20
+            done
+            echo "pre-boot for $udid did not succeed; globalSetup will boot it (slower but gated)"
+            return 0
+          }
+          boot_with_retry "$UDID_A"
+          boot_with_retry "$UDID_B"
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
