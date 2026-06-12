@@ -10,7 +10,7 @@ export interface LoaderProps extends Omit<IconProps, 'name'> {
   className?: string;
 }
 
-export const Loader: React.FC<LoaderProps> = ({ className, color = 'black', size = 'md', ...props }) => {
+export const Loader: React.FC<LoaderProps> = ({ className, color = 'currentColor', size = 'md', ...props }) => {
   return (
     <Icon
       {...props}

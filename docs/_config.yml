@@ -1,0 +1,12 @@
+title: Miden Wallet
+description: Non-custodial wallet for the Miden blockchain
+theme: jekyll-theme-cayman
+
+# Strip leading docs/ from URLs and respect explicit permalinks
+permalink: pretty
+
+# Don't publish dev-only docs (they live in /docs for proximity to code,
+# not as public pages). New entries needed when adding similar files.
+exclude:
+  - README.md
+  - ios-cdp-bridge.md

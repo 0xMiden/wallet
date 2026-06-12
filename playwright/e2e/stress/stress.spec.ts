@@ -57,6 +57,11 @@ function parseOptions(): StressOptions {
     // "broken" is >5 min. Tighter budgets produced false-positive failures
     // from testnet flake + SW suspension pileups.
     perTurnSendTimeoutMs: intEnv('STRESS_SEND_TIMEOUT_MS', 300_000),
+    // Probability [0,1] of intercepting and failing the transport call on
+    // a private-note send, so the retry loop can be exercised end-to-end.
+    // Kept at 0 by default so the default stress run matches historical
+    // behavior; set to e.g. 0.1 to validate the transport hardening.
+    transportFailProb: floatEnv('STRESS_TRANSPORT_FAIL_PROB', 0),
     seed: intEnv('STRESS_SEED', Date.now() >>> 0)
   };
 }
@@ -85,6 +90,20 @@ test.describe('Stress: random send/claim', () => {
       addressA = a.address;
       addressB = b.address;
     });
+
+    // Override the global delegate-proving setting so the stress run
+    // exercises the local (offscreen-doc) prove path on Chrome. Set via
+    // STRESS_LOCAL_PROVING=true at the harness level. The wallet reads
+    // `delegate_proof_setting_key` from localStorage on every form
+    // render, so the change takes effect on the next send without a
+    // reload. Both wallets are flipped because the stress driver sends
+    // from BOTH directions.
+    if (process.env.STRESS_LOCAL_PROVING === 'true') {
+      await steps.step('force_local_proving', async () => {
+        await walletA.setDelegateProofEnabled(false);
+        await walletB.setDelegateProofEnabled(false);
+      });
+    }
 
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();

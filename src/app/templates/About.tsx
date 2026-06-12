@@ -3,6 +3,7 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import Logo from 'app/atoms/Logo';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from 'app/constants';
 
 import MenuItem from './MenuItem';
 import pkg from '../../../package.json';
@@ -17,7 +18,7 @@ const About: FC = () => {
 
         <div className="text-center">
           <h4 className="text-xl font-semibold">{t('appName')}</h4>
-          <p className="text-sm text-gray-200">{t('versionLabel', { version: pkg.version })}</p>
+          <p className="text-sm text-text-muted">{t('versionLabel', { version: pkg.version })}</p>
         </div>
       </div>
 
@@ -26,8 +27,8 @@ const About: FC = () => {
         {[
           { key: 'website', link: 'https://miden.xyz' },
           { key: 'twitter', link: 'https://x.com/0xMiden' },
-          { key: 'privacyPolicy', link: 'https://miden.fi/privacy' },
-          { key: 'termsOfUse', link: 'https://miden.fi/terms' }
+          { key: 'privacyPolicy', link: PRIVACY_POLICY_URL },
+          { key: 'termsOfUse', link: TERMS_OF_USE_URL }
         ]
           /* eslint-enable i18next/no-literal-string */
           .map(({ key, link }) => {

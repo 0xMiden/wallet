@@ -20,7 +20,8 @@ let package = Package(
         .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
         .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
         .package(name: "CapacitorSplashScreen", path: "../../../node_modules/@capacitor/splash-screen"),
-        .package(name: "MidenDappBrowser", path: "../../../packages/dapp-browser")
+        .package(name: "MidenDappBrowser", path: "../../../packages/dapp-browser"),
+        .package(name: "MidenNativeProver", path: "../../../packages/native-prover")
     ],
     targets: [
         .target(
@@ -36,7 +37,8 @@ let package = Package(
                 .product(name: "CapacitorPreferences", package: "CapacitorPreferences"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "CapacitorSplashScreen", package: "CapacitorSplashScreen"),
-                .product(name: "MidenDappBrowser", package: "MidenDappBrowser")
+                .product(name: "MidenDappBrowser", package: "MidenDappBrowser"),
+                .product(name: "MidenNativeProver", package: "MidenNativeProver")
             ]
         )
     ]

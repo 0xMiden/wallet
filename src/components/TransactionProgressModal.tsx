@@ -299,21 +299,6 @@ export const TransactionProgressModal: FC = () => {
     return () => clearTimeout(timer);
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    if (!graceElapsed) {
-      // During the grace window, keep updating the snapshot so SendManager's
-      // own `navigate('/')` lands as the post-open settled pathname.
-      settledPathnameRef.current = pathname;
-      return;
-    }
-    // Grace window done. From here on, any pathname change is a user
-    // navigation away from where the modal opened — dismiss.
-    if (settledPathnameRef.current !== null && pathname !== settledPathnameRef.current) {
-      handleClose();
-    }
-  }, [isOpen, graceElapsed, pathname, handleClose]);
-
   const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
@@ -324,6 +309,41 @@ export const TransactionProgressModal: FC = () => {
   // session-failed delta, the modal renders "Transaction Completed" for
   // any tx that actually failed via `cancelTransaction`.
   const hasErrors = error || sessionFailedCount > 0;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!graceElapsed) {
+      // During the grace window, keep updating the snapshot so SendManager's
+      // own `navigate('/')` lands as the post-open settled pathname.
+      settledPathnameRef.current = pathname;
+      return;
+    }
+    // Don't auto-dismiss when the tx has reached a terminal state. The
+    // auto-dismiss exists to unblock the underlying UI while a tx is
+    // IN-FLIGHT (post-PR-217 the overlay is click-through but the
+    // content still occupies pixel area). Once we have a result, the
+    // user must see the "Completed → View on Midenscan" or error screen
+    // and explicitly tap Done.
+    //
+    // Why three signals: `lastCompletedTxHash` is set by SendManager
+    // synchronously BEFORE it navigates, so it's the reliable signal in
+    // the success-path race (navigate fires within ~1ms of the store
+    // update). `transactionComplete` derives from a 500ms-polled SWR
+    // and can lag, so it's a secondary safety net. `hasErrors` covers
+    // the failure path.
+    //
+    // The original 2s grace was sized for delegated proving (~1s round
+    // trip). Local proving runs the prove locally and takes 5-10s, so
+    // SendManager's success-path `navigate('/')` fires WELL AFTER the
+    // grace window expires — without this gate, the modal closes and
+    // the user lands on home without seeing the completion screen.
+    if (transactionComplete || hasErrors || lastCompletedTxHash !== null) return;
+    // Grace window done, tx still in flight. Any pathname change is a
+    // user navigation away from where the modal opened — dismiss.
+    if (settledPathnameRef.current !== null && pathname !== settledPathnameRef.current) {
+      handleClose();
+    }
+  }, [isOpen, graceElapsed, pathname, handleClose, transactionComplete, hasErrors, lastCompletedTxHash]);
 
   const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
   const onViewExplorer = useCallback(() => {

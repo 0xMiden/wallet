@@ -45,7 +45,7 @@ export const RecallBlocksModal: FC<RecallBlocksModalProps> = ({
     >
       <div className="text-black text-left">
         <h1 className={classNames('mb-2 text-lg font-medium')}>{t('recallBlocks')}</h1>
-        <p className="text-[#656565] text-xs">{t('recallBlocksDescription')}</p>
+        <p className="text-text-muted text-xs">{t('recallBlocksDescription')}</p>
         <div className="my-4">
           <Input
             label={t('blocksUntilRecall')}

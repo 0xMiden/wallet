@@ -1029,26 +1029,29 @@ describe('Full confirmation cycles in extension mode', () => {
     expect((res as any).publicKey).toBeDefined();
   });
 
-  it('requestPermission in extension when confirmed but getAccountPublicKeyB64 throws still resolves (publicKey null)', async () => {
+  it('requestPermission in extension rejects (and saves no session) when getAccountPublicKeyB64 throws', async () => {
     delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz'];
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
-    const res = await driveConfirmation(
-      () =>
-        dapp.requestPermission('https://err-dapp.xyz', {
-          type: MidenDAppMessageType.PermissionRequest,
-          appMeta: { name: 'Err Dapp', url: 'https://err-dapp.xyz' },
-          force: false,
-          network: 'testnet',
-          privateDataPermission: 'UPON_REQUEST',
-          allowedPrivateData: 0
-        } as never),
-      MidenMessageType.DAppPermConfirmationRequest,
-      {
-        confirmed: true,
-        accountPublicKey: 'miden-account-1',
-        privateDataPermission: 'UPON_REQUEST'
-      }
-    );
-    expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestPermission('https://err-dapp.xyz', {
+            type: MidenDAppMessageType.PermissionRequest,
+            appMeta: { name: 'Err Dapp', url: 'https://err-dapp.xyz' },
+            force: false,
+            network: 'testnet',
+            privateDataPermission: 'UPON_REQUEST',
+            allowedPrivateData: 0
+          } as never),
+        MidenMessageType.DAppPermConfirmationRequest,
+        {
+          confirmed: true,
+          accountPublicKey: 'miden-account-1',
+          privateDataPermission: 'UPON_REQUEST'
+        }
+      )
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    // A failed pubkey fetch must not persist a publicKey: null session.
+    expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
   });
 });

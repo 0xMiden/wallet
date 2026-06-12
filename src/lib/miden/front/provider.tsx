@@ -13,7 +13,7 @@ import {
   getNoteTransportUrl
 } from 'lib/miden-chain/constants';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { isExtension } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { PriceProvider } from 'lib/prices';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
@@ -82,7 +82,14 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
       rpcUrl: MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!,
       noteTransportUrl: getNoteTransportUrl(DEFAULT_NETWORK),
       prover: MIDEN_PROVING_ENDPOINTS.get(DEFAULT_NETWORK),
-      autoSyncInterval: 0
+      autoSyncInterval: 0,
+      // Mirror the backend MidenClientInterface decision: on mobile we hand
+      // the SDK a CallbackProver routed through the native Rust prover via
+      // Capacitor, and the worker boundary would silently strip the callback.
+      // The SDK's MidenProvider spins up its own WebClient — opt it out too,
+      // or every hook-driven prove (useConsume, useSend) goes through the
+      // worker path and falls back to in-worker WASM ST proving.
+      useWorker: !isMobile()
     }),
     []
   );

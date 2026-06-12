@@ -39,6 +39,14 @@ export interface WalletPage {
   ): Promise<number>;
   lockWallet(): Promise<void>;
   unlockWallet(password?: string): Promise<void>;
+  /**
+   * Override the wallet's "delegate proof" Settings preference at runtime.
+   * Backed by localStorage['delegate_proof_setting_key']. Passing `false`
+   * forces local proving (offscreen-doc path on Chrome, native plugin on
+   * mobile). The wallet reads this synchronously at every form render, so
+   * the change takes effect on the next render — no reload needed.
+   */
+  setDelegateProofEnabled(enabled: boolean): Promise<void>;
 }
 
 /**
@@ -1058,5 +1066,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
     await this.page.getByRole('button', { name: /unlock|continue|submit/i }).click();
     await this.page.waitForTimeout(3_000);
+  }
+
+  async setDelegateProofEnabled(enabled: boolean): Promise<void> {
+    // The wallet stores this preference as a JSON-encoded boolean (matching
+    // `setSetting` in src/lib/settings/helpers.ts:17). Writing the raw
+    // string `"false"` would round-trip correctly through `JSON.parse`,
+    // but mirroring the canonical encoding keeps inspection of
+    // localStorage in DevTools consistent with what the production code
+    // writes.
+    await this.page.evaluate(value => {
+      localStorage.setItem('delegate_proof_setting_key', JSON.stringify(value));
+    }, enabled);
   }
 }

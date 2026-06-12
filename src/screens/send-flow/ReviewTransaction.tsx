@@ -20,7 +20,6 @@ export interface ReviewTransactionProps {
   onGoBack: () => void;
   onSubmit: () => void;
   sharePrivately: boolean;
-  delegateTransaction: boolean;
   recipientAddress?: string;
   recallBlocks?: string;
   recallDate?: Date;
@@ -32,7 +31,6 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   token,
   recipientAddress,
   sharePrivately,
-  delegateTransaction,
   recallBlocks,
   recallDate,
   recallTime,
@@ -79,11 +77,8 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
           {/* Options Card */}
           <div className="mt-3">
             <DetailCard>
-              <DetailRow label={t('privatePayment')}>
+              <DetailRow label={t('privatePayment')} isLast={!hasRecall}>
                 <ToggleBadge enabled={sharePrivately} />
-              </DetailRow>
-              <DetailRow label={t('delegateProving')} isLast={!hasRecall}>
-                <ToggleBadge enabled={delegateTransaction} />
               </DetailRow>
               {hasRecall && (
                 <DetailRow label={t('recallEnabled')} isLast>
@@ -125,7 +120,7 @@ const ToggleBadge: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   return (
     <span
       className={`text-xs font-medium px-3 py-1 rounded-full ${
-        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-[#F2F2F2]'
+        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-input-bg'
       }`}
     >
       {enabled ? t('on') : t('off')}

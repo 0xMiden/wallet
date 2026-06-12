@@ -58,7 +58,7 @@ export const SelectWalletTypeScreen = ({ onSubmit }: SelectWalletTypeScreenProps
             <h2 className="font-medium text-base">{option.title}</h2>
             <ArrowRightIcon fill="currentColor" height={'20px'} width={'20px'} />
           </div>
-          <p className="text-grey-600">{option.description}</p>
+          <p className="text-text-muted">{option.description}</p>
         </div>
       ))}
       <Alert variant={AlertVariant.Info} title={t('canAddMultipleAccountsLater')} />

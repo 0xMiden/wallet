@@ -139,21 +139,31 @@ export class CdpSession {
 
   /**
    * Subscribe to console.* output from the page. Returns an unsubscribe fn.
+   *
+   * Wire-format note: appium-remote-debugger pre-extracts `params.message`
+   * from `Console.messageAdded` events and passes it as the SECOND listener
+   * argument (the first is an Error, undefined for normal messages). See
+   * `node_modules/appium-remote-debugger/lib/rpc/rpc-message-handler.ts`
+   * case `'Console.messageAdded'`: `args = [params?.message]`, then
+   * `emit(name, error, ...args)`. The previous shape `(event) => event.params.message`
+   * was wrong — `event` was the Error slot, always undefined, so every
+   * console message was silently dropped.
    */
   onConsoleLog(cb: (entry: CdpConsoleEntry) => void): () => void {
     this.consoleListeners.push(cb);
     if (this.consoleListeners.length === 1) {
-      (this.rd as unknown as ConsoleCapable).startConsole((event: WebKitConsoleEvent) => {
-        const m = event?.params?.message;
-        if (!m) return;
-        const entry: CdpConsoleEntry = {
-          level: m.level ?? 'log',
-          text: extractConsoleText(m),
-          ts: m.timestamp ?? Date.now(),
-          source: m.source,
-        };
-        for (const listener of this.consoleListeners) listener(entry);
-      });
+      (this.rd as unknown as ConsoleCapable).startConsole(
+        (_error: Error | undefined, m: WebKitConsoleMessage | undefined) => {
+          if (!m) return;
+          const entry: CdpConsoleEntry = {
+            level: m.level ?? 'log',
+            text: extractConsoleText(m),
+            ts: m.timestamp ?? Date.now(),
+            source: m.source,
+          };
+          for (const listener of this.consoleListeners) listener(entry);
+        }
+      );
     }
     return () => {
       this.consoleListeners = this.consoleListeners.filter(l => l !== cb);
@@ -260,27 +270,25 @@ interface SelectPageCapable {
   selectPage(appKey: string, pageNum: number): Promise<void>;
 }
 interface ConsoleCapable {
-  startConsole(listener: (event: WebKitConsoleEvent) => void): void;
+  startConsole(
+    listener: (error: Error | undefined, message: WebKitConsoleMessage | undefined) => void
+  ): void;
   stopConsole(): void;
 }
 
-interface WebKitConsoleEvent {
-  params?: {
-    message?: {
-      level?: string;
-      text?: string;
-      source?: string;
-      timestamp?: number;
-      parameters?: Array<{ value?: unknown; description?: string }>;
-    };
-  };
+interface WebKitConsoleMessage {
+  level?: string;
+  text?: string;
+  source?: string;
+  timestamp?: number;
+  parameters?: Array<{ value?: unknown; description?: string }>;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-function extractConsoleText(m: NonNullable<WebKitConsoleEvent['params']>['message']): string {
+function extractConsoleText(m: WebKitConsoleMessage | undefined): string {
   if (!m) return '';
   if (m.text) return m.text;
   if (m.parameters) {

@@ -77,6 +77,10 @@ When bumping:
 2. Build, e.g. `yarn build:chrome`.
 3. Verify: `grep '"version"' dist/chrome_unpacked/manifest.json`.
 
+## CHANGELOG
+
+`CHANGELOG.md` carries unreleased entries under a `## <next-version> (TBD)` heading. **NEVER add an entry to a section whose version has already been published — check `gh api repos/0xMiden/wallet/releases/latest` for the latest tag and put new entries under a section whose version is strictly higher and still has `(TBD)` next to it. If no such section exists, add one.** The header at the top of `CHANGELOG.md` may lag (a `(TBD)` heading often persists past the release tag); don't trust the heading alone.
+
 ## Mobile Development
 
 **IMPORTANT:** Always use these yarn scripts for mobile development. Do not run Capacitor or Xcode commands directly.
@@ -1168,6 +1172,59 @@ Transactions flow through these states in `ITransactionStatus`:
 2. `GeneratingTransaction` (1) - Being processed
 3. `Completed` (2) - Successfully finished
 4. `Failed` (3) - Error occurred
+
+## Linked Web SDK PR (cross-repo CI)
+
+**ALWAYS use the `Web SDK PR: #N` marker when opening a wallet PR that
+depends on an unpublished web-sdk change.** This is the load-bearing
+machine-readable handle — prose like "Companion PR: web-sdk#N" or
+"depends on …" does NOT trigger the linked-PR pipeline. Put the marker
+on its own line in the PR description (top is fine, anywhere is fine).
+When in doubt include both forms (`Web SDK PR: #N` and a prose mention)
+but the marker has to be present verbatim.
+
+The wallet's CI can be pointed at an unpublished `@miden-sdk/miden-sdk`
+or `@miden-sdk/react` branch by including a marker in the wallet PR's
+description:
+
+```
+Web SDK PR: #134
+```
+
+Or cross-repo:
+
+```
+Web SDK PR: 0xMiden/web-sdk#134
+```
+
+When the marker is present, every yarn-using job in `.github/workflows/pr.yml`
+runs `.github/actions/inject-linked-web-sdk-pr` BEFORE its `yarn install`
+step. The action clones the linked web-sdk PR, builds
+`@miden-sdk/miden-sdk` + `@miden-sdk/react` from source, and rewrites
+this repo's `package.json` to consume them via `file:` deps (runner-local
+mutation, never committed).
+
+A separate workflow (`check-linked-web-sdk-pr.yml`) posts a custom
+status named `linked-web-sdk-pr-ready` that's `pending` until the linked
+web-sdk PR is merged AND a release tag covering its merge commit is
+visible. Branch protection on `main` should require this status before
+allowing the wallet PR to merge — that's the gate that prevents the
+wallet from landing while it depends on an unpublished web-sdk change.
+
+Local-dev parity:
+
+```bash
+scripts/dev-with-web-sdk-pr.sh             # auto-detect from current PR body
+scripts/dev-with-web-sdk-pr.sh 134         # use web-sdk#134
+scripts/dev-with-web-sdk-pr.sh --clear     # restore the published versions
+```
+
+The `lefthook.yml` pre-commit hooks block committing the patched state
+(state file `.linked-web-sdk-pr.json` or `file:` SDK deps in
+package.json). Lefthook isn't auto-installed by `yarn install` — opt in
+once with `pnpm dlx lefthook install` if you want the guard.
+
+Mirrors web-sdk's `Client PR: #N` pattern (`.github/actions/inject-linked-client-pr`).
 
 ## Important Notes
 

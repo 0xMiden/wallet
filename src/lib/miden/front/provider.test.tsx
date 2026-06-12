@@ -12,7 +12,8 @@ _g.__providerTest = {
 };
 
 jest.mock('lib/platform', () => ({
-  isExtension: () => (globalThis as any).__providerTest.isExtension
+  isExtension: () => (globalThis as any).__providerTest.isExtension,
+  isMobile: () => (globalThis as any).__providerTest.isMobile ?? false
 }));
 
 jest.mock('../sdk/miden-client', () => ({

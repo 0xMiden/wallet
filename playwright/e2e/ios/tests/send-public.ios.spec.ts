@@ -12,6 +12,7 @@ test.describe('Public Note Send', () => {
   }) => {
     let addressA: string;
     let addressB: string;
+    let faucetId: string;
 
     await steps.step('create_wallets', async () => {
       const a = await walletA.createNewWallet();
@@ -22,7 +23,7 @@ test.describe('Public Note Send', () => {
 
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
-      await midenCli.createFaucet();
+      faucetId = await midenCli.createFaucet();
       await midenCli.mint(addressA!, 100_000_000_000, 'public');
       await midenCli.sync();
     });
@@ -32,7 +33,7 @@ test.describe('Public Note Send', () => {
     // notes the way Chrome's chrome.storage.local-backed getBalance can.
     // See CLAUDE.md "E2E iOS Simulator Test Harness" → "Empirical Status".
     await steps.step('claim_notes_wallet_a', async () => {
-      await walletA.claimAllNotes(180_000);
+      await walletA.claimAllNotes(180_000, [faucetId!]);
     });
 
     await steps.step('sync_wallet_a', async () => {
@@ -55,7 +56,7 @@ test.describe('Public Note Send', () => {
     // iOS divergence: claim the received note on wallet B before checking
     // its balance — same reason as claim_notes_wallet_a above.
     await steps.step('claim_notes_wallet_b', async () => {
-      await walletB.claimAllNotes(180_000);
+      await walletB.claimAllNotes(180_000, [faucetId!]);
     });
 
     await steps.step('verify_receipt_wallet_b', async () => {
