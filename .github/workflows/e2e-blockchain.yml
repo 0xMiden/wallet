@@ -213,7 +213,10 @@ jobs:
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController.
     runs-on: macos-26
-    timeout-minutes: 90
+    # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
+    # build + simulator cold boot overlap) + ~55 min suite with one retry.
+    # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
+    timeout-minutes: 130
     env:
       E2E_NETWORK: devnet
     steps:
@@ -356,7 +359,10 @@ jobs:
     name: Mobile E2E (testnet)
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
     runs-on: macos-26
-    timeout-minutes: 90
+    # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
+    # build + simulator cold boot overlap) + ~55 min suite with one retry.
+    # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
+    timeout-minutes: 130
     env:
       E2E_NETWORK: testnet
     steps:
