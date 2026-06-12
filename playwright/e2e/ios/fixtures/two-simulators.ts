@@ -77,13 +77,6 @@ function getRunOutputDir(testId: string): string {
  * install wipes the IndexedDB / Preferences sandbox without touching boot
  * state (~5s instead of the ~30s `simctl erase` would cost).
  */
-// Tracks which UDIDs have already had the app installed in this worker.
-// First-test fixture does a full install+launch; subsequent tests wipe the
-// sandbox instead — same per-test isolation guarantees (fresh IndexedDB,
-// localStorage, Preferences, WebKit caches) without paying ~5–15s for
-// simctl uninstall + install.
-const installedUdids = new Set<string>();
-
 async function launchSimWalletInstance(
   sim: SimulatorControl,
   udid: string,
@@ -98,24 +91,21 @@ async function launchSimWalletInstance(
   await sim.terminate(udid, BUNDLE_ID);
   const terminateMs = ms(tTerminate);
 
-  const firstInstall = !installedUdids.has(udid);
-  let uninstallMs = 0;
-  let installMs = 0;
-  let wipeMs = 0;
-  if (firstInstall) {
-    const tUninstall = phaseStart();
-    await sim.uninstall(udid, BUNDLE_ID);
-    uninstallMs = ms(tUninstall);
+  // Per-test isolation is uninstall + install, NOT a file-level sandbox
+  // wipe. The wallet's persisted state (Capacitor Preferences → cfprefsd,
+  // WebKit localStorage/IndexedDB → the per-device WebKit storage daemons)
+  // is served through daemon caches — deleting the files behind those
+  // daemons does not clear the data, and the relaunched app reads its old
+  // vault right back (boots to unlock instead of onboarding, breaking
+  // every test after the first). simctl uninstall purges through the OS,
+  // which is the only reset that verifiably works.
+  const tUninstall = phaseStart();
+  await sim.uninstall(udid, BUNDLE_ID);
+  const uninstallMs = ms(tUninstall);
 
-    const tInstall = phaseStart();
-    await sim.install(udid, APP_PATH);
-    installMs = ms(tInstall);
-    installedUdids.add(udid);
-  } else {
-    const tWipe = phaseStart();
-    await sim.wipeAppState(udid, BUNDLE_ID);
-    wipeMs = ms(tWipe);
-  }
+  const tInstall = phaseStart();
+  await sim.install(udid, APP_PATH);
+  const installMs = ms(tInstall);
 
   const tLaunch = phaseStart();
   await sim.launch(udid, BUNDLE_ID, {
@@ -162,7 +152,7 @@ async function launchSimWalletInstance(
     wallet: label,
     message:
       `Wallet ${label} launched on udid ${udid} ` +
-      `(terminate=${terminateMs}ms ${firstInstall ? `uninstall=${uninstallMs}ms install=${installMs}ms` : `wipe=${wipeMs}ms`} ` +
+      `(terminate=${terminateMs}ms uninstall=${uninstallMs}ms install=${installMs}ms ` +
       `launch=${launchMs}ms sleep=${sleepMs}ms cdp=${cdpConnectMs}ms)`,
     data: {
       udid,
@@ -171,11 +161,9 @@ async function launchSimWalletInstance(
         terminateMs,
         uninstallMs,
         installMs,
-        wipeMs,
         launchMs,
         sleepMs,
         cdpConnectMs,
-        firstInstall,
       },
     },
   });
@@ -288,8 +276,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
 
     // Sequential: parallel simctl install/launch across two sims can deadlock
     // CoreSimulatorService on cold macos-26 runners (observed 14+ min silent
-    // hangs in CI). The shared `_simPair` fixture still consolidates teardown
-    // and lets the wipeAppState optimization amortize across tests.
+    // hangs in CI). The shared `_simPair` fixture still consolidates teardown.
     const instanceA = await launchSimWalletInstance(simA, udidA, envConfig, timeline, 'A');
     const instanceB = await launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B');
     steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));

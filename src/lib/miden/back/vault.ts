@@ -4,7 +4,6 @@ import {
   AccountBuilder,
   AccountComponent,
   AccountStorageMode,
-  AccountType,
   AuthSecretKey,
   SigningInputs,
   Word
@@ -416,7 +415,7 @@ export class Vault {
         // Have to do this sequentially else the wasm fails
         for (const accountHeader of accountHeaders) {
           const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
-          if (!account || account.isFaucet() || account.isNetwork()) {
+          if (!account || account.isFaucet()) {
             continue;
           }
           const walletAccount = walletAccounts.find(wa =>
@@ -605,7 +604,6 @@ export class Vault {
         const detectedScheme = detectAuthScheme(secretKey);
 
         const builder = new AccountBuilder(new Uint8Array(32).fill(0))
-          .accountType(AccountType.RegularAccountImmutableCode)
           .storageMode(AccountStorageMode.public())
           .withAuthComponent(AccountComponent.createAuthComponentFromSecretKey(secretKey))
           .withBasicWalletComponent();

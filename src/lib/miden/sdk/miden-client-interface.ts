@@ -236,9 +236,21 @@ export class MidenClientInterface {
     return getBech32AddressFromAccountId(account.id());
   }
 
-  async importNoteBytes(noteBytes: Uint8Array) {
+  /**
+   * Imports a serialized note (NoteFile or raw Note bytes) into the client.
+   *
+   * Resolves to a hex string: the note ID for a metadata-bearing file, or
+   * the details commitment for a details-only file. The wallet's
+   * `deserializeNoteFileOrNote` wraps raw `Note` bytes via
+   * `NoteFile.fromNoteDetails`, so for that path the returned hex is a
+   * details commitment, not a note ID.
+   */
+  async importNoteBytes(noteBytes: Uint8Array): Promise<string> {
     const noteFile = deserializeNoteFileOrNote(noteBytes);
-    return await this.client.notes.import(noteFile);
+    // String(...) tolerates both return shapes across the 0.15 alpha line:
+    // alpha.4 resolves a NoteId object, current `next` resolves the hex
+    // string directly.
+    return String(await this.client.notes.import(noteFile));
   }
 
   async getAccount(accountId: string) {
@@ -263,7 +275,15 @@ export class MidenClientInterface {
 
   async getInputNoteDetails(query?: NoteQuery): Promise<InputNoteDetails[]> {
     const allInputNotes = await this.client.notes.list(query);
-    return allInputNotes.map(note => {
+    return allInputNotes.flatMap(note => {
+      // A partial (metadata-less) record has no note ID — and, since 0.15
+      // nullifiers fold in metadata, no nullifier either. It cannot be
+      // displayed or consumed, so skip it until sync completes it.
+      const noteId = note.id();
+      const nullifier = note.nullifier();
+      if (!noteId || !nullifier) {
+        return [];
+      }
       const assets = note
         .details()
         .assets()
@@ -273,14 +293,16 @@ export class MidenClientInterface {
           faucetId: getBech32AddressFromAccountId(asset.faucetId())
         }));
       const noteMet = note.metadata();
-      return {
-        noteId: note.id().toString(),
-        noteType: noteMet?.noteType(),
-        senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
-        nullifier: note.nullifier(),
-        state: note.state(),
-        assets
-      };
+      return [
+        {
+          noteId: noteId.toString(),
+          noteType: noteMet?.noteType(),
+          senderAccountId: noteMet ? getBech32AddressFromAccountId(noteMet.sender()) : undefined,
+          nullifier,
+          state: note.state(),
+          assets
+        }
+      ];
     });
   }
 
@@ -622,12 +644,12 @@ export class MidenClientInterface {
   }
 
   async exportDb() {
-    const storeName = this.client.storeIdentifier();
+    const storeName = await this.client.storeIdentifier();
     return await exportStore(storeName);
   }
 
   async importDb(dump: string) {
-    const storeName = this.client.storeIdentifier();
+    const storeName = await this.client.storeIdentifier();
     await importStore(storeName, dump);
   }
 

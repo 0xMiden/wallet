@@ -66,7 +66,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         const client = await getMidenClient();
         const id = await client.importNoteBytes(noteBytes);
         await client.syncState();
-        return id.toString();
+        return id;
       });
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
     }

@@ -183,6 +183,16 @@ describe('doSync', () => {
     expect((globalThis as any).chrome.notifications.create).toHaveBeenCalled();
   });
 
+  it('skips partial (metadata-less) notes whose id() is undefined', async () => {
+    const partialNote = {
+      id: () => undefined
+    };
+    mockClient.getConsumableNotes.mockResolvedValueOnce([partialNote]);
+    await doSync();
+    // The partial note is filtered; doSync still finishes successfully
+    expect(mockStorageSet).toHaveBeenCalled();
+  });
+
   it('skips malformed notes that throw inside the parser', async () => {
     const badNote = {
       id: () => {

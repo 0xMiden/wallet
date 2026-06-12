@@ -218,6 +218,46 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.accounts.import).toHaveBeenCalled();
   });
 
+  it('getInputNoteDetails skips partial notes whose id() is undefined', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+    // A partial (metadata-less) record: id() returns undefined until sync
+    // completes the note. It must be filtered out, not crash the mapper.
+    fakeMidenClient.notes.list = jest.fn(
+      async (): Promise<any[]> => [
+        { id: () => undefined, nullifier: () => undefined },
+        {
+          id: () => ({ toString: () => 'note-2' }),
+          metadata: () => ({
+            noteType: () => 'type',
+            sender: () => 'sender'
+          }),
+          nullifier: () => 'nullifier',
+          state: () => 'state',
+          details: () => ({
+            assets: () => ({
+              fungibleAssets: () => []
+            })
+          })
+        }
+      ]
+    );
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const details = await client.getInputNoteDetails();
+    expect(details).toHaveLength(1);
+    expect(details[0]?.noteId).toBe('note-2');
+  });
+
   it('imports wallet from bytes', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

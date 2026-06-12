@@ -110,7 +110,7 @@ beforeEach(async () => {
   Actions.getAllDAppSessions.mockResolvedValue({});
   Actions.removeDAppSession.mockResolvedValue({});
   Actions.processDApp.mockResolvedValue({ payload: 'response' });
-  mockClient.importNoteBytes.mockResolvedValue({ toString: () => 'note-id-1' });
+  mockClient.importNoteBytes.mockResolvedValue('note-id-1');
   mockClient.syncState.mockResolvedValue(undefined);
   mockClient.exportNote.mockResolvedValue(new Uint8Array([1, 2, 3]));
   mockClient.getInputNote.mockResolvedValue(null);

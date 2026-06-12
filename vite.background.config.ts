@@ -303,11 +303,13 @@ export default defineConfig({
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
-    // route. Default ON for desktop chrome builds — empirically ~3.5x
-    // faster (40s -> 11s) on a 10-core machine with Falcon-512 accounts
-    // and produces correctly-verifying proofs. Set
-    // MIDEN_USE_OFFSCREEN_PROVING=false at build time to opt out (e.g. to
-    // bisect a regression suspected to be in the offscreen path).
+    // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
+    // Falcon-512 accounts when it works.
+    //
+    // The offscreen doc proves on a raw "prover-only" WebClient (no
+    // createClient), which requires the explicit-prover fix from
+    // 0xMiden/web-sdk#182 (>= 0.15.0-alpha.6): older 0.15 SDK builds reject
+    // the prove with "Client not initialized".
     //
     // Mobile (vite.mobile.config.ts) does NOT define this env, so its
     // runtime value is undefined and the `=== 'true'` check fails — mobile

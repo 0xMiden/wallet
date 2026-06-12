@@ -1,10 +1,25 @@
 # Changelog
 
-## 1.14.8 (TBD)
+## 1.15.0 (TBD)
 
 ### Features
 
 * [FEATURE][all] **Default auth scheme for new accounts switched from Falcon to ECDSA.** Existing accounts are unaffected — Miden seals the auth component at on-chain creation and can never rotate it, so any account previously created stays Falcon and continues signing with its existing keystore secret. Restore paths handle both schemes: mnemonic-only restore (`Vault.spawn`) probes the chain under each scheme to find the user's actual hdIndex=0 account; encrypted-file restore reads the new optional `authScheme` field on `WalletAccount` (legacy entries with no field default to Falcon, matching the historical default 1:1). Private-key import detects the scheme from the deserialized `AuthSecretKey` via the SDK's per-scheme accessor. New accounts created post-upgrade get ECDSA stamped into their `WalletAccount` record. Encrypted-file format change is purely additive — old files round-trip through restore as Falcon. (#229)
+
+### Changes
+
+* [CHANGE][all] **Migrated to the Miden 0.15 protocol line** — `@miden-sdk/miden-sdk` and `@miden-sdk/react` bumped to the `0.15.0-alpha` series (npm `next` dist-tag; `@miden-sdk/vite-plugin` stays at `0.14.11`, which is SDK-version-agnostic). User-visible consequences of the protocol bump:
+  - **Local stores do not carry over.** 0.14 account IDs, note IDs, and nullifiers do not round-trip under 0.15 (account-ID version renumbered, note identity split into details-commitment + metadata-bearing ID, hashing changed). The SDK's IndexedDB store detects the version bump and re-creates itself; accounts re-register from the wallet seed and balances resync on unlock. Saved 0.14 wallet store files (Settings → export) cannot be imported into a 0.15 build.
+  - Faucets minted by pre-0.15 SDKs can no longer be introspected for token metadata (`BasicFungibleFaucetComponent.fromAccount` reads the new metadata slot); their assets now display as "Unknown" instead of being blacklisted for the session.
+  - The dApp `ImportPrivateNoteResponse.noteId` for details-only note imports (the common `noteBytes` path) now carries the note's **details-commitment hex** rather than a note-id hex, following `notes.import`'s new return contract.
+  - Network/fee-asset discovery follows the protocol rename (`BlockHeader.feeFaucetId()`, formerly `nativeAssetId()`); the discovery cache is keyed `v2` so 0.14-cached IDs are not reused.
+  - Account storage modes are `public`/`private` only (the chain's separate network-account flag is gone), and partial (metadata-less) input notes — which have no note ID until sync completes them — are filtered out of consumable/claimable listings.
+* [CHANGE][ci] Blockchain E2E installs `miden-client-cli` from a pinned git rev (`midenClientCliGit` in package.json) while the 0.15 CLI is unreleased on crates.io; testnet E2E is expected red until testnet upgrades to node 0.15 (devnet already runs it) — covered by the at-least-one-network gate.
+
+### Fixes
+
+* [FIX][mobile] Wallet creation no longer panics the WASM client on iOS/Android (`RefCell already borrowed` → poisoned instance → claims and balances silently dead). On mobile the front-end and wallet back-end share one direct-path (`useWorker: false`) SDK client, and the front-end's balance polling overlapped the wallet-creation syncs; `@miden-sdk/miden-sdk@0.15.0-alpha.7` restores the SDK-side call serialization that makes those overlaps queue instead of panic ([web-sdk#184](https://github.com/0xMiden/web-sdk/pull/184)).
+* [FIX][extension] The offscreen prover document now constructs the SDK's raw wasm-bindgen `WebClient` (prover-only — `createClient()` is never called) instead of the worker-shim wrapper. The wrapper forwarded every prove to its own method worker — a WASM instance whose rayon pool the offscreen document never initialized — and its implicit worker INIT performed a network round-trip against the SDK's default RPC endpoint, making local proving silently dependent on that endpoint being reachable and version-compatible. Proves now run on the offscreen document's own thread pool with no implicit network access (so local proving works offline), completing in ~5–6 s on a 10-core machine. Requires `@miden-sdk/miden-sdk` ≥ `0.15.0-alpha.6` (the explicit-prover fix in [web-sdk#182](https://github.com/0xMiden/web-sdk/pull/182)). Root-cause analysis in [web-sdk#180](https://github.com/0xMiden/web-sdk/issues/180#issuecomment-4686218893).
 
 ## 1.14.7 (2026-06-09)
 

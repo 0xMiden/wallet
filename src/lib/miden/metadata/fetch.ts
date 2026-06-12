@@ -47,7 +47,18 @@ export async function fetchTokenMetadata(
       // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
       return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
     }
-    const faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
+    // `fromAccount` reads the 0.15 faucet metadata slot. Faucets minted by
+    // pre-0.15 SDKs are not introspectable through it — degrade to default
+    // ("Unknown") metadata instead of throwing NotFoundTokenMetadata, which
+    // would blacklist the faucet for the whole session via
+    // `autoFetchMetadataFails` even though its assets are otherwise usable.
+    let faucetDetails;
+    try {
+      faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
+    } catch (introspectErr) {
+      console.warn('Faucet metadata slot unreadable (pre-0.15 faucet?) for', assetId, introspectErr);
+      return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
+    }
     const decimals = faucetDetails.decimals();
     const symbol = faucetDetails.symbol().toString();
     const base: AssetMetadata = {

@@ -5,9 +5,9 @@ import * as path from 'path';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 
-const FAUCET_INIT_TOML = `["miden::standards::fungible_faucets::metadata"]
-max_supply = "1000000000000"
-decimals = "8"
+const FAUCET_INIT_TOML = `[fungible-faucet-metadata]
+max_supply = 1000000000000
+decimals = 8
 symbol = "TST"
 `;
 
@@ -36,17 +36,48 @@ export function resolveCliPath(): string {
     // not found
   }
 
-  // 3. Auto-install from crates.io at the version pinned in package.json
-  let version: string;
+  // 3. Auto-install at the pin from package.json. Two pin shapes:
+  //    - `midenClientCliGit: { url, rev }` — takes precedence; used while the
+  //      target miden-client line is unreleased on crates.io (e.g. the 0.15
+  //      series ships from the repo's `next` branch only). Pinned to a REV,
+  //      not a branch, so installs are reproducible and match the protocol
+  //      rev the bundled SDK WASM was built against.
+  //    - `midenClientCliVersion: "x.y.z"` — crates.io release.
+  let version: string | undefined;
+  let gitPin: { url: string; rev: string } | undefined;
   try {
     const pkgPath = path.resolve('package.json');
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    gitPin = pkg.midenClientCliGit;
     version = pkg.midenClientCliVersion;
-    if (!version || typeof version !== 'string') {
+    if (gitPin && (typeof gitPin.url !== 'string' || typeof gitPin.rev !== 'string')) {
+      throw new Error('midenClientCliGit must have string `url` and `rev` fields');
+    }
+    if (!gitPin && (!version || typeof version !== 'string')) {
       throw new Error('midenClientCliVersion missing from package.json');
     }
   } catch (err: any) {
-    throw new Error(`Cannot resolve midenClientCliVersion from package.json: ${err.message}`);
+    throw new Error(`Cannot resolve miden-client CLI pin from package.json: ${err.message}`);
+  }
+
+  if (gitPin) {
+    console.log(
+      `Installing miden-client-cli from ${gitPin.url}@${gitPin.rev.slice(0, 8)} (first run only)...`
+    );
+    try {
+      // `--locked` consumes the repo's Cargo.lock at that rev — same
+      // MAST-root-drift protection as the crates.io path below.
+      execSync(`cargo install miden-client-cli --git ${gitPin.url} --rev ${gitPin.rev} --locked`, {
+        stdio: 'inherit',
+        timeout: 600_000, // 10 min for compile
+      });
+    } catch (err: any) {
+      throw new Error(
+        `Failed to install miden-client-cli from ${gitPin.url}@${gitPin.rev}. ` +
+          `Ensure the Rust toolchain is installed (https://rustup.rs). Error: ${err.message}`
+      );
+    }
+    return 'miden-client';
   }
 
   console.log(`Installing miden-client-cli@${version} from crates.io (first run only)...`);
@@ -143,9 +174,8 @@ export class MidenCli {
     fs.writeFileSync(tomlPath, FAUCET_INIT_TOML);
 
     const createArgs =
-      `new-account --account-type fungible-faucet ` +
+      `new-account --account-type public ` +
       `-p basic-fungible-faucet ` +
-      `--storage-mode public ` +
       `--init-storage-data-path ${tomlPath} ` +
       `--deploy`;
 
@@ -159,7 +189,14 @@ export class MidenCli {
       }
       lastErr = createResult.stderr;
       const transient =
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
+        // miette folds the message at terminal width): the node's account
+        // state lags the store's optimistic post-submit state while a
+        // deploy or mint is still in flight, and miden-client's sqlite
+        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
+        // Clears as soon as the tx commits, so it retries like any other
+        // transient.
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
           lastErr
         );
       if (!transient || attempt === maxAttempts) break;
@@ -230,7 +267,14 @@ export class MidenCli {
       }
       lastErr = result.stderr;
       const transient =
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
+        // miette folds the message at terminal width): the node's account
+        // state lags the store's optimistic post-submit state while a
+        // deploy or mint is still in flight, and miden-client's sqlite
+        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
+        // Clears as soon as the tx commits, so it retries like any other
+        // transient.
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
           lastErr
         );
       if (!transient || attempt === maxAttempts) break;
@@ -253,7 +297,14 @@ export class MidenCli {
       if (result.exitCode === 0) return;
       lastErr = result.stderr;
       const transient =
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure/i.test(
+        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
+        // miette folds the message at terminal width): the node's account
+        // state lags the store's optimistic post-submit state while a
+        // deploy or mint is still in flight, and miden-client's sqlite
+        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
+        // Clears as soon as the tx commits, so it retries like any other
+        // transient.
+        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
           lastErr
         );
       if (!transient || attempt === maxAttempts) break;
