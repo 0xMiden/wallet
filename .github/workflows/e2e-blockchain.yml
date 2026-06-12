@@ -294,6 +294,22 @@ jobs:
           printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
           echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
 
+      # Kick the cold boot off NOW so it overlaps the ~25-minute app build.
+      # First boot of an iOS 26 runtime on a cold runner takes many minutes
+      # (dyld shared-cache build); booting only in playwright's globalSetup
+      # left the suite racing a half-booted simulator, where simctl
+      # install/launch hang for the full test timeout. `simctl boot` is
+      # asynchronous — globalSetup's bootstatus gate later confirms
+      # readiness, which by then is long since done.
+      - name: Pre-boot simulators (async, overlaps build)
+        shell: bash
+        run: |
+          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
+          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
+          xcrun simctl boot "$UDID_A" || true
+          xcrun simctl boot "$UDID_B" || true
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B"
+
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
 
@@ -391,6 +407,22 @@ jobs:
           mkdir -p test-results-ios
           printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
           echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
+
+      # Kick the cold boot off NOW so it overlaps the ~25-minute app build.
+      # First boot of an iOS 26 runtime on a cold runner takes many minutes
+      # (dyld shared-cache build); booting only in playwright's globalSetup
+      # left the suite racing a half-booted simulator, where simctl
+      # install/launch hang for the full test timeout. `simctl boot` is
+      # asynchronous — globalSetup's bootstatus gate later confirms
+      # readiness, which by then is long since done.
+      - name: Pre-boot simulators (async, overlaps build)
+        shell: bash
+        run: |
+          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
+          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
+          xcrun simctl boot "$UDID_A" || true
+          xcrun simctl boot "$UDID_B" || true
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B"
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
