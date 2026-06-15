@@ -8,17 +8,6 @@ import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
-import {
-  AgglayerBridgeInPayload,
-  AppNotification,
-  PendingNotePayload,
-  pruneStaleEventNotifications,
-  reconcilePendingNotes,
-  reconcileTransactionNotifications,
-  TransactionNotificationCandidate,
-  upsertAgglayerBridgeInNotifications
-} from './notifications';
-import { loadPersistedNotifications, persistNotifications } from './notifications-storage';
 import { WalletStore } from './types';
 import { fetchBalances } from './utils/fetchBalances';
 
@@ -90,11 +79,6 @@ export const useWalletStore = create<WalletStore>()(
     seenNoteIds: new Set<string>(),
     isNoteToastVisible: false,
     noteToastShownAt: null,
-
-    // Initial notification center state
-    notificationsByAccount: {},
-    notificationsHydrated: false,
-    notificationTxWatermarks: {},
 
     // Initial extension sync state
     extensionClaimableNotes: null,
@@ -641,136 +625,6 @@ export const useWalletStore = create<WalletStore>()(
       if (isExtension()) {
         clearPersistedSeenNoteIds().catch(() => {});
       }
-    },
-
-    // Notification center actions
-    hydrateNotifications: async () => {
-      if (get().notificationsHydrated) return;
-      try {
-        const { byAccount, txWatermarks } = await loadPersistedNotifications();
-
-        const now = Date.now();
-        const prunedByAccount: typeof byAccount = {};
-        for (const [account, list] of Object.entries(byAccount)) {
-          prunedByAccount[account] = pruneStaleEventNotifications(list, now).next;
-        }
-
-        set({
-          notificationsByAccount: prunedByAccount,
-          notificationTxWatermarks: txWatermarks,
-          notificationsHydrated: true
-        });
-      } catch {
-        // Degrade to session-only notifications
-        set({ notificationsHydrated: true });
-      }
-    },
-
-    reconcilePendingNoteNotifications: (accountPublicKey: string, notes: PendingNotePayload[]) => {
-      const { notificationsHydrated, notificationsByAccount, notificationTxWatermarks } = get();
-      if (!notificationsHydrated) return;
-
-      const existing = notificationsByAccount[accountPublicKey] ?? [];
-      const { next, changed } = reconcilePendingNotes(existing, accountPublicKey, notes, Date.now());
-      if (!changed) return;
-
-      const updated = { ...notificationsByAccount, [accountPublicKey]: next };
-      set({ notificationsByAccount: updated });
-      persistNotifications({ byAccount: updated, txWatermarks: notificationTxWatermarks }).catch(() => {});
-    },
-
-    markAllNotificationsRead: (accountPublicKey: string) => {
-      const { notificationsByAccount, notificationTxWatermarks } = get();
-      const existing = notificationsByAccount[accountPublicKey] ?? [];
-      if (!existing.some(n => n.readAt === null)) return;
-
-      const now = Date.now();
-      const updated = {
-        ...notificationsByAccount,
-        [accountPublicKey]: existing.map(n => (n.readAt === null ? { ...n, readAt: now } : n))
-      };
-      set({ notificationsByAccount: updated });
-      persistNotifications({ byAccount: updated, txWatermarks: notificationTxWatermarks }).catch(() => {});
-    },
-
-    addNotification: (notification: AppNotification) => {
-      get().addNotifications([notification]);
-    },
-
-    addNotifications: (notifications: AppNotification[]) => {
-      const { notificationsHydrated, notificationsByAccount, notificationTxWatermarks } = get();
-      if (!notificationsHydrated || notifications.length === 0) return;
-
-      let changed = false;
-      const updated = { ...notificationsByAccount };
-
-      for (const notification of notifications) {
-        const list = updated[notification.accountPublicKey] ?? [];
-        const index = list.findIndex(n => n.id === notification.id);
-
-        if (index === -1) {
-          updated[notification.accountPublicKey] = [...list, notification];
-          changed = true;
-          continue;
-        }
-
-        const current = list[index]!;
-        if (JSON.stringify(current.payload) === JSON.stringify(notification.payload)) continue;
-
-        // Upsert: refresh the payload but keep createdAt/readAt
-        const nextList = [...list];
-        nextList[index] = { ...notification, createdAt: current.createdAt, readAt: current.readAt };
-        updated[notification.accountPublicKey] = nextList;
-        changed = true;
-      }
-
-      if (!changed) return;
-      set({ notificationsByAccount: updated });
-      persistNotifications({ byAccount: updated, txWatermarks: notificationTxWatermarks }).catch(() => {});
-    },
-
-    removeNotification: (accountPublicKey: string, id: string) => {
-      const { notificationsByAccount, notificationTxWatermarks } = get();
-      const existing = notificationsByAccount[accountPublicKey] ?? [];
-      const next = existing.filter(n => n.id !== id);
-      if (next.length === existing.length) return;
-
-      const updated = { ...notificationsByAccount, [accountPublicKey]: next };
-      set({ notificationsByAccount: updated });
-      persistNotifications({ byAccount: updated, txWatermarks: notificationTxWatermarks }).catch(() => {});
-    },
-
-    reconcileTransactionNotifications: (accountPublicKey: string, candidates: TransactionNotificationCandidate[]) => {
-      const { notificationsHydrated, notificationsByAccount, notificationTxWatermarks } = get();
-      if (!notificationsHydrated) return;
-
-      const existing = notificationsByAccount[accountPublicKey] ?? [];
-      const { next, watermarkSec, changed } = reconcileTransactionNotifications(
-        existing,
-        accountPublicKey,
-        candidates,
-        notificationTxWatermarks[accountPublicKey],
-        Date.now()
-      );
-      if (!changed) return;
-
-      const updatedByAccount = { ...notificationsByAccount, [accountPublicKey]: next };
-      const updatedWatermarks = { ...notificationTxWatermarks, [accountPublicKey]: watermarkSec };
-      set({ notificationsByAccount: updatedByAccount, notificationTxWatermarks: updatedWatermarks });
-      persistNotifications({ byAccount: updatedByAccount, txWatermarks: updatedWatermarks }).catch(() => {});
-    },
-
-    reconcileAgglayerBridgeInNotifications: (accountPublicKey: string, deposits: AgglayerBridgeInPayload[]) => {
-      const { notificationsHydrated, notificationsByAccount, notificationTxWatermarks } = get();
-      if (!notificationsHydrated) return;
-
-      const existing = notificationsByAccount[accountPublicKey] ?? [];
-      const { next, changed } = upsertAgglayerBridgeInNotifications(existing, accountPublicKey, deposits, Date.now());
-      if (!changed) return;
-
-      const updated = { ...notificationsByAccount, [accountPublicKey]: next };
-      set({ notificationsByAccount: updated });
-      persistNotifications({ byAccount: updated, txWatermarks: notificationTxWatermarks }).catch(() => {});
     },
 
     // Extension sync actions

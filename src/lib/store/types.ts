@@ -8,13 +8,6 @@ import { type TokenPrices } from 'lib/prices/binance';
 import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import {
-  AgglayerBridgeInPayload,
-  AppNotification,
-  PendingNotePayload,
-  TransactionNotificationCandidate
-} from './notifications';
-
 /**
  * Core wallet state (synced from backend)
  */
@@ -98,17 +91,6 @@ export interface TransactionUiSlice {
    * or closes, so a stale hash never leaks across sends.
    */
   lastCompletedTxHash: string | null;
-}
-
-/**
- * Persisted notification center state (keyed per account)
- */
-export interface NotificationsSlice {
-  notificationsByAccount: Record<string, AppNotification[]>;
-  /** True once persisted notifications have been loaded — gates reconcile/persist */
-  notificationsHydrated: boolean;
-  /** Per-account transaction-notification watermark — SECONDS (matches tx completedAt) */
-  notificationTxWatermarks: Record<string, number>;
 }
 
 /**
@@ -258,28 +240,6 @@ export interface ExtensionSyncActions {
 }
 
 /**
- * Notification center actions
- */
-export interface NotificationsActions {
-  /** Load persisted notifications from storage (idempotent) */
-  hydrateNotifications: () => Promise<void>;
-  /** Diff current claimable notes against stored notifications: add unseen, prune gone */
-  reconcilePendingNoteNotifications: (accountPublicKey: string, notes: PendingNotePayload[]) => void;
-  /** Mark every notification for the account as read (clears the unread badge) */
-  markAllNotificationsRead: (accountPublicKey: string) => void;
-  /** Imperatively add (or upsert by id, keeping createdAt/readAt) a single notification */
-  addNotification: (notification: AppNotification) => void;
-  /** Batch variant of addNotification */
-  addNotifications: (notifications: AppNotification[]) => void;
-  /** Remove a notification by id */
-  removeNotification: (accountPublicKey: string, id: string) => void;
-  /** Diff terminal-status transactions against stored notifications (watermark-gated) */
-  reconcileTransactionNotifications: (accountPublicKey: string, candidates: TransactionNotificationCandidate[]) => void;
-  /** Upsert incoming Agglayer bridge deposits as notifications */
-  reconcileAgglayerBridgeInNotifications: (accountPublicKey: string, deposits: AgglayerBridgeInPayload[]) => void;
-}
-
-/**
  * Note toast actions (mobile only)
  */
 export interface NoteToastActions {
@@ -304,7 +264,6 @@ export interface WalletStore
     SyncSlice,
     TransactionUiSlice,
     NoteToastSlice,
-    NotificationsSlice,
     ExtensionSyncSlice,
     WalletActions,
     BalanceActions,
@@ -313,5 +272,4 @@ export interface WalletStore
     SyncActions,
     TransactionUiActions,
     NoteToastActions,
-    NotificationsActions,
     ExtensionSyncActions {}

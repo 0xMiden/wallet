@@ -85,7 +85,6 @@ import { ReactComponent as MidenLogoOrange } from './miden-logo-orange.svg';
 import { ReactComponent as MidenLogoWhite } from './miden-logo-white.svg';
 import { ReactComponent as MidenLogo } from './miden-logo.svg';
 import { ReactComponent as More } from './more.svg';
-import { ReactComponent as Notifications } from './notifications.svg';
 import { ReactComponent as OnboardingLogo } from './onboarding-logo.svg';
 import { ReactComponent as Pencil } from './pencil.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
@@ -195,7 +194,6 @@ export enum IconName {
   Loading = 'loading',
   Lock = 'lock',
   More = 'more',
-  Notifications = 'notifications',
   Pencil = 'pencil',
   QrScan = 'qr-scan',
   RadioFill = 'radio-fill',
@@ -390,8 +388,6 @@ const IconSwitch = (props: IconProps) => {
       return <Lock {...props} />;
     case IconName.More:
       return <More {...props} />;
-    case IconName.Notifications:
-      return <Notifications {...props} />;
     case IconName.Pencil:
       return <Pencil {...props} />;
     case IconName.QrScan:
