@@ -35,6 +35,7 @@ import {
   IBridgeClaimStatus,
   IBridgedSendExtraInputs,
   IBridgedSendNoteParams,
+  IBridgeInInfo,
   IBridgeProvider,
   ITransaction,
   ITransactionStage,
@@ -51,6 +52,7 @@ import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/help
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
+import { takeBridgeInInfoForNotes } from './bridge-in';
 import { interpretTransactionResult } from './helpers';
 import { importAllNotes, queueNoteImport } from './notes';
 import { compareAccountIds } from './utils';
@@ -402,8 +404,20 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
   const dbTransaction = await Repo.transactions.where({ id }).first();
   const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
-  const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
   const secondaryAccountId = reclaimed ? undefined : sender;
+
+  // Bridged-in (EVM→Miden) notes are auto-consumed — if intent polling parked
+  // one of these note ids, this row IS the deposit: tag it as a bridge-in so
+  // the activity views render it like a bridge row. Best-effort: a registry
+  // failure must not fail the consume itself.
+  let bridgeIn: IBridgeInInfo | undefined;
+  try {
+    const consumedNoteIds = dbTransaction?.noteIds ?? (dbTransaction?.noteId ? [dbTransaction.noteId] : []);
+    bridgeIn = await takeBridgeInInfoForNotes(consumedNoteIds);
+  } catch (error) {
+    console.warn('bridge-in registry lookup failed', error);
+  }
+  const displayMessage = bridgeIn ? 'Bridged from EVM' : reclaimed ? 'Reclaimed' : 'Received';
   const asset = note.assets().fungibleAssets()[0];
   if (!asset) {
     throw new Error('completeConsumeTransaction: note has no fungible assets');
@@ -428,7 +442,8 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     amount,
     noteType: toNoteTypeString(note.metadata().noteType()),
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
-    resultBytes: result.serialize()
+    resultBytes: result.serialize(),
+    ...(bridgeIn ? { extraInputs: { bridgeIn } } : {})
   });
 };
 

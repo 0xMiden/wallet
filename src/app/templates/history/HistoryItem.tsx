@@ -12,7 +12,14 @@ import { Link } from 'lib/woozie';
 
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
-import { BRIDGE_STATUS_LABEL_KEY, BridgeStatus, bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
+import {
+  BRIDGE_STATUS_LABEL_KEY,
+  BridgeStatus,
+  bridgeInRowDisplay,
+  bridgeRowDisplay,
+  isBridgeInEntry,
+  isFaucetRequest
+} from './transactionUtils';
 
 type HistoryItemProps = {
   entry: IHistoryEntry;
@@ -48,7 +55,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     [entry]
   );
 
-  if (entry.txType === 'bridged-send') {
+  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
@@ -112,10 +119,11 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 };
 
 /**
- * Bridge (`bridged-send`) row: "Bridge IN → OUT" with a "Via <provider> → <network>"
- * subtitle, the quoted destination amount, and a Pending/Confirmed status dot —
- * matching the swap-style design. Distinct from the generic send/receive row, which
- * shows a signed Miden amount + from/to address.
+ * Bridge row: "Bridge IN → OUT" with a "Via <provider> → <network>" subtitle,
+ * the destination amount, and a Pending/Confirmed status dot — matching the
+ * swap-style design. Covers `bridged-send` rows and bridge-in consumes (the
+ * direction-flipped EVM→Miden deposit). Distinct from the generic send/receive
+ * row, which shows a signed Miden amount + from/to address.
  */
 const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'lastEntry'>> = ({
   entry,
@@ -123,7 +131,8 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
-  const { inSymbol, outSymbol, outAmount, providerLabel, network, status } = bridgeRowDisplay(entry);
+  const { inSymbol, outSymbol, outAmount, providerLabel, network, status } =
+    entry.txType === 'bridged-send' ? bridgeRowDisplay(entry) : bridgeInRowDisplay(entry);
 
   return (
     <div

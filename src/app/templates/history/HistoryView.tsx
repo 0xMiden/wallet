@@ -13,7 +13,7 @@ import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { BRIDGE_STATUS_LABEL_KEY, bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
+import { BRIDGE_STATUS_LABEL_KEY, bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
 
 type HistoryViewProps = {
   entries: IHistoryEntry[];
@@ -56,15 +56,22 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string, unknown>) => string) {
   // Bridge rows get a dedicated swap-style layout: "Bridge IN → OUT" / "Via
   // <provider> → <network>" / output amount / status dot. The Miden-side icon
-  // (SEND) and signed amount don't apply.
-  if (entry.txType === 'bridged-send') {
-    const d = bridgeRowDisplay(entry);
+  // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
+  // EVM→Miden deposits) reuse the same layout with the direction flipped.
+  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
+    const bridgeIn = entry.txType !== 'bridged-send';
+    const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
     return {
       icon: <SwapIcon className="w-5 h-5" />,
       iconBg: 'bg-[#777487]',
       title: t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
       subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
-      amount: d.outAmount ? { value: `${d.outAmount} ${d.outSymbol}`, direction: 'neutral' as const } : undefined,
+      amount: d.outAmount
+        ? {
+            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
+            direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
+          }
+        : undefined,
       status: { label: t(BRIDGE_STATUS_LABEL_KEY[d.status]), tone: d.status }
     };
   }

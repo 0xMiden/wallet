@@ -76,6 +76,24 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
 };
 
+/** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
+export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
+  entry.txType === 'consume' && entry.bridgeInProvider !== undefined;
+
+/**
+ * Display fields for a bridge-in `consume` entry, mirroring `bridgeRowDisplay`
+ * with the direction flipped: EVM-side input token → Miden token received. The
+ * row is only tagged once the consume is on-chain-final, so status is always
+ * confirmed.
+ */
+export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
+  const inSymbol = entry.bridgeInSourceSymbol ?? 'USDC';
+  const outSymbol = entry.token ?? '—';
+  const outAmount = entry.amount?.toString();
+  const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
+  return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: 'confirmed' };
+};
+
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;
 };
