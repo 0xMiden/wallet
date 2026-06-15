@@ -7,11 +7,11 @@ import { PropsWithChildren } from 'lib/props-with-children';
 interface AwaitFontsProps extends PropsWithChildren {
   name: string;
   weights: number[];
-  className: string;
+  className?: string;
 }
 
 const AwaitFonts: FC<AwaitFontsProps> = ({ name, weights, className, children }) => {
-  useSWR([name, weights, className], awaitFonts, {
+  useSWR([name, weights, className ?? ''], awaitFonts, {
     suspense: true,
     shouldRetryOnError: false,
     revalidateOnFocus: false,
@@ -25,7 +25,12 @@ export default AwaitFonts;
 
 async function awaitFonts(args: [string, number[], string]) {
   const [name, weights, className] = args;
-  const applyClass = () => document.body.classList.add(...className.split(' '));
+  const applyClass = () => {
+    const classNames = className.split(' ').filter(Boolean);
+    if (classNames.length > 0) {
+      document.body.classList.add(...classNames);
+    }
+  };
 
   // Native Font Loading API resolves once Google Fonts (or any @font-face) has
   // delivered the requested weight. Fall back to whatever the browser has
