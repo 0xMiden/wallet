@@ -171,8 +171,8 @@ export const SendForm: React.FC<SendFormProps> = ({
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-app-bg text-black px-4 ">
-      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar relative w-full pt-4">
-        <div className="flex flex-col pb-22 pt-4 border-t border-border-faint justify-center items-center w-full">
+      <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar relative w-full pt-4">
+        <div className="flex flex-1 flex-col pb-22 pt-4 border-t border-border-faint justify-center items-center w-full">
           {/* Recipient Address */}
           <div className="pb-6 border-b border-border-fain w-full">
             <div className="flex items-center justify-between">
@@ -221,7 +221,7 @@ export const SendForm: React.FC<SendFormProps> = ({
           </div>
 
           {/* Amount */}
-          <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 pt-6 pb-4 border-b border-grey-300/20">
+          <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 pt-6 pb-4 border-b border-border-faint">
             <div className="flex cursor-text items-baseline">
               <CurrencyInput
                 className={clsx(
@@ -299,7 +299,7 @@ export const SendForm: React.FC<SendFormProps> = ({
             variant={ButtonVariant.Primary}
             onClick={handleContinue}
             disabled={!canProceed}
-            className="w-full rounded-[10px] text-base font-semibold"
+            className="w-full shrink-0 rounded-[10px] text-base font-semibold"
           />
         </div>
       </div>
