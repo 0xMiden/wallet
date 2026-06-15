@@ -6,13 +6,14 @@ import { useTranslation } from 'react-i18next';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
+import { ButtonVariant, Button } from 'components/Button';
 import { QRCode } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { Button } from 'lib/ui/button';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
+import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
   address: string;
@@ -97,12 +98,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
             </button>
           </div>
           <div className="w-full border-t border-rule-strong pt-4">
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleOpenEvm}
-              className="h-14 w-full rounded-xl border-border-button bg-white text-base font-semibold text-heading-gray hover:bg-white"
-            >
+            <Button variant={ButtonVariant.Ghost} onClick={handleOpenEvm} className="w-full text-heading-gray">
               {t('receiveFromEvm')}
             </Button>
           </div>
