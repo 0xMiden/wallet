@@ -6,13 +6,14 @@ import { useTranslation } from 'react-i18next';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
+import { ButtonVariant, Button } from 'components/Button';
 import { QRCode } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
-import { Button } from 'lib/ui/button';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
+import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
   address: string;
@@ -67,12 +68,15 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
       data-testid="receive-page"
     >
       <div className="min-h-full flex flex-col">
-        <div className="m-auto flex flex-col items-center px-13 pt-8 pb-32 gap-8">
+        <div className="flex flex-col items-center px-6 pt-8 pb-32">
           <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-          <div className="flex items-center justify-center">
-            <QRCode address={address} size={240} onCopy={copy} className="w-auto" />
+          <div className="flex flex-col items-center justify-center gap-8">
+            <QRCode address={address} size={300} />
+            <span className="w-full rounded-10 text-center text-sm text-heading-gray py-5 bg-surface-interactive">
+              {truncateAddress(address, false, 16, 8)}
+            </span>
           </div>
-          <div className="flex items-center gap-12">
+          <div className="flex items-center gap-12 pt-4 pb-4">
             <button
               type="button"
               onClick={handleShare}
@@ -94,12 +98,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
             </button>
           </div>
           <div className="w-full border-t border-rule-strong pt-4">
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleOpenEvm}
-              className="h-14 w-full rounded-xl border-border-button bg-white text-base font-semibold text-heading-gray hover:bg-white"
-            >
+            <Button variant={ButtonVariant.Ghost} onClick={handleOpenEvm} className="w-full text-heading-gray">
               {t('receiveFromEvm')}
             </Button>
           </div>
