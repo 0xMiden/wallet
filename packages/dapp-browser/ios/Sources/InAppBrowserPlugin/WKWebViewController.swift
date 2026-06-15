@@ -2951,10 +2951,10 @@ private class NavbarButton: UIControl {
     private let title: String
 
     // Match Tailwind's `bg-pill-active/18` — the wallet's pill-active
-    // color is the brand orange #FF5700 at 18% opacity.
+    // color is the brand orange #E77537 at 18% opacity.
     // `activePillBg` is internal (not private) so MidenNavbarOverlayWindow's
     // shared row indicator can reuse the exact same color.
-    private static let activeColor = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
+    private static let activeColor = UIColor(red: 231.0 / 255.0, green: 117.0 / 255.0, blue: 55.0 / 255.0, alpha: 1.0)
     // Inactive icon/label tracks the system appearance — matches the
     // .systemUltraThinMaterial pill, which itself inverts light/dark.
     // Light mode: original dark grey (#4D4D57). Dark mode: white so the
@@ -2964,7 +2964,7 @@ private class NavbarButton: UIControl {
             ? UIColor.white
             : UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
     }
-    static let activePillBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 0.18)
+    static let activePillBg = UIColor(red: 231.0 / 255.0, green: 117.0 / 255.0, blue: 55.0 / 255.0, alpha: 0.18)
 
     // Default-mode icon constraints: top-pinned 22×22 with the label
     // sitting below. Compact-mode icon constraints: center-pinned and
@@ -3255,7 +3255,7 @@ private class NavbarActionButton: UIControl {
     private let pillBackground = UIView()
 
     // Match Tailwind's `bg-pill-active` — the wallet's primary orange.
-    private static let enabledBg = UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
+    private static let enabledBg = UIColor(red: 231.0 / 255.0, green: 117.0 / 255.0, blue: 55.0 / 255.0, alpha: 1.0)
     // Greyed out when disabled — same hue but heavily desaturated /
     // dimmed so the user understands the action exists but isn't ready.
     private static let disabledBg = UIColor(red: 0.74, green: 0.74, blue: 0.76, alpha: 1.0)

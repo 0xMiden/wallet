@@ -42,7 +42,7 @@ const COMMIT_THRESHOLD = 0.3;
 const VELOCITY_PROJECTION_MS = 300;
 
 const SwapPlaceholder: FC = () => (
-  <div className="h-full flex flex-col items-center justify-center gap-2 bg-white">
+  <div className="h-full flex flex-col items-center justify-center gap-2 bg-app-bg">
     <span className="text-2xl font-bold text-text-primary-token">Swap</span>
     <span className="text-sm text-text-tertiary-token">Coming soon</span>
   </div>
@@ -119,7 +119,7 @@ const HomeSwipeContainer: FC = () => {
   const dragMaxLeft = width ? -(PAGES.length - 1) * width : 0;
 
   return (
-    <div ref={containerRef} className="h-full w-full overflow-hidden touch-pan-y">
+    <div ref={containerRef} className="h-full w-full overflow-hidden touch-pan-y bg-app-bg">
       <motion.div
         className="h-full flex"
         style={{ x, width: `${PAGES.length * 100}%` }}

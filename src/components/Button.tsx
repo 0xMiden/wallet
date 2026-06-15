@@ -124,8 +124,10 @@ export const Button: React.FC<ButtonProps> = ({
       className={cn(
         'flex justify-center items-center gap-x-2',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
-        'max-w-92.5 h-14 px-4 rounded-10 w-full',
+        'max-w-92.5 h-14 px-4 rounded-3xl w-full',
         'transition duration-300 ease-in-out text-base',
+        color,
+        fontWeight,
         backgroundColor,
         hoverBackgroundColor,
         border,

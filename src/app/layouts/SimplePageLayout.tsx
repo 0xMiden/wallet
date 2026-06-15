@@ -51,7 +51,7 @@ const SimplePageLayout: FC<SimplePageLayoutProps> = ({ title, icon, children }) 
                 paddingLeft: '32px',
                 paddingTop: '32px',
                 paddingBottom: '112px',
-                background: 'url(/misc/bg.svg) #F6F4F2 center top / 200% no-repeat'
+                background: 'url(/misc/bg.svg) #FFFFFF center top / 200% no-repeat'
               }}
             >
               {icon}
