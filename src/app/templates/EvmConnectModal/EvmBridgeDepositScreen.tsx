@@ -1,30 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAppKitProvider } from '@reown/appkit/react';
-import classNames from 'clsx';
-import CurrencyInput from 'react-currency-input-field';
 import { useTranslation } from 'react-i18next';
 import { useDebounce } from 'use-debounce';
 import { decodeFunctionResult, encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
 import { useWriteContract } from 'wagmi';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { Button, ButtonVariant } from 'components/Button';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { TokenLogo } from 'components/TokenLogo';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
 import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import { BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from 'lib/epoch/bridgeable-token';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletAccount } from 'lib/shared/types';
-import { useWalletStore } from 'lib/store';
-import { epochBridgeInNotificationId } from 'lib/store/notifications';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
 
 import { EvmBridgeDepositConfirm } from './EvmBridgeDepositConfirm';
-import { shortenAddress } from './shared';
+import { BridgeRoute, EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 
 const MIDEN_USDC_FAUCET_ID = '0x0a7d175ed63ec5200fb2ced86f6aa5';
 const MIDEN_USDC_FAUCET_DECIMALS = 6;
@@ -49,7 +42,6 @@ const ERC20_BALANCE_OF_ABI = [
   }
 ] as const;
 
-type BridgeRoute = 'epoch' | 'agglayer';
 type BridgeTokenSymbol = 'USDC' | 'ETH';
 type SlowBridgeStatus = 'idle' | 'signing' | 'submitted' | 'failed';
 enum EvmBridgeDepositStep {
@@ -178,14 +170,6 @@ function isValidAmount(amount: string): boolean {
   return Number.isFinite(parsed) && parsed > 0;
 }
 
-function amountTextSize(value: string): string {
-  const len = value.length || 4;
-  if (len >= 13) return 'text-3xl';
-  if (len >= 10) return 'text-4xl';
-  if (len >= 7) return 'text-5xl';
-  return 'text-6xl';
-}
-
 const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   evmAddress,
   midenAccount,
@@ -202,14 +186,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const epochFlow = useEpochStore(s => s.flow);
   const epochQuote = useEpochStore(s => s.quote);
   const epochError = useEpochStore(s => s.error);
-  const epochIntent = useEpochStore(s => s.intent);
-  const epochPollResults = useEpochStore(s => s.pollResults);
   const quoteEVMToMiden = useEpochStore(s => s.quoteEVMToMiden);
   const executeEVMToMiden = useEpochStore(s => s.executeEVMToMiden);
   const poll = useEpochStore(s => s.poll);
   const resetEpoch = useEpochStore(s => s.reset);
-  const addNotification = useWalletStore(s => s.addNotification);
-  const notifiedBridgeKeyRef = useRef<string | null>(null);
 
   const [route, setRoute] = useState<BridgeRoute>('epoch');
   const [amount, setAmount] = useState('');
@@ -386,48 +366,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return formatQuoteAmount(String(epochQuote?.quoteResult.tokenOut ?? ''), MIDEN_USDC_FAUCET_DECIMALS);
   }, [epochFlow, epochQuote?.quoteResult.tokenOut, route]);
   const receiveLabel = epochReturnAmount ? `~${epochReturnAmount} USDC` : null;
-
-  // Surface the terminal bridge-in result in the notification center. Quote
-  // and signing failures (no intent yet) aren't bridge events — skip those.
-  useEffect(() => {
-    if (epochFlow !== 'evm-to-miden') return;
-    if (epochStatus !== 'done' && epochStatus !== 'failed') return;
-    if (epochStatus === 'failed' && !epochIntent) return;
-
-    const key = epochIntent?.solveResult?.nonce ?? epochIntent?.solveResult?.hash ?? `${midenAccount.publicKey}:once`;
-    if (notifiedBridgeKeyRef.current === key) return;
-    notifiedBridgeKeyRef.current = key;
-
-    const fill = epochPollResults?.find(r => r.transactionHash);
-    addNotification({
-      id: epochBridgeInNotificationId(key),
-      kind: 'bridge-in-epoch',
-      accountPublicKey: midenAccount.publicKey,
-      createdAt: Date.now(),
-      readAt: null,
-      payload: {
-        intentNonce: epochIntent?.solveResult?.nonce,
-        amount,
-        symbol: token.symbol,
-        receivedAmount: epochReturnAmount ?? undefined,
-        receivedSymbol: epochReturnAmount ? 'USDC' : undefined,
-        status: epochStatus === 'done' ? 'confirmed' : 'failed',
-        fillTxHash: fill?.transactionHash,
-        error: epochStatus === 'failed' ? (epochError ?? undefined) : undefined
-      }
-    });
-  }, [
-    addNotification,
-    amount,
-    epochError,
-    epochFlow,
-    epochIntent,
-    epochPollResults,
-    epochReturnAmount,
-    epochStatus,
-    midenAccount.publicKey,
-    token.symbol
-  ]);
+  const quoteHint =
+    route === 'epoch' && (epochStatus === 'quoting' || receiveLabel)
+      ? receiveLabel
+        ? `You receive ${receiveLabel}`
+        : 'Getting return quote...'
+      : null;
 
   const handleContinue = useCallback(() => {
     if (!canContinue) return;
@@ -477,123 +421,28 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case EvmBridgeDepositStep.Form:
         default:
           return (
-            <div className="flex h-full min-h-0 flex-col bg-app-bg text-heading-gray">
-              <div className="shrink-0 px-6 pt-4">
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-border-light bg-white px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-text-tertiary-token">Connected wallet</p>
-                    <p className="truncate text-sm font-semibold text-heading-gray">{shortenAddress(evmAddress)}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onDisconnect}
-                    className="shrink-0 rounded-xl border border-border-button px-3 py-2 text-sm font-semibold text-heading-gray"
-                  >
-                    {t('disconnect')}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-1 min-h-0 flex-col px-6 py-6">
-                <div className="flex-1 overflow-y-auto">
-                  <div className="mt-8 text-center">
-                    <p className="text-lg font-semibold text-heading-gray">Choose Amount</p>
-                    <CurrencyInput
-                      value={amount}
-                      onValueChange={handleAmountChange}
-                      inputMode="decimal"
-                      placeholder="0"
-                      aria-label="Bridge amount"
-                      className={classNames(
-                        'mt-5 h-24 w-full bg-transparent p-0 text-center text-[72px] font-semibold leading-none outline-none placeholder:text-grey-300',
-                        amount ? 'text-heading-gray' : 'text-grey-300',
-                        amountTextSize(amount)
-                      )}
-                      disableGroupSeparators
-                      decimalSeparator="."
-                      decimalsLimit={6}
-                      allowNegativeValue={false}
-                      maxLength={16}
-                    />
-                    <p className="mt-4 text-base text-text-tertiary-token">{subtitle}</p>
-                  </div>
-
-                  <div className="mt-5 flex items-center justify-between rounded-2xl bg-surface-interactive px-5 py-5">
-                    <div className="flex flex-1 items-center justify-center gap-3">
-                      <TokenLogo symbol={token.symbol} size="sm" />
-                      <span className="text-xl font-semibold text-black">{token.symbol}</span>
-                      <Icon name={IconName.ChevronDown} size="xs" className="text-heading-gray" />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleMax}
-                      disabled={!selectedBalance.value}
-                      className="rounded-xl bg-accent-primary px-4 py-2 text-sm font-bold text-pure-white disabled:opacity-50"
-                    >
-                      MAX
-                    </button>
-                  </div>
-
-                  <div className="mt-7">
-                    <p className="mb-3 text-sm font-semibold text-heading-gray">From chain</p>
-                    <div className="flex items-center gap-3 rounded-2xl bg-surface-interactive px-5 py-5">
-                      <TokenLogo symbol="ETH" size="sm" />
-                      <span className="text-xl font-medium text-heading-gray">Sepolia</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-7">
-                    <p className="mb-3 text-sm font-semibold text-heading-gray">Choose bridge option</p>
-                    <div className="flex flex-col gap-4">
-                      <RouteOption
-                        active={route === 'epoch'}
-                        title="Instant"
-                        description="In a few minutes - $0.47 fee"
-                        icon={<Icon name={IconName.ArrowRightDownFill} size="md" />}
-                        onClick={() => handleRouteChange('epoch')}
-                      />
-                      <RouteOption
-                        active={route === 'agglayer'}
-                        title="Slow"
-                        description="Est. 30-90 min - No fee"
-                        icon={<Icon name={IconName.Time} size="md" />}
-                        onClick={() => handleRouteChange('agglayer')}
-                      />
-                    </div>
-                  </div>
-
-                  {route === 'epoch' && (epochStatus === 'quoting' || receiveLabel) && (
-                    <p className="mt-4 text-center text-sm font-semibold text-heading-gray">
-                      {receiveLabel ? `You receive ${receiveLabel}` : 'Getting return quote...'}
-                    </p>
-                  )}
-                  {statusMessage && (
-                    <p className="mt-4 text-center text-sm text-text-tertiary-token">{statusMessage}</p>
-                  )}
-                  {error && (
-                    <div className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-500" role="alert">
-                      {error}
-                    </div>
-                  )}
-                  {selectedBalance.error && (
-                    <div className="mt-4 rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-500" role="alert">
-                      {selectedBalance.error}
-                    </div>
-                  )}
-                </div>
-
-                <div className="shrink-0 pt-4">
-                  <Button
-                    variant={ButtonVariant.Primary}
-                    onClick={handleContinue}
-                    disabled={!canContinue || slowStatus === 'submitted' || epochStatus === 'done'}
-                    className="w-full"
-                  >
-                    {getContinueLabel(route, epochStatus, epochFlow, slowStatus)}
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <EvmBridgeDepositForm
+              evmAddress={evmAddress}
+              amount={amount}
+              tokenSymbol={token.symbol}
+              subtitle={subtitle}
+              route={route}
+              quoteHint={quoteHint}
+              statusMessage={statusMessage}
+              error={error}
+              balanceError={selectedBalance.error}
+              maxDisabled={!selectedBalance.value}
+              continueLabel={getContinueLabel(route, epochStatus, epochFlow, slowStatus)}
+              continueDisabled={!canContinue || slowStatus === 'submitted' || epochStatus === 'done'}
+              closeLabel={t('close')}
+              disconnectLabel={t('disconnect')}
+              onAmountChange={handleAmountChange}
+              onMax={handleMax}
+              onRouteChange={handleRouteChange}
+              onContinue={handleContinue}
+              onDisconnect={onDisconnect}
+              onClose={onClose}
+            />
           );
       }
     },
@@ -613,6 +462,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       midenAccount.name,
       onClose,
       onDisconnect,
+      quoteHint,
       receiveLabel,
       route,
       routeLabel,
@@ -637,44 +487,6 @@ export const EvmBridgeDepositScreen: React.FC<EvmBridgeDepositScreenProps> = pro
   <NavigatorProvider routes={ROUTES} initialRouteName={EvmBridgeDepositStep.Form}>
     <EvmBridgeDepositManager {...props} />
   </NavigatorProvider>
-);
-
-interface RouteOptionProps {
-  active: boolean;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-}
-
-const RouteOption: React.FC<RouteOptionProps> = ({ active, title, description, icon, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={classNames(
-      'flex w-full items-center gap-5 rounded-2xl border p-5 text-left',
-      active
-        ? 'border-accent-primary bg-accent-primary text-pure-white'
-        : 'border-border-light bg-white text-heading-gray'
-    )}
-  >
-    <span
-      className={classNames(
-        'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl',
-        active ? 'bg-white text-accent-primary' : 'bg-[#111827] text-[#E4B56D]'
-      )}
-    >
-      {icon}
-    </span>
-    <span className="min-w-0">
-      <span className={classNames('block text-base font-bold leading-none', active ? 'text-pure-white' : 'text-black')}>
-        {title}
-      </span>
-      <span className={classNames('text-sm leading-none', active ? 'text-pure-white' : 'text-text-tertiary-token')}>
-        {description}
-      </span>
-    </span>
-  </button>
 );
 
 function getStatusMessage(
