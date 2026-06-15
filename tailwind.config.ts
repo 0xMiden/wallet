@@ -6,9 +6,9 @@ import customColors from './src/utils/colors';
 const isDevnet = process.env.MIDEN_NETWORK === 'devnet';
 
 const primaryPalette = {
-  50: isDevnet ? '#EEF1F4' : '#FFEDDC',
-  500: isDevnet ? '#7286A0' : '#D44B00',
-  600: isDevnet ? '#5A6B80' : '#B33E00'
+  50: isDevnet ? '#EEF1F4' : '#FFF3EC',
+  500: isDevnet ? '#7286A0' : '#E77537',
+  600: isDevnet ? '#5A6B80' : '#C95A21'
 };
 
 export default {
@@ -81,18 +81,18 @@ export default {
               950: '#7286A0'
             }
           : {
-              // Testnet ramp regenerated around Foundations accent/primary #D44B00.
-              50: '#FFEDDC',
-              100: '#FBD9BB',
-              200: '#F5BB87',
-              300: '#EE9956',
-              400: '#E47B2C',
-              500: '#D44B00',
-              600: '#B33E00',
-              700: '#8C3200',
-              800: '#6E2700',
-              900: '#5C2200',
-              950: '#3F1700'
+              // Testnet ramp regenerated around app brand #E77537.
+              50: '#FFF3EC',
+              100: '#FCE3D6',
+              200: '#F7C8B1',
+              300: '#F1A47E',
+              400: '#EC8754',
+              500: '#E77537',
+              600: '#C95A21',
+              700: '#9F4518',
+              800: '#7D3616',
+              900: '#652D15',
+              950: '#381508'
             },
         logoOrange: isDevnet
           ? {
@@ -103,26 +103,26 @@ export default {
               700: '#4E5F73'
             }
           : {
-              200: '#E47B2C',
-              300: '#F9D4BF',
-              400: '#D44B00',
-              500: '#D44B00',
-              700: '#8C3200'
+              200: '#F1A47E',
+              300: '#F7C8B1',
+              400: '#E77537',
+              500: '#E77537',
+              700: '#9F4518'
             },
         // Brand colors
         'primary-white': '#fcfaf7',
-        'primary-orange': isDevnet ? '#8A9DB5' : '#D44B00',
+        'primary-orange': isDevnet ? '#8A9DB5' : '#E77537',
         'primary-orange-disabled': isDevnet ? '#7F95AD' : '#DCD4C8',
-        'primary-orange-light': isDevnet ? '#C5D0DC' : '#F9D4BF',
-        'primary-orange-dark': isDevnet ? '#4E5F73' : '#8C3200',
-        'primary-orange-lighter': isDevnet ? '#EEF1F4' : '#FFEDDC',
-        'primary-orange-darker': isDevnet ? '#3A4857' : '#5C2200',
+        'primary-orange-light': isDevnet ? '#C5D0DC' : '#F7C8B1',
+        'primary-orange-dark': isDevnet ? '#4E5F73' : '#9F4518',
+        'primary-orange-lighter': isDevnet ? '#EEF1F4' : '#FFF3EC',
+        'primary-orange-darker': isDevnet ? '#3A4857' : '#652D15',
         'primary-gray': '#656565',
         'border-card': 'var(--color-border)',
         'border-faint': '#BABABA33',
         'chip-bg': 'var(--color-chip-bg)',
-        'pill-active': isDevnet ? '#6878A0' : '#C24400',
-        'accent-orange': isDevnet ? '#5E7090' : '#B33E00',
+        'pill-active': isDevnet ? '#6878A0' : '#E77537',
+        'accent-orange': isDevnet ? '#5E7090' : '#E77537',
         'app-bg': 'var(--color-app-bg)',
         'send-blue': '#024073',
         'receive-green': '#38824A',
@@ -181,7 +181,7 @@ export default {
       boxShadow: {
         'xs-white': '0 0 0 1px rgba(255, 255, 255, 0.05)',
         'top-light': '0 -1px 2px 0 rgba(0, 0, 0, 0.1)',
-        outline: isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(212, 75, 0, 0.5)'
+        outline: isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(231, 117, 55, 0.5)'
       },
       // Custom border radius
       borderRadius: {

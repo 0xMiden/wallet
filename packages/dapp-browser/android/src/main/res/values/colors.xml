@@ -8,10 +8,10 @@
          UIColor(red/green/blue/alpha) floats to 0-255 bytes,
          respecting standard rounding rules so the hex is pixel-
          identical to the iOS render. -->
-    <!-- Main-row active color: pill-active orange.
-         iOS: UIColor(red: 1.0, green: 0.42, blue: 0.0, alpha: 1.0)
-         → rgb(255, 107, 0) -->
-    <color name="navbar_active">#FFFF6B00</color>
+    <!-- Main-row active color: pill-active brand orange.
+         iOS: UIColor(red: 231/255, green: 117/255, blue: 55/255, alpha: 1.0)
+         → rgb(231, 117, 55) -->
+    <color name="navbar_active">#FFE77537</color>
     <!-- Main-row inactive color: heading gray.
          iOS: UIColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1.0)
          → rgb(77, 77, 87) (0.30*255=76.5, 0.34*255=86.7, rounded) -->

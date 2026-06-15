@@ -3,7 +3,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as BreadLogo } from 'app/icons/brand/bread.svg';
+import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
@@ -80,7 +80,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
     <SimplePageLayout
       icon={
         <div className="flex flex-col items-center gap-2">
-          <BreadLogo style={{ width: 80, height: 140 }} />
+          <BreadLogo style={{ width: 80, height: 'auto' }} />
           <span className="text-3xl font-semibold font-heading text-heading-gray">Bread</span>
         </div>
       }

@@ -47,12 +47,12 @@ const ConfirmPage: FC = () => {
       ready ? (
         <ContentContainer
           padding={false}
-          className={classNames('min-h-screen', 'flex flex-col items-center justify-center')}
+          className={classNames('min-h-screen', 'flex flex-col items-center justify-center bg-app-bg')}
         >
           <ErrorBoundary whileMessage={t('fetchingConfirmationDetails')}>
             <Suspense
               fallback={
-                <div className="flex items-center justify-center h-screen">
+                <div className="flex items-center justify-center h-screen bg-app-bg">
                   <div>
                     <Spinner />
                   </div>

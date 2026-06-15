@@ -1,5 +1,3 @@
-import { isMobile } from 'lib/platform';
-
 import { ResolvedTheme, ThemeSetting } from './constants';
 import { getThemeSetting, setThemeSetting } from './helpers';
 
@@ -32,9 +30,8 @@ export function applyTheme(setting: ThemeSetting) {
   // leaves the inline cream showing above the body and anywhere the body
   // doesn't stretch to fill (e.g. content shorter than viewport, or the 24px
   // margin-top fullpage.html sets on body).
-  // Mobile uses pure white in light mode (matches the Bread welcome design and
-  // the React content's `--color-app-bg`); other shells keep the cream gutter.
-  const lightBg = isMobile() ? '#ffffff' : '#F6F4F2';
+  // Keep pre-React shell paint in sync with the light-mode app background.
+  const lightBg = '#FFFFFF';
   const bg = resolved === 'dark' ? '#191919' : lightBg;
   doc.style.backgroundColor = bg;
   document.body.style.backgroundColor = bg;

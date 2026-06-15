@@ -17,8 +17,8 @@ type AppKitThemeMode = 'light' | 'dark';
 const networks = [sepolia];
 const appKitThemeVariables = {
   '--apkt-font-family': 'Inter, sans-serif',
-  '--apkt-accent': '#E65303',
-  '--apkt-color-mix': '#E65303',
+  '--apkt-accent': '#E77537',
+  '--apkt-color-mix': '#E77537',
   '--apkt-color-mix-strength': 6,
   '--apkt-border-radius-master': '8px'
 } as const;

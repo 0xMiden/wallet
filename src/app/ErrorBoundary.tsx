@@ -70,7 +70,12 @@ const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowTy
 
   return (
     <div
-      className={classNames('w-full', 'flex items-center justify-center', className, fullPage && 'bg-white mt-[-24px]')}
+      className={classNames(
+        'w-full',
+        'flex items-center justify-center bg-app-bg',
+        className,
+        fullPage && 'mt-[-24px]'
+      )}
     >
       <div className={classNames('p-4', 'flex flex-col items-center', 'text-black')}>
         <Icon name={IconName.Frown} size="3xl" className="mb-8" />
