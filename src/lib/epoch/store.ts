@@ -2,6 +2,8 @@ import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from 
 import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
+import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
+
 import {
   type CrossChainQuote,
   type EVMToMidenQuote,
@@ -11,6 +13,7 @@ import {
   getEVMToMidenQuote
 } from './bridge';
 import { getEvmConnection } from './client';
+import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { getEpochSdk } from './sdk';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
 
@@ -26,6 +29,12 @@ interface EpochState {
   quote: Quote | null;
   intent: IntentResult | null;
   pollResults: IntentTransactionStatus[] | null;
+  /**
+   * EVM→Miden: Miden-side note id reported by intent polling once the solver
+   * creates the P2ID note. The note is auto-consumed, so this is the wallet's
+   * only handle for tagging the resulting consume row as a bridge-in.
+   */
+  midenNoteId: string | null;
   error: string | null;
 }
 
@@ -52,6 +61,7 @@ const INITIAL_STATE: EpochState = {
   quote: null,
   intent: null,
   pollResults: null,
+  midenNoteId: null,
   error: null
 };
 
@@ -62,6 +72,30 @@ function firstString(source: unknown, keys: string[]): string | undefined {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function isLegDone(result: IntentTransactionStatus): boolean {
+  return result.status === 'completed' || result.status === 'success';
+}
+
+/**
+ * EVM→Miden intents report per-leg statuses, and the source-chain (Sepolia)
+ * entry can read `failed` with a null hash even when the deposit landed — e.g.
+ *
+ *   [{ status: 'success', chainId: 999999999, midenNoteId: '0x…' },
+ *    { status: 'failed',  chainId: 11155111, transactionHash: null }]
+ *
+ * The Miden leg IS the destination fill, so it alone decides "done" for the
+ * evm-to-miden flow; requiring every leg would leave the intent pending
+ * forever. Other flows keep the all-legs rule.
+ */
+function isIntentDone(results: IntentTransactionStatus[], flow: EpochFlow | null): boolean {
+  if (results.length === 0) return false;
+  if (flow === 'evm-to-miden') {
+    const midenLeg = results.find(r => r.chainId === MIDEN_DESTINATION_CHAIN_ID);
+    if (midenLeg) return isLegDone(midenLeg);
+  }
+  return results.every(isLegDone);
 }
 
 function errorMessage(err: unknown): string {
@@ -88,7 +122,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   ...INITIAL_STATE,
 
   async quoteEVMToMiden(params, sponsorAddress) {
-    set({ status: 'quoting', flow: 'evm-to-miden', error: null, intent: null, pollResults: null });
+    set({ status: 'quoting', flow: 'evm-to-miden', error: null, intent: null, pollResults: null, midenNoteId: null });
     try {
       const sdk = await getEpochSdk();
       if (!sdk) throw new Error('Connect an EVM wallet first');
@@ -136,6 +170,22 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         return;
       }
       set({ status: 'pending', intent });
+
+      // Park the intent metadata in storage NOW — if the user closes the
+      // deposit screen before its polling loop ever reports the Miden note id,
+      // the consume-completion hook does a one-shot poll against this record
+      // and still tags the auto-consumed note as a bridge-in.
+      const nonce = intent.intentNonce ?? intent.solveResult?.nonce;
+      if (nonce) {
+        const evmParams = (quote as EVMToMidenQuote).params;
+        registerPendingBridgeIn(connection.address, nonce, {
+          provider: 'epoch',
+          sourceAmount: evmParams.evmAmount,
+          sourceSymbol: quote.quoteResult.tokenInSymbol,
+          intentNonce: nonce,
+          evmTxHash: intent.solveResult?.hash
+        }).catch(err => console.warn('[epoch] registerPendingBridgeIn failed', err));
+      }
     } catch (err) {
       console.error('[epoch] executeEVMToMiden failed', err);
       set({ status: 'failed', error: errorMessage(err) });
@@ -143,7 +193,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   },
 
   async quoteMidenToEVM(params, sponsorAddress) {
-    set({ status: 'quoting', flow: 'miden-to-evm', error: null, intent: null, pollResults: null });
+    set({ status: 'quoting', flow: 'miden-to-evm', error: null, intent: null, pollResults: null, midenNoteId: null });
     try {
       const sdk = await getEpochSdk({ forMidenFlow: true });
       if (!sdk) throw new Error('Connect an EVM wallet first');
@@ -194,8 +244,22 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (!sdk) return;
       const results = await sdk.getIntentStatus(address, nonce);
       console.log('[epoch] poll', results);
-      const allDone = results.length > 0 && results.every(r => r.status === 'completed' || r.status === 'success');
-      set({ pollResults: results, status: allDone ? 'done' : 'pending' });
+      const allDone = isIntentDone(results, get().flow);
+      // EVM→Miden fills carry the Miden-side note id as an extra field the SDK
+      // type doesn't declare (the allocator JSON passes through untouched).
+      const discoveredNoteId = results.map(r => firstString(r, ['midenNoteId'])).find(Boolean);
+      if (get().flow === 'evm-to-miden' && discoveredNoteId && discoveredNoteId !== get().midenNoteId) {
+        // Opportunistic: record the note id on the parked intent (and tag the
+        // consume row if auto-consume already claimed it).
+        resolveBridgeInNoteId(nonce, discoveredNoteId).catch(err =>
+          console.warn('[epoch] resolveBridgeInNoteId failed', err)
+        );
+      }
+      set({
+        pollResults: results,
+        midenNoteId: discoveredNoteId ?? get().midenNoteId,
+        status: allDone ? 'done' : 'pending'
+      });
     } catch (err) {
       console.error('[epoch] poll failed', err);
     }

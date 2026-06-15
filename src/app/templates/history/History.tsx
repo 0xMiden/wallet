@@ -2,7 +2,7 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
-import { formatTransactionStatus, IBridgedSendExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
+import { formatTransactionStatus, IBridgedSendExtraInputs, IBridgeInInfo, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -143,6 +143,7 @@ async function fetchTransactionsAsHistoryEntries(
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+    const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
@@ -167,7 +168,11 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeIntentNonce: bridge?.intentNonce,
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
-      bridgeEpochStatus: bridge?.epochStatus
+      bridgeEpochStatus: bridge?.epochStatus,
+      bridgeInProvider: bridgeIn?.provider,
+      bridgeInSourceAmount: bridgeIn?.sourceAmount,
+      bridgeInSourceSymbol: bridgeIn?.sourceSymbol,
+      bridgeInEvmTxHash: bridgeIn?.evmTxHash
     } as IHistoryEntry;
 
     return entry;

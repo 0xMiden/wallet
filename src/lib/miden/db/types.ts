@@ -67,6 +67,29 @@ export interface IBridgedSendExtraInputs {
 }
 
 /**
+ * Bridge-in (EVM → Miden) metadata attached to the `consume` row that claimed
+ * the bridged note. Epoch auto-consumes the note, so that consume row is the
+ * only Miden-side trace of the deposit — tagging it lets the activity views
+ * render it as a bridge row instead of a plain receive.
+ */
+export interface IBridgeInInfo {
+  provider: IBridgeProvider;
+  /** Human-readable EVM-side input amount the user deposited. */
+  sourceAmount?: string;
+  /** EVM-side input token symbol (e.g. USDC). */
+  sourceSymbol?: string;
+  /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
+  intentNonce?: string;
+  /** EVM-side deposit/fill tx hash, when known. */
+  evmTxHash?: string;
+}
+
+/** `extraInputs` shape for a `consume` row that claimed a bridged-in note. */
+export interface IConsumeBridgeInExtraInputs {
+  bridgeIn: IBridgeInInfo;
+}
+
+/**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
  * still `Queued` during the initial sync). Drives the modal's per-stage
  * label so users see what the wallet is actually doing during the 3-8s

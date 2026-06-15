@@ -36,6 +36,13 @@ export interface IHistoryEntry {
   bridgeFillTxHash?: string;
   bridgeFillChainId?: number;
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
+
+  // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
+  // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
+  bridgeInProvider?: IBridgeProvider;
+  bridgeInSourceAmount?: string;
+  bridgeInSourceSymbol?: string;
+  bridgeInEvmTxHash?: string;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction
