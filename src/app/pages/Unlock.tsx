@@ -3,7 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import { openInFullPage, useAppEnv } from 'app/env';
-import { ReactComponent as BreadLogo } from 'app/icons/brand/bread.svg';
+import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { Numpad } from 'components/Numpad';
@@ -15,7 +15,7 @@ import { navigate } from 'lib/woozie';
 
 const BrandIcon = () => (
   <div className="flex flex-col items-center gap-2">
-    <BreadLogo style={{ width: 80, height: 140 }} />
+    <BreadLogo style={{ width: 80, height: 'auto' }} />
     <span className="text-3xl font-semibold font-heading text-heading-gray">Bread</span>
   </div>
 );

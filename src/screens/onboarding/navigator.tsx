@@ -188,9 +188,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.Welcome:
         return <WelcomeScreen onSubmit={onWelcomeAction} />;
       case OnboardingStep.ChooseProtection:
-        return (
-          <ChooseProtectionScreen onSelectBiometric={onSelectBiometric} onSelectPasscode={onSelectPasscode} />
-        );
+        return <ChooseProtectionScreen onSelectBiometric={onSelectBiometric} onSelectPasscode={onSelectPasscode} />;
       case OnboardingStep.SetupPasscode:
         return (
           <SetupPasscodeScreen
@@ -200,10 +198,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         );
       case OnboardingStep.SetupBiometric:
         return (
-          <SetupBiometricScreen
-            onContinue={onSetupBiometricSubmit}
-            onSwitchToPasscode={onBiometricSwitchToPasscode}
-          />
+          <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
         );
       case OnboardingStep.ChooseGuardian:
         return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
@@ -275,6 +270,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
   return (
     <div
+      data-onboarding-root="true"
       className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}
       style={{ maxWidth: 420 }}
     >

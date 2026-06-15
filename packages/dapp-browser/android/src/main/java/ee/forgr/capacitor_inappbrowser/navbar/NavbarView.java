@@ -283,10 +283,10 @@ public final class NavbarView extends FrameLayout {
         //
         // The pre-resolved colors match the old XML drawables that
         // used to live on NavbarButton / NavbarSecondaryButton
-        // (navbar_button_active_bg.xml = #2EFF6B00 orange 18%,
+        // (navbar_button_active_bg.xml = #2EE77537 orange 18%,
         // navbar_secondary_active_bg.xml = slate 8%) — so the
         // visual doesn't change, only how it's applied.
-        mainActivePillColor = 0x2EFF6B00;
+        mainActivePillColor = 0x2EE77537;
         secondaryActivePillColor = androidx.core.content.ContextCompat.getColor(
             context,
             R.color.navbar_secondary_active_bg

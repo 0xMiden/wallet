@@ -3,9 +3,7 @@ import React from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import Spinner from 'app/atoms/Spinner/Spinner';
-import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation.svg';
-import { ReactComponent as EllipseBackdropLight } from 'app/icons/onboarding/ellipse-light.svg';
-import { ReactComponent as EllipseBackdropDark } from 'app/icons/onboarding/ellipse.svg';
+import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation-illustrantion.svg';
 import { Button, ButtonVariant } from 'components/Button';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
@@ -55,21 +53,12 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   return (
     <div
       {...props}
-      className="relative bg-app-bg max-w-full h-full overflow-hidden"
+      className="bg-app-bg max-w-full h-full overflow-hidden"
       data-testid="onboarding-confirmation"
     >
-      <EllipseBackdropLight
-        className="pointer-events-none absolute inset-0 w-full h-full block dark:hidden"
-        preserveAspectRatio="xMidYMid slice"
-      />
-      <EllipseBackdropDark
-        className="pointer-events-none absolute inset-0 w-full h-full hidden dark:block"
-        preserveAspectRatio="xMidYMid slice"
-      />
-
-      <div className="relative z-10 min-h-full flex flex-col items-center px-6 pb-8">
+      <div className="min-h-full flex flex-col items-center px-6 pb-8">
         <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
-          <ConfirmationHero className="w-39 h-39" />
+          <ConfirmationHero style={{ width: 240, height: 'auto' }} />
           <h1 className="mt-6 text-5xl font-semibold font-heading text-heading-gray leading-[100%] tracking-tight">
             <Trans i18nKey="yourWalletIsReady" components={{ highlight: <span className="text-primary-500" /> }} />
           </h1>

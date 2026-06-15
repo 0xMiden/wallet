@@ -298,7 +298,7 @@ export interface GeneratingTransactionProps {
 type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
 
 const SUCCESS_GREEN = '#2BA84A';
-const PROCESSING_ORANGE = '#D44B00';
+const PROCESSING_ORANGE = '#E77537';
 const PENDING_STEP_COLOR = '#C7C7CC';
 const STEP_ADVANCE_DELAY_MS = 1_250;
 

@@ -49,7 +49,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://miden.xyz',
     icon: midenIcon,
     shortDescription: 'The privacy layer for the new internet',
-    brandColor: '#FF5700',
+    brandColor: '#E77537',
     category: 'tools',
     badge: 'verified',
     featured: true
@@ -101,7 +101,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://playground.miden.xyz/',
     icon: playgroundIcon,
     shortDescription: 'Build and test Miden contracts',
-    brandColor: '#FF5700',
+    brandColor: '#E77537',
     category: 'tools',
     badge: 'verified'
   },
