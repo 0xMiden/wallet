@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { MIN_PASSWORD_LENGTH, STRONG_PASSWORD_LENGTH } from 'app/constants';
+import { MIN_PASSWORD_LENGTH, PRIVACY_POLICY_URL, STRONG_PASSWORD_LENGTH, TERMS_OF_USE_URL } from 'app/constants';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
@@ -59,7 +59,7 @@ export const PasswordStrengthIndicator = ({
       return 'bg-red-500';
     }
 
-    return 'bg-grey-100';
+    return 'bg-gray-100';
   }, [validationChecks]);
 
   // TODO: show strength indicator if password is more than 0 characters
@@ -71,14 +71,14 @@ export const PasswordStrengthIndicator = ({
             {[2, 3, 5].map(check => (
               <div
                 key={`check-${check}`}
-                className={`h-1 w-10 rounded-md ${validationChecks >= check ? validationColor : 'bg-grey-100'}`}
+                className={`h-1 w-10 rounded-md ${validationChecks >= check ? validationColor : 'bg-gray-100'}`}
               />
             ))}
           </div>
-          <p className="text-xs text-grey-600">{validationMessage}</p>
+          <p className="text-xs text-text-muted">{validationMessage}</p>
         </div>
       ) : (
-        <p className="text-xs text-grey-600">{t('minimumCharsWithAtLeast')}</p>
+        <p className="text-xs text-text-muted">{t('minimumCharsWithAtLeast')}</p>
       )}
     </div>
   );
@@ -213,13 +213,13 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
         </div>
       </article>
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <p className="text-grey-600 text-xs text-center px-4">
+        <p className="text-text-muted text-xs text-center px-4">
           {t('byProceeding')}{' '}
-          <a target="_blank" href="https://www.miden.fi/terms" className="underline" rel="noreferrer">
+          <a target="_blank" href={TERMS_OF_USE_URL} className="underline" rel="noreferrer">
             {t('termsOfUsage')}
           </a>{' '}
           {t('andWord')}{' '}
-          <a target="_blank" href="https://www.miden.fi/privacy" className="underline" rel="noreferrer">
+          <a target="_blank" href={PRIVACY_POLICY_URL} className="underline" rel="noreferrer">
             {t('privacyPolicy')}
           </a>
           .

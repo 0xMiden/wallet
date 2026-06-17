@@ -12,7 +12,8 @@ _g.__providerTest = {
 };
 
 jest.mock('lib/platform', () => ({
-  isExtension: () => (globalThis as any).__providerTest.isExtension
+  isExtension: () => (globalThis as any).__providerTest.isExtension,
+  isMobile: () => (globalThis as any).__providerTest.isMobile ?? false
 }));
 
 jest.mock('../sdk/miden-client', () => ({
@@ -59,6 +60,14 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));
 
+// The provider gates SdkMidenProvider on WASM readiness via
+// ensureSdkWasmReady(); resolve immediately in jsdom (no WASM here),
+// keep the real constants for everything else.
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  ensureSdkWasmReady: jest.fn(() => Promise.resolve())
+}));
+
 import { MidenProvider } from './provider';
 
 beforeEach(() => {
@@ -69,22 +78,24 @@ beforeEach(() => {
 
 describe('MidenProvider', () => {
   it('renders children inside the provider tree (ready)', async () => {
-    const { getByText } = render(
+    const { findByText } = render(
       <MidenProvider>
         <div>child-content</div>
       </MidenProvider>
     );
-    expect(getByText('child-content')).toBeDefined();
+    // The provider renders null until the ensureSdkWasmReady() gate
+    // resolves (one microtask with the mock) — await the appearance.
+    expect(await findByText('child-content')).toBeDefined();
   });
 
-  it('renders children when not ready (skips token providers)', () => {
+  it('renders children when not ready (skips token providers)', async () => {
     _g.__providerTest.ready = false;
-    const { getByText } = render(
+    const { findByText } = render(
       <MidenProvider>
         <div>child-not-ready</div>
       </MidenProvider>
     );
-    expect(getByText('child-not-ready')).toBeDefined();
+    expect(await findByText('child-not-ready')).toBeDefined();
   });
 
   it('eagerly initializes the Miden client on non-extension', async () => {

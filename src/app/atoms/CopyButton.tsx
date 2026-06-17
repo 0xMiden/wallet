@@ -68,7 +68,7 @@ const CopyButton: FC<CopyButtonProps> = ({
         className={
           type === 'button'
             ? classNames(
-                'hover:bg-grey-50',
+                'hover:bg-gray-100',
                 'text-black',
                 roundedClassName,
                 smallClassName,

@@ -55,7 +55,7 @@ const DAppDrawerSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
             testID={GeneralSettingsSelectors.DAppToggle}
           />
         </div>
-        <span className="text-xs text-[#555D6D]">{t('dAppsToggleDescription')}</span>
+        <span className="text-xs text-text-muted">{t('dAppsToggleDescription')}</span>
       </div>
 
       {hasConnectedDApps && (

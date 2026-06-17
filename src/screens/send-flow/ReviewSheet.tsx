@@ -14,7 +14,6 @@ export interface ReviewSheetProps {
   toAddress: string;
   recallBlocks?: string;
   sharePrivately: boolean;
-  delegateTransaction: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -27,7 +26,6 @@ export const ReviewSheet: React.FC<ReviewSheetProps> = ({
   toAddress,
   recallBlocks,
   sharePrivately,
-  delegateTransaction,
   onCancel,
   onConfirm
 }) => {
@@ -51,26 +49,22 @@ export const ReviewSheet: React.FC<ReviewSheetProps> = ({
           {/* Details */}
           <div className="space-y-3 mb-4">
             <div className="flex justify-between">
-              <span className="text-sm text-grey-600">{t('from')}</span>
+              <span className="text-sm text-text-muted">{t('from')}</span>
               <span className="text-sm">{truncateAddress(fromAddress)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-grey-600">{t('to')}</span>
+              <span className="text-sm text-text-muted">{t('to')}</span>
               <span className="text-sm">{truncateAddress(toAddress)}</span>
             </div>
             {recallBlocks && (
               <div className="flex justify-between">
-                <span className="text-sm text-grey-600">{t('recallBlocks')}</span>
+                <span className="text-sm text-text-muted">{t('recallBlocks')}</span>
                 <span className="text-sm">{recallBlocks}</span>
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-sm text-grey-600">{t('privatePayment')}</span>
+              <span className="text-sm text-text-muted">{t('privatePayment')}</span>
               <span className="text-sm">{sharePrivately ? t('yes') : t('no')}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-sm text-grey-600">{t('delegateProving')}</span>
-              <span className="text-sm">{delegateTransaction ? t('yes') : t('no')}</span>
             </div>
           </div>
 

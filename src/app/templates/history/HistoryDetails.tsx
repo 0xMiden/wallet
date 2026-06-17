@@ -103,15 +103,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       {loadError ? (
         <div className="flex-1 flex flex-col items-center justify-center p-4">
           <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
-          <p className="text-gray-600 text-sm text-center select-text">{loadError}</p>
-          <p className="text-gray-400 text-xs text-center mt-2 select-text">ID: {transactionId}</p>
+          <p className="text-text-muted text-sm text-center select-text">{loadError}</p>
+          <p className="text-text-muted text-xs text-center mt-2 select-text">ID: {transactionId}</p>
         </div>
       ) : entry === null ? (
         <ActivitySpinner />
       ) : (
         <div className="flex-1 flex flex-col px-4 py-2 overflow-y-auto">
           {/* Top Section */}
-          <div className="flex flex-col items-center justify-center pt-4 pb-6 border-b border-[#BABABA33]">
+          <div className="flex flex-col items-center justify-center pt-4 pb-6 border-b border-border-card">
             <TransactionIcon entry={entry} size="lg" />
             <p className="text-sm text-heading-gray mt-3">{entry.message}</p>
             <p
@@ -170,7 +170,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
                 </DetailRow>
                 <DetailRow label="Note" isLast>
-                  <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-gray-400'}`}>
+                  <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-text-muted'}`}>
                     {entry.noteType ? t('on') : t('off')}
                   </span>
                 </DetailRow>

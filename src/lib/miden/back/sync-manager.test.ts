@@ -183,6 +183,16 @@ describe('doSync', () => {
     expect((globalThis as any).chrome.notifications.create).toHaveBeenCalled();
   });
 
+  it('skips partial (metadata-less) notes whose id() is undefined', async () => {
+    const partialNote = {
+      id: () => undefined
+    };
+    mockClient.getConsumableNotes.mockResolvedValueOnce([partialNote]);
+    await doSync();
+    // The partial note is filtered; doSync still finishes successfully
+    expect(mockStorageSet).toHaveBeenCalled();
+  });
+
   it('skips malformed notes that throw inside the parser', async () => {
     const badNote = {
       id: () => {
@@ -316,20 +326,50 @@ describe('doSync — connectivity categorization', () => {
     expect(mockClearReachabilityIssues).toHaveBeenCalled();
   });
 
-  it('marks node category on a transport-shaped sync error', async () => {
-    mockMarkConnectivityIssue.mockClear();
-    mockClient.syncState.mockRejectedValueOnce(new Error('rpc error: deadline exceeded'));
-    await doSync();
-    expect(mockMarkConnectivityIssue).toHaveBeenCalled();
-    const arg = mockMarkConnectivityIssue.mock.calls[0]?.[0];
-    expect(['network', 'node']).toContain(arg);
+  it('does NOT mark connectivity on a single transient sync failure (debounced)', async () => {
+    // A lone slow-but-healthy sync must not flap the "node unreachable" banner.
+    await jest.isolateModulesAsync(async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      mockMarkConnectivityIssue.mockClear();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValueOnce(new Error('Sync timeout'));
+      const { doSync: isolated } = await import('./sync-manager');
+      await isolated();
+      expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+    });
   });
 
-  it('does NOT mark connectivity for a semantic / non-transport error', async () => {
-    mockMarkConnectivityIssue.mockClear();
-    mockClient.syncState.mockRejectedValueOnce(new Error('something completely unrelated'));
-    await doSync();
-    expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+  it('marks node category only after a sustained transport-error streak', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      mockMarkConnectivityIssue.mockClear();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('rpc error: deadline exceeded'));
+      const { doSync: isolated } = await import('./sync-manager');
+      // First two failures stay silent (debounced)…
+      await isolated();
+      await isolated();
+      expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+      // …the 3rd consecutive failure trips the breaker and surfaces the banner.
+      await isolated();
+      expect(mockMarkConnectivityIssue).toHaveBeenCalled();
+      const arg = mockMarkConnectivityIssue.mock.calls[0]?.[0];
+      expect(['network', 'node']).toContain(arg);
+    });
+  });
+
+  it('does NOT mark connectivity for a semantic / non-transport error even when sustained', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.spyOn(console, 'warn').mockImplementation();
+      mockMarkConnectivityIssue.mockClear();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('something completely unrelated'));
+      const { doSync: isolated } = await import('./sync-manager');
+      await isolated();
+      await isolated();
+      await isolated();
+      expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+    });
   });
 });
 

@@ -26,7 +26,7 @@ const TabSwitcher: React.FC<TabSwitcherProps> = ({ className, tabs, activeTabSlu
       className={classNames(
         'w-full max-w-sm mx-auto',
         'flex flex-wrap items-center justify-center p-1',
-        'border border-gray-700 rounded-lg',
+        'border border-border-light rounded-lg',
         className
       )}
     >
@@ -42,7 +42,7 @@ const TabSwitcher: React.FC<TabSwitcherProps> = ({ className, tabs, activeTabSlu
             className={classNames(
               'text-center cursor-pointer rounded-lg py-3 px-3 mx-px',
               'text-black font-medium',
-              active ? 'bg-gray-200' : 'hover:bg-gray-200 focus:bg-gray-700',
+              active ? 'bg-chip-bg' : 'hover:bg-gray-100 focus:bg-chip-bg',
               'transition ease-in-out duration-200'
             )}
             style={{ width: `calc(${Math.floor(100 / tabs.length)}% - 2px)`, fontSize: '16px', lineHeight: '24px' }}

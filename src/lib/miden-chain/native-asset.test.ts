@@ -71,17 +71,17 @@ beforeEach(async () => {
 
 describe('native-asset module', () => {
   it('discovers ID via RPC on cache miss and caches to storage', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'native-acc' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'native-acc' }) };
 
     const id = await getNativeAssetId();
 
     expect(id).toBe('bech32-native-acc');
     expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
-    expect(_g.__nativeAssetTest.storage['native_asset_id:testnet']).toBe('bech32-native-acc');
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v2:testnet']).toBe('bech32-native-acc');
   });
 
   it('returns cached ID from storage without RPC', async () => {
-    _g.__nativeAssetTest.storage['native_asset_id:testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.storage['native_asset_id:v2:testnet'] = 'pre-cached-id';
 
     const id = await getNativeAssetId();
 
@@ -90,7 +90,7 @@ describe('native-asset module', () => {
   });
 
   it('returns cached ID from memory on repeat call (no storage hit, no RPC)', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'warm' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'warm' }) };
 
     const first = await getNativeAssetId();
     _g.__nativeAssetTest.fetchFromStorage.mockClear();
@@ -103,7 +103,7 @@ describe('native-asset module', () => {
   });
 
   it('single-flights concurrent callers into one RPC round-trip', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'native-acc' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'native-acc' }) };
 
     const [a, b, c] = await Promise.all([getNativeAssetId(), getNativeAssetId(), getNativeAssetId()]);
 
@@ -115,13 +115,13 @@ describe('native-asset module', () => {
 
   it('getNativeAssetIdSync returns null before discovery, value after', async () => {
     expect(getNativeAssetIdSync()).toBeNull();
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'x' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'x' }) };
     await getNativeAssetId();
     expect(getNativeAssetIdSync()).toBe('bech32-x');
   });
 
   it('fires onNativeAssetChanged listeners when discovery completes', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'hello' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'hello' }) };
     const listener = jest.fn();
     const unsub = onNativeAssetChanged(listener);
 
@@ -132,7 +132,7 @@ describe('native-asset module', () => {
   });
 
   it('does not fire listeners when reading from cache', async () => {
-    _g.__nativeAssetTest.storage['native_asset_id:testnet'] = 'cached';
+    _g.__nativeAssetTest.storage['native_asset_id:v2:testnet'] = 'cached';
     const listener = jest.fn();
     const unsub = onNativeAssetChanged(listener);
 
@@ -143,7 +143,7 @@ describe('native-asset module', () => {
   });
 
   it('discovers metadata after ID, caches symbol/decimals', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'n' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'n' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'MIDEN', decimals: 6, name: 'Miden' }
     });
@@ -152,12 +152,12 @@ describe('native-asset module', () => {
 
     expect(meta).toEqual({ symbol: 'MIDEN', decimals: 6 });
     expect(_g.__nativeAssetTest.fetchTokenMetadata).toHaveBeenCalledWith('bech32-n');
-    expect(_g.__nativeAssetTest.storage['native_asset_meta:testnet']).toEqual({ symbol: 'MIDEN', decimals: 6 });
+    expect(_g.__nativeAssetTest.storage['native_asset_meta:v2:testnet']).toEqual({ symbol: 'MIDEN', decimals: 6 });
   });
 
   it('hydrates metadata from storage without RPC or metadata fetch', async () => {
-    _g.__nativeAssetTest.storage['native_asset_id:testnet'] = 'cached-id';
-    _g.__nativeAssetTest.storage['native_asset_meta:testnet'] = { symbol: 'CACHED', decimals: 8 };
+    _g.__nativeAssetTest.storage['native_asset_id:v2:testnet'] = 'cached-id';
+    _g.__nativeAssetTest.storage['native_asset_meta:v2:testnet'] = { symbol: 'CACHED', decimals: 8 };
 
     const meta = await getNativeAssetMetadata();
 
@@ -167,7 +167,7 @@ describe('native-asset module', () => {
   });
 
   it('returns metadata from memory on repeat call', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'm1' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'm1' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'A', decimals: 2, name: 'A' }
     });
@@ -181,7 +181,7 @@ describe('native-asset module', () => {
   });
 
   it('single-flights concurrent metadata callers', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'mc' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'mc' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'C', decimals: 1, name: 'C' }
     });
@@ -195,7 +195,7 @@ describe('native-asset module', () => {
 
   it('getNativeAssetMetadataSync returns null before discovery, value after', async () => {
     expect(getNativeAssetMetadataSync()).toBeNull();
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'a' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'a' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'S', decimals: 3, name: 'S' }
     });
@@ -204,7 +204,7 @@ describe('native-asset module', () => {
   });
 
   it('returns null from metadata discovery when RPC fetch fails', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'z' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'z' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockRejectedValue(new Error('RPC down'));
 
     const meta = await getNativeAssetMetadata();
@@ -214,7 +214,7 @@ describe('native-asset module', () => {
   });
 
   it('resetNativeAssetCache clears both caches', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'q' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'q' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'Q', decimals: 4, name: 'Q' }
     });
@@ -226,13 +226,13 @@ describe('native-asset module', () => {
 
     expect(getNativeAssetIdSync()).toBeNull();
     expect(getNativeAssetMetadataSync()).toBeNull();
-    expect(_g.__nativeAssetTest.storage['native_asset_id:testnet']).toBeNull();
-    expect(_g.__nativeAssetTest.storage['native_asset_meta:testnet']).toBeNull();
+    expect(_g.__nativeAssetTest.storage['native_asset_id:v2:testnet']).toBeNull();
+    expect(_g.__nativeAssetTest.storage['native_asset_meta:v2:testnet']).toBeNull();
   });
 
   it('swallows listener exceptions when emitting', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'L' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'L' }) };
     const bad = jest.fn(() => {
       throw new Error('boom');
     });
@@ -254,7 +254,7 @@ describe('native-asset module', () => {
   it('falls through to RPC when storage read throws', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     _g.__nativeAssetTest.fetchFromStorage.mockRejectedValue(new Error('storage read fail'));
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'R' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'R' }) };
 
     const id = await getNativeAssetId();
 
@@ -267,7 +267,7 @@ describe('native-asset module', () => {
   it('still returns discovered ID when storage write throws', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     _g.__nativeAssetTest.putToStorage.mockRejectedValue(new Error('storage write fail'));
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'W' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'W' }) };
 
     const id = await getNativeAssetId();
 
@@ -278,13 +278,13 @@ describe('native-asset module', () => {
 
   it('still returns metadata when metadata storage write throws', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'M' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'M' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'M', decimals: 1, name: 'M' }
     });
     // Only fail writes to the metadata key — let the ID write succeed
     _g.__nativeAssetTest.putToStorage.mockImplementation(async (key: string, value: any) => {
-      if (key === 'native_asset_meta:testnet') throw new Error('meta write fail');
+      if (key === 'native_asset_meta:v2:testnet') throw new Error('meta write fail');
       _g.__nativeAssetTest.storage[key] = value;
     });
 
@@ -296,7 +296,7 @@ describe('native-asset module', () => {
   });
 
   it('resetNativeAssetCache swallows storage write errors', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'X' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'X' }) };
     await getNativeAssetId();
     _g.__nativeAssetTest.putToStorage.mockRejectedValue(new Error('reset write fail'));
 
@@ -305,7 +305,7 @@ describe('native-asset module', () => {
   });
 
   it('primeNativeAssetId kicks off both ID and metadata discovery', async () => {
-    _g.__nativeAssetTest.rpcHeader = { nativeAssetId: () => ({ _id: 'p' }) };
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'p' }) };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'P', decimals: 2, name: 'P' }
     });
@@ -326,7 +326,7 @@ describe('native-asset module', () => {
     // rejects because it awaits getNativeAssetId.
     _g.__nativeAssetTest.fetchFromStorage.mockRejectedValue(new Error('read fail'));
     _g.__nativeAssetTest.rpcHeader = {
-      nativeAssetId: () => {
+      feeFaucetId: () => {
         throw new Error('rpc fail');
       }
     };

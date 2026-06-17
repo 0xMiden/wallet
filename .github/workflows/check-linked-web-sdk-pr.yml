@@ -32,7 +32,25 @@ name: Linked web-sdk PR ready
 #   - Status context: `linked-web-sdk-pr-ready`.
 
 on:
-  pull_request:
+  # `pull_request_target` (not `pull_request`) so the gate works for PRs
+  # from forks. GitHub gives the workflow's GITHUB_TOKEN read-only perms
+  # on `pull_request` events from forks for security reasons, regardless
+  # of what `permissions:` declares below. That makes the
+  # `POST /repos/.../statuses/<sha>` call 403, and the workflow fails on
+  # any fork PR — including ones that have no Web SDK PR marker and just
+  # need the gate to post `success`.
+  #
+  # `pull_request_target` runs in the base repo's context with the base
+  # repo's permissions, so the token can write statuses. This is the
+  # standard pattern for "I need to post a check result on a fork PR."
+  #
+  # SAFETY: `pull_request_target` is only safe when the workflow does NOT
+  # execute PR-supplied code. This one doesn't — it only reads metadata
+  # via `gh api` and posts a status. `actions/checkout` defaults to the
+  # base ref under `pull_request_target` (so the workflow file itself is
+  # the merged main version, not whatever the PR author shipped), and we
+  # don't run any of the PR's code or scripts.
+  pull_request_target:
     types: [opened, edited, synchronize, reopened, ready_for_review]
   # Re-evaluate on a schedule so the check goes green when upstream
   # catches up (web-sdk PR merges and a release tag covers it), without

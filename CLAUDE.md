@@ -43,6 +43,10 @@ Lint/format only before commit or when asked — not every build.
 
 Extension manifest version comes from `package.json`, NOT `public/manifest.json` (webpack overrides it at `webpack.public.config.js:69-70`). Update **both** to keep in sync, then `rm -rf node_modules/.cache/webpack dist/` if the old version sticks.
 
+## CHANGELOG
+
+`CHANGELOG.md` carries unreleased entries under a `## <next-version> (TBD)` heading. **NEVER add an entry to a section whose version has already been published — check `gh api repos/0xMiden/wallet/releases/latest` for the latest tag and put new entries under a section whose version is strictly higher and still has `(TBD)` next to it. If no such section exists, add one.** The header at the top of `CHANGELOG.md` may lag (a `(TBD)` heading often persists past the release tag); don't trust the heading alone.
+
 ## Critical gotchas
 
 ### WASM client concurrency
@@ -168,10 +172,15 @@ Prettier: 120 cols, single quotes, semicolons, trailing commas. Break long `cons
 
 No `any`, no `as`. Use concrete types.
 
-<<<<<<< utk-psm-integration
-## Conventions
-=======
 ## Linked Web SDK PR (cross-repo CI)
+
+**ALWAYS use the `Web SDK PR: #N` marker when opening a wallet PR that
+depends on an unpublished web-sdk change.** This is the load-bearing
+machine-readable handle — prose like "Companion PR: web-sdk#N" or
+"depends on …" does NOT trigger the linked-PR pipeline. Put the marker
+on its own line in the PR description (top is fine, anywhere is fine).
+When in doubt include both forms (`Web SDK PR: #N` and a prose mention)
+but the marker has to be present verbatim.
 
 The wallet's CI can be pointed at an unpublished `@miden-sdk/miden-sdk`
 or `@miden-sdk/react` branch by including a marker in the wallet PR's
@@ -217,7 +226,6 @@ once with `pnpm dlx lefthook install` if you want the guard.
 Mirrors web-sdk's `Client PR: #N` pattern (`.github/actions/inject-linked-client-pr`).
 
 ## Important Notes
->>>>>>> main
 
 - Commit messages: single-line, short. Never sign commits (no `Co-Authored-By`).
 - Never `git push` without explicit request.

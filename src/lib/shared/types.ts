@@ -114,7 +114,15 @@ export enum WalletMessageType {
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
-  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
+  // Speculative pre-prove (popup → SW): kicked off when the review screen
+  // mounts so prove runs in parallel with the user reading the review;
+  // invalidated on review-screen unmount or if form params change.
+  // See lib/miden/back/speculation-manager.ts.
+  SpeculateSendRequest = 'SPECULATE_SEND_REQUEST',
+  SpeculateSendResponse = 'SPECULATE_SEND_RESPONSE',
+  SpeculateInvalidate = 'SPECULATE_INVALIDATE',
+  SpeculateInvalidateResponse = 'SPECULATE_INVALIDATE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -234,6 +242,40 @@ export interface GetInputNoteDetailsRequest extends WalletMessageBase {
   noteIds: string[];
 }
 
+/**
+ * Pre-prove the user's in-flight send transaction with the params currently
+ * showing on the review screen. Fire-and-forget from the popup; the SW kicks
+ * off execute + offscreen prove and caches the {txResult, proven} bytes
+ * keyed by params hash. When the user clicks Confirm, the existing send
+ * pipeline (initiateSendTransaction → SW processor) hits the cache via
+ * MidenClientInterface.proveLocallyViaOffscreen and skips the prove step.
+ *
+ * Params shape mirrors what the wallet's SendTransaction DB record holds.
+ * Skipping speculation when `recallBlocks` is set — block-height drift
+ * between speculate-time and commit-time would invalidate the cached
+ * reclaim height, easier to skip than handle.
+ */
+export interface SpeculateSendRequest extends WalletMessageBase {
+  type: WalletMessageType.SpeculateSendRequest;
+  accountId: string;
+  recipientAccountId: string;
+  faucetId: string;
+  noteType: 'public' | 'private';
+  amount: string; // bigint as string (postMessage-safe)
+}
+
+export interface SpeculateSendResponse extends WalletMessageBase {
+  type: WalletMessageType.SpeculateSendResponse;
+}
+
+export interface SpeculateInvalidate extends WalletMessageBase {
+  type: WalletMessageType.SpeculateInvalidate;
+}
+
+export interface SpeculateInvalidateResponse extends WalletMessageBase {
+  type: WalletMessageType.SpeculateInvalidateResponse;
+}
+
 export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsResponse;
   notes: SerializedInputNoteDetail[];
@@ -268,12 +310,33 @@ export interface ReadyWalletState extends WalletState {
   currentAccount: WalletAccount;
 }
 
+/**
+ * Auth scheme an account uses for signing.
+ *
+ * Mirrors `@miden-sdk/miden-sdk` `AuthSchemeType` ("falcon" | "ecdsa").
+ *
+ * Optional on stored `WalletAccount` records. Records written before this
+ * field existed have it absent on read; consumers MUST treat missing as
+ * `"falcon"` (the historical wallet default). This preserves restore +
+ * sign behavior 1:1 for pre-migration wallets while letting new accounts
+ * be stamped with the new default ("ecdsa").
+ *
+ * Miden accounts cannot rotate auth, so this field is fixed at account
+ * creation time and never mutated.
+ */
+export type AuthScheme = 'falcon' | 'ecdsa';
+
 export interface WalletAccount {
   publicKey: string;
   name: string;
   isPublic: boolean;
   type: WalletType;
   hdIndex: number;
+  /**
+   * Auth scheme this account was created with. See {@link AuthScheme} for
+   * the missing-on-read → `"falcon"` legacy interpretation.
+   */
+  authScheme?: AuthScheme;
 }
 
 export interface WalletNetwork {
@@ -718,7 +781,9 @@ export type WalletRequest =
   | ProcessTransactionsRequest
   | ImportNoteBytesRequest
   | ExportNoteRequest
-  | GetInputNoteDetailsRequest;
+  | GetInputNoteDetailsRequest
+  | SpeculateSendRequest
+  | SpeculateInvalidate;
 
 export type WalletResponse =
   | MidenResponse
@@ -768,4 +833,6 @@ export type WalletResponse =
   | ProcessTransactionsResponse
   | ImportNoteBytesResponse
   | ExportNoteResponse
-  | GetInputNoteDetailsResponse;
+  | GetInputNoteDetailsResponse
+  | SpeculateSendResponse
+  | SpeculateInvalidateResponse;

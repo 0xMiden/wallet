@@ -15,7 +15,11 @@ const DEVICE_TYPE_B = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro';
 
 const BOOT_TIMEOUT_MS = 60_000;
 const BOOT_POLL_MS = 1_000;
-const BOOTSTATUS_TIMEOUT_MS = 180_000;
+// First boot of an iOS 26 runtime on a cold macos-26 CI runner can take
+// many minutes (dyld shared-cache build, data migration). The CI workflow
+// kicks the boot off before the ~25-minute app build so this budget is
+// normally never consumed; it is the worst-case allowance, not the norm.
+const BOOTSTATUS_TIMEOUT_MS = 600_000;
 
 interface DevicePair {
   udidA: string;
@@ -96,21 +100,34 @@ export class SimulatorControl {
     // observed multi-minute hangs inside simctl launch. bootstatus -b blocks
     // until the device is actually usable.
     //
-    // Best-effort: on some macos-26 CI runner images, bootstatus itself
-    // fails/hangs even when the sim is otherwise usable. Swallow the error
-    // and let the subsequent install/launch reveal whether the sim is
-    // really broken — a genuine sim failure produces a clearer error there.
+    // bootstatus failing is a HARD error: continuing onto a half-booted
+    // simulator does not produce "a clearer error later" — it produces
+    // simctl install/launch calls that hang for the entire 15-minute test
+    // timeout, twice (observed on macos-26 runners). One shutdown→boot
+    // cycle is allowed to recover a wedged first boot; after that, fail
+    // loudly so the job dies in minutes with the real cause named.
     try {
-      await execFileAsync('xcrun', ['simctl', 'bootstatus', udid, '-b'], {
-        timeout: BOOTSTATUS_TIMEOUT_MS,
-      });
+      await this.bootstatus(udid);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(
-        `[SimulatorControl] bootstatus for ${udid} did not complete cleanly; ` +
-          `continuing. Error: ${(err as Error).message}`
+        `[SimulatorControl] bootstatus for ${udid} failed (${(err as Error).message}); ` +
+          `recovering via shutdown → boot → bootstatus`
       );
+      try {
+        await execSimctl(['shutdown', udid]);
+      } catch {
+        // Already shut down (or mid-transition) — boot below either way.
+      }
+      await execSimctl(['boot', udid]);
+      await this.bootstatus(udid);
     }
+  }
+
+  private async bootstatus(udid: string): Promise<void> {
+    await execFileAsync('xcrun', ['simctl', 'bootstatus', udid, '-b'], {
+      timeout: BOOTSTATUS_TIMEOUT_MS,
+    });
   }
 
   async install(udid: string, appPath: string): Promise<void> {
@@ -125,40 +142,13 @@ export class SimulatorControl {
     await execSimctl(['uninstall', udid, bundleId]);
   }
 
-  /**
-   * Wipe the app's data sandbox (IndexedDB, localStorage, Preferences,
-   * WebKit caches) without reinstalling the binary. ~5–10× faster than
-   * uninstall + install on warm sims. Caller MUST terminate the app first
-   * — wiping a running app leaves partial state.
-   */
-  async wipeAppState(udid: string, bundleId: string): Promise<void> {
-    let dataContainer: string;
-    try {
-      const { stdout } = await execFileAsync('xcrun', [
-        'simctl',
-        'get_app_container',
-        udid,
-        bundleId,
-        'data',
-      ]);
-      dataContainer = stdout.trim();
-    } catch {
-      // App isn't installed — nothing to wipe.
-      return;
-    }
-    if (!dataContainer || !fs.existsSync(dataContainer)) return;
-
-    for (const sub of ['Library', 'Documents', 'tmp']) {
-      const p = path.join(dataContainer, sub);
-      if (fs.existsSync(p)) {
-        try {
-          fs.rmSync(p, { recursive: true, force: true });
-        } catch {
-          // best-effort; partial wipe is still better than a 10s reinstall
-        }
-      }
-    }
-  }
+  // NOTE: there is deliberately no file-level "wipe app sandbox" helper.
+  // The wallet's persisted state is served through per-device daemon caches
+  // (UserDefaults via cfprefsd, WebKit localStorage/IndexedDB via the WebKit
+  // storage daemons) — removing the files behind those daemons does not
+  // clear the data, and a relaunched app reads its old state right back.
+  // Use uninstall + install for app-state isolation; it purges through the
+  // OS and is the only reset that verifiably works.
 
   async launch(udid: string, bundleId: string, env: Record<string, string> = {}): Promise<void> {
     // env vars are passed via SIMCTL_CHILD_<NAME> in the parent environment
@@ -228,8 +218,23 @@ export class SimulatorControl {
 
 // ── Internals ───────────────────────────────────────────────────────────────
 
+// Every simctl call gets a hard timeout: on macos-26 CI runners a single
+// `simctl install` / `launch` against an unhealthy simulator hangs
+// indefinitely, silently eating the whole 15-minute test timeout with no
+// attribution. Failing in 3 minutes with the command named turns that into
+// a diagnosable error (and lets the CI-level retry actually retry).
+const SIMCTL_TIMEOUT_MS = 180_000;
+
 async function execSimctl(args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync('xcrun', ['simctl', ...args]);
+  try {
+    return await execFileAsync('xcrun', ['simctl', ...args], { timeout: SIMCTL_TIMEOUT_MS });
+  } catch (err) {
+    const e = err as Error & { killed?: boolean; signal?: string };
+    if (e.killed || e.signal === 'SIGTERM') {
+      throw new Error(`simctl timed out after ${SIMCTL_TIMEOUT_MS}ms: simctl ${args.join(' ')}`);
+    }
+    throw err;
+  }
 }
 
 function sleep(ms: number): Promise<void> {

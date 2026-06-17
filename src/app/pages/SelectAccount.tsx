@@ -57,7 +57,7 @@ const SelectAccount: FC = () => {
                     'transition ease-in-out duration-200',
                     'cursor-pointer',
                     'mb-1',
-                    'hover:bg-gray-100 active:bg-gray-300',
+                    'hover:bg-gray-100 active:bg-gray-50',
                     selected ? 'bg-gray-25' : ''
                   )}
                   style={{ height: '64px' }}

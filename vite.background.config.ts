@@ -269,15 +269,34 @@ export default defineConfig({
   },
 
   resolve: {
+    // The mt-wasm SDK is symlinked into node_modules/@miden-sdk/miden-sdk for
+    // local dev. With preserveSymlinks=false (Vite default), Rolldown resolves
+    // the SDK file through the symlink to its real path (web-sdk worktree),
+    // and then can't find peer-of-the-wallet packages like
+    // `vite-plugin-node-polyfills/shims/global` because that package is only
+    // installed in the wallet's node_modules, not in the SDK's. Keeping the
+    // symlink path makes module resolution find the wallet's node_modules.
+    preserveSymlinks: true,
     alias: [
-      // Transitive imports through @openzeppelin/miden-multisig-client hit the
-      // EAGER @miden-sdk/miden-sdk entry, which has top-level `await loadWasm()`.
-      // The sw-patches TLA stripper below only catches `await` at column 0; the
-      // SDK's bundled factories emit indented `await init_*()` inside __esmMin
-      // wrappers, so the stripped output is a parse error. Force every resolver
-      // hit on the eager entry to the /lazy subpath (no TLA). Regex form so we
-      // don't accidentally double-rewrite `@miden-sdk/miden-sdk/lazy`.
-      { find: /^@miden-sdk\/miden-sdk$/, replacement: '@miden-sdk/miden-sdk/lazy' },
+      // Two concerns, one redirect target (`@miden-sdk/miden-sdk/mt/lazy`):
+      //
+      // 1. Transitive imports through @openzeppelin/miden-multisig-client hit
+      //    the EAGER @miden-sdk/miden-sdk entry, which has top-level
+      //    `await loadWasm()`. The sw-patches TLA stripper below only catches
+      //    `await` at column 0; the SDK's bundled factories emit indented
+      //    `await init_*()` inside __esmMin wrappers, so the stripped output is
+      //    a parse error. The eager entry must be redirected to a lazy (no-TLA)
+      //    subpath.
+      // 2. Service worker context: Chrome extension manifest declares
+      //    COOP=`same-origin` + COEP=`require-corp`, so SAB is available in the
+      //    SW. Use the multi-threaded SDK build (paired with the
+      //    chrome.offscreen prover document) for ~3-5× faster proving. Depends
+      //    on `@miden-sdk/miden-sdk` ≥ 0.14.5 — see vite.extension.config.ts.
+      //
+      // Regex form (anchored with `$`) so we redirect only the exact eager and
+      // single-threaded-lazy specifiers and don't double-rewrite `/mt/lazy`.
+      { find: /^@miden-sdk\/miden-sdk$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
+      { find: /^@miden-sdk\/miden-sdk\/lazy$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
       { find: 'lib', replacement: resolve(__dirname, 'src/lib') },
       { find: 'app', replacement: resolve(__dirname, 'src/app') },
       { find: 'shared', replacement: resolve(__dirname, 'src/shared') },
@@ -295,6 +314,28 @@ export default defineConfig({
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
+    // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
+    // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
+    // Falcon-512 accounts when it works.
+    //
+    // The offscreen doc proves on a raw "prover-only" WebClient (no
+    // createClient), which requires the explicit-prover fix from
+    // 0xMiden/web-sdk#182 (>= 0.15.0-alpha.6): older 0.15 SDK builds reject
+    // the prove with "Client not initialized".
+    //
+    // Mobile (vite.mobile.config.ts) does NOT define this env, so its
+    // runtime value is undefined and the `=== 'true'` check fails — mobile
+    // always uses the bundled SDK path. Even if it somehow were true, the
+    // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
+    // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
+    'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
+    // Speculative pre-prove: when the user reaches the review screen, the
+    // popup tells the SW to start proving with the form params so the proof
+    // is ready by the time they click Confirm. Default ON for desktop chrome
+    // (gated further on !delegateEnabled at runtime). Mobile config pins
+    // this false — speculation has nothing to dispatch to without
+    // chrome.offscreen anyway, but the explicit pin makes intent clear.
+    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
   }
 });

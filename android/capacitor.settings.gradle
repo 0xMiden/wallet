@@ -29,6 +29,9 @@ project(':capacitor-splash-screen').projectDir = new File('../node_modules/@capa
 include ':miden-dapp-browser'
 project(':miden-dapp-browser').projectDir = new File('../packages/dapp-browser/android')
 
+include ':miden-native-prover'
+project(':miden-native-prover').projectDir = new File('../packages/native-prover/android')
+
 include ':capacitor-barcode-scanner'
 project(':capacitor-barcode-scanner').projectDir = new File('../node_modules/capacitor-barcode-scanner/android')
 

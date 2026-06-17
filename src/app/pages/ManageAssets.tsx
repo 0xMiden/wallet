@@ -74,7 +74,7 @@ interface LoadingComponentProps {
 const LoadingComponent: React.FC<LoadingComponentProps> = ({ loading, searchValue, assetType }) => {
   const { t } = useTranslation();
   return loading ? null : (
-    <div className={classNames('my-8', 'flex flex-col items-center justify-center', 'text-gray-500')}>
+    <div className={classNames('my-8', 'flex flex-col items-center justify-center', 'text-text-muted')}>
       <p className={classNames('mb-2', 'flex items-center justify-center', 'text-black text-black ')}>
         {Boolean(searchValue) && <SearchIcon className="w-5 h-auto mr-1 stroke-current" />}
 

@@ -133,7 +133,7 @@ export const ActionButtons = ({ address, claimableCount = 0 }: { address: string
   }, [network.id, t, address]);
 
   return (
-    <div className={classNames('flex w-full gap-3 items-center justify-evenly py-4 border-y border-grey-300/20')}>
+    <div className={classNames('flex w-full gap-3 items-center justify-evenly py-4 border-y border-border-light')}>
       {ACTION_BUTTONS(t, handleFaucetClick).map(props => (
         <div key={props.type} className="relative flex-1 overflow-visible">
           <ActionButton {...props} />

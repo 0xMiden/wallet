@@ -68,7 +68,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
                   isWordsVisible ? 'blur-none' : 'blur-sm'
                 )}
               >
-                <p className="text-grey-600 select-none pointer-events-none">{`${index + 1}.`}</p>
+                <p className="text-text-muted select-none pointer-events-none">{`${index + 1}.`}</p>
                 <p className="flex w-[80%] justify-center">{`${word}`}</p>
               </label>
             }
@@ -78,7 +78,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
 
       <div className="flex gap-2 w-full text-heading-gray">
         <Button
-          className="border-[#00000033] border-[0.5px] text-xs font-medium h-8 w-1/2 py-5"
+          className="border-border-card border-[0.5px] text-xs font-medium h-8 w-1/2 py-5"
           variant={ButtonVariant.Ghost}
           title={t(isWordsVisible ? 'hide' : 'show')}
           iconLeft={isWordsVisible ? IconName.EyeOff : IconName.Eye}

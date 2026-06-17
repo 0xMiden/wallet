@@ -24,9 +24,9 @@ const Tab: React.FC<TabProps> = ({ className, icon, active, activeIcon, ...props
         className={classNames(
           'aspect-square flex items-center justify-center rounded-full',
           'transition duration-300 ease-in-out',
-          'group-hover:bg-grey-25',
+          'group-hover:bg-gray-25',
           {
-            'bg-grey-25': active,
+            'bg-gray-25': active,
             'bg-transparent': !active
           }
         )}
@@ -53,7 +53,7 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, className, onTabChange, ..
     <div
       className={classNames(
         'flex-1 flex h-[72px]',
-        'border-t border-grey-100',
+        'border-t border-border-light',
         'backdrop-blur-lg bg-pure-white/[.70] dark:bg-pure-black/[.70]',
         className
       )}

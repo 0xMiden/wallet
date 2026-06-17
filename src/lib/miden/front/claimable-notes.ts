@@ -45,7 +45,10 @@ function parseNotes(rawNotes: InputNoteRecord[], notesBeingClaimed: Set<string>)
 
   for (const note of rawNotes) {
     try {
-      const noteId = note.id().toString();
+      // Partial (metadata-less) notes have no ID yet and cannot be
+      // claimed — skip until sync completes them.
+      const noteId = note.id()?.toString();
+      if (!noteId) continue;
       const noteMeta = note.metadata();
       const details = note.details();
 

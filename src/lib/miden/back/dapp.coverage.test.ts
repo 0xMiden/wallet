@@ -454,4 +454,19 @@ describe('getNetworkRPC', () => {
     const rpc = await dapp.getNetworkRPC('testnet');
     expect(typeof rpc).toBe('string');
   });
+
+  // Regression: previously crashed with "Cannot read properties of undefined
+  // (reading 'rpcBaseURL')" because NETWORKS.find(...) returned undefined and
+  // the code used non-null assertion. dApps that don't pass a network
+  // argument to midenWallet.connect() now fall back to the wallet's current
+  // network instead of blowing up the entire PERMISSION_REQUEST flow.
+  it('falls back to the current network when net is undefined', async () => {
+    const rpc = await dapp.getNetworkRPC(undefined);
+    expect(typeof rpc).toBe('string');
+    expect(rpc).toMatch(/^https?:\/\//);
+  });
+
+  it('throws NetworkNotGranted for an unknown network id', async () => {
+    await expect(dapp.getNetworkRPC('definitely-not-a-real-net')).rejects.toThrow(MidenDAppErrorType.NetworkNotGranted);
+  });
 });

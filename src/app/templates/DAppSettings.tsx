@@ -94,9 +94,9 @@ const DAppCard: FC<{
     <div className="border border-border-card rounded-10 mb-4 bg-white">
       {/* Header */}
       <div className="flex justify-between items-center border-b border-border-card px-4 py-3">
-        <span className="text-[14px] font-medium text-[#0F131A]">{hostname}</span>
+        <span className="text-[14px] font-medium text-black">{hostname}</span>
         <button
-          className="flex-none text-gray-500 hover:text-black transition ease-in-out duration-200"
+          className="flex-none text-text-muted hover:text-black transition ease-in-out duration-200"
           onClick={handleRemoveClick}
         >
           <CloseIcon className="w-auto h-5 stroke-current stroke-2" title={t('delete')} />
@@ -106,40 +106,40 @@ const DAppCard: FC<{
       <div className="p-4">
         {/* Origin */}
         <div className="flex justify-between items-center">
-          <span className="text-[#555D6D] text-sm">{t('originLabel')}</span>
+          <span className="text-text-muted text-sm">{t('originLabel')}</span>
           <span className="text-sm text-heading-gray">{origin}</span>
         </div>
 
         {/* Network */}
         <div className="flex justify-between items-center pt-2">
-          <span className="text-[#555D6D] text-sm">{t('networkLabel')}</span>
+          <span className="text-text-muted text-sm">{t('networkLabel')}</span>
           <span className="text-sm text-heading-gray capitalize">{network}</span>
         </div>
 
         {/* Account */}
         <div className="flex justify-between items-center pt-2">
-          <span className="text-[#555D6D] text-sm">{t('pkhLabel')}</span>
+          <span className="text-text-muted text-sm">{t('pkhLabel')}</span>
           <div className="flex items-center gap-1">
             <span className="text-sm text-accent-orange">
               <AddressShortView address={accountId} />
             </span>
             <CopyButton text={accountId} small>
-              <CopySmallIcon className="w-3 h-3 text-[#555D6D]" />
+              <CopySmallIcon className="w-3 h-3 text-text-muted" />
             </CopyButton>
             <a
               href={`https://testnet.midenscan.com/account/${explorerHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1 hover:bg-grey-50 rounded-sm transition ease-in-out duration-300"
+              className="p-1 hover:bg-gray-100 rounded-sm transition ease-in-out duration-300"
             >
-              <ExternalLinkSmallIcon className="w-3 h-3 text-[#555D6D]" />
+              <ExternalLinkSmallIcon className="w-3 h-3 text-text-muted" />
             </a>
           </div>
         </div>
 
         {/* Permissions */}
         <div className="mt-2 border-border-card pt-1 border-t-[0.63px]">
-          <span className="text-[#555D6D] text-sm">{t('permissions')}</span>
+          <span className="text-text-muted text-sm">{t('permissions')}</span>
           <div className="flex gap-2 mt-1">
             <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-heading-gray">
               {t('permissionLabel')}

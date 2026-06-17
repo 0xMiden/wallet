@@ -84,11 +84,11 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
                 subtitle={token.name.toUpperCase()}
                 titleRight={token.balance.toFixed(3)}
                 subtitleRight={`${fiatBalance(token).toFixed(2)} USD`}
-                className="border-b-[0.25px] border-[#00000033] border-dashed rounded-none px-0 py-3 justify-between"
+                className="border-b-[0.25px] border-border-card border-dashed rounded-none px-0 py-3 justify-between"
                 hoverable={true}
                 onClick={() => onSelectToken(token)}
                 titleClassName="!font-medium text-lg"
-                subtitleClassName="!font-normal text-[#484848A3] text-xs"
+                subtitleClassName="!font-normal text-text-muted text-xs"
               />
             );
           })}

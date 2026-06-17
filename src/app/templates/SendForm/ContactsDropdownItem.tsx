@@ -63,7 +63,7 @@ const ContactsDropdownItem: FC<ContactsDropdownItemProps> = ({ active, testID, t
               'border-2',
               'px-2 py-1',
               'leading-tight',
-              'border-gray-800 bg-gray-800 text-black',
+              'border-border-card bg-chip-bg text-black',
               'font-medium'
             )}
             style={{ fontSize: '0.6rem' }}

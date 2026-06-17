@@ -1,0 +1,12 @@
+# CodeQL configuration for the wallet's default-setup code scanning.
+#
+# The Playwright E2E test harness under playwright/e2e/ is bundled by
+# Playwright at test-run time only — it never ships to users. The CDP
+# bridge it carries (cdp-bridge.ts) does dynamic-callback dispatch and
+# Runtime.evaluate string interpolation for legitimate harness reasons,
+# both of which CodeQL flags. Exclude the harness tree from analysis.
+name: "Miden wallet CodeQL config"
+
+paths-ignore:
+  - playwright/**
+  - test-results-*/**

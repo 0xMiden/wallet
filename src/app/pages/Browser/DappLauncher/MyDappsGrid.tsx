@@ -111,7 +111,7 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
 
   return (
     <section>
-      <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-grey-500">
+      <h2 className="mb-3 px-4 text-sm font-semibold uppercase tracking-wide text-text-muted">
         {category ? t(`category${category[0]!.toUpperCase()}${category.slice(1)}`) : t('myDapps')}
       </h2>
       <div className="relative">
@@ -168,9 +168,9 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
             type="button"
             onClick={() => handleChevronClick('left')}
             aria-label={t('scrollLeft') ?? 'Scroll left'}
-            className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-pure-white shadow-md"
+            className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface-solid shadow-md"
           >
-            <Icon name={IconName.ChevronLeftLucide} size="sm" className="text-grey-700" />
+            <Icon name={IconName.ChevronLeftLucide} size="sm" className="text-black" />
           </button>
         )}
         {couldOverflow && canScrollRight && (
@@ -178,9 +178,9 @@ export const MyDappsGrid: FC<MyDappsGridProps> = ({ category, onOpen }) => {
             type="button"
             onClick={() => handleChevronClick('right')}
             aria-label={t('scrollRight') ?? 'Scroll right'}
-            className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-pure-white shadow-md"
+            className="absolute right-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-surface-solid shadow-md"
           >
-            <Icon name={IconName.ChevronRightLucide} size="sm" className="text-grey-700" />
+            <Icon name={IconName.ChevronRightLucide} size="sm" className="text-black" />
           </button>
         )}
       </div>

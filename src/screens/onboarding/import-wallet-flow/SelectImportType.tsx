@@ -44,20 +44,20 @@ export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps
     >
       <div className="flex flex-col items-center pb-6">
         <h1 className="font-semibold text-2xl leading-tight">{t('chooseImportType')}</h1>
-        <p className="text-sm text-center leading-snug mt-2 text-grey-600">{t('chooseImportTypeDescription')}</p>
+        <p className="text-sm text-center leading-snug mt-2 text-text-muted">{t('chooseImportTypeDescription')}</p>
       </div>
       <div className="flex flex-col gap-3 w-full pb-4">
         {ImportTypeOptions.map(option => (
           <div
             key={option.id}
-            className="flex flex-col border border-grey-200 w-full p-4 rounded-xl cursor-pointer hover:bg-grey-50 transition-colors"
+            className="flex flex-col border border-border-card w-full p-4 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors"
             onClick={() => onSubmit?.(option.id)}
           >
             <div className="flex flex-row justify-between items-center">
               <h2 className="font-medium text-sm">{option.title}</h2>
               <ArrowRightIcon fill="currentColor" height={'16px'} width={'16px'} className="flex-shrink-0 ml-2" />
             </div>
-            <p className="text-xs text-grey-600 mt-1">{option.description}</p>
+            <p className="text-xs text-text-muted mt-1">{option.description}</p>
           </div>
         ))}
       </div>

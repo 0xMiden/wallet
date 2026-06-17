@@ -130,7 +130,7 @@ const CreateAccount: FC = () => {
             placeholder={computedDefaultName}
             errorCaption={errors.name?.message}
             autoFocus
-            className="border-gray-500 border rounded-[10px]"
+            className="border-border-light border rounded-[10px]"
           />
           {/* Wallet Type Selection */}
           <div className="pb-8 pt-6">
@@ -146,7 +146,7 @@ const CreateAccount: FC = () => {
                 <div className="flex flex-row justify-between items-center">
                   <h3 className="font-semibold text-base">{option.title}</h3>
                 </div>
-                <p className="text-grey-500 text-sm leading-4.5">{option.description}</p>
+                <p className="text-text-muted text-sm leading-4.5">{option.description}</p>
               </div>
             ))}
           </div>
