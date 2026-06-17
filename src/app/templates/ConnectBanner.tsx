@@ -21,7 +21,7 @@ const ConnectBanner: FC<ConnectBannerProps> = ({ origin }) => {
           <Logo className="mb-1" style={{ height: 32, margin: 'auto', filter: '' }} />
         </div>
 
-        <div className="relative w-6 mx-1 h-px bg-gray-300">
+        <div className="relative w-6 mx-1 h-px bg-border-card">
           <div className="absolute inset-0 flex items-center justify-center"></div>
         </div>
 

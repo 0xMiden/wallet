@@ -113,7 +113,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
           tabIndex={0}
           autoFocus
           labelClassName="text-base font-medium leading-[20px]"
-          inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
+          inputClassName="placeholder:text-text-muted placeholder:text-sm placeholder:font-medium h-14"
           containerClassName="gap-2"
         />
 
@@ -138,7 +138,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
               tabIndex={1}
               labelClassName="text-base font-medium leading-[20px]"
               containerClassName="gap-2"
-              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
+              inputClassName="placeholder:text-text-muted placeholder:text-sm placeholder:font-medium h-14"
             />
             <PasswordStrengthIndicator password={passwordValue} validation={passwordValidation} />
           </div>
@@ -159,7 +159,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
               tabIndex={2}
               labelClassName="text-base font-medium leading-[20px]"
               containerClassName="gap-2"
-              inputClassName="placeholder:text-gray-800 placeholder:text-sm placeholder:font-medium h-14"
+              inputClassName="placeholder:text-text-muted placeholder:text-sm placeholder:font-medium h-14"
             />
             <p
               className={classNames(

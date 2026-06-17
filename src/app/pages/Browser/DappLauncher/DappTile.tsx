@@ -121,7 +121,7 @@ export const DappTile: FC<DappTileProps> = ({
       // so the favicons ended up at different horizontal positions
       // within each section's cell and the tiles looked different
       // sizes.
-      className="flex w-full flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-grey-100"
+      className="flex w-full flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-gray-100"
       aria-label={accessibleLabel}
     >
       <motion.div

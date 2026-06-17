@@ -263,3 +263,57 @@ describe('requestConfirm — closeWindow error handling', () => {
     await expect(p).rejects.toThrow();
   });
 });
+
+describe('requestPermission (extension) — public-key fetch failure', () => {
+  it('rejects with NotGranted and does not persist a session when the pubkey fetch fails', async () => {
+    const origin = 'https://new-dapp.xyz';
+    const mc = _g.__dappConfInternals.midenClient;
+    // Pubkey fetch fails: getAccount → null makes getAccountPublicKeyB64 throw
+    // "Account not found". The connect must reject rather than persist a
+    // session with publicKey: null (which would wedge every later reconnect).
+    mc.getAccount.mockResolvedValue(null);
+    try {
+      const p = dapp.requestPermission(
+        origin,
+        {
+          type: MidenDAppMessageType.PermissionRequest,
+          appMeta: { name: 'New App', url: origin },
+          force: false,
+          network: 'testnet',
+          privateDataPermission: 'UPON_REQUEST',
+          allowedPrivateData: 0
+        } as never,
+        'session-1'
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+      const url = browser.windows.create.mock.calls.at(-1)?.[0]?.url || '';
+      const id = url.match(/id=([^&]+)/)?.[1];
+      expect(id).toBeTruthy();
+
+      const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+      const port = { id: 'p1' };
+      // Register the confirm window's port, then approve the connection.
+      await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+      await listener(
+        {
+          type: MidenMessageType.DAppPermConfirmationRequest,
+          id,
+          confirmed: true,
+          accountPublicKey: 'a1',
+          privateDataPermission: 'UPON_REQUEST'
+        },
+        port
+      );
+
+      await expect(p).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      // The broken (publicKey: null) session must NOT be persisted.
+      expect(_g.__dappConfInternals.storage[STORAGE_KEY][origin]).toBeUndefined();
+    } finally {
+      mc.getAccount.mockResolvedValue({
+        getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1]) }]
+      });
+    }
+  });
+});

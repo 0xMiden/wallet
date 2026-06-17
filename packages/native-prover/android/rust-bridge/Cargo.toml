@@ -1,0 +1,41 @@
+[package]
+name = "miden-native-prover-jni"
+description = "JNI bridge for the native Miden transaction prover. Android-only; compiles to a cdylib loaded by the Kotlin Capacitor plugin (com.miden.nativeprover.MidenNativeProverPlugin)."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+# `cdylib` produces a `.so` that Android's `System.loadLibrary` can dlopen.
+# JNI lookup expects `Java_<package>_<class>_<method>` symbol naming, which
+# this crate exports via `pub extern "system" fn Java_..._proveNative`.
+crate-type = ["cdylib"]
+
+# Standalone package — not part of any workspace.
+[workspace]
+
+[dependencies]
+# miden-client 0.15 is not on crates.io yet — pin the exact `next` rev the
+# published @miden-sdk/miden-sdk WASM is built from (see the web-sdk repo's
+# workspace Cargo.lock / MIDEN_CLIENT_REF). The TransactionInputs /
+# ProvenTransaction wire format must match the SDK byte-for-byte, and the
+# committed .so binaries must be reproducible, so a moving branch ref is
+# not acceptable here. `concurrent` cascades rayon-backed parallel proving
+# through miden-tx → miden-prover.
+miden-client = { git = "https://github.com/0xMiden/miden-client", rev = "733720a7ce5886a390c848402b61079be1e6aa38", default-features = false, features = ["std", "concurrent"] }
+futures-executor = { version = "0.3", default-features = false, features = ["std"] }
+
+# JNI binding crate. Only depended on here because this lib is
+# Android-Java-specific; the canonical miden-mobile-prover crate (in
+# web-sdk) stays pure C ABI and Java-agnostic.
+jni = { version = "0.21", default-features = false }
+
+# wasm32-getrandom escape hatch isn't needed here — JNI lib runs on
+# android targets, has the standard getrandom backend.
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

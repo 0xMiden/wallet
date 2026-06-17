@@ -114,6 +114,28 @@ describe('metadata/fetch', () => {
       expect(result.detailed).toEqual(result.base);
     });
 
+    it('returns DEFAULT_TOKEN_METADATA when faucet introspection throws (pre-0.15 faucet)', async () => {
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockIsMidenAsset.mockReturnValue(false);
+      mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });
+      mockGetAccountDetails.mockResolvedValue({
+        account: () => ({ id: 'underlying' }),
+        isPublic: () => true
+      });
+      mockFromAccount.mockImplementation(() => {
+        throw new Error('metadata slot unreadable');
+      });
+
+      const result = await fetchTokenMetadata('old-faucet-asset-id');
+
+      expect(result).toEqual({
+        base: DEFAULT_TOKEN_METADATA,
+        detailed: DEFAULT_TOKEN_METADATA
+      });
+      expect(consoleWarnSpy).toHaveBeenCalled();
+      consoleWarnSpy.mockRestore();
+    });
+
     it('returns DEFAULT_TOKEN_METADATA when RPC returns no underlying account (private)', async () => {
       mockIsMidenAsset.mockReturnValue(false);
       mockFromBech32.mockReturnValue({ accountId: () => 'acc-id' });

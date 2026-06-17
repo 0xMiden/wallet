@@ -112,11 +112,8 @@ export async function createGuardianAccount(
       guardianEndpointOverride ??
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
       DEFAULT_GUARDIAN_ENDPOINT;
-    console.log('Using Guardian endpoint:', guardianEndpoint);
-
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
-    console.log('Guardian commitment:', guardianCommitment, guardianPubkey);
     // Signer order is [hot, cold] by convention — the migration plan diagrams
     // and downstream role-routing code assume this layout.
     const multisig = await client.create(

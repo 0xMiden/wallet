@@ -128,10 +128,10 @@ const CustomSelectItem = <T extends {}, K extends string | number, A extends Act
         (() => {
           switch (true) {
             case active:
-              return light ? 'bg-gray-200' : 'bg-gray-300';
+              return light ? 'bg-gray-50' : 'bg-gray-50';
 
             case hoverable:
-              return light ? 'hover:bg-gray-100 focus:bg-gray-100' : 'hover:bg-gray-200 focus:bg-gray-200';
+              return light ? 'hover:bg-gray-100 focus:bg-gray-100' : 'hover:bg-gray-100 focus:bg-gray-100';
 
             default:
               return '';

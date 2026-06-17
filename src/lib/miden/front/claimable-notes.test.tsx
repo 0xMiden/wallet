@@ -250,6 +250,20 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     });
   });
 
+  it('skips a partial note whose id() is undefined', async () => {
+    const partialNote = {
+      id: () => undefined
+    };
+    _g.__cnTest.consumableNotes = [partialNote, makeMockNote({ id: 'full-note' })];
+    mockGetMidenClient.mockResolvedValue({
+      getConsumableNotes: jest.fn(async () => _g.__cnTest.consumableNotes)
+    });
+    renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(mockGetMidenClient).toHaveBeenCalled();
+    });
+  });
+
   it('handles a note that throws inside id()', async () => {
     const badNote = {
       id: () => {

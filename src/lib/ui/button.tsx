@@ -12,10 +12,10 @@ const buttonVariants = cva(
       variant: {
         default: 'bg-primary-500 text-pure-white [a]:hover:bg-primary-500/80',
         outline:
-          'border-grey-200 bg-white hover:bg-grey-50 hover:text-heading-gray aria-expanded:bg-grey-50 aria-expanded:text-heading-gray',
+          'border-border-light bg-white hover:bg-gray-100 hover:text-heading-gray aria-expanded:bg-gray-100 aria-expanded:text-heading-gray',
         secondary:
-          'bg-grey-100 text-heading-gray hover:bg-grey-200/80 aria-expanded:bg-grey-100 aria-expanded:text-heading-gray',
-        ghost: 'hover:bg-grey-50 hover:text-heading-gray aria-expanded:bg-grey-50 aria-expanded:text-heading-gray',
+          'bg-gray-50 text-heading-gray hover:bg-gray-100 aria-expanded:bg-gray-50 aria-expanded:text-heading-gray',
+        ghost: 'hover:bg-gray-100 hover:text-heading-gray aria-expanded:bg-gray-100 aria-expanded:text-heading-gray',
         destructive:
           'bg-red-500/10 hover:bg-red-500/20 focus-visible:ring-red-500/20 text-red-500 focus-visible:border-red-500/40',
         link: 'text-primary-500 underline-offset-4 hover:underline'

@@ -119,7 +119,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
 }
 
 function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p data-slot="drawer-description" className={cn('text-sm text-grey-500', className)} {...props} />;
+  return <p data-slot="drawer-description" className={cn('text-sm text-text-muted', className)} {...props} />;
 }
 
 // Stub exports for API compatibility (unused by consumers)

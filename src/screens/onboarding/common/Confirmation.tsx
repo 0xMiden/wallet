@@ -45,7 +45,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
             <div className="mt-4 text-center">
               <p className="text-red-500 text-sm mb-2">{t('biometricFailed')}</p>
               {!showPasswordFallback && (
-                <p className="text-gray-500 text-xs">
+                <p className="text-text-muted text-xs">
                   {t('biometricAttemptsRemaining', { count: MAX_BIOMETRIC_ATTEMPTS - biometricAttempts })}
                 </p>
               )}

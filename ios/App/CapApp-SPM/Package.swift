@@ -11,7 +11,7 @@ let package = Package(
             targets: ["CapApp-SPM"])
     ],
     dependencies: [
-        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.0.1"),
+        .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.3.4"),
         .package(name: "CapacitorApp", path: "../../../node_modules/@capacitor/app"),
         .package(name: "CapacitorFilesystem", path: "../../../node_modules/@capacitor/filesystem"),
         .package(name: "CapacitorHaptics", path: "../../../node_modules/@capacitor/haptics"),
@@ -20,7 +20,8 @@ let package = Package(
         .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
         .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
         .package(name: "CapacitorSplashScreen", path: "../../../node_modules/@capacitor/splash-screen"),
-        .package(name: "MidenDappBrowser", path: "../../../packages/dapp-browser")
+        .package(name: "MidenDappBrowser", path: "../../../packages/dapp-browser"),
+        .package(name: "MidenNativeProver", path: "../../../packages/native-prover")
     ],
     targets: [
         .target(
@@ -36,7 +37,8 @@ let package = Package(
                 .product(name: "CapacitorPreferences", package: "CapacitorPreferences"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
                 .product(name: "CapacitorSplashScreen", package: "CapacitorSplashScreen"),
-                .product(name: "MidenDappBrowser", package: "MidenDappBrowser")
+                .product(name: "MidenDappBrowser", package: "MidenDappBrowser"),
+                .product(name: "MidenNativeProver", package: "MidenNativeProver")
             ]
         )
     ]

@@ -19,7 +19,7 @@ export const RadioButton: React.FC<RadioProps> = ({ value, onChange }) => {
 
   return (
     <label
-      className={`${borderWidth} ${backgroundColor} rounded-full relative flex items-center justify-center w-6 aspect-square border-grey-200`}
+      className={`${borderWidth} ${backgroundColor} rounded-full relative flex items-center justify-center w-6 aspect-square border-border-light`}
     >
       {value && <div className="rounded-full w-3 aspect-square bg-pure-white" />}
       <input type="radio" checked={value} onChange={handleChange} className="hidden" />

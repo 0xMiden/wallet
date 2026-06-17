@@ -22,7 +22,6 @@ import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientInterface } from '../sdk/miden-client-interface';
 
 const MAX_SYNC_RETRIES = 20;
 
@@ -55,7 +54,12 @@ export class MultisigService {
     const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-      const webClient = (await MidenClientInterface.create({})).client;
+      // Reuse the shared singleton client instead of spinning up a fresh
+      // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
+      // that is never terminated). Reusing the singleton also lets the multisig
+      // lib's rawClientCache WeakMap (keyed by this client instance) hit across
+      // every init, so at most ONE shared raw worker is created total.
+      const webClient = (await getMidenClient()).client;
 
       const client = new MultisigClient(webClient, { guardianEndpoint });
       const multisig = await client.load(account.id().toString(), signer);

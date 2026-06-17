@@ -161,7 +161,7 @@ const ByPrivateKeyForm: FC = () => {
         className="resize-none"
         onPaste={() => clearClipboard()}
       />
-      <div className="mb-6 text-gray-200" style={{ fontSize: '12px', lineHeight: '16px' }}>
+      <div className="mb-6 text-text-muted" style={{ fontSize: '12px', lineHeight: '16px' }}>
         {t('privateKeyInputDescription')}
       </div>
       <FormField
@@ -283,7 +283,7 @@ const WatchOnlyForm: FC = () => {
           />
         )}
       />
-      <div className="mb-6 text-gray-200" style={{ fontSize: '12px', lineHeight: '16px' }}>
+      <div className="mb-6 text-text-muted" style={{ fontSize: '12px', lineHeight: '16px' }}>
         {t('viewKeyInputDescription')}
       </div>
 

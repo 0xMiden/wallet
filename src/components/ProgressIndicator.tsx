@@ -14,7 +14,7 @@ export const ProgressIndicator: React.FC<ProgressIndicatorProps> = ({ className,
           key={index}
           className={classNames(
             'h-1.5 flex-1',
-            index <= currentStep - 1 ? 'bg-primary-500' : 'bg-grey-200',
+            index <= currentStep - 1 ? 'bg-primary-500' : 'bg-gray-50',
             index === 0 ? 'rounded-l-10' : '',
             index === steps - 1 ? 'rounded-r-10' : ''
           )}

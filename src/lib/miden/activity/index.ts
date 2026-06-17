@@ -26,3 +26,49 @@ export function requestSWTransactionProcessing(): void {
       console.warn('[requestSWTransactionProcessing] Failed to nudge SW:', err);
     });
 }
+
+/**
+ * Speculatively pre-prove a send transaction with the params currently
+ * showing on the review screen, so when the user clicks Confirm the prove
+ * is already done. Cache lives in the SW's SpeculationManager keyed by
+ * params hash; consumed by MidenClientInterface.proveLocallyViaOffscreen
+ * on actual submit. Fire-and-forget — failures degrade gracefully (the
+ * Confirm path falls through to fresh execute+prove).
+ *
+ * Caller is responsible for gating: only call when local proving is the
+ * effective mode (!isDelegateProofEnabled()), the build opted into
+ * MIDEN_USE_SPECULATIVE_PROVING, AND there are no per-tx params that
+ * speculation can't handle (currently: skip when recallBlocks is set,
+ * since reclaim height drifts between speculate-time and commit-time).
+ */
+export function requestSpeculateSend(params: {
+  accountId: string;
+  recipientAccountId: string;
+  faucetId: string;
+  noteType: 'public' | 'private';
+  amount: bigint;
+}): void {
+  if (!isExtension()) return;
+  getIntercom()
+    .request({
+      type: WalletMessageType.SpeculateSendRequest,
+      accountId: params.accountId,
+      recipientAccountId: params.recipientAccountId,
+      faucetId: params.faucetId,
+      noteType: params.noteType,
+      amount: params.amount.toString()
+    })
+    .catch(err => {
+      console.warn('[requestSpeculateSend] failed:', err);
+    });
+}
+
+/** Drop the cached speculation. Called when the review screen unmounts. */
+export function requestSpeculateInvalidate(): void {
+  if (!isExtension()) return;
+  getIntercom()
+    .request({ type: WalletMessageType.SpeculateInvalidate })
+    .catch(err => {
+      console.warn('[requestSpeculateInvalidate] failed:', err);
+    });
+}
