@@ -67,7 +67,7 @@ export async function createGuardianAccount(
 
   try {
     // Generate the signer secret key from seed
-    const sk = AuthSecretKey.rpoFalconWithRNG(seed);
+    const sk = AuthSecretKey.ecdsaWithRNG(seed);
     const signerCommitment = sk.publicKey().toCommitment();
 
     // Get Guardian endpoint and initialize client
@@ -75,9 +75,8 @@ export async function createGuardianAccount(
       guardianEndpointOverride ??
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
       DEFAULT_GUARDIAN_ENDPOINT;
-    console.log('Using Guardian endpoint:', guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
-    const { commitment, pubkey } = await client.guardianClient.getPubkey();
+    const { commitment, pubkey } = await client.guardianClient.getPubkey('ecdsa');
     // Create the multisig account using the package utility
     const multisig = await client.create(
       {
