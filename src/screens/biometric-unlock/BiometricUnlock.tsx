@@ -89,7 +89,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
         {/* Biometric Icon */}
         <div
           className={classNames(
-            'w-24 h-24 rounded-full bg-grey-50 flex items-center justify-center mb-8',
+            'w-24 h-24 rounded-full bg-gray-50 flex items-center justify-center mb-8',
             isAuthenticating && 'animate-pulse'
           )}
         >
@@ -100,7 +100,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
         <h2 className="text-xl font-semibold text-center mb-2">{getBiometricLabel()}</h2>
 
         {/* Subtitle/Status */}
-        <p className="text-sm text-grey-600 text-center mb-8">
+        <p className="text-sm text-text-muted text-center mb-8">
           {isAuthenticating ? t('biometricAuthRequired') : error || t('unlockWithBiometric')}
         </p>
 

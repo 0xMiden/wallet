@@ -41,8 +41,8 @@ export const QRCode: React.FC<QRCodeProps> = ({ address, size = 80, onCopy, clas
       onClick={handleClick}
       className={classNames(
         'flex flex-col items-center justify-center gap-y-2 p-3',
-        'rounded-lg bg-grey-50',
-        'cursor-pointer hover:bg-grey-100 transition duration-300 ease-in-out',
+        'rounded-lg bg-gray-50',
+        'cursor-pointer hover:bg-gray-100 transition duration-300 ease-in-out',
         'focus:outline-none focus:ring-2 focus:ring-primary-500',
         className
       )}

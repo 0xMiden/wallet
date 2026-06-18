@@ -5,8 +5,10 @@ import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 
 import { DEFAULT_NETWORK, ensureSdkWasmReady, getRpcEndpoint } from './constants';
 
-const ID_CACHE_KEY = `native_asset_id:${DEFAULT_NETWORK}`;
-const META_CACHE_KEY = `native_asset_meta:${DEFAULT_NETWORK}`;
+// `v2` segment: account IDs renumbered under the 0.15 protocol's ID
+// version 1, so values cached by 0.14 builds must not be reused.
+const ID_CACHE_KEY = `native_asset_id:v2:${DEFAULT_NETWORK}`;
+const META_CACHE_KEY = `native_asset_meta:v2:${DEFAULT_NETWORK}`;
 
 export type NativeAssetChainMetadata = {
   symbol: string;
@@ -50,7 +52,7 @@ async function discover(): Promise<string> {
   await ensureSdkWasmReady();
   const rpc = new RpcClient(getRpcEndpoint());
   const header = await rpc.getBlockHeaderByNumber(undefined);
-  const accountId = header.nativeAssetId();
+  const accountId = header.feeFaucetId();
   const bech32 = getBech32AddressFromAccountId(accountId);
   memCache = bech32;
   try {
@@ -99,8 +101,8 @@ export function getNativeAssetIdSync(): string | null {
  *
  * Resolution order:
  *   1. in-memory cache (set once per process)
- *   2. persisted cache (`native_asset_id:<network>` in platform key-value store)
- *   3. fresh RPC fetch via `BlockHeader.nativeAssetId()`
+ *   2. persisted cache (`native_asset_id:v2:<network>` in platform key-value store)
+ *   3. fresh RPC fetch via `BlockHeader.feeFaucetId()`
  *
  * Single-flight: concurrent callers share one RPC round-trip.
  */

@@ -9,7 +9,7 @@ interface InformationBannerProps {
 
 const InformationBanner: FC<InformationBannerProps> = ({ title, bodyText }) => {
   return (
-    <div className="flex flex-row items-start rounded-lg p-4 bg-blue-300">
+    <div className="flex flex-row items-start rounded-lg p-4 bg-blue-300 dark:bg-blue-500/15">
       <span className="pt-px">
         <InfoIcon className="mr-2 h-5 w-5" />
       </span>

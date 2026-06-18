@@ -144,7 +144,7 @@ type AnimationConfig = {
 const PushInitialPosition: AnimationConfig = {
   x: '8%',
   opacity: 1,
-  backgroundColor: '#ffffff',
+  backgroundColor: 'var(--color-app-bg)',
   y: '0vw',
   scale: 1
 };
@@ -154,7 +154,7 @@ const FocusPosition: AnimationConfig = {
   y: '0vw',
   opacity: 1,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PushExitPosition: AnimationConfig = {
@@ -162,7 +162,7 @@ const PushExitPosition: AnimationConfig = {
   y: '0vw',
   opacity: 1,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PushHiddenPosition: AnimationConfig = {
@@ -170,7 +170,7 @@ const PushHiddenPosition: AnimationConfig = {
   y: '0vw',
   opacity: 1,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PushModalBackgroundPosition: AnimationConfig = {
@@ -178,7 +178,7 @@ const PushModalBackgroundPosition: AnimationConfig = {
   y: '0vw',
   opacity: 1,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PresentInitialPosition: AnimationConfig = {
@@ -186,7 +186,7 @@ const PresentInitialPosition: AnimationConfig = {
   y: '25vw',
   opacity: 0,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PresentExitPosition: AnimationConfig = {
@@ -194,7 +194,7 @@ const PresentExitPosition: AnimationConfig = {
   y: '25vw',
   opacity: 0,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 export const DefaultAnimationConfig = {

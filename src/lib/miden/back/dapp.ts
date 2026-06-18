@@ -61,6 +61,7 @@ import { WalletStatus } from 'lib/shared/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
+import { getCurrentMidenNetwork } from './safe-network';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import {
@@ -346,7 +347,7 @@ export async function generatePromisifyRequestPermission(
         if (confirmReq?.type === MidenMessageType.DAppPermConfirmationRequest && confirmReq?.id === id) {
           const { confirmed, accountPublicKey, privateDataPermission } = confirmReq;
           if (confirmed && accountPublicKey) {
-            let publicKey = null;
+            let publicKey: string | null = null;
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
@@ -357,23 +358,32 @@ export async function generatePromisifyRequestPermission(
             } catch (e) {
               console.error('Error fetching account public key:', e);
             }
-            if (!existingPermission)
-              await setDApp(origin, {
-                network,
-                appMeta,
+            if (publicKey == null) {
+              // A failed public-key fetch must fail the connect, not persist a
+              // session with publicKey: null. The direct-return path hands that
+              // null pubkey back verbatim on every later connect, wedging the
+              // dApp at "Connecting…" until the session is cleared. Mirrors the
+              // non-extension branch, which throws NotGranted on the same failure.
+              decline();
+            } else {
+              if (!existingPermission)
+                await setDApp(origin, {
+                  network,
+                  appMeta,
+                  accountId: accountPublicKey,
+                  privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+                  allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+                  publicKey
+                });
+              resolve({
+                type: MidenDAppMessageType.PermissionResponse,
                 accountId: accountPublicKey,
+                network,
                 privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
                 allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-                publicKey: publicKey!
+                publicKey
               });
-            resolve({
-              type: MidenDAppMessageType.PermissionResponse,
-              accountId: accountPublicKey,
-              network,
-              privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-              allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-              publicKey: publicKey!
-            });
+            }
           } else {
             decline();
           }
@@ -664,7 +674,15 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         const midenClient = await getMidenClient();
         await midenClient.syncState();
         const notes = await midenClient.getConsumableNotes(accountId);
-        const consumableNotesDetails = notes.map(note => {
+        const consumableNotesDetails = notes.flatMap(note => {
+          // Partial (metadata-less) notes have no ID — and, since 0.15
+          // nullifiers fold in metadata, no nullifier either. They cannot
+          // be consumed, so skip until sync completes them.
+          const noteId = note.id();
+          const nullifier = note.nullifier();
+          if (!noteId || !nullifier) {
+            return [];
+          }
           const assets = note
             .details()
             .assets()
@@ -673,15 +691,17 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
               amount: asset.amount().toString(),
               faucetId: asset.faucetId().toBech32(getNetworkId(), AccountInterface.BasicWallet)
             }));
-          return {
-            noteId: note.id().toString(),
-            noteType: note.metadata()?.noteType(),
-            senderAccountId:
-              note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
-            nullifier: note.nullifier(),
-            state: note.state(),
-            assets: assets
-          };
+          return [
+            {
+              noteId: noteId.toString(),
+              noteType: note.metadata()?.noteType(),
+              senderAccountId:
+                note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
+              nullifier,
+              state: note.state(),
+              assets: assets
+            }
+          ];
         });
         return consumableNotesDetails;
       });
@@ -853,7 +873,10 @@ export const generatePromisifyImportPrivateNote = async (
             });
             resolve({
               type: MidenDAppMessageType.ImportPrivateNoteResponse,
-              noteId: noteId.toString()
+              // Hex string: the note ID for metadata-bearing files, or the
+              // details commitment for details-only imports (the common
+              // dApp `noteBytes` path).
+              noteId
             });
           } catch (e) {
             reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
@@ -898,6 +921,46 @@ const generatePromisifyTransaction = async (
   req: MidenDAppTransactionRequest,
   sessionId?: string
 ) => {
+  // The generalized TransactionRequest carries a tagged `MidenTransaction`
+  // ({ type, payload }). A `send`/`consume` payload is not a custom-transaction
+  // payload, so delegate those to their dedicated flows (preview, confirmation
+  // UI and execution) instead of validating them as a CustomTransaction —
+  // otherwise they fail with "Invalid CustomTransaction payload". Only `custom`
+  // (and bare/legacy payloads) fall through to the custom flow below. Issue #88.
+  // `req.transaction.type` is a string enum from `MidenTransaction`
+  // ('send' | 'consume' | 'custom'). Compare by value rather than importing
+  // the `TransactionType` enum as a runtime value: adapter-base is consumed
+  // type-only in this module, and its runtime exports aren't loadable in the
+  // unit-test (jest) setup. The string values are part of the dApp↔wallet
+  // wire contract, so they're stable.
+  const type: string = req.transaction.type;
+  if (type === 'send') {
+    return generatePromisifySendTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppSendTransactionResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppSendTransactionRequest,
+      sessionId
+    );
+  }
+  if (type === 'consume') {
+    return generatePromisifyConsumeTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppConsumeResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppConsumeRequest,
+      sessionId
+    );
+  }
+
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
@@ -1448,9 +1511,22 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }:
   const stopTimeout = () => clearTimeout(t);
 }
 
-export async function getNetworkRPC(net: string) {
-  const targetRpc = NETWORKS.find(n => n.id === net)!.rpcBaseURL;
-  return targetRpc;
+export async function getNetworkRPC(net: string | undefined) {
+  // dApp didn't specify a network — fall back to the wallet's currently
+  // selected one. Prevents an immediate connect() failure for dApps that
+  // (legitimately) just want to use whatever the user is on.
+  if (!net) {
+    const current = await getCurrentMidenNetwork();
+    if (!current) {
+      throw new Error(MidenDAppErrorType.NetworkNotGranted);
+    }
+    return current.rpcBaseURL;
+  }
+  const found = NETWORKS.find(n => n.id === net);
+  if (!found) {
+    throw new Error(MidenDAppErrorType.NetworkNotGranted);
+  }
+  return found.rpcBaseURL;
 
   // if (typeof net === 'string') {
   //   try {

@@ -52,6 +52,7 @@ import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
 
 const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
@@ -219,14 +220,14 @@ const TAB_GROUPS: TabGroup[] = [
     titleI18nKey: 'about',
     tabs: [
       {
-        slug: '#',
+        slug: PRIVACY_POLICY_URL,
         titleI18nKey: 'privacyPolicy',
         Icon: PrivacyPolicyIcon,
         Component: () => null,
         linksOutsideOfWallet: true
       },
       {
-        slug: '#',
+        slug: TERMS_OF_USE_URL,
         titleI18nKey: 'termsOfService',
         Icon: TosIcon,
         Component: () => null,
@@ -386,7 +387,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
             {tabGroups.map(group => (
               <div key={group.titleI18nKey}>
-                <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>
+                <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>
                 <div className="overflow-hidden flex flex-col gap-6">
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
@@ -421,7 +422,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               </div>
             ))}
 
-            <p className="text-base font-medium text-grey-300 pt-2">Version {pkg.version}</p>
+            <p className="text-base font-medium text-text-muted pt-2">Version {pkg.version}</p>
           </div>
         )}
       </div>
@@ -461,7 +462,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                 <div className="bg-gray-25 rounded-2xl px-6 py-8">
                   <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
                     {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-[#BABABA]" style={{ width: 144 }} />
+                      <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
                     ))}
                   </div>
                 </div>

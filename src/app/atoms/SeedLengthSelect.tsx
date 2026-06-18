@@ -72,7 +72,7 @@ export const SeedLengthSelect: FC<SeedLengthSelectProps> = ({
               value={option}
               onClick={() => handleClick(option)}
               className={classNames(
-                selectedOption === option ? 'bg-gray-900' : 'bg-white hover:bg-gray-100',
+                selectedOption === option ? 'bg-gray-25' : 'bg-white hover:bg-gray-100',
                 'py-1',
                 'text-black',
                 'flex justify-center'

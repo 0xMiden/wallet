@@ -15,6 +15,11 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 type CacheEntry = { service: MultisigService; hotPublicKey: string };
 const guardianServiceCache = new Map<string, CacheEntry>();
 
+// In-flight MultisigService.init promises, keyed by accountPublicKey. The
+// guardian sync runs every 3s and does not await previous ticks; without this,
+// each tick can start a fresh init before the resolved service reaches the cache.
+const guardianServiceInflight = new Map<string, Promise<MultisigService>>();
+
 /**
  * Callbacks for resolving account data.
  * Allows guardian-manager to work in both frontend (Zustand) and service worker (Vault) contexts.
@@ -44,7 +49,7 @@ export async function getOrCreateMultisigService(
 ): Promise<MultisigService> {
   console.log(`[Guardian Manager] Getting/creating MultisigService for account: ${accountPublicKey}`);
   // Resolve the WalletAccount upfront — needed for both the cache drift
-  // check (hotPublicKey can rotate) and any subsequent service init.
+  // check (hotPublicKey can rotate) and the subsequent service init.
   const accounts = await provider.getAccounts();
   const account = accounts.find(acc => acc.publicKey === accountPublicKey);
   if (!account || account.type !== WalletType.Guardian) {
@@ -57,6 +62,8 @@ export async function getOrCreateMultisigService(
   if (!account.hotPublicKey) {
     throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
   }
+  const hotPublicKey = account.hotPublicKey;
+
   // Return cached instance if its endpoint AND bound hot pubkey still match.
   // Two separate drift sources:
   //   - guardian endpoint: switch_guardian rotates the URL; clearGuardianServiceFor
@@ -77,41 +84,49 @@ export async function getOrCreateMultisigService(
       guardianServiceCache.delete(accountPublicKey);
     } catch (error) {}
   }
-  console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
-  console.log('[Guardian Manager] Found Guardian account in provider:', account);
 
-  // Get the Account object from Miden client
-  const { sdkAccount } = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-    const sdkAccount = await midenClient.getAccount(accountPublicKey);
-    return { sdkAccount };
-  });
-
-  if (!sdkAccount) {
-    throw new Error('Account not found in local storage');
+  // Coalesce concurrent inits: the guardian sync runs every 3s and does not
+  // await previous ticks, so without this an in-flight init can start again
+  // before its resolved service reaches the cache.
+  const inflight = guardianServiceInflight.get(accountPublicKey);
+  if (inflight) {
+    return inflight;
   }
 
-  const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
-  console.log(
-    '[Guardian Manager] Retrieved signer details - commitment:',
-    commitment,
-    'publicKey:',
-    account.hotPublicKey
-  );
-  console.log('[Guardian Manager] Initializing MultisigService with account and signer details...', provider.signWord);
-  // Initialize MultisigService with the account, public key, commitment, and signWord function
-  const service = await MultisigService.init(
-    sdkAccount,
-    `0x${account.hotPublicKey}`,
-    `0x${commitment}`,
-    provider.signWord
-  );
+  console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
 
-  // Cache for future use, tagged with the hot pubkey it was bound to so the
-  // next access can detect rotation and force a re-init.
-  guardianServiceCache.set(accountPublicKey, { service, hotPublicKey: account.hotPublicKey });
+  const initPromise = (async () => {
+    // Get the Account object from the Miden client.
+    const { sdkAccount } = await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      const sdkAccount = await midenClient.getAccount(accountPublicKey);
+      return { sdkAccount };
+    });
 
-  return service;
+    if (!sdkAccount) {
+      throw new Error('Account not found in local storage');
+    }
+
+    // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
+    const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
+    // Bind the service to the hot signer — the popup signs with the hot key.
+    const service = await MultisigService.init(sdkAccount, `0x${hotPublicKey}`, `0x${commitment}`, provider.signWord);
+
+    // Cache for future use, tagged with the hot pubkey it was bound to so the
+    // next access can detect rotation and force a re-init.
+    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey });
+
+    return service;
+  })();
+
+  guardianServiceInflight.set(accountPublicKey, initPromise);
+  try {
+    return await initPromise;
+  } finally {
+    // Evict on settle (success or failure) so a failed init can be retried on
+    // the next sync tick while successful inits use guardianServiceCache.
+    guardianServiceInflight.delete(accountPublicKey);
+  }
 }
 
 /**
@@ -130,6 +145,7 @@ export async function isGuardianAccount(accountPublicKey: string, provider: Guar
  */
 export function clearGuardianCache(): void {
   guardianServiceCache.clear();
+  guardianServiceInflight.clear();
 }
 
 /**
@@ -139,4 +155,5 @@ export function clearGuardianCache(): void {
  */
 export function clearGuardianServiceFor(accountPublicKey: string): void {
   guardianServiceCache.delete(accountPublicKey);
+  guardianServiceInflight.delete(accountPublicKey);
 }

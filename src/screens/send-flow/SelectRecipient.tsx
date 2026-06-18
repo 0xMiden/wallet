@@ -69,7 +69,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                 <button
                   type="button"
                   onClick={handleScan}
-                  className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
+                  className="p-1 rounded-lg hover:bg-gray-100 transition duration-200"
                   aria-label={t('scanQr')}
                 >
                   <Icon name={IconName.QrScan} fill="currentColor" size="md" />

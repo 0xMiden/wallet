@@ -551,9 +551,7 @@ async function driveConfirmation(
 
 describe('Full confirmation cycles in extension mode', () => {
   it('requestImportPrivateNote resolves with note id when confirmed', async () => {
-    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue({
-      toString: () => 'imported-note-id'
-    });
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue('imported-note-id');
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     const res = await driveConfirmation(
       () =>
@@ -627,6 +625,43 @@ describe('Full confirmation cycles in extension mode', () => {
       MidenMessageType.DAppConsumableNotesConfirmationRequest
     );
     expect(res.type).toBe(MidenDAppMessageType.ConsumableNotesResponse);
+  });
+
+  it('requestConsumableNotes maps full notes and skips partial (id-less) ones', async () => {
+    const partialNote = { id: () => undefined, nullifier: () => undefined };
+    const fullNote = {
+      id: () => ({ toString: () => 'note-full' }),
+      metadata: () => ({
+        noteType: () => 'public',
+        sender: () => ({ toBech32: () => 'sender-bech32' })
+      }),
+      nullifier: () => 'nullifier-1',
+      state: () => 'committed',
+      details: () => ({
+        assets: () => ({
+          fungibleAssets: () => [
+            {
+              amount: () => ({ toString: () => '7' }),
+              faucetId: () => ({ toBech32: () => 'faucet-bech32' })
+            }
+          ]
+        })
+      })
+    };
+    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([partialNote, fullNote]);
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    const res = await driveConfirmation(
+      () =>
+        dapp.requestConsumableNotes('https://miden.xyz', {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest
+    );
+    expect(res.type).toBe(MidenDAppMessageType.ConsumableNotesResponse);
+    const notes = (res as any).consumableNotes;
+    expect(notes).toHaveLength(1);
+    expect(notes[0].noteId).toBe('note-full');
   });
 
   it('requestAssets resolves when confirmed', async () => {
@@ -1029,26 +1064,29 @@ describe('Full confirmation cycles in extension mode', () => {
     expect((res as any).publicKey).toBeDefined();
   });
 
-  it('requestPermission in extension when confirmed but getAccountPublicKeyB64 throws still resolves (publicKey null)', async () => {
+  it('requestPermission in extension rejects (and saves no session) when getAccountPublicKeyB64 throws', async () => {
     delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz'];
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
-    const res = await driveConfirmation(
-      () =>
-        dapp.requestPermission('https://err-dapp.xyz', {
-          type: MidenDAppMessageType.PermissionRequest,
-          appMeta: { name: 'Err Dapp', url: 'https://err-dapp.xyz' },
-          force: false,
-          network: 'testnet',
-          privateDataPermission: 'UPON_REQUEST',
-          allowedPrivateData: 0
-        } as never),
-      MidenMessageType.DAppPermConfirmationRequest,
-      {
-        confirmed: true,
-        accountPublicKey: 'miden-account-1',
-        privateDataPermission: 'UPON_REQUEST'
-      }
-    );
-    expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestPermission('https://err-dapp.xyz', {
+            type: MidenDAppMessageType.PermissionRequest,
+            appMeta: { name: 'Err Dapp', url: 'https://err-dapp.xyz' },
+            force: false,
+            network: 'testnet',
+            privateDataPermission: 'UPON_REQUEST',
+            allowedPrivateData: 0
+          } as never),
+        MidenMessageType.DAppPermConfirmationRequest,
+        {
+          confirmed: true,
+          accountPublicKey: 'miden-account-1',
+          privateDataPermission: 'UPON_REQUEST'
+        }
+      )
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    // A failed pubkey fetch must not persist a publicKey: null session.
+    expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
   });
 });

@@ -49,7 +49,7 @@ export const HeroSearch: FC<HeroSearchProps> = ({ onSubmit }) => {
   return (
     <form onSubmit={handleSubmit} className="px-4">
       <div
-        className="flex h-12 w-full items-center gap-3 rounded-2xl border border-grey-100 bg-pure-white px-4 shadow-[0_2px_8px_rgba(15,23,42,0.04)]"
+        className="flex h-12 w-full items-center gap-3 rounded-2xl border border-border-light bg-input-bg px-4 shadow-[0_2px_8px_rgba(15,23,42,0.04)]"
         style={{
           backdropFilter: 'blur(20px) saturate(1.6)',
           WebkitBackdropFilter: 'blur(20px) saturate(1.6)'
@@ -67,7 +67,7 @@ export const HeroSearch: FC<HeroSearchProps> = ({ onSubmit }) => {
           // proper announce string while the placeholder still acts as
           // the visual hint inside the empty input.
           aria-label={t('searchDapps')}
-          className="grow bg-transparent text-base text-grey-800 placeholder:text-grey-400 focus:outline-none"
+          className="grow bg-transparent text-base text-black placeholder:text-grey-400 focus:outline-none"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}

@@ -49,7 +49,7 @@ export const ListItem: React.FC<ListItemProps> = ({
     'gap-x-4 bg-white', // Gap and background classes
     'rounded-lg transition', // Shape and transition classes
     'duration-300 ease-in-out', // Transition duration and timing function classes
-    'hover:bg-grey-50 cursor-pointer', // Hover and cursor classes
+    'hover:bg-gray-100 cursor-pointer', // Hover and cursor classes
     'overflow-hidden',
     className // User-defined classes
   );
@@ -61,7 +61,7 @@ export const ListItem: React.FC<ListItemProps> = ({
         {title && (
           <div className={classNames('text-sm text-heading-gray truncate text-ellipsis ', titleClassName)}>{title}</div>
         )}
-        {subtitle && <div className="text-sm text-grey-600 truncate text-ellipsis shrink-0">{subtitle}</div>}
+        {subtitle && <div className="text-sm text-text-muted truncate text-ellipsis shrink-0">{subtitle}</div>}
       </div>
       {iconRight && <IconOrComponent icon={iconRight} className={iconRightClassName} />}
     </div>

@@ -135,6 +135,28 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 
+    it('coalesces concurrent service initialization for the same account', async () => {
+      const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'shared' };
+      let resolveInit!: (value: unknown) => void;
+      mockMultisigServiceInit.mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveInit = resolve;
+        })
+      );
+      const provider = makeProvider([guardianAccount]);
+
+      const first = getOrCreateMultisigService(GUARDIAN_PK, provider);
+      const second = getOrCreateMultisigService(GUARDIAN_PK, provider);
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(provider.getAccounts).toHaveBeenCalledTimes(1);
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
+
+      resolveInit(service);
+      await expect(Promise.all([first, second])).resolves.toEqual([service, service]);
+    });
+
     it('throws when the account is not of type Guardian', async () => {
       const provider = makeProvider([onChainAccount]);
 

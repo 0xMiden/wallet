@@ -1,7 +1,7 @@
 import React from 'react';
 
 import { IconName } from 'app/icons/v2';
-import { hapticLight } from 'lib/mobile/haptics';
+import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { IconOrComponent } from 'utils/icon-or-component';
 
@@ -10,7 +10,8 @@ import { Loader } from './Loader';
 export enum ButtonVariant {
   Primary = 'primary',
   Secondary = 'secondary',
-  Ghost = 'ghost'
+  Ghost = 'ghost',
+  Danger = 'danger'
 }
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -50,10 +51,21 @@ const propsPerButtonVariant = {
     disabledColor: 'text-grey-400',
     disabledFontWeight: 'font-semibold',
     backgroundColor: 'bg-transparent',
-    hoverBackgroundColor: 'hover:bg-grey-50',
-    disabledBackgroundColor: 'bg-grey-200',
+    hoverBackgroundColor: 'hover:bg-gray-100',
+    disabledBackgroundColor: 'bg-gray-50',
     iconColor: 'black',
     border: 'border border-border-button'
+  },
+  [ButtonVariant.Danger]: {
+    color: 'text-pure-white',
+    fontWeight: 'font-semibold',
+    disabledColor: 'text-grey-400',
+    disabledFontWeight: 'font-semibold',
+    backgroundColor: 'bg-red-500',
+    hoverBackgroundColor: 'hover:bg-red-600',
+    disabledBackgroundColor: 'bg-gray-50',
+    iconColor: 'white',
+    border: 'border-[0.5px] border-transparent'
   }
 };
 
@@ -98,7 +110,12 @@ export const Button: React.FC<ButtonProps> = ({
 
   const onClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.blur();
-    hapticLight();
+    // Medium haptic for destructive actions, light for everything else.
+    if (variant === ButtonVariant.Danger) {
+      hapticMedium();
+    } else {
+      hapticLight();
+    }
     props.onClick?.(e);
   };
 

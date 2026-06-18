@@ -243,7 +243,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         <div className="w-full max-w-sm mx-auto my-8" style={{ padding: '0px 32px' }}>
           <div className="text-center mb-6">
             <h2 className="text-xl font-semibold mb-2">{t('biometricUnlockRequired')}</h2>
-            <p className="text-gray-600 text-sm">{t('biometricUnlockRequiredDescription')}</p>
+            <p className="text-text-muted text-sm">{t('biometricUnlockRequiredDescription')}</p>
           </div>
           <Button
             id="retry-biometric"

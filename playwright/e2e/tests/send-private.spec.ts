@@ -40,6 +40,10 @@ test.describe('Private Note Send', () => {
       await walletA.sendTokens({
         recipientAddress: addressB!,
         amount: '500',
+        // Devnet's native MIDEN row (0 balance) now renders above the
+        // CLI faucet's row — fee-asset discovery works on the 0.15 SDK —
+        // so the default first-row click would pick the wrong token.
+        tokenSymbol: 'TST',
         isPrivate: true, // Private payment toggle ON
       });
     }, {

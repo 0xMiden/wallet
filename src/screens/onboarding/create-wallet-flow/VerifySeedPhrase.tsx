@@ -110,10 +110,10 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
           <>
             <div className="flex flex-col gap-1 px-2">
               <h3 className="text-lg font-semibold">{t('unlockWallet')}</h3>
-              <p className="text-sm text-grey-600">{t('unlockWalletDescription')}</p>
+              <p className="text-sm text-text-muted">{t('unlockWalletDescription')}</p>
             </div>
             <div className="flex items-center justify-between gap-3 px-2">
-              <p className="text-sm text-grey-600 flex-1">{t('passwordsCanBeInsecure')}</p>
+              <p className="text-sm text-text-muted flex-1">{t('passwordsCanBeInsecure')}</p>
               <Toggle value={useBiometric} onChangeValue={onBiometricChange} />
             </div>
           </>

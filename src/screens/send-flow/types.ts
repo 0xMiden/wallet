@@ -11,7 +11,6 @@ export type SendFlowForm = {
   sharePrivately: boolean;
   recipientAddress: string;
   recallBlocks?: string;
-  delegateTransaction: boolean;
   token?: UIToken;
 };
 
@@ -92,7 +91,6 @@ export type UIForm = {
   token?: UIToken;
   feeAmount: string;
   feeType: UIFeeType;
-  delegateTransaction: boolean;
 };
 
 export const TransactionTypeNameMapping: Record<UITransactionType, string> = {
