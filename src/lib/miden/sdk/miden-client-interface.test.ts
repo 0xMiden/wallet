@@ -598,7 +598,8 @@ describe('MidenClientInterface', () => {
         MultisigService: { importAccountFromGuardian }
       }));
       jest.doMock('lib/miden-chain/constants', () => ({
-        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
+        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
+        getDefaultGuardianEndpoint: () => 'https://default.guardian.test'
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({
         addConnectivityIssue: jest.fn()
@@ -652,7 +653,8 @@ describe('MidenClientInterface', () => {
         MultisigService: { importAccountFromGuardian: jest.fn() }
       }));
       jest.doMock('lib/miden-chain/constants', () => ({
-        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
+        DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
+        getDefaultGuardianEndpoint: () => 'https://default.guardian.test'
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({
         addConnectivityIssue: jest.fn()

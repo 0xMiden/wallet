@@ -37,7 +37,6 @@ export async function getOrCreateMultisigService(
   accountPublicKey: string,
   provider: GuardianAccountProvider
 ): Promise<MultisigService> {
-  console.log(`[Guardian Manager] Getting/creating MultisigService for account: ${accountPublicKey}`);
   // Return cached instance if its endpoint still matches storage. In the
   // extension build, `clearGuardianServiceFor` from the SW realm doesn't reach
   // the frontend's own copy of this Map, so a guardian switch would leave
@@ -63,9 +62,6 @@ export async function getOrCreateMultisigService(
       throw new Error('Account is not a Guardian account');
     }
 
-    console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
-    console.log('[Guardian Manager] Found Guardian account in provider:', account);
-
     // Get the Account object from Miden client
     const { sdkAccount } = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
@@ -78,7 +74,6 @@ export async function getOrCreateMultisigService(
     }
 
     const { commitment, publicKey } = await getSignerDetailsFromAccount(sdkAccount, provider.getPublicKeyForCommitment);
-    console.log('[Guardian Manager] Retrieved signer details - commitment:', commitment, 'publicKey:', publicKey);
     // Initialize MultisigService with the account, public key, commitment, and signWord function
     const service = await MultisigService.init(sdkAccount, `0x${publicKey}`, `0x${commitment}`, provider.signWord);
 
@@ -102,9 +97,7 @@ export async function getOrCreateMultisigService(
  * Check if an account is a Guardian account.
  */
 export async function isGuardianAccount(accountPublicKey: string, provider: GuardianAccountProvider): Promise<boolean> {
-  console.log(`[Guardian Manager] Checking if account is Guardian: ${accountPublicKey}`);
   const accounts = await provider.getAccounts();
-  console.log('[Guardian Manager] Retrieved accounts from provider:', accounts);
   const account = accounts.find(acc => acc.publicKey === accountPublicKey);
   return account?.type === WalletType.Guardian;
 }

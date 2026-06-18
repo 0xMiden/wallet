@@ -144,16 +144,36 @@ describe('miden-chain/constants', () => {
     it('uses the network-specific endpoint when present', () => {
       process.env.MIDEN_NETWORK = 'testnet';
       jest.isolateModules(() => {
-        const { DEFAULT_GUARDIAN_ENDPOINT } = require('./constants');
+        const { DEFAULT_GUARDIAN_ENDPOINT, IS_GUARDIAN_SUPPORTED } = require('./constants');
         expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('https://guardian.openzeppelin.com');
+        expect(IS_GUARDIAN_SUPPORTED).toBe(true);
       });
     });
 
-    it('falls back to the staging endpoint when the network has no mapping', () => {
+    it('does NOT fall back to staging on networks with no mapping (mainnet safety)', () => {
       process.env.MIDEN_NETWORK = 'localnet';
       jest.isolateModules(() => {
-        const { DEFAULT_GUARDIAN_ENDPOINT } = require('./constants');
-        expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('https://stg-guardian.openzeppelin.com');
+        const { DEFAULT_GUARDIAN_ENDPOINT, IS_GUARDIAN_SUPPORTED } = require('./constants');
+        expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('');
+        expect(IS_GUARDIAN_SUPPORTED).toBe(false);
+      });
+    });
+  });
+
+  describe('getDefaultGuardianEndpoint', () => {
+    it('returns the endpoint for a supported network', () => {
+      process.env.MIDEN_NETWORK = 'testnet';
+      jest.isolateModules(() => {
+        const { getDefaultGuardianEndpoint } = require('./constants');
+        expect(getDefaultGuardianEndpoint()).toBe('https://guardian.openzeppelin.com');
+      });
+    });
+
+    it('throws (rather than targeting staging) on an unsupported network', () => {
+      process.env.MIDEN_NETWORK = 'mainnet';
+      jest.isolateModules(() => {
+        const { getDefaultGuardianEndpoint } = require('./constants');
+        expect(() => getDefaultGuardianEndpoint()).toThrow('Guardian is not available on network "mainnet"');
       });
     });
   });

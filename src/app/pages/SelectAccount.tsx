@@ -70,9 +70,14 @@ const SelectAccount: FC = () => {
                       <Name className="font-semibold leading-none text-xl">{acc.name}</Name>
                       <div className="flex w-full items-start">
                         <span>
-                          {acc.isPublic ? t('public') : t('private')} • {truncateAddress(acc.publicKey, true, 8)} •{' '}
+                          {acc.isPublic ? t('public') : t('private')} • {truncateAddress(acc.publicKey, true, 8)}
                           {acc.type === WalletType.Guardian ? (
-                            <span className="bg-primary-500 text-xs rounded-xl p-0.5 px-1">Guardian Protected</span>
+                            <>
+                              {' • '}
+                              <span className="bg-primary-500 text-xs rounded-xl p-0.5 px-1">
+                                {t('guardianProtected')}
+                              </span>
+                            </>
                           ) : null}
                         </span>
                       </div>

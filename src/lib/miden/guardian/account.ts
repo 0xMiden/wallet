@@ -1,7 +1,7 @@
 import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
-import { FalconSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
+import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import { getDefaultGuardianEndpoint } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 import { fetchFromStorage } from '../front/storage';
@@ -30,7 +30,8 @@ export async function getSignerDetailsFromAccount(
     throw new Error('No signer commitments found in account storage');
   }
 
-  const commitment = mapEntries[0].value.slice(2);
+  const rawValue = mapEntries[0].value;
+  const commitment = rawValue.startsWith('0x') ? rawValue.slice(2) : rawValue;
   if (!commitment) {
     throw new Error('Commitment not found in account storage');
   }
@@ -74,7 +75,7 @@ export async function createGuardianAccount(
     const guardianEndpoint =
       guardianEndpointOverride ??
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
-      DEFAULT_GUARDIAN_ENDPOINT;
+      getDefaultGuardianEndpoint();
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment, pubkey } = await client.guardianClient.getPubkey('ecdsa');
     // Create the multisig account using the package utility
@@ -86,10 +87,10 @@ export async function createGuardianAccount(
         guardianPublicKey: pubkey,
         guardianEnabled: true,
         storageMode: 'private',
-        signatureScheme: 'falcon',
+        signatureScheme: 'ecdsa',
         seed
       },
-      new FalconSigner(sk)
+      new EcdsaSigner(sk)
     );
 
     if (!skipRegistration) {
@@ -105,8 +106,9 @@ export async function createGuardianAccount(
 
     return multisig.account;
   } catch (e) {
-    console.log(e);
     console.error('Error creating Guardian account:', e);
-    throw new Error('Failed to create Guardian account');
+    // Preserve the original cause so callers can distinguish guardian-unreachable
+    // from node/registration failures and surface actionable guidance.
+    throw new Error('Failed to create Guardian account', { cause: e });
   }
 }

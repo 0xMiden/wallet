@@ -249,6 +249,55 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.sync).toHaveBeenCalled();
   });
 
+  it('Guardian send: a failing post-completion sync does NOT flip the completed row to Failed', async () => {
+    const txId = 'send-guardian-sync-fail';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
+      // The on-chain submit already succeeded; the trailing bookkeeping sync throws.
+      sync: jest.fn(async () => Promise.reject(new Error('nonce is too low')))
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      client: { transactions: { submit: jest.fn(async () => ({ result })) } }
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.status).not.toBe(ITransactionStatus.Failed);
+  });
+
   it('Guardian consume: builds a consume-notes proposal off the noteId', async () => {
     const txId = 'consume-guardian-1';
     const result = makeResult();

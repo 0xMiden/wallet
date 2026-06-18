@@ -980,8 +980,16 @@ const generateGuardianTransaction = async (
     //   await completeCustomTransaction(transaction, transactionResult);
     //   break;
   }
-  console.log('Transaction generation complete, syncing multisig service');
-  await multisigService.sync();
+  // Post-completion bookkeeping only. The transaction is already marked
+  // Completed above, and the on-chain submit succeeded — a failure to refresh
+  // multisig state here (e.g. nonce-too-low retries exhausted, or a network
+  // blip) must NOT propagate, or `generateTransaction`'s catch would flip a
+  // genuinely-successful transaction to Failed. The next sync tick reconciles.
+  try {
+    await multisigService.sync();
+  } catch (error) {
+    console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
+  }
 };
 
 export const cancelTransaction = async (transaction: Transaction, error: any) => {

@@ -254,12 +254,11 @@ export class MidenClientInterface {
     getPublicKeyForCommitment: (commitment: string) => Promise<string>
   ): Promise<string> {
     if (walletType === WalletType.Guardian) {
-      console.log('Importing Guardian account from seed', seed);
       try {
         const [
           { createGuardianAccount, getSignerDetailsFromAccount },
           { MultisigService },
-          { DEFAULT_GUARDIAN_ENDPOINT }
+          { getDefaultGuardianEndpoint }
         ] = await Promise.all([
           import('../guardian/account'),
           import('../guardian/index'),
@@ -269,7 +268,7 @@ export class MidenClientInterface {
         // the account had at creation time. The user's custom guardian URL (persisted
         // in GUARDIAN_URL_STORAGE_KEY) is picked up later by importAccountFromGuardian for the
         // live state fetch.
-        const account = await createGuardianAccount(this.client, seed, true, DEFAULT_GUARDIAN_ENDPOINT);
+        const account = await createGuardianAccount(this.client, seed, true, getDefaultGuardianEndpoint());
         console.log('[MidenClientInterface] Imported Guardian account from seed with ID:', account.id().toString());
         const accountId = account.id().toString();
         const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
@@ -282,8 +281,8 @@ export class MidenClientInterface {
         );
         return getBech32AddressFromAccountId(account.id());
       } catch (error) {
-        console.log(error);
-        throw new Error('Failed to import Guardian account from seed');
+        console.error('Failed to import Guardian account from seed', error);
+        throw new Error('Failed to import Guardian account from seed', { cause: error });
       }
     }
 
