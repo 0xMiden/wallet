@@ -459,7 +459,7 @@ describe('MultisigService', () => {
 
   describe('sync de-duplication', () => {
     it('coalesces overlapping sync() calls onto a single in-flight run', async () => {
-      let resolveSync: (() => void) | undefined;
+      let resolveSync: () => void = () => {};
       const syncState = jest.fn(
         () =>
           new Promise<void>(resolve => {
@@ -473,15 +473,14 @@ describe('MultisigService', () => {
       const second = service.sync();
       expect(first).toBe(second); // second tick reuses the in-flight promise
 
-      resolveSync?.();
+      resolveSync();
       await first;
       expect(syncState).toHaveBeenCalledTimes(1);
 
       // After settling, a fresh call starts a new run.
-      resolveSync = undefined;
       const third = service.sync();
       expect(third).not.toBe(first);
-      resolveSync?.();
+      resolveSync();
       await third;
       expect(syncState).toHaveBeenCalledTimes(2);
     });

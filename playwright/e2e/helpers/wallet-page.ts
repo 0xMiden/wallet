@@ -58,6 +58,11 @@ export interface ChromeWalletPageApi extends WalletPage {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  /**
+   * Complete the create-wallet flow choosing the Guardian recovery method,
+   * pointing the account at `guardianUrl` (a locally-spawned guardian).
+   */
+  createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
   quickBalanceSnapshot(): Promise<{
     balance: number;
@@ -120,10 +125,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   // ── Onboarding ────────────────────────────────────────────────────────────
 
   /**
+   * Create a Guardian-backed wallet pointed at a locally-spawned guardian.
+   * Seeds the guardian endpoint into storage (the create flow has no custom-URL
+   * field) and picks the Guardian recovery method.
+   */
+  async createGuardianWallet(
+    guardianUrl: string,
+    password: string = PASSWORD
+  ): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createNewWallet(password, { recovery: 'guardian', guardianUrl });
+  }
+
+  /**
    * Complete the "Create a new wallet" onboarding flow.
    * Returns the wallet address and seed phrase.
    */
-  async createNewWallet(password: string = PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+  async createNewWallet(
+    password: string = PASSWORD,
+    options: { recovery?: 'private' | 'guardian'; guardianUrl?: string } = {}
+  ): Promise<{ address: string; seedPhrase: string[] }> {
     // The fixture guarantees the welcome screen is visible by the time we get here.
     const welcome = this.page.getByTestId('onboarding-welcome');
     await welcome.waitFor({ timeout: 30_000 });
@@ -226,10 +246,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('input[placeholder="Enter password again"]').first().fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
-    // Recovery method step. The create flow now forks into "Guardian" (the
-    // default) and "Fully Private" (off-chain). Guardian needs a live backend
-    // we don't stand up in E2E, so pick Fully Private.
-    await this.selectCreateRecoveryMethod();
+    // Recovery method step. The create flow forks into "Guardian" (the default)
+    // and "Fully Private" (off-chain). Default to Fully Private; the guardian
+    // path is opt-in via `options.recovery` and requires a live guardian
+    // endpoint (spawned by the guardian E2E job).
+    await this.selectCreateRecoveryMethod(options);
 
     // Wait for "Your wallet is ready" confirmation screen.
     // Note: this text appears IMMEDIATELY when the confirmation page renders,
@@ -395,11 +416,34 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * click Continue. Guardian-backed accounts need a live guardian endpoint
    * which isn't part of the E2E harness.
    */
-  private async selectCreateRecoveryMethod(): Promise<void> {
+  private async selectCreateRecoveryMethod(
+    options: { recovery?: 'private' | 'guardian'; guardianUrl?: string } = {}
+  ): Promise<void> {
     const heading = this.page.getByRole('heading', { name: /set up account recovery/i });
     await heading.waitFor({ timeout: 15_000 });
-    // Click the "Fully Private" card to switch selection away from the Guardian default.
-    await this.page.getByText(/fully private/i).first().click();
+
+    if (options.recovery === 'guardian') {
+      if (!options.guardianUrl) {
+        throw new Error('selectCreateRecoveryMethod: guardianUrl is required for the guardian recovery method');
+      }
+      // The create-flow recovery screen has no custom-URL field, so seed the
+      // guardian endpoint directly. `createGuardianAccount` reads
+      // GUARDIAN_URL_STORAGE_KEY ('guardian_url_setting') from chrome.storage.local
+      // before falling back to the network default, and this runs before the
+      // account is created on "Get Started".
+      await this.page.evaluate(
+        ({ key, url }) => new Promise<void>(resolve => chrome.storage.local.set({ [key]: url }, () => resolve())),
+        { key: 'guardian_url_setting', url: options.guardianUrl }
+      );
+      // Guardian is the default selection; click it explicitly for robustness.
+      await this.page.getByText('Guardian', { exact: true }).first().click();
+    } else {
+      // Click the "Fully Private" card to switch selection away from the Guardian default.
+      await this.page
+        .getByText(/fully private/i)
+        .first()
+        .click();
+    }
     await this.page.getByRole('button', { name: /continue/i }).click();
   }
 
