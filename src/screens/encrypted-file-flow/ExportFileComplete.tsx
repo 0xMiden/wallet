@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
 import { exportDb } from 'lib/miden/repo';
@@ -18,20 +19,26 @@ export interface ExportFileCompleteProps {
   onDone: () => void;
   filePassword: string;
   fileName: string;
-  walletPassword: string;
+  walletPassword?: string;
 }
 
 const EXTENSION = '.json';
 
-const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
-  filePassword,
-  fileName,
-  walletPassword,
-  onDone,
-  onGoBack
-}) => {
+const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
   const { t } = useTranslation();
-  const { revealMnemonic } = useMidenContext();
+  const { revealMnemonic, accounts } = useMidenContext();
+
+  // Imported accounts (hdIndex < 0) can't be reconstructed from the
+  // mnemonic — their auth key is the raw hex the user pasted in. The
+  // encrypted-file format doesn't carry raw secrets, so emitting them
+  // here would produce an unrestorable account on the other side
+  // (`Vault.spawnFromMidenClient` would either throw or fill the
+  // keystore with mnemonic-derived garbage). Filter them out so the
+  // restore path sees a consistent list; users are told in the
+  // changelog and via `Settings → Reveal Private Key` that imported
+  // keys need to be backed up separately.
+  const exportableAccounts = useMemo(() => accounts.filter(a => a.hdIndex >= 0), [accounts]);
+  const omittedImportedCount = accounts.length - exportableAccounts.length;
 
   const getExportFile = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
@@ -45,8 +52,10 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
 
     const filePayload: DecryptedWalletFile = {
       seedPhrase,
-      midenClientDbContent: midenClientDbDump,
-      walletDbContent: walletDbDump
+      midenClientDbContent: midenClientDbDump as string,
+      walletDbContent: walletDbDump,
+      accounts: exportableAccounts,
+      omittedImportedAccountCount: omittedImportedCount
     };
 
     const salt = generateSalt();
@@ -98,11 +107,17 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
-  }, [walletPassword, filePassword, fileName, revealMnemonic, t]);
+  }, [walletPassword, filePassword, fileName, revealMnemonic, t, exportableAccounts, omittedImportedCount]);
 
   useEffect(() => {
     getExportFile();
   }, [getExportFile]);
+
+  useNativeNavbarAction({
+    label: t('done'),
+    onTap: onDone,
+    enabled: true
+  });
 
   return (
     <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
@@ -120,12 +135,24 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({
             <p>{t('encryptedWalletFileExportedDesc1')}</p>
             <p className="font-bold pt-5">{t('encryptedWalletFileExportedDesc2')}</p>
             <p className="pt-5">{t('encryptedWalletFileExportedDesc3')}</p>
+            {omittedImportedCount > 0 && (
+              <p className="pt-5 text-sm text-red-600">
+                {t('encryptedFileImportedAccountsOmitted', { importedCount: String(omittedImportedCount) })}
+              </p>
+            )}
           </div>
         </div>
       </div>
-      <div className="w-full pt-8 pb-4">
-        <Button className="w-full justify-center" title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />
-      </div>
+      {!isMobile() && (
+        <div className="w-full pt-8 pb-4">
+          <Button
+            className="w-full justify-center"
+            title={t('done')}
+            variant={ButtonVariant.Primary}
+            onClick={onDone}
+          />
+        </div>
+      )}
     </div>
   );
 };

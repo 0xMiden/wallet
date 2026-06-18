@@ -1,0 +1,11 @@
+<!--
+  Miden patch — main-row button active pill background.
+  Matches iOS `NavbarButton.activePillBg` = pill-active orange #FF6B00
+  at 18% alpha. Circular (rounded-full) since the parent button is
+  60dp square-ish.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="30dp" />
+    <solid android:color="#2EFF6B00" />
+</shape>

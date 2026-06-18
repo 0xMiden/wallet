@@ -1,6 +1,6 @@
 import { App } from '@capacitor/app';
 
-import { isMobile, isAndroid } from 'lib/platform';
+import { isMobile } from 'lib/platform';
 
 import { initMobileBackHandler, registerMobileBackHandler } from './back-handler';
 
@@ -17,7 +17,6 @@ jest.mock('lib/platform', () => ({
 }));
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
-const mockIsAndroid = isAndroid as jest.MockedFunction<typeof isAndroid>;
 
 describe('back-handler', () => {
   beforeEach(() => {
@@ -71,10 +70,8 @@ describe('back-handler', () => {
       const handler = jest.fn(() => true);
 
       const unregister = registerMobileBackHandler(handler);
-      unregister();
-
-      // Handler should no longer be in the list
-      // We can't directly test this without triggering a back event
+      // Handler should be de-registerable without throwing.
+      expect(() => unregister()).not.toThrow();
     });
 
     it('unregister is safe to call multiple times', () => {

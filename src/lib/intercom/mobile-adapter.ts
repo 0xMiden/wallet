@@ -35,7 +35,7 @@ export class MobileIntercomAdapter {
   /**
    * Makes a request directly to the backend handlers
    */
-  async request(payload: WalletRequest): Promise<WalletResponse | void> {
+  async request(payload: WalletRequest, _options?: { signal?: AbortSignal }): Promise<WalletResponse | void> {
     // Ensure backend is initialized
     if (!this.initialized) {
       await this.init();
@@ -59,23 +59,24 @@ export class MobileIntercomAdapter {
    */
   private async processRequest(req: WalletRequest): Promise<WalletResponse | void> {
     switch (req?.type) {
-      case WalletMessageType.GetStateRequest:
+      case WalletMessageType.GetStateRequest: {
         const state = await Actions.getFrontState();
         return {
           type: WalletMessageType.GetStateResponse,
           state
         };
+      }
 
       case WalletMessageType.NewWalletRequest:
-        await Actions.registerNewWallet((req as any).password, (req as any).mnemonic, (req as any).ownMnemonic);
+        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
         return { type: WalletMessageType.NewWalletResponse };
 
       case WalletMessageType.ImportFromClientRequest:
-        await Actions.registerImportedWallet((req as any).password, (req as any).mnemonic);
+        await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
         return { type: WalletMessageType.ImportFromClientResponse };
 
       case WalletMessageType.UnlockRequest:
-        await Actions.unlock((req as any).password);
+        await Actions.unlock(req.password);
         return { type: WalletMessageType.UnlockResponse };
 
       case WalletMessageType.LockRequest:
@@ -83,88 +84,154 @@ export class MobileIntercomAdapter {
         return { type: WalletMessageType.LockResponse };
 
       case WalletMessageType.CreateAccountRequest:
-        await Actions.createHDAccount((req as any).walletType, (req as any).name);
+        await Actions.createHDAccount(req.walletType, req.name);
         return { type: WalletMessageType.CreateAccountResponse };
 
       case WalletMessageType.UpdateCurrentAccountRequest:
-        await Actions.updateCurrentAccount((req as any).accountPublicKey);
+        await Actions.updateCurrentAccount(req.accountPublicKey);
         return { type: WalletMessageType.UpdateCurrentAccountResponse };
 
-      case WalletMessageType.RevealMnemonicRequest:
-        const mnemonic = await Actions.revealMnemonic((req as any).password);
+      case WalletMessageType.RevealMnemonicRequest: {
+        const mnemonic = await Actions.revealMnemonic(req.password);
         return {
           type: WalletMessageType.RevealMnemonicResponse,
           mnemonic
         };
+      }
+
+      case WalletMessageType.RevealPrivateKeyRequest:
+        const privateKey = await Actions.revealPrivateKey((req as any).accountPublicKey, (req as any).password);
+        return {
+          type: WalletMessageType.RevealPrivateKeyResponse,
+          privateKey: privateKey ?? ''
+        };
+
+      case WalletMessageType.RevealHotKeyRequest: {
+        const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
+        return {
+          type: WalletMessageType.RevealHotKeyResponse,
+          hotPrivateKey: hotPrivateKey ?? ''
+        };
+      }
+
+      case WalletMessageType.RevealGuardianKeysRequest: {
+        const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
+        return {
+          type: WalletMessageType.RevealGuardianKeysResponse,
+          coldPrivateKey: keys?.coldPrivateKey ?? '',
+          coldPublicKey: keys?.coldPublicKey ?? '',
+          hotPublicKey: keys?.hotPublicKey
+        };
+      }
 
       case WalletMessageType.RemoveAccountRequest:
-        await Actions.removeAccount((req as any).accountPublicKey, (req as any).password);
+        await Actions.removeAccount(req.accountPublicKey, req.password);
         return {
           type: WalletMessageType.RemoveAccountResponse
         };
 
       case WalletMessageType.EditAccountRequest:
-        await Actions.editAccount((req as any).accountPublicKey, (req as any).name);
+        await Actions.editAccount(req.accountPublicKey, req.name);
         return {
           type: WalletMessageType.EditAccountResponse
         };
 
-      case WalletMessageType.ImportAccountRequest:
-        await Actions.importAccount((req as any).privateKey, (req as any).encPassword);
+      case WalletMessageType.ImportAccountRequest: {
+        const importedAccountPublicKey = await Actions.importAccount(req.privateKey, req.name);
         return {
-          type: WalletMessageType.ImportAccountResponse
+          type: WalletMessageType.ImportAccountResponse,
+          accountPublicKey: importedAccountPublicKey ?? ''
         };
+      }
 
       case WalletMessageType.UpdateSettingsRequest:
-        await Actions.updateSettings((req as any).settings);
+        await Actions.updateSettings(req.settings);
         return {
           type: WalletMessageType.UpdateSettingsResponse
         };
 
-      case WalletMessageType.SignTransactionRequest:
-        const signature = await Actions.signTransaction((req as any).publicKey, (req as any).signingInputs);
+      case WalletMessageType.SignTransactionRequest: {
+        const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
         return {
           type: WalletMessageType.SignTransactionResponse,
           signature
         };
+      }
 
-      case WalletMessageType.GetAuthSecretKeyRequest:
-        const key = await Actions.getAuthSecretKey((req as any).key);
+      case WalletMessageType.SignWordRequest: {
+        const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+        return {
+          type: WalletMessageType.SignWordResponse,
+          signature: wordSignature
+        };
+      }
+
+      case WalletMessageType.PersistNewHotKeyRequest: {
+        await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
+        return {
+          type: WalletMessageType.PersistNewHotKeyResponse
+        };
+      }
+
+      case WalletMessageType.SwapHotKeyRequest: {
+        await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+        return {
+          type: WalletMessageType.SwapHotKeyResponse
+        };
+      }
+
+      case WalletMessageType.GetPublicKeyForCommitmentRequest: {
+        const publicKey = await Actions.getPublicKeyForCommitment(req.commitment);
+        return {
+          type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+          publicKey
+        };
+      }
+
+      case WalletMessageType.GetAuthSecretKeyRequest: {
+        const key = await Actions.getAuthSecretKey(req.key);
         return {
           type: WalletMessageType.GetAuthSecretKeyResponse,
           key
         };
+      }
 
-      case MidenMessageType.DAppGetAllSessionsRequest:
+      case MidenMessageType.DAppGetAllSessionsRequest: {
         const allSessions = await Actions.getAllDAppSessions();
         return {
           type: MidenMessageType.DAppGetAllSessionsResponse,
           sessions: allSessions
         };
+      }
 
-      case MidenMessageType.DAppRemoveSessionRequest:
-        const sessions = await Actions.removeDAppSession((req as any).origin);
+      case MidenMessageType.DAppRemoveSessionRequest: {
+        const sessions = await Actions.removeDAppSession(req.origin);
         return {
           type: MidenMessageType.DAppRemoveSessionResponse,
           sessions
         };
+      }
 
-      case MidenMessageType.PageRequest:
+      case MidenMessageType.PageRequest: {
         const dAppEnabled = await Actions.isDAppEnabled();
         if (dAppEnabled) {
-          if ((req as any).payload === 'PING') {
+          if (req.payload === 'PING') {
             return {
               type: MidenMessageType.PageResponse,
               payload: 'PONG'
             };
           }
-          const resPayload = await Actions.processDApp((req as any).origin, (req as any).payload);
+          // PR-4 chunk 8: thread the multi-instance session id through if
+          // present so confirmation prompts route to the right session.
+          const resPayload = await Actions.processDApp(req.origin, req.payload, req.sessionId);
           return {
             type: MidenMessageType.PageResponse,
+            /* c8 ignore next -- dApp response nullish fallback, mobile-only */
             payload: resPayload ?? null
           };
         }
         break;
+      }
 
       default:
         console.warn('MobileIntercomAdapter: Unknown request type', req?.type);

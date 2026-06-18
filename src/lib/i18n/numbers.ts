@@ -1,10 +1,27 @@
 import BigNumber from 'bignumber.js';
 import i18n from 'i18next';
-import memoize from 'micro-memoize';
 
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 
 import { getCurrentLocale, getNumberSymbols } from './core';
+
+/**
+ * Tiny single-argument memoizer — was `micro-memoize` until we removed
+ * it (its `index.d.ts` used a relative `import('./src/Cache')` which
+ * pulled unchecked `.ts` source into the TypeScript program,
+ * producing 11 errors under `noUncheckedIndexedAccess` that we can't
+ * fix since they're in library code).
+ */
+function memoize1<A, R>(fn: (arg: A) => R): (arg: A) => R {
+  const cache = new Map<A, R>();
+  return arg => {
+    const cached = cache.get(arg);
+    if (cached !== undefined) return cached;
+    const result = fn(arg);
+    cache.set(arg, result);
+    return result;
+  };
+}
 
 type FormatParams = {
   decimalPlaces?: number;
@@ -50,7 +67,7 @@ export function toLocalFormat(value: BigNumber.Value, { decimalPlaces, roundingM
   return rawResult;
 }
 
-const makePluralRules = memoize((locale: string) => new Intl.PluralRules(locale.replace('_', '-')));
+const makePluralRules = memoize1((locale: string) => new Intl.PluralRules(locale.replace('_', '-')));
 
 export function getPluralKey(keyPrefix: string, amount: number) {
   const rules = makePluralRules(getCurrentLocale());
@@ -124,8 +141,8 @@ export function toShortened(value: BigNumber.Value) {
   if (formatIndex === -1) {
     return toLocalFixed(bn);
   }
-  const { key, param } = formats[formatIndex];
-  return i18n.t(key, { [param]: toLocalFixed(bn) });
+  const format = formats[formatIndex]!;
+  return i18n.t(format.key, { [format.param]: toLocalFixed(bn) });
 }
 
 export function toFixedRoundedDown(value: number, precision: number) {

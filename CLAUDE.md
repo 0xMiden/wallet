@@ -1,764 +1,247 @@
 # CLAUDE.md
 
-This file provides guidance for Claude Code when working on this repository.
+Guidance for Claude Code. **Self-maintaining:** update proactively when you learn a gotcha, pattern, or debugging trick worth keeping.
 
-**Self-maintaining document:** Proactively update this file when you learn something worth remembering - new patterns, gotchas, debugging techniques, or project-specific knowledge. Don't wait to be asked.
+## Project
 
-## Project Overview
+Miden Wallet: Chrome/Firefox extension + iOS/Android (Capacitor) + macOS (Tauri). React + Zustand frontend; service-worker backend (Effector store + vault). Backend is source of truth; frontend syncs via intercom port messaging.
 
-Miden Wallet is a browser extension wallet for the Miden blockchain, also available as a mobile app for iOS and Android. The browser version is built as a Chrome/Firefox extension with a React frontend and a service worker backend. The mobile app uses Capacitor to wrap the web app in a native shell.
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Browser Extension                     │
-├─────────────────────────┬───────────────────────────────┤
-│   Frontend (Popup/Tab)  │   Backend (Service Worker)    │
-│                         │                               │
-│   React + Zustand       │   Effector Store              │
-│   - UI Components       │   - Vault (secure storage)    │
-│   - State management    │   - Wallet operations         │
-│                         │                               │
-│         ◄──── Intercom (Port messaging) ────►           │
-└─────────────────────────┴───────────────────────────────┘
-```
-
-**Key principle:** Backend is the source of truth. Frontend syncs via intercom messaging.
-
-## Key Directories
+## Layout
 
 ```
 src/
 ├── lib/
-│   ├── store/           # Zustand store (frontend state)
-│   ├── miden/
-│   │   ├── back/        # Backend: Effector store, vault, actions
-│   │   ├── front/       # Frontend: hooks, providers, client
-│   │   └── sdk/         # Miden SDK integration
-│   ├── intercom/        # Port-based messaging between frontend/backend
-│   └── shared/types.ts  # Shared type definitions
-├── app/                 # React app entry, pages, templates
-├── screens/             # Screen components (onboarding, send, etc.)
-└── workers/             # Background service worker entry
+│   ├── store/           # Zustand (frontend)
+│   ├── miden/{back,front,sdk,psm}
+│   ├── intercom/        # port messaging
+│   ├── platform/        # isMobile/isIOS/isAndroid/isExtension
+│   ├── mobile/          # haptics, back-handler
+│   ├── woozie/          # router (navigate, goBack, useLocation, <Link>)
+│   └── shared/types.ts
+├── app/ | screens/ | workers/
+src-tauri/               # desktop
+playwright/e2e/          # E2E harness (chrome + ios)
 ```
-
-## Key Modules
-
-Quick reference for commonly needed utilities:
-
-| Module | Path | Exports |
-|--------|------|---------|
-| Platform detection | `lib/platform` | `isMobile()`, `isIOS()`, `isAndroid()`, `isExtension()` |
-| Haptic feedback | `lib/mobile/haptics` | `hapticLight()`, `hapticMedium()`, `hapticSelection()` |
-| Mobile back handler | `lib/mobile/back-handler` | `initMobileBackHandler()`, `useMobileBackHandler()` |
-| Navigation (Woozie) | `lib/woozie` | `navigate()`, `goBack()`, `useLocation()`, `<Link>` |
-| App environment | `app/env` | `useAppEnv()`, `registerBackHandler()`, `onBack()` |
 
 ## Commands
 
 ```bash
-yarn install          # Install dependencies
-yarn build            # Build extension (outputs to dist/)
-yarn dev              # Development build with watch
-yarn test             # Run Jest tests
-yarn lint             # ESLint
-yarn format           # Prettier
+yarn dev | build | test | lint | format
+yarn build:devnet        # network-specific extension build
+yarn mobile:ios:run[:devnet]     # iOS simulator (iPhone 17 default)
+yarn mobile:android
+yarn tauri dev
+yarn test:e2e:blockchain:{testnet,devnet,localhost}
+yarn test:e2e:mobile:{devnet,testnet}
 ```
 
-**IMPORTANT:** Always run `yarn lint` and `yarn format` before `yarn build`. The build will fail on lint/prettier errors.
+Node >=22 for Capacitor/Tauri: `source ~/.nvm/nvm.sh && nvm use 22`.
 
-## Mobile Development
+Lint/format only before commit or when asked — not every build.
 
-**IMPORTANT:** Always use these yarn scripts for mobile development. Do not run Capacitor or Xcode commands directly.
+## Version bumps
 
-**IMPORTANT:** When testing mobile changes, always build and run the simulator yourself. Never tell the user to build/test changes themselves - do it for them.
+Extension manifest version comes from `package.json`, NOT `public/manifest.json` (webpack overrides it at `webpack.public.config.js:69-70`). Update **both** to keep in sync, then `rm -rf node_modules/.cache/webpack dist/` if the old version sticks.
 
-**iOS Simulator:** Always use **iPhone 17** as the default simulator for testing.
+## CHANGELOG
 
-**Node version:** Capacitor CLI requires Node >= 22. Use nvm to switch:
-```bash
-source ~/.nvm/nvm.sh && nvm use 22 && yarn mobile:ios:run
-# or for Android:
-source ~/.nvm/nvm.sh && nvm use 22 && yarn mobile:android
-```
+`CHANGELOG.md` carries unreleased entries under a `## <next-version> (TBD)` heading. **NEVER add an entry to a section whose version has already been published — check `gh api repos/0xMiden/wallet/releases/latest` for the latest tag and put new entries under a section whose version is strictly higher and still has `(TBD)` next to it. If no such section exists, add one.** The header at the top of `CHANGELOG.md` may lag (a `(TBD)` heading often persists past the release tag); don't trust the heading alone.
 
-### iOS
+## Critical gotchas
 
-```bash
-yarn mobile:ios           # Build, sync, and open in Xcode
-yarn mobile:ios:run       # Build and run on iOS Simulator (includes FaceID setup)
-yarn mobile:ios:build     # Build for iOS Simulator only
-yarn mobile:ios:faceid    # Fix FaceID enrollment on simulator
-```
-
-### Android
-
-```bash
-yarn mobile:android              # Build, sync, and open in Android Studio
-yarn mobile:android:fingerprint  # Trigger fingerprint auth on emulator
-```
-
-### Build Only
-
-```bash
-yarn build:mobile         # Production build for mobile (outputs to dist/mobile/)
-yarn build:mobile:dev     # Development build for mobile
-yarn mobile:sync          # Build and sync with Capacitor (no IDE open)
-```
-
-### Release Builds
-
-```bash
-# Android
-yarn mobile:android:keystore     # Generate release keystore (one-time)
-yarn mobile:android:release      # Build AAB for Play Store
-yarn mobile:android:release:apk  # Build APK for direct distribution
-
-# iOS
-yarn mobile:ios:release          # Build release archive
-yarn mobile:ios:export           # Export IPA for App Store
-```
-
-See `STORE_LISTING.md` for full app store submission checklist and instructions.
-
-### Build Output Locations
-
-**Android APKs/AABs** are output to `android/app/build/outputs/`:
-```
-android/app/build/outputs/
-├── apk/
-│   ├── debug/app-debug.apk       # Debug APK (yarn mobile:sync && cd android && ./gradlew assembleDebug)
-│   └── release/app-release.apk   # Release APK (yarn mobile:android:release:apk)
-└── bundle/
-    └── release/app-release.aab   # Release AAB (yarn mobile:android:release)
-```
-
-**iOS archives** are output to `ios/App/build/`:
-```
-ios/App/build/
-├── MidenWallet.xcarchive         # Release archive (yarn mobile:ios:release)
-└── export/                       # Exported IPA (yarn mobile:ios:export)
-```
-
-### Workflow
-
-1. Make code changes in `src/`
-2. Run `yarn mobile:ios:run` to build and test on iOS Simulator
-3. Or run `yarn mobile:ios` to open in Xcode for debugging
-
-The mobile app shares the same React codebase as the browser extension. Mobile-specific code uses `isMobile()` checks from `lib/platform`.
-
-### Platform-Specific Changes
-
-**CRITICAL:** This app builds for three platforms: Chrome extension, iOS, and Android. When fixing bugs or adding features:
-
-1. **Isolate platform-specific fixes** - If a bug only affects iOS, wrap the fix with platform detection (e.g., `if (isIOS()) { ... }`). Don't apply iOS fixes globally unless they genuinely apply to all platforms.
-2. **Test across platforms** - Changes to shared code can break other platforms unexpectedly.
-3. **Use platform detection** - `isMobile()`, `isIOS()`, `isAndroid()` from `lib/platform` for conditional logic.
-
-### Haptic Feedback
-
-**IMPORTANT:** When adding new tappable components (buttons, links, toggles, list items, etc.), always add haptic feedback for mobile users.
-
-```typescript
-import { hapticLight, hapticMedium, hapticSelection } from 'lib/mobile/haptics';
-
-// Use hapticLight() for button taps, navigation links, card clicks
-// Use hapticMedium() for toggles, checkboxes, radio buttons
-// Use hapticSelection() for tab changes, footer navigation
-```
-
-The haptic functions automatically check `isMobile()` and the user's haptic feedback setting - no need to wrap in conditionals.
-
-Components that already have haptics (for reference):
-- `components/Button.tsx`, `app/atoms/Button.tsx` - buttons
-- `lib/woozie/Link.tsx` - navigation links
-- `components/Toggle.tsx`, `app/atoms/ToggleSwitch.tsx` - toggles
-- `components/TabBar.tsx`, `app/atoms/TabSwitcher.tsx` - tabs
-- `components/FooterIconWrapper.tsx` - footer navigation
-- `components/CardItem.tsx`, `components/ListItem.tsx` - tappable items
-- `components/Chip.tsx`, `components/CircleButton.tsx` - misc buttons
-- `app/atoms/Checkbox.tsx`, `components/RadioButton.tsx` - form controls
-
-### Known iOS-Specific Issues
-
-- **WASM/WebWorker behavior** - iOS Safari has different WebWorker/WASM memory handling than Android/Chrome
-- **IndexedDB quirks** - Safari's IndexedDB implementation has known limitations (e.g., doesn't work in private browsing, stricter storage quotas)
-- **Memory pressure** - iOS is more aggressive about limiting memory; watch for OOM issues with multiple WASM worker instances
-
-### File Downloads on Mobile
-
-**The standard web download approach does NOT work on mobile:**
-```typescript
-// This works on desktop but NOT on iOS/Android WebView
-const a = document.createElement('a');
-a.href = URL.createObjectURL(blob);
-a.download = 'file.json';
-a.click();  // Does nothing on mobile!
-```
-
-**Use Capacitor Filesystem + Share plugins instead:**
-```typescript
-import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
-import { isMobile } from 'lib/platform';
-
-if (isMobile()) {
-  // Write to cache, then share
-  const result = await Filesystem.writeFile({
-    path: 'file.json',
-    data: fileContent,
-    directory: Directory.Cache,
-    encoding: Encoding.UTF8
-  });
-  await Share.share({ url: result.uri });
-} else {
-  // Standard web download for desktop
-}
-```
-
-### Adding/Removing Capacitor Plugins
-
-When **adding** new Capacitor plugins:
-
-1. Install: `yarn add @capacitor/plugin-name`
-2. Sync: `yarn mobile:sync` (updates iOS and Android native projects)
-3. **Add ProGuard rules** for Android release builds in `android/app/proguard-rules.pro`:
-   ```
-   -keep class com.capacitorjs.plugins.pluginname.** { *; }
-   ```
-4. Check if iOS needs Info.plist permissions (most plugins document this)
-
-When **removing** Capacitor plugins:
-
-1. Uninstall: `yarn remove @capacitor/plugin-name`
-2. Sync: `yarn mobile:sync` (updates iOS and Android native projects)
-3. **Remove ProGuard rules** from `android/app/proguard-rules.pro` for the removed plugin
-
-### Debugging iOS Issues
-
-**Debug UI components:** When adding debug panels to the UI, ensure all text is **selectable** (use `select-text` or `user-select: text`) so the user can copy/paste error messages instead of retyping them.
-
-**IMPORTANT:** Do NOT use `console.log` for iOS debugging - those logs go to Safari Web Inspector which Claude Code cannot access.
-
-**Instead, use native iOS logging that can be read via CLI:**
-```bash
-# Stream logs from running simulator (filter for webkit/app logs)
-xcrun simctl spawn booted log stream --predicate 'process == "App"' --level debug
-
-# Or capture to file for later analysis
-xcrun simctl spawn booted log stream --predicate 'process == "App"' > ios_logs.txt &
-```
-
-**For JavaScript code, use Capacitor's native logging or write to a debug file** that can be read from the simulator's file system.
-
-**Alternative: Safari Web Inspector (manual, last resort):**
-1. Run the app in simulator: `yarn mobile:ios:run`
-2. Open Safari on Mac → Develop menu → Simulator → select the app
-3. Console tab shows JavaScript logs
-
-### Verifying Mobile UI Fixes
-
-**IMPORTANT:** When fixing mobile UI issues (layout, spacing, safe areas, etc.), always verify the fix by taking screenshots from the simulator and analyzing them visually. Do not rely solely on code inspection.
-
-**Workflow for UI fixes:**
-1. Build and run on simulator: `yarn mobile:ios:run`
-2. Take a screenshot: `xcrun simctl io booted screenshot /tmp/screenshot.png`
-3. Read the screenshot file to visually verify the fix
-4. If authentication is needed, trigger FaceID: `xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit_Sim.fingerTouch.match`
-5. Wait briefly and take another screenshot: `sleep 2 && xcrun simctl io booted screenshot /tmp/screenshot2.png`
-
-**Example verification flow:**
-```bash
-# Build and launch
-source ~/.nvm/nvm.sh && nvm use 22 && yarn mobile:ios:run
-
-# Take screenshot after app loads
-xcrun simctl io booted screenshot /tmp/ios-test.png
-
-# Authenticate if needed (for locked wallet)
-xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit_Sim.fingerTouch.match
-
-# Wait and capture main screen
-sleep 2 && xcrun simctl io booted screenshot /tmp/ios-main.png
-```
-
-**Common iOS layout issues and fixes:**
-- **Grey bar at bottom:** Usually caused by `100dvh` height not accounting for safe areas. Use `100%` instead and ensure `mobile.html` body has proper safe area padding.
-- **Content cut off:** Check if containers have `overflow: hidden` without proper height constraints.
-- **Safe area gaps:** Ensure `public/mobile.html` has `padding: env(safe-area-inset-*)` on body, and body background color matches app background (white).
-
-## Desktop Development (Tauri)
-
-The desktop app uses Tauri to wrap the web app in a native macOS window.
-
-### Commands
-
-```bash
-yarn build:desktop        # Production build for desktop (outputs to dist/desktop/)
-yarn build:desktop:dev    # Development build for desktop
-yarn tauri dev            # Build and run desktop app in dev mode
-yarn tauri build          # Build release desktop app
-```
-
-**Node version:** Requires Node >= 22. Use nvm to switch:
-```bash
-source ~/.nvm/nvm.sh && nvm use 22 && yarn tauri dev
-```
-
-### Key Directories
-
-```
-src-tauri/
-├── src/
-│   ├── main.rs           # Tauri app entry point
-│   ├── dapp_browser.rs   # dApp browser window and wallet API
-│   └── lib.rs            # Command registration
-├── scripts/
-│   └── dapp-injection.js # Wallet API injected into dApp pages
-├── capabilities/         # Tauri permission capabilities
-└── tauri.conf.json       # Tauri configuration
-
-src/lib/desktop/
-├── dapp-browser.ts                   # TypeScript bindings for Tauri commands
-├── DesktopDappHandler.tsx            # Handles wallet requests from dApps
-└── DesktopDappConfirmationModal.tsx  # Manages confirmation overlay in dApp WebView
-```
-
-### Clearing App State (macOS)
-
-To completely reset the desktop app state (useful for testing fresh installs or debugging):
-
-```bash
-# Clear all wallet data (IndexedDB, localStorage, WebKit caches)
-rm -rf ~/Library/WebKit/com.miden.wallet
-rm -rf ~/Library/WebKit/miden-wallet
-
-# Optional: Also clear Application Support and Caches
-rm -rf ~/Library/Application\ Support/com.miden.wallet
-rm -rf ~/Library/Caches/com.miden.wallet
-```
-
-**Important:** The WebKit directories contain the actual IndexedDB/localStorage data. The Application Support directory may be empty or contain minimal data.
-
-After clearing, restart the app with `yarn tauri dev` to see the onboarding screen.
-
-### dApp Browser Architecture
-
-The desktop app includes a separate browser window for dApps:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Desktop App Architecture                  │
-├─────────────────────────────────────────────────────────────┤
-│  Main Window (wallet UI)     │  dApp Browser Window          │
-│  - React app                 │  - External dApp webpage      │
-│  - DesktopDappHandler        │  - Injected window.midenWallet│
-│  - Confirmation modal logic  │  - URL interception for msgs  │
-│                              │                               │
-│         ◄──── Tauri Events (dapp-wallet-request) ────►      │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Communication flow:**
-1. dApp calls `window.midenWallet.connect()` or other methods
-2. Injection script encodes request as base64 and navigates to `https://miden-wallet-request/{payload}`
-3. Tauri's `on_navigation` callback intercepts this URL
-4. Request is emitted to main window via Tauri event
-5. `DesktopDappHandler` processes and shows confirmation overlay in dApp window
-6. Response flows back via similar URL interception pattern
-
-## Code Style (Prettier)
-
-This project uses Prettier for code formatting. Always write code that conforms to Prettier rules:
-
-- **Line length:** Max 120 characters. Break long lines, especially `console.log` statements with multiple arguments
-- **Multi-argument calls:** When function calls exceed line length, put each argument on its own line:
-  ```typescript
-  // Good
-  console.log(
-    '[Component] message:',
-    value1,
-    'key2:',
-    value2
-  );
-
-  // Bad - will fail prettier
-  console.log('[Component] message:', value1, 'key2:', value2, 'key3:', value3);
-  ```
-- **Trailing commas:** Use trailing commas in multi-line arrays/objects
-- **Semicolons:** Always use semicolons
-- **Quotes:** Single quotes for strings
-
-Run `yarn format` to auto-fix formatting issues if needed.
-
-## State Management
-
-- **Backend:** Effector store in `src/lib/miden/back/store.ts`
-- **Frontend:** Zustand store in `src/lib/store/index.ts`
-- **Sync:** `WalletStoreProvider` subscribes to `StateUpdated` broadcasts
-
-Frontend hooks that use Zustand:
-- `useMidenContext()` - main wallet state and actions
-- `useAllBalances()` - token balances with polling
-- `useAllTokensBaseMetadata()` - asset metadata cache
-
-## Intercom Messaging
-
-Frontend ↔ Backend communication uses `IntercomClient`/`IntercomServer`:
-
-```typescript
-// Frontend request
-const res = await intercom.request({ type: WalletMessageType.EditAccountRequest, ... });
-
-// Backend broadcasts state changes
-intercom.broadcast({ type: WalletMessageType.StateUpdated });
-```
-
-Message types defined in `src/lib/shared/types.ts`.
-
-## Navigation Architecture
-
-**IMPORTANT - Maintain this section:** When adding new screens, routes, or modifying navigation flows, update the route maps and flow documentation below. This ensures mobile back button handling stays correct and future developers understand the navigation structure.
-
-The app uses **two separate navigation systems**:
-
-### 1. Woozie (Global Page Navigation)
-
-Custom lightweight router in `src/lib/woozie/`. Uses History API with hash-based URLs (`USE_LOCATION_HASH_AS_URL = true`).
-
-**Key exports:**
-- `navigate(path)` - Navigate to a route
-- `goBack()` - Go back in history (`window.history.go(-1)`)
-- `useLocation()` - Get current `pathname`, `historyPosition`, etc.
-- `<Link to="/path">` - Declarative navigation with haptic feedback
-
-**History tracking:**
-- `historyPosition` tracks position in navigation stack (0 = first page in session)
-- Used to determine if back navigation is available
-
-### 2. Navigator (Internal Step Navigation)
-
-Component-based navigator in `src/components/Navigator.tsx` for multi-step flows.
-
-**Used by:**
-- `SendManager` (`src/screens/send-flow/SendManager.tsx`)
-- `EncryptedFileManager` (`src/screens/encrypted-file-flow/EncryptedFileManager.tsx`)
-
-**Key exports:**
-- `useNavigator()` - Returns `{ navigateTo, goBack, cardStack, activeRoute }`
-- `cardStack` - Array of visited routes (step history)
-- `goBack()` - Pops from cardStack (only works if `cardStack.length > 1`)
-
-### Route Map
-
-**Tab Pages** (with persistent footer, via `TabLayout`):
-| Route | Component | Back Behavior |
-|-------|-----------|---------------|
-| `/` | Explore (Home) | Minimize app (Android) / Nothing (iOS) |
-| `/history/:programId?` | AllHistory | → Home |
-| `/settings/:tabSlug?` | Settings | Sub-tab → Settings main → Home |
-| `/browser` | Browser | → Home |
-
-**Settings Sub-Tabs** (`/settings/:tabSlug`):
-| Tab Slug | Component | Notes |
-|----------|-----------|-------|
-| `general-settings` | GeneralSettings | Theme, analytics, haptics |
-| `language` | LanguageSettings | App language selection |
-| `address-book` | AddressBook | Saved contacts |
-| `reveal-seed-phrase` | RevealSeedPhrase | Only shown for non-public accounts |
-| `edit-miden-faucet-id` | EditMidenFaucetId | Hidden from menu |
-| `encrypted-wallet-file` | EncryptedFileFlow | Opens as full dialog (see flow below) |
-| `advanced-settings` | AdvancedSettings | Developer options |
-| `dapps` | DAppSettings | Authorized dApps management |
-| `about` | About | Version info, links |
-| `networks` | NetworksSettings | Hidden from menu |
-
-**Full-Screen Pages** (slide animation, via `FullScreenPage` or `PageLayout`):
-| Route | Component | Back Behavior |
-|-------|-----------|---------------|
-| `/send` | SendFlow | See Send Flow below |
-| `/receive` | Receive | → Home |
-| `/faucet` | Faucet | → Home |
-| `/get-tokens` | GetTokens | → Home |
-| `/select-account` | SelectAccount | → Home |
-| `/create-account` | CreateAccount | → Previous |
-| `/edit-name` | EditAccountName | → Previous |
-| `/import-account/:tabSlug?` | ImportAccount | → Previous |
-| `/history-details/:transactionId` | HistoryDetails | → History |
-| `/token-history/:tokenId` | TokenHistory | → Home |
-| `/manage-assets/:assetType?` | ManageAssets | → Home |
-| `/encrypted-wallet-file` | EncryptedFileFlow | See Encrypted Flow below |
-| `/generating-transaction` | GeneratingTransaction | (Modal - no back) |
-| `/consuming-note/:noteId` | ConsumingNote | (Processing - no back) |
-| `/import-note-pending/:noteId` | ImportNotePending | → Home |
-| `/import-note-success` | ImportNoteSuccess | → Home |
-| `/import-note-failure` | ImportNoteFailure | → Home |
-
-**Onboarding/Auth Routes** (catch-all when locked):
-- `/reset-required`, `/reset-wallet`, `/forgot-password`, `/forgot-password-info`
-
-### Send Flow Steps (Internal Navigator)
-
-Route: `/send` → `SendManager` with internal step navigation:
-
-| Step | Component | Back Behavior |
-|------|-----------|---------------|
-| 1. SelectToken | Token picker | → Close flow (Home) |
-| 2. SelectRecipient | Address input | → SelectToken |
-| 3. AccountsList | Modal overlay | → Dismiss (stays on SelectRecipient) |
-| 4. SelectAmount | Amount input | → SelectRecipient |
-| 5. ReviewTransaction | Confirm details | → SelectAmount |
-| 6. GeneratingTransaction | Processing | (No back) |
-| 7. TransactionInitiated | Success | → Home |
-
-### Encrypted File Flow Steps (Internal Navigator)
-
-Route: `/encrypted-wallet-file` → `EncryptedFileManager`:
-
-| Step | Component | Back Behavior |
-|------|-----------|---------------|
-| 1. CreatePassword | Password setup | → Close flow (Settings) |
-| 2. ConfirmPassword | Confirm password | → CreatePassword |
-| 3. ExportFile | Download file | → ConfirmPassword |
-
-### Onboarding Flow (State-Based Navigation)
-
-**IMPORTANT:** Unlike SendManager/EncryptedFileManager, the onboarding flow does NOT use the Navigator component. It uses hash-based URLs (`/#step-name`) with React state to track the current step.
-
-Route: `/` (when wallet is locked/new) → `Welcome.tsx` with hash-based steps:
-
-| Hash | Step | Back Behavior |
-|------|------|---------------|
-| (none) | Welcome | Minimize app (Android) / Nothing (iOS) |
-| `#backup-seed-phrase` | BackupSeedPhrase | → Welcome |
-| `#verify-seed-phrase` | VerifySeedPhrase | → BackupSeedPhrase |
-| `#select-import-type` | SelectImportType | → Welcome |
-| `#import-from-seed` | ImportFromSeed | → SelectImportType |
-| `#import-from-file` | ImportFromFile | → SelectImportType |
-| `#create-password` | CreatePassword | → Previous step (depends on flow) |
-| `#confirmation` | Confirmation | (No back while loading) |
-
-**Navigation pattern:**
-- Steps navigate via `navigate('/#step-name')` which updates the URL hash
-- `useEffect` watches the hash and updates `step` state accordingly
-- Back navigation calls `onAction({ id: 'back' })` which has switch logic for each step
-- Mobile back handler in `Welcome.tsx` triggers this same `onAction({ id: 'back' })`
-
-**Forgot Password Flow** (`/forgot-password` → `ForgotPassword.tsx`) uses the same pattern with `ForgotPasswordStep` enum.
-
-### Back Handler System
-
-**Global handler** in `src/app/env.ts`:
-- `registerBackHandler(handler)` - Register a back handler (returns unregister function)
-- `onBack()` - Calls the current handler
-- Stack-based: handlers can be layered (modals on top of pages)
-
-**PageLayout** (`src/app/layouts/PageLayout.tsx`) registers default handler:
-```typescript
-// If history available, go back; otherwise go home
-if (historyPosition > 0) {
-  goBack();
-} else if (!inHome) {
-  navigate('/', HistoryAction.Replace);
-}
-```
-
-### Mobile Back Button
-
-**IMPORTANT:** Hardware back button on Android and swipe-back on iOS require `@capacitor/app` plugin and explicit handling. Without it, back gestures close the app instead of navigating.
-
-Back handlers must be registered for:
-1. Global navigation (MobileBackBridge component)
-2. Navigator-based flows (SendManager, EncryptedFileManager)
-3. State-based flows (Welcome/onboarding, ForgotPassword)
-4. Modals/dialogs that should close on back
-
-## Code Patterns
-
-### Adding a new wallet action
-
-1. Add message types to `src/lib/shared/types.ts`
-2. Add handler in `src/lib/miden/back/actions.ts`
-3. Register handler in `src/lib/miden/back/main.ts`
-4. Add action to Zustand store in `src/lib/store/index.ts`
-5. Expose via `useMidenContext()` in `src/lib/miden/front/client.ts`
-
-### Optimistic updates
-
-```typescript
-// In store action
-editSomething: async (id, value) => {
-  const prev = get().items;
-  set({ items: /* optimistic value */ });
-  try {
-    await request({ ... });
-  } catch (error) {
-    set({ items: prev }); // Rollback
-    throw error;
-  }
-}
-```
-
-## Balance Loading Architecture
-
-The wallet uses an IndexedDB-first pattern for instant UI updates:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Balance Loading Flow                      │
-├─────────────────────────────────────────────────────────────┤
-│  1. fetchBalances() → getAccount() → IndexedDB (instant)    │
-│  2. AutoSync (1s interval) → syncState() → Miden Node       │
-│  3. syncState updates IndexedDB → next fetchBalances sees it│
-└─────────────────────────────────────────────────────────────┘
-```
-
-- `fetchBalances` in `src/lib/store/utils/fetchBalances.ts` reads from IndexedDB via `getAccount()` - it does NOT call `syncState()`
-- `AutoSync` class in `src/lib/miden/front/sync.ts` handles background network sync separately
-- This separation allows showing cached balances instantly while syncing in background
-
-**Important distinction:**
-- `getAccount(accountId)` - reads balance from IndexedDB (local cache)
-- `syncState()` - syncs with Miden node and updates IndexedDB
-- `importAccountById(assetId)` - imports **asset/token metadata**, not account balances
-
-## WASM Client Concurrency
-
-**CRITICAL:** The Miden WASM client cannot handle concurrent access. Concurrent calls cause:
-```
-Error: recursive use of an object detected which would lead to unsafe aliasing in rust
-```
-
-**Always wrap WASM client operations in `withWasmClientLock`:**
-
+### WASM client concurrency
+Miden WASM client is single-threaded. Concurrent calls throw `recursive use of an object ... unsafe aliasing`. **Always** wrap in `withWasmClientLock`:
 ```typescript
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-
-// CORRECT - always use the lock
-const result = await withWasmClientLock(async () => {
-  const midenClient = await getMidenClient();
-  return midenClient.someOperation();
-});
-
-// WRONG - direct access without lock causes concurrency errors
-const midenClient = await getMidenClient();
-const result = await midenClient.someOperation();
+await withWasmClientLock(async () => (await getMidenClient()).someOp());
 ```
 
-**This applies everywhere**, including:
-- Transaction workers in `src/workers/` (consumeNoteId.ts, sendTransaction.ts, submitTransaction.ts)
-- Backend operations in `src/lib/miden/back/`
-- Frontend hooks in `src/lib/miden/front/`
-- Any new code that accesses `getMidenClient()`
+### Tailwind auto-flipping tokens
+Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
+- `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray`
 
-The lock ensures only one WASM operation runs at a time across the entire app, preventing AutoSync, dApp requests, and user operations from conflicting.
+Add `dark:` only on fixed-palette colors (`grey.*` custom palette, `pure-white`, `pure-black`) or SVG `fill={...}` props (check `document.documentElement.classList.contains('dark')` at render).
+
+### i18n required
+All user-facing text must use `t('key')` or `<T id="key" />`. CI blocks non-i18n strings (`yarn lint:i18n`). Add new keys to `public/_locales/en/en.json` (flat format). Placeholders: `$name$`.
+
+### Platform isolation
+Wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib/platform`. Don't apply iOS fixes globally.
+
+### Haptics on tappable components
+Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`. Auto-checks `isMobile()` and user setting.
+
+### Mobile file downloads
+`<a download>` does nothing in WebView. Use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
+
+### Balance loading
+`fetchBalances` reads IndexedDB via `getAccount()` (instant). `AutoSync` (1s interval) calls `syncState()` separately to update IndexedDB. Don't call `syncState()` from the UI path.
+
+## Adding a wallet action
+
+1. Message type in `src/lib/shared/types.ts`
+2. Handler in `src/lib/miden/back/actions.ts`, register in `back/main.ts`
+3. Store action in `src/lib/store/index.ts`
+4. Expose via `useMidenContext()` in `src/lib/miden/front/client.ts`
+
+## Navigation
+
+Two systems:
+- **Woozie** (`src/lib/woozie/`) — hash-based global router. `navigate`, `goBack`, `useLocation`, `<Link>`.
+- **Navigator** (`src/components/Navigator.tsx`) — internal step flows (`SendManager`, `EncryptedFileManager`). `useNavigator()` → `{navigateTo, goBack, cardStack}`.
+
+Onboarding (`Welcome.tsx`) and `ForgotPassword.tsx` use hash-based state (`/#step-name`), NOT Navigator.
+
+Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. `PageLayout` registers a default that calls `goBack()` if `historyPosition > 0` else navigates home. Mobile hardware/swipe back requires `@capacitor/app` + explicit handlers — must be registered for global nav (`MobileBackBridge`), Navigator flows, state-based flows, and modals.
+
+When adding screens/routes, keep this section accurate so mobile back stays correct.
+
+## Mobile testing
+
+### Skip onboarding
+```bash
+node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.reload()'
+```
+Bypass lives in `Welcome.tsx`, only active when flag/query param set.
+
+### iOS debugging
+`console.log` goes to Safari Web Inspector — Claude cannot read it. Use:
+```bash
+xcrun simctl spawn booted log stream --predicate 'process == "App"'
+```
+For live DOM/JS eval: use the CDP bridge via `inspect` + persistent-connection daemon (`/tmp/cdp-daemon.mjs` + `/tmp/cdp-eval`). Bringup recipe in `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md`. Key steps: kill bridges, reset `com.apple.webinspectord`, relaunch app, start `inspect`, start daemon, smoke-test with `node /tmp/cdp-eval '1+1'`.
+
+### Verifying UI fixes
+Always screenshot to verify:
+```bash
+xcrun simctl io booted screenshot /tmp/shot.png
+xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit_Sim.fingerTouch.match  # FaceID
+```
+
+### Common iOS layout issues
+- Grey bar at bottom → `100dvh` doesn't account for safe areas. Use `100%` + `env(safe-area-inset-*)` padding on `mobile.html` body.
+- Debug UI text should be `select-text` so errors are copyable.
+
+### Adding Swift files to the App target
+The App target in `ios/App/App.xcodeproj/project.pbxproj` does NOT auto-discover Swift files in the `App/` source directory. New files must be registered in four sections: `PBXBuildFile`, `PBXFileReference`, the App `PBXGroup` children, and the `PBXSourcesBuildPhase` files list. Pattern: see `LocalBiometricPlugin.swift` or `HotKeyPlugin.swift` entries.
+
+### Adding a custom Capacitor plugin (iOS)
+Capacitor on this app uses **manual** registration — not the `CAPBridgedPlugin` auto-discovery you'd get on a stock Capacitor app. After creating `MyPlugin.swift` and wiring it into the four pbxproj sections above, you also have to call `bridge?.registerPluginInstance(MyPlugin())` inside `capacitorDidLoad()` in `ios/App/App/AppViewController.swift`. Skip this step and JS calls land as `{"code":"UNIMPLEMENTED"}` even though the class compiled fine.
+
+### swift-secp256k1 (P256K) trait-gating workaround
+21-DOT-DEV/swift-secp256k1 v0.22+ gates `ENABLE_MODULE_ECDH/RECOVERY/SCHNORRSIG/MUSIG/ELLSWIFT` behind SPM traits. CLI `swift build` honors the default-enabled traits; **Xcode silently drops `.when(traits:)` conditions** so libsecp256k1 ships those C symbols missing while P256K's Swift code references them — undefined-symbol link errors. Workaround: `ios/App/scripts/patch-swift-secp256k1.sh` promotes the five defines into `baseSettings` (unconditional). Yarn pipeline (`mobile:ios`, `mobile:ios:build`, `test:e2e:mobile:build`, `mobile:ios:release`) calls it as `yarn mobile:ios:patch-spm`. Re-run manually after a Package "Reset Caches" in Xcode.
+
+### Native navbar overlay
+Mobile hides React footer and renders bottom nav as native pill (iOS: `MidenNavbarOverlayWindow` `UIWindow`; Android: two-instance `NavbarOverlayManager` with Activity-scoped + Dialog-scoped `NavbarView`). Plugin methods: `showNativeNavbar`, `setNavbarSecondaryRow`, `setNavbarAction`, `morphNavbar{Out,In}`. Events: `nativeNavbarTap`, `nativeNavbarSecondaryTap`, `nativeNavbarActionTap`. Wiring: `src/app/providers/DappBrowserProvider.tsx`. Android gotchas: don't use `MATCH_PARENT` children in `WRAP_CONTENT` parents (1878px buttons); `Dialog.setLayout` must follow `setContentView`; shadow must be on the view owning the background drawable.
+
+### Adding Capacitor plugins
+`yarn add @capacitor/<name> && yarn mobile:sync`. Add ProGuard rules to `android/app/proguard-rules.pro`:
+```
+-keep class com.capacitorjs.plugins.<name>.** { *; }
+```
+Remove rules when uninstalling.
+
+## Desktop (Tauri)
+
+- `src-tauri/src/{main,dapp_browser,lib}.rs`, `scripts/dapp-injection.js`
+- Clear state: `rm -rf ~/Library/WebKit/{com.miden.wallet,miden-wallet}`
+- dApp flow: inject encodes base64 request → navigate `https://miden-wallet-request/{payload}` → Tauri `on_navigation` intercepts → event to main window → `DesktopDappHandler` confirms → response via same URL-intercept pattern.
+
+## E2E
+
+### Chrome blockchain harness
+Two Chrome instances + `miden-client` CLI against live network. `E2E_NETWORK` controls both harness endpoints AND `MIDEN_NETWORK` baked into the bundle — use the `:<network>` scripts to keep them matched. Auto-installs `miden-client-cli` from crates.io, version-matched to `@miden-sdk/miden-sdk`. Requires `cargo`. Specs: `wallet-lifecycle`, `mint-and-balance`, `send-{public,private}`, `multi-{claim,account}` in `playwright/e2e/tests/`.
+
+**Agentic mode** (`E2E_AGENTIC=true` or `yarn test:e2e:blockchain:agentic`): on failure, browsers stay open 10 min; `test-results/debug-session.json` has connection info; `report.json` has `failureCategory`, `diagnosticHints`, `stateAtFailure`, `browserErrors`. Hot-reload via `chrome.runtime.reload()` preserves IndexedDB/vault.
+
+### iOS simulator harness
+Mirror suite in `playwright/e2e/ios/` against iPhone 17 + iPhone 17 Pro. CDP via `appium-remote-debugger` (simulator-compatible, unlike `remotedebug-ios-webkit-adapter`) over `RWI_LISTEN_SOCKET`. Per-test: terminate/uninstall/install/launch (~5s vs 30s for `simctl erase`). 7/7 specs pass on devnet in ~9 min.
+
+iOS-specific product notes:
+- Native navbar CTAs ("Claim All", "Continue") live in `UIWindow` outside WebView — CDP can't see them. `src/lib/dapp-browser/use-native-navbar-action.ts` exposes `globalThis.__TEST_TRIGGER_NAVBAR_ACTION__()` gated on `MIDEN_E2E_TEST=true && isMobile()`. Only wallet source change the iOS harness needed.
+- No `SYNC_REQUEST` on mobile (SW-only); `useSyncTrigger` auto-syncs every 3s, so sleep suffices.
+- No mobile reload trick — mobile `claimAllNotes` skips the `location.reload()` Chrome does (mobile has no SW holding the unlock, so reload drops decryption key).
+- Don't read WASM client from CDP — deadlocks against `useSyncTrigger`'s 30–60s lock hold.
+
+### E2E test hooks
+`MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` (Zustand) and `window.__TEST_INTERCOM__`. Zero production impact.
 
 ## Testing
 
-- Unit tests in `*.test.ts` files alongside source
-- Tests use Jest + React Testing Library
-- Mock `lib/intercom` for frontend tests
-- Wrap components with `WalletStoreProvider` + `MidenContextProvider`
+Jest + RTL. Mock `lib/intercom` for frontend tests; wrap with `WalletStoreProvider` + `MidenContextProvider`.
 
-### Jest Mock Gotchas
+Gotchas:
+- `jest.mock()` path must match the import path used in source (e.g., `'lib/miden/back/vault'`, not `'./vault'`).
+- `window.location.reload` can't be mocked in jsdom — wrap calls in try/catch.
+- `afterEach(() => testRoot.unmount())` to prevent React cross-test pollution.
 
-**Module path resolution:** Mock paths must match how the source file imports the module:
-```typescript
-// If actions.ts imports: import { Vault } from 'lib/miden/back/vault';
-// Then mock with the same path:
-jest.mock('lib/miden/back/vault', () => ({ ... }));
-// NOT: jest.mock('./vault', ...) - this won't work
+## Code style
+
+Prettier: 120 cols, single quotes, semicolons, trailing commas. Break long `console.log`s across lines. `yarn format` to fix.
+
+No `any`, no `as`. Use concrete types.
+
+## Linked Web SDK PR (cross-repo CI)
+
+**ALWAYS use the `Web SDK PR: #N` marker when opening a wallet PR that
+depends on an unpublished web-sdk change.** This is the load-bearing
+machine-readable handle — prose like "Companion PR: web-sdk#N" or
+"depends on …" does NOT trigger the linked-PR pipeline. Put the marker
+on its own line in the PR description (top is fine, anywhere is fine).
+When in doubt include both forms (`Web SDK PR: #N` and a prose mention)
+but the marker has to be present verbatim.
+
+The wallet's CI can be pointed at an unpublished `@miden-sdk/miden-sdk`
+or `@miden-sdk/react` branch by including a marker in the wallet PR's
+description:
+
+```
+Web SDK PR: #134
 ```
 
-**jsdom limitations:** `window.location.reload` cannot be mocked in jsdom. Use try-catch:
-```typescript
-try {
-  functionThatCallsReload();
-} catch {
-  // reload throws in jsdom, expected
-}
+Or cross-repo:
+
+```
+Web SDK PR: 0xMiden/web-sdk#134
 ```
 
-**React test cleanup:** Prevent test pollution by cleaning up React roots:
-```typescript
-afterEach(() => {
-  testRoot.unmount();
-});
+When the marker is present, every yarn-using job in `.github/workflows/pr.yml`
+runs `.github/actions/inject-linked-web-sdk-pr` BEFORE its `yarn install`
+step. The action clones the linked web-sdk PR, builds
+`@miden-sdk/miden-sdk` + `@miden-sdk/react` from source, and rewrites
+this repo's `package.json` to consume them via `file:` deps (runner-local
+mutation, never committed).
+
+A separate workflow (`check-linked-web-sdk-pr.yml`) posts a custom
+status named `linked-web-sdk-pr-ready` that's `pending` until the linked
+web-sdk PR is merged AND a release tag covering its merge commit is
+visible. Branch protection on `main` should require this status before
+allowing the wallet PR to merge — that's the gate that prevents the
+wallet from landing while it depends on an unpublished web-sdk change.
+
+Local-dev parity:
+
+```bash
+scripts/dev-with-web-sdk-pr.sh             # auto-detect from current PR body
+scripts/dev-with-web-sdk-pr.sh 134         # use web-sdk#134
+scripts/dev-with-web-sdk-pr.sh --clear     # restore the published versions
 ```
 
-## Internationalization (i18n)
+The `lefthook.yml` pre-commit hooks block committing the patched state
+(state file `.linked-web-sdk-pr.json` or `file:` SDK deps in
+package.json). Lefthook isn't auto-installed by `yarn install` — opt in
+once with `pnpm dlx lefthook install` if you want the guard.
 
-**IMPORTANT:** All user-facing text in React components MUST be internationalized. Never use hardcoded strings for UI text - always use `t('key')` or the `<T id="key" />` component. CI will block PRs with non-i18n'd strings (enforced by `yarn lint:i18n`).
-
-When adding new translatable strings, add them to `public/_locales/en/en.json`, NOT `messages.json`.
-
-- `en.json` - Flat format source file (`"key": "value"`). The translation script reads from this file.
-- `messages.json` - Chrome extension format (`"key": { "message": "value", "englishSource": "value" }`). Auto-generated.
-
-### Adding new i18n strings
-
-1. Add the key to `public/_locales/en/en.json` in flat format:
-   ```json
-   "myNewKey": "My new translatable string"
-   ```
-
-2. Use in React components with `useTranslation` hook:
-   ```typescript
-   import { useTranslation } from 'react-i18next';
-
-   const { t } = useTranslation();
-   return <span>{t('myNewKey')}</span>;
-   ```
-
-3. CI will auto-translate to other languages via `yarn createTranslationFile`
-
-### Placeholders in translations
-
-Use `$placeholder$` format for dynamic values:
-```json
-"greeting": "Hello $name$, you have $count$ messages"
-```
-
-## Transaction Processing
-
-### Background Transaction Processing
-
-For operations that should happen silently (like auto-consume), use `startBackgroundTransactionProcessing`:
-
-```typescript
-import { startBackgroundTransactionProcessing } from 'lib/miden/activity';
-import { useMidenContext } from 'lib/miden/front';
-
-const { signTransaction } = useMidenContext();
-
-// Queue transactions first
-await initiateConsumeTransaction(accountPublicKey, note, isDelegatedProvingEnabled);
-
-// Then process silently in background (no modal/tab)
-startBackgroundTransactionProcessing(signTransaction);
-```
-
-This is preferred over `openLoadingFullPage()` for automatic operations because:
-- Doesn't interrupt the user with a modal (mobile) or new tab (desktop)
-- Polls every 5 seconds for up to 5 minutes
-- Works on both mobile and desktop
-
-### Transaction States
-
-Transactions flow through these states in `ITransactionStatus`:
-1. `Queued` (0) - Initial state when transaction is created
-2. `GeneratingTransaction` (1) - Being processed
-3. `Completed` (2) - Successfully finished
-4. `Failed` (3) - Error occurred
+Mirrors web-sdk's `Client PR: #N` pattern (`.github/actions/inject-linked-client-pr`).
 
 ## Important Notes
 
-- **Never push without explicit request.** Creating commits is fine, but never run `git push` unless the user explicitly asks.
-- **Keep commit messages short.** Use single-line messages (e.g., "fix: add missing i18n keys").
-- Uses yarn, not npm (yarn.lock is the lockfile)
-- Browser extension APIs via `webextension-polyfill`
-- Miden SDK is a WASM module (`@miden-sdk/miden-sdk`)
-- Sensitive data (vault, keys) stays in backend only
-- Frontend receives sanitized state via `toFront()` in backend store
+- Commit messages: single-line, short. Never sign commits (no `Co-Authored-By`).
+- Never `git push` without explicit request.
+- Stay within requested scope — don't modify files beyond the task.
+- Update `CHANGELOG.md` one-liner per PR/task (not per fix).
+- When adding a new intercom message type, also update `src/lib/intercom/mobile-adapter.ts`.
+- Optimistic updates: snapshot prev, apply, rollback on catch.
+- Background auto-ops: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal) instead of `openLoadingFullPage`.
+- Transaction states (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3).
+- Frontend receives sanitized state via `toFront()`; sensitive data (vault, keys) stays backend-only.

@@ -139,7 +139,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: jest.fn(callback => callback())
 }));
 
-jest.mock('@miden-sdk/miden-sdk', () => ({
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   InputNoteState: { Invalid: 'Invalid' },
   NoteFilter: jest.fn(),
   NoteFilterTypes: { List: 'List' },

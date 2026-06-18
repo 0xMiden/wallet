@@ -8,7 +8,9 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext, useAllAccounts } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import { goBack, navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -51,9 +53,12 @@ const CreateAccount: FC = () => {
     async function updateAccount() {
       const accLength = allAccounts.length;
       if (prevAccLengthRef.current < accLength) {
-        await updateCurrentAccount(allAccounts[accLength - 1].publicKey);
-        // Navigate with query param to show AccountCreatedSuccess banner
-        navigate('/select-account?fromCreateAccount=true');
+        const lastAccount = allAccounts[accLength - 1];
+        if (lastAccount) {
+          await updateCurrentAccount(lastAccount.publicKey);
+          // Navigate with query param to show AccountCreatedSuccess banner
+          navigate('/select-account?fromCreateAccount=true');
+        }
       }
       prevAccLengthRef.current = accLength;
     }
@@ -80,7 +85,7 @@ const CreateAccount: FC = () => {
   };
 
   const onSubmit = useCallback<SubmitHandler<FormData>>(
-    async ({ name, walletType }) => {
+    async ({ name }) => {
       if (isSubmitting) return;
 
       clearErrors('name');
@@ -97,6 +102,15 @@ const CreateAccount: FC = () => {
     },
     [isSubmitting, clearErrors, setError, createAccount, selectedWalletType]
   );
+
+  // Hoist the Create Account CTA into the native navbar on mobile. The
+  // navbar tap fires `handleSubmit(onSubmit)` which runs form validation
+  // identically to the React submit button's click path.
+  useNativeNavbarAction({
+    label: t('createAccount'),
+    onTap: handleSubmit(onSubmit),
+    enabled: !isSubmitting
+  });
 
   return (
     <div className="text-heading-gray">
@@ -121,7 +135,7 @@ const CreateAccount: FC = () => {
           {/* Wallet Type Selection */}
           <div className="pb-8 pt-6">
             <div className="font-semibold text-xl mb-4">{t('chooseYourAccountType')}</div>
-            {WalletTypeOptions.map((option, idx) => (
+            {WalletTypeOptions.map(option => (
               <div
                 key={option.id}
                 className={classNames('flex flex-col p-4 rounded-lg cursor-pointer', 'w-full', 'mb-4', {
@@ -137,12 +151,14 @@ const CreateAccount: FC = () => {
             ))}
           </div>
 
-          <FormSubmitButton
-            className="capitalize w-full justify-center rounded-[10px] text-base font-semibold"
-            loading={isSubmitting}
-          >
-            {t('createAccount')}
-          </FormSubmitButton>
+          {!isMobile() && (
+            <FormSubmitButton
+              className="capitalize w-full justify-center rounded-[10px] text-base font-semibold"
+              loading={isSubmitting}
+            >
+              {t('createAccount')}
+            </FormSubmitButton>
+          )}
         </form>
       </div>
     </div>

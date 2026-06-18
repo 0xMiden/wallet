@@ -338,6 +338,52 @@
     "message": "账户名称",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "例如储蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1–16 个字符，不能以空格或连字符开头",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "同名帐户已存在",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "在继续之前",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "您的私钥可以让持有该账户的人完全控制该账户。 Miden 帐户无法轮换密钥，因此泄露的密钥会永久危害该帐户。",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "我了解此密钥无法轮换或撤销。",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "导入账户（ $importedCount$ ) 不会包含在此文件中。要备份它们，请从“设置”→“显示私钥”单独导出每个私钥。",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "该加密文件的导出方式为 $importedCount$ 导入的帐户不属于备份的一部分。这些帐户不会出现在您恢复的钱包中 - 您需要它们的原始私钥才能重新添加它们。单击继续导入以继续。",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "继续导入",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "编辑账户名称",
     "englishSource": "Edit Account Name"
@@ -397,6 +443,91 @@
   "generatingTransactionDescription": {
     "message": "这可能需要一些时间，具体取决于网络流量水平",
     "englishSource": "This may take a moment depending on the level network traffic"
+  },
+  "transactionStageSyncing": {
+    "message": "正在同步帐户",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "正在获取您最新的帐户状态。",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "发送交易",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "构建并证明您的交易。",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "声明note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "执行交易",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageSwitching": {
+    "message": "切换监护人",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "创建提案",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "为您的监护人制定交易建议。",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "与监护人签字",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "您的监护人正在签署该提案。",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "提交交易",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "将您签名的交易发送到网络。",
+    "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageConfirming": {
+    "message": "链上确认",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "等待网络确认。",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "与监护人一起登记",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "向新监护人注册您的帐户状态。",
+    "englishSource": "Registering your account state with the new guardian."
+  },
+  "transactionStageDelivering": {
+    "message": "正在传送note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "将 note 安全地发送给收件人。",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "正在进行中的 $count$ 笔交易",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "status": {
     "message": "地位",
@@ -743,8 +874,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "找不到操作",
-    "englishSource": "No operations found"
+    "message": "您当前没有任何交易。",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "账户待移除。",
@@ -1033,6 +1164,24 @@
   "other": {
     "message": "其他",
     "englishSource": "Other"
+  },
+  "millionFormat": {
+    "message": "$million$M",
+    "englishSource": "$million$M",
+    "placeholders": {
+      "million": {
+        "content": "$1"
+      }
+    }
+  },
+  "billionFormat": {
+    "message": "$billion$B",
+    "englishSource": "$billion$B",
+    "placeholders": {
+      "billion": {
+        "content": "$1"
+      }
+    }
   },
   "uploadFile": {
     "message": "上传文件",
@@ -1513,6 +1662,46 @@
     "message": "加密钱包文件",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "监护人",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "监护人设置",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "现任监护人",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "新的守护者端点",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "开关守护者",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "将您的监护人帐户指向新的监护人端点。该切换被签署为链上提案。",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "切换监护人...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "守护者切换成功。",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "那已经是你现在的监护人了。",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "输入以 http:// 或 https:// 开头的有效 URL",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "输入您的密码以访问您的加密钱包文件。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1751,10 +1940,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "下载生成的文件",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "链上账户（公共）",
     "englishSource": "On-chain Account (Public)"
@@ -1782,6 +1967,74 @@
   "canAddMultipleAccountsLater": {
     "message": "您可以稍后在钱包中添加和管理多个帐户类型。",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "设置帐户恢复",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "选择在失去访问权限时恢复帐户的方式。",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "监护人",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "受到推崇的。基于监护人的帐户恢复，但监护人操作员可以看到您的状态。",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "完全私人",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "仅限本地，除了您之外没有人看到您的状态，但无法恢复，丢失您的设备将导致您的资金永久丢失。",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "民众",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "恢复公共链上账户。",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "您想如何找回这个钱包？",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "通过 Guardian 导入",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "使用监护人来恢复并共同签署此帐户。",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "导入公众号",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "导入从您的 seed phrase 派生的公共帐户。",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "监护人网址",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "使用不同的监护人",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "我们在该监护人上找不到您的帐户。请检查 URL 或导入为公共帐户。",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "默认",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "交易文件",
@@ -1822,6 +2075,10 @@
   "viewOnExplorer": {
     "message": "在资源管理器上查看",
     "englishSource": "View on Explorer"
+  },
+  "viewOnMidenscan": {
+    "message": "在 Midenscan 上查看",
+    "englishSource": "View on Midenscan"
   },
   "inProgress": {
     "message": "进行中",
@@ -2125,6 +2382,46 @@
     "message": "钱包可能离线或不同步。",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "您似乎处于离线状态",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "检查您的互联网连接，然后重试。",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "无法到达 Miden 节点",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "该节点可能已关闭或负载过重。您的余额可能已过期。",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "证明服务不可用",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "交易将使用本地证明，直到服务恢复。",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "重新连接",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "正在尝试恢复您的连接。",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "再试一次",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "重试同步",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "您的note已成功消耗。",
     "englishSource": "Your note was successfully consumed."
@@ -2269,6 +2566,165 @@
     "message": "收藏夹",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "搜索 dApp 或粘贴 URL",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "精选",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "我的 dApp",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "最近的内容",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "向左滚动",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "向右滚动",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "快速行动",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "浏览",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "去中心化金融",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "工具",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "社会的",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "此类别中还没有 dApp",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "探索Miden生态系统",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "最小化",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "切换 dApp",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "重新加载",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "更多选择",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "dApp 操作",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "复制链接",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "添加到我的 Dapp",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "从我的 Dapp 中删除",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "重新开放",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "恢复 $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "关闭 $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ 更多停放的 dApp",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "链接已复制",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "添加到我的 Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "无法加载此 dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "检查您的连接并重试。",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dApp 浏览器标头",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "向下拖动以最小化",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp 切换器",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "关闭 dApp 切换器",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1个开放的dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} 个打开的 dApp",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "批准",
     "englishSource": "Approve"
@@ -2406,6 +2862,22 @@
     "message": "深色模式",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "主题",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "系统",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "光",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "黑暗的",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "触觉反馈",
     "englishSource": "Haptic Feedback"
@@ -2415,8 +2887,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "您目前没有 notes 可以领取，但当您领取时，它们会出现在此处。",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "您目前没有notes 可以领取。",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "您已收到note",
@@ -2425,6 +2897,19 @@
   "noteReceivedTapToClaim": {
     "message": "点击此处领取它",
     "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "tokenHistory": {
     "message": "$tokenName$ 历史记录",
@@ -2570,5 +3055,53 @@
   "type": {
     "message": "类型",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "发送 ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "<xid=\"0\"/>",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "已创建",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "确认的",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "日期",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "细节",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "添加 note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "高级选项",
+    "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden 钱包",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "单击拼图图标并固定 Miden Wallet，以便从工具栏快速访问。",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "知道了",
+    "englishSource": "Got it"
+  },
+  "downloadGeneratedFiles": {
+    "message": "下载生成的文件",
+    "englishSource": "Download Generated Files"
   }
 }

@@ -28,7 +28,7 @@ const propsPerVariant = {
   [AlertVariant.Warning]: {
     icon: IconName.WarningFill,
     color: colors.yellow[500],
-    backgroundColor: 'bg-yellow-50'
+    backgroundColor: 'bg-yellow-50 dark:bg-yellow-600/20'
   },
   [AlertVariant.Error]: {
     icon: IconName.CloseCircleFill,
@@ -38,7 +38,7 @@ const propsPerVariant = {
   [AlertVariant.Success]: {
     icon: IconName.CheckboxCircleFill,
     color: colors.green[500],
-    backgroundColor: 'bg-green-50'
+    backgroundColor: 'bg-green-50 dark:bg-green-500/15'
   }
 };
 
@@ -50,6 +50,7 @@ export const Alert: React.FC<AlertProps> = ({
 }) => {
   const iconName = propsPerVariant[variant].icon;
   const iconColor = propsPerVariant[variant].color;
+  /* c8 ignore next -- title has default param, never falsy */
   const Title = title || 'Alert Title';
 
   return (
@@ -60,7 +61,7 @@ export const Alert: React.FC<AlertProps> = ({
       </div>
 
       {canDismiss && (
-        <button type="button" className="absolute -top-1 -right-3 bg-grey-300 rounded-full shadow">
+        <button type="button" className="absolute -top-1 -right-3 bg-gray-50 rounded-full shadow">
           <Icon name={IconName.Close} fill={colors.grey[800]} size="sm" />
         </button>
       )}

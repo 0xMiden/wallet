@@ -26,7 +26,7 @@ const TabSwitcher: React.FC<TabSwitcherProps> = ({ className, tabs, activeTabSlu
       className={classNames(
         'w-full max-w-sm mx-auto',
         'flex flex-wrap items-center justify-center p-1',
-        'border border-gray-700 rounded-lg',
+        'border border-border-light rounded-lg',
         className
       )}
     >

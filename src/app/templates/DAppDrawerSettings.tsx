@@ -36,7 +36,7 @@ const DAppDrawerSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
       if (changingRef.current) return;
       changingRef.current = true;
 
-      setDAppEnabled(evt.target.checked).catch((err: any) => {});
+      setDAppEnabled(evt.target.checked).catch(() => {});
 
       changingRef.current = false;
     },

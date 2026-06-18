@@ -10,12 +10,12 @@ export type ModalWithTitleProps = CustomModalProps & {
 };
 
 const ModalWithTitle: FC<ModalWithTitleProps> = ({ title, children, className, ...restProps }) => {
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
 
   return (
     <CustomModal
       {...restProps}
-      className={classNames('w-full max-w-md', popup ? 'px-4' : 'px-6', 'pb-4 pt-5', className)}
+      className={classNames('w-full max-w-md', compact ? 'px-4' : 'px-6', 'pb-4 pt-5', className)}
     >
       <>
         {title ? <h1 className={classNames('mb-6 text-lg font-medium', 'text-black text-left')}>{title}</h1> : null}

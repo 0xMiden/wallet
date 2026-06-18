@@ -37,6 +37,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             address={account.publicKey}
             programId={programId}
             fullHistory={true}
+            centerEmptyState={true}
             scrollParentRef={scrollParentRef}
             searchQuery={search}
           />

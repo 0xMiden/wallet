@@ -8,12 +8,8 @@ import PageLayout from 'app/layouts/PageLayout';
 import { getTransactionById } from 'lib/miden/activity';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
-import { NoteExportType } from 'lib/miden/sdk/constants';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { isExtension } from 'lib/platform';
 import { formatAmount } from 'lib/shared/format';
-import { WalletAccount, WalletMessageType } from 'lib/shared/types';
-import { getIntercom } from 'lib/store';
+import { WalletAccount } from 'lib/shared/types';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
@@ -61,7 +57,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const loadTransaction = useCallback(async () => {
     try {
@@ -93,56 +88,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       setLoadError(error instanceof Error ? error.message : 'Failed to load transaction');
     }
   }, [transactionId, setEntry]);
-
-  const handleDownload = useCallback(async () => {
-    if (!entry?.noteId) return;
-
-    try {
-      setIsDownloading(true);
-
-      let noteBytes: Uint8Array;
-
-      if (isExtension()) {
-        // On extension, route through SW via intercom
-        const res = await getIntercom().request({
-          type: WalletMessageType.ExportNoteRequest,
-          noteId: entry.noteId!
-        });
-        if (!res || !('noteBytes' in res)) {
-          throw new Error('Failed to export note via intercom');
-        }
-        noteBytes = new Uint8Array(Buffer.from((res as any).noteBytes, 'base64'));
-      } else {
-        // Wrap WASM client operations in a lock to prevent concurrent access
-        noteBytes = await withWasmClientLock(async () => {
-          const midenClient = await getMidenClient();
-          return midenClient.exportNote(entry.noteId!, NoteExportType.DETAILS);
-        });
-      }
-
-      const ab = new ArrayBuffer(noteBytes.byteLength);
-      new Uint8Array(ab).set(noteBytes);
-
-      const blob = new Blob([ab], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `midenNote${entry.noteId.slice(0, 6)}.mno`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to export note:', error);
-    } finally {
-      setIsDownloading(false);
-    }
-  }, [entry?.noteId]);
-
-  const handleViewOnExplorer = useCallback(() => {
-    if (!entry?.externalTxId) return;
-    window.open(`https://testnet.midenscan.com/tx/${entry.externalTxId}`, '_blank');
-  }, [entry]);
 
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();

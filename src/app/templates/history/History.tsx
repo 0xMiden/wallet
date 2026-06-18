@@ -18,6 +18,7 @@ type HistoryProps = {
   scrollParentRef?: RefObject<HTMLDivElement>;
   className?: string;
   fullHistory?: boolean;
+  centerEmptyState?: boolean;
   tokenId?: string;
   searchQuery?: string;
 };

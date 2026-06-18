@@ -1,5 +1,6 @@
 import PQueue from 'p-queue';
 
+import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import {
   toFront,
@@ -14,12 +15,14 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { WalletSettings, WalletState } from 'lib/shared/types';
+import { WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
 import {
+  dappDebug,
   getAllDApps,
   getCurrentPermission,
   removeDApp,
@@ -36,33 +39,86 @@ import {
   waitForTransaction
 } from './dapp';
 
-const ACCOUNT_NAME_PATTERN = /^.{0,16}$/;
+// Lazy queue initialization: in the Vite SW build, module-scope init (init_actions)
+// may not complete because it transitively depends on dapp.ts which imports frontend
+// modules that hang in SW context. Making queues lazy ensures they're available on
+// first use regardless of whether init_actions completed.
+//
+// Note: despite the name, `_unlockQueue` doubles as a general
+// single-writer serializer for any mutation that reads the accounts
+// list and writes it back after a WASM round-trip (import, unlock).
+// Keeping both on the same queue means they implicitly serialize
+// against each other too, which is the safer default.
+let _dappQueue: PQueue | undefined;
+let _unlockQueue: PQueue | undefined;
+function getDappQueue() {
+  if (!_dappQueue) _dappQueue = new PQueue({ concurrency: 1 });
+  return _dappQueue;
+}
+function getUnlockQueue() {
+  if (!_unlockQueue) _unlockQueue = new PQueue({ concurrency: 1 });
+  return _unlockQueue;
+}
 
-const dappQueue = new PQueue({ concurrency: 1 });
-const unlockQueue = new PQueue({ concurrency: 1 });
+// Service worker cold-start race: in the Vite SW build, top-level await is
+// stripped so the `vault.ts` ESM module factory (`init_vault`) may not have
+// completed when this module is first reached. Awaiting the factory directly
+// is idempotent (subsequent calls resolve immediately) and guarantees the
+// `Vault` binding is populated before we touch it.
+//
+// `init_vault` is injected into the bundle by Vite's ESM transform — it is
+// not a source-level symbol. We must NOT add a source-level `init_vault`
+// binding (e.g. `declare const init_vault`) because Rolldown would rename
+// the auto-generated factory to `init_vault$1` to avoid the collision, and
+// our call would then resolve to `undefined` at runtime. The vite plugin
+// emits a top-level `var init_vault = init_vault$1;` alias so the lookup
+// below resolves correctly in the SW bundle. In Jest (no bundle transform)
+// the symbol is undefined and we skip the factory call — the module is
+// already fully evaluated by the test runner.
+let _vault: typeof Vault | null = null;
+async function getVault() {
+  if (!_vault) {
+    // @ts-expect-error init_vault is injected by Vite's SW bundle transform
+    if (typeof init_vault === 'function') await init_vault();
+    _vault = Vault;
+  }
+  return _vault;
+}
 
 export async function init() {
   console.log('[Actions.init] Starting...');
-  const vaultExist = await Vault.isExist();
+  const vault = await getVault(); // wait for vault initialization
+  const vaultExist = await vault.isExist();
   console.log('[Actions.init] Vault exists:', vaultExist);
   inited(vaultExist);
   console.log('[Actions.init] Called inited()');
 }
 
 export async function getFrontState(): Promise<WalletState> {
-  const state = store.getState();
-  if (state.inited) {
-    return toFront(state);
-  } else {
-    await new Promise(r => setTimeout(r, 10));
-    return getFrontState();
+  try {
+    const state = store.getState();
+    if (state.inited) {
+      return toFront(state);
+    }
+  } catch {
+    // store not initialized yet
   }
+  // Return Idle immediately so the UI can render while backend inits.
+  return {
+    status: 0,
+    accounts: [],
+    currentAccount: null,
+    networks: [],
+    settings: null,
+    ownMnemonic: null
+  } as WalletState;
 }
 
 export async function isDAppEnabled() {
   const storage = getStorageProvider();
+  const vault = await getVault();
   const bools = await Promise.all([
-    Vault.isExist(),
+    vault.isExist(),
     (async () => {
       const key = MidenSharedStorageKey.DAppEnabled;
       const items = await storage.get([key]);
@@ -73,28 +129,38 @@ export async function isDAppEnabled() {
   return bools.every(Boolean);
 }
 
-export function registerNewWallet(password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+export function registerNewWallet(walletType: WalletType, password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+  console.log(
+    '[Actions.registerNewWallet] Called with walletType:',
+    walletType,
+    'mnemonic provided:',
+    Boolean(mnemonic),
+    'ownMnemonic flag:',
+    ownMnemonic
+  );
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
-    // Password may be undefined for hardware-only wallets (mobile/desktop with Secure Enclave)
-    // Vault.spawn() will handle this by using hardware protection instead
-    // spawn() returns the vault directly, avoiding a second biometric prompt from unlock()
-    const vault = await Vault.spawn(password ?? '', mnemonic, ownMnemonic);
-    console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
-    const accounts = await vault.fetchAccounts();
-    const settings = await vault.fetchSettings();
-    const currentAccount = await vault.getCurrentAccount();
-    const ownMnemonicFlag = await vault.isOwnMnemonic();
-    unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
-    console.log('[Actions.registerNewWallet] Completed');
+    try {
+      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic);
+      console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
+      const accounts = await vault.fetchAccounts();
+      const settings = await vault.fetchSettings();
+      const currentAccount = await vault.getCurrentAccount();
+      const ownMnemonicFlag = await vault.isOwnMnemonic();
+      unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+      console.log('[Actions.registerNewWallet] Completed');
+    } catch (err: unknown) {
+      console.error('[Actions.registerNewWallet] FAILED:', err);
+      throw err;
+    }
   });
 }
 
-export function registerImportedWallet(password?: string, mnemonic?: string) {
+export function registerImportedWallet(password?: string, mnemonic?: string, walletAccounts: WalletAccount[] = []) {
   return withInited(async () => {
     // Password may be undefined for hardware-only wallets
     // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-    const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '');
+    const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts);
     const accounts = await vault.fetchAccounts();
     const settings = await vault.fetchSettings();
     const currentAccount = await vault.getCurrentAccount();
@@ -105,13 +171,21 @@ export function registerImportedWallet(password?: string, mnemonic?: string) {
 
 export function lock() {
   return withInited(async () => {
-    locked();
+    // Wait for any in-flight WASM operation (e.g. TransactionProcessor's
+    // consume loop) to drain before clearing the vault key. If we lock while
+    // the kernel is mid-`miden::protocol::auth::request`, the signing
+    // callback has no key → executeTransaction fails → notes can end up
+    // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
+    // coincided with LOCK_REQUEST arriving while a consume loop was active.
+    await withWasmClientLock(async () => {
+      locked();
+    });
   });
 }
 
 export function unlock(password?: string) {
   return withInited(() =>
-    unlockQueue.add(async () => {
+    getUnlockQueue().add(async () => {
       const vault = await Vault.setup(password);
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
@@ -141,7 +215,7 @@ export function createHDAccount(walletType: WalletType, name?: string) {
     if (name) {
       name = name.trim();
       if (!ACCOUNT_NAME_PATTERN.test(name)) {
-        throw new Error('Invalid name. It should be: 1-16 characters, without special');
+        throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
       }
     }
 
@@ -150,26 +224,39 @@ export function createHDAccount(walletType: WalletType, name?: string) {
   });
 }
 
-export function decryptCiphertexts(accPublicKey: string, cipherTexts: string[]) {}
+// Stub implementations kept in the exported shape so the frontend's
+// action map stays stable. Parameters are `_`-prefixed to satisfy
+// noUnusedParameters without stripping the public signature.
+export function decryptCiphertexts(_accPublicKey: string, _cipherTexts: string[]) {}
 
-export function revealViewKey(accPublicKey: string, password: string) {}
+export function revealViewKey(_accPublicKey: string, _password: string) {}
 
 export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
-export function revealPrivateKey(accPublicKey: string, password: string) {}
+export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
+  return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+}
 
-export function revealPublicKey(accPublicKey: string) {}
+export function revealHotKey(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealHotKey(accountPublicKey, password));
+}
 
-export function removeAccount(accPublicKey: string, password: string) {}
+export function revealGuardianKeys(accountPublicKey: string, password?: string) {
+  return withInited(() => Vault.revealGuardianKeys(accountPublicKey, password));
+}
+
+export function revealPublicKey(_accPublicKey: string) {}
+
+export function removeAccount(_accPublicKey: string, _password: string) {}
 
 export function editAccount(accPublicKey: string, name: string) {
   console.log({ accPublicKey, name });
   return withUnlocked(async ({ vault }) => {
     name = name.trim();
     if (!ACCOUNT_NAME_PATTERN.test(name)) {
-      throw new Error('Invalid name. It should be: 1-16 characters, without special');
+      throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
     }
 
     const updatedAccounts = await vault.editAccountName(accPublicKey, name);
@@ -178,13 +265,32 @@ export function editAccount(accPublicKey: string, name: string) {
   });
 }
 
-export function importAccount(privateKey: string, encPassword?: string) {}
+export function importAccount(privateKey: string, name?: string) {
+  // Serialize on the unlock queue: `importAccountFromPrivateKey` reads
+  // the accounts list, calls into WASM, then writes the updated list.
+  // Two concurrent imports would otherwise both read the stale list and
+  // the second write would drop the first account.
+  return withUnlocked(({ vault }) =>
+    getUnlockQueue().add(async () => {
+      if (name !== undefined) {
+        name = name.trim();
+        if (name && !ACCOUNT_NAME_PATTERN.test(name)) {
+          throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+        }
+      }
 
-export function importMnemonicAccount(mnemonic: string, password?: string, derivationPath?: string) {}
+      const accounts = await vault.importAccountFromPrivateKey(privateKey, name);
+      accountsUpdated({ accounts });
+      return accounts[accounts.length - 1]!.publicKey;
+    })
+  );
+}
 
-export function importFundraiserAccount(email: string, password: string, mnemonic: string) {}
+export function importMnemonicAccount(_mnemonic: string, _password?: string, _derivationPath?: string) {}
 
-export function importWatchOnlyAccount(viewKey: string) {}
+export function importFundraiserAccount(_email: string, _password: string, _mnemonic: string) {}
+
+export function importWatchOnlyAccount(_viewKey: string) {}
 
 export function updateSettings(settings: Partial<WalletSettings>) {
   return withUnlocked(async ({ vault }) => {
@@ -200,6 +306,36 @@ export function signTransaction(publicKey: string, signingInputs: string) {
   });
 }
 
+export function signWord(publicKey: string, wordHex: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.signWord(publicKey, wordHex);
+  });
+}
+
+export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string) {
+  return withUnlocked(async ({ vault }) => {
+    await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
+  });
+}
+
+export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {
+  return withUnlocked(async ({ vault }) => {
+    const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+    // Push the updated WalletAccount[] into the Effector store so the
+    // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
+    // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
+    // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
+    // re-binds against the old hot key.
+    accountsUpdated(updated);
+  });
+}
+
+export function getPublicKeyForCommitment(commitment: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.getPublicKeyForCommitment(commitment);
+  });
+}
+
 export function getAuthSecretKey(key: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.getAuthSecretKey(key);
@@ -211,48 +347,65 @@ export function getAllDAppSessions() {
 }
 
 export function removeDAppSession(origin: string) {
-  return withUnlocked(async ({ vault }) => {
+  return withUnlocked(async () => {
     const currentAccountPublicKey = await Vault.getCurrentAccountPublicKey();
     return removeDApp(origin, currentAccountPublicKey!);
   });
 }
 
-export async function processDApp(origin: string, req: MidenDAppRequest): Promise<MidenDAppResponse | void> {
-  console.log('[processDApp] Called with origin:', origin, 'req type:', req?.type);
-  console.log('[processDApp] Full request:', JSON.stringify(req));
+/**
+ * Top-level dApp request dispatcher.
+ *
+ * PR-4 chunk 8: accepts an optional `sessionId` parameter so multi-
+ * instance callers can route confirmation prompts to a specific dApp
+ * session. The id flows through to handlers in `dapp.ts` that key
+ * `dappConfirmationStore` requests by it. Single-session callers
+ * (extension popup, faucet-webview, native-notifications) omit the
+ * argument and the legacy "default" slot is used.
+ */
+export async function processDApp(
+  origin: string,
+  req: MidenDAppRequest,
+  sessionId?: string
+): Promise<MidenDAppResponse | void> {
+  dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
+  // This dumps the full request payload (addresses, amounts, note ids,
+  // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
+  // builds don't leak transaction data to os_log / logcat.
+  dappDebug('[processDApp] Full request:', JSON.stringify(req));
   switch (req?.type) {
     case MidenDAppMessageType.GetCurrentPermissionRequest:
       return withInited(() => getCurrentPermission(origin));
 
     case MidenDAppMessageType.PermissionRequest:
-      return withInited(() => dappQueue.add(() => requestPermission(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestPermission(origin, req, sessionId)));
 
     case MidenDAppMessageType.DisconnectRequest:
-      return withInited(() => dappQueue.add(() => requestDisconnect(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestDisconnect(origin, req)));
 
     case MidenDAppMessageType.TransactionRequest:
-      return withInited(() => dappQueue.add(() => requestTransaction(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.SendTransactionRequest:
-      return withInited(() => dappQueue.add(() => requestSendTransaction(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestSendTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.ConsumeRequest:
-      return withInited(() => dappQueue.add(() => requestConsumeTransaction(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestConsumeTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.PrivateNotesRequest:
-      return withInited(() => dappQueue.add(() => requestPrivateNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req)));
 
     case MidenDAppMessageType.SignRequest:
-      return withInited(() => dappQueue.add(() => requestSign(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestSign(origin, req)));
 
     case MidenDAppMessageType.AssetsRequest:
-      return withInited(() => dappQueue.add(() => requestAssets(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestAssets(origin, req)));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
-      return withInited(() => dappQueue.add(() => requestImportPrivateNote(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req)));
 
     case MidenDAppMessageType.ConsumableNotesRequest:
-      return withInited(() => dappQueue.add(() => requestConsumableNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req)));
 
     case MidenDAppMessageType.WaitForTransactionRequest:
       return withInited(() => waitForTransaction(req));

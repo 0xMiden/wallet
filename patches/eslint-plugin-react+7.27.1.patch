@@ -1,0 +1,13 @@
+diff --git a/node_modules/eslint-plugin-react/lib/rules/jsx-pascal-case.js b/node_modules/eslint-plugin-react/lib/rules/jsx-pascal-case.js
+index 901294f..a467e50 100644
+--- a/node_modules/eslint-plugin-react/lib/rules/jsx-pascal-case.js
++++ b/node_modules/eslint-plugin-react/lib/rules/jsx-pascal-case.js
+@@ -6,7 +6,7 @@
+ 'use strict';
+ 
+ const elementType = require('jsx-ast-utils/elementType');
+-const minimatch = require('minimatch');
++const minimatch = require('minimatch').minimatch;
+ const docsUrl = require('../util/docsUrl');
+ const jsxUtil = require('../util/jsx');
+ const report = require('../util/report');

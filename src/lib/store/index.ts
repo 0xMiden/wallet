@@ -74,6 +74,8 @@ export const useWalletStore = create<WalletStore>()(
     isTransactionModalOpen: false,
     isTransactionModalDismissedByUser: false,
     isDappBrowserOpen: false,
+    activeDappSessionId: null,
+    lastCompletedTxHash: null,
 
     // Initial note toast state (mobile only)
     seenNoteIds: new Set<string>(),
@@ -122,9 +124,11 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (password, mnemonic, ownMnemonic) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic) => {
+      console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
+        walletType,
         password,
         mnemonic,
         ownMnemonic
@@ -133,11 +137,12 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
-        mnemonic
+        mnemonic,
+        walletAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },
@@ -158,6 +163,14 @@ export const useWalletStore = create<WalletStore>()(
         name
       });
       assertResponse(res.type === WalletMessageType.CreateAccountResponse);
+
+      // Pull fresh state right away. The StateUpdated broadcast is advisory and can
+      // race the CreateAccount response (extension port reconnect, SW waking, etc.),
+      // leaving consumers that await createAccount — notably CreateAccount.tsx's
+      // length-diff effect — looking at a stale accounts array.
+      const stateRes = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(stateRes.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(stateRes.state);
     },
 
     updateCurrentAccount: async accountPublicKey => {
@@ -218,6 +231,50 @@ export const useWalletStore = create<WalletStore>()(
       return res.mnemonic;
     },
 
+    revealPrivateKey: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealPrivateKeyRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealPrivateKeyResponse);
+      return res.privateKey;
+    },
+
+    revealHotKey: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealHotKeyRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
+      return res.hotPrivateKey;
+    },
+
+    revealGuardianKeys: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealGuardianKeysRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealGuardianKeysResponse);
+      return {
+        coldPrivateKey: res.coldPrivateKey,
+        coldPublicKey: res.coldPublicKey,
+        hotPublicKey: res.hotPublicKey
+      };
+    },
+
+    importAccount: async (privateKey, name) => {
+      const res = await request({
+        type: WalletMessageType.ImportAccountRequest,
+        privateKey,
+        name
+      });
+      assertResponse(res.type === WalletMessageType.ImportAccountResponse);
+      return res.accountPublicKey;
+    },
+
     // Settings actions
     updateSettings: async newSettings => {
       const { settings } = get();
@@ -261,6 +318,43 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SignTransactionResponse);
       const signatureAsHex = res.signature;
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
+    },
+
+    signWord: async (publicKey, wordHex) => {
+      const res = await request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey,
+        wordHex
+      });
+      assertResponse(res.type === WalletMessageType.SignWordResponse);
+      return res.signature;
+    },
+
+    persistNewHotKey: async (newHotPubKey, newHotCiphertext) => {
+      const res = await request({
+        type: WalletMessageType.PersistNewHotKeyRequest,
+        newHotPubKey,
+        newHotCiphertext
+      });
+      assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
+    },
+
+    swapHotKey: async (accountPublicKey, newHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey,
+        newHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
+    },
+
+    getPublicKeyForCommitment: async commitment => {
+      const res = await request({
+        type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+        commitment
+      });
+      assertResponse(res.type === WalletMessageType.GetPublicKeyForCommitmentResponse);
+      return res.publicKey;
     },
 
     getAuthSecretKey: async key => {
@@ -473,23 +567,44 @@ export const useWalletStore = create<WalletStore>()(
 
     // Transaction modal actions
     openTransactionModal: () => {
-      // Reset dismissed flag when explicitly opening the modal (new transaction initiated)
+      // Reset dismissed flag when explicitly opening the modal (new transaction initiated).
+      // Note: `lastCompletedTxHash` is intentionally NOT cleared here — SendManager
+      // calls `openTransactionModal()` a second time after a successful completion
+      // (via the GenerateTransaction action), and clearing would wipe the hash we
+      // just set. Clearing happens on `closeTransactionModal` and at the start of
+      // a fresh send in `SendManager.onSubmit`.
       set({ isTransactionModalOpen: true, isTransactionModalDismissedByUser: false });
     },
     closeTransactionModal: (dismissedByUser = false) => {
       set({
         isTransactionModalOpen: false,
         // Track if user explicitly dismissed (prevents auto-reopen until transactions complete)
-        isTransactionModalDismissedByUser: dismissedByUser
+        isTransactionModalDismissedByUser: dismissedByUser,
+        lastCompletedTxHash: null
       });
     },
     resetTransactionModalDismiss: () => {
       set({ isTransactionModalDismissedByUser: false });
     },
+    setLastCompletedTxHash: (txHash: string | null) => {
+      set({ lastCompletedTxHash: txHash });
+    },
 
     // DApp browser state (mobile only)
     setDappBrowserOpen: (isOpen: boolean) => {
-      set({ isDappBrowserOpen: isOpen });
+      // Backwards-compat path: clear `activeDappSessionId` if turning off,
+      // leave it alone if turning on (the new code path uses
+      // `setActiveDappSession` which sets both atomically).
+      set(prev => ({
+        isDappBrowserOpen: isOpen,
+        activeDappSessionId: isOpen ? prev.activeDappSessionId : null
+      }));
+    },
+    setActiveDappSession: (sessionId: string | null) => {
+      set({
+        activeDappSessionId: sessionId,
+        isDappBrowserOpen: sessionId !== null
+      });
     },
 
     // Note toast actions (mobile only)
@@ -545,6 +660,18 @@ export const useWalletStore = create<WalletStore>()(
       }));
     },
 
+    removeExtensionClaimingNoteIds: noteIds => {
+      if (noteIds.length === 0) return;
+      set(state => {
+        const next = new Set(state.extensionClaimingNoteIds);
+        let changed = false;
+        for (const id of noteIds) {
+          if (next.delete(id)) changed = true;
+        }
+        return changed ? { extensionClaimingNoteIds: next } : {};
+      });
+    },
+
     clearExtensionClaimingNoteIds: () => {
       set({ extensionClaimingNoteIds: new Set<string>() });
     }
@@ -558,3 +685,39 @@ export { getIntercom };
 export const selectIsReady = (state: WalletStore) => state.status === WalletStatus.Ready;
 export const selectIsLocked = (state: WalletStore) => state.status === WalletStatus.Locked;
 export const selectIsIdle = (state: WalletStore) => state.status === WalletStatus.Idle;
+
+// Expose store and intercom for E2E test introspection (only in E2E builds).
+// Use globalThis (not window) so this works in both extension pages and the
+// service worker context where window is undefined.
+if (process.env.MIDEN_E2E_TEST === 'true') {
+  (globalThis as any).__TEST_STORE__ = useWalletStore;
+  (globalThis as any).__TEST_INTERCOM__ = getIntercom();
+  // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
+  // synthetic metadata for the CLI-deployed test faucet (whose on-chain
+  // procedure layout the SDK can't parse, so the real metadata RPC fails
+  // and the wallet's `attachMetadataToNotes` hides the consumable note).
+  // The CLI returns hex; the wallet's parsed note `faucetId` is bech32;
+  // mismatch → injection misses. Eager-import the SDK at module-init so
+  // by the time the test runs, the hook is sync and the WASM is ready.
+  // Dynamic-import inside the call (used to live here) contended with the
+  // wallet's own WASM lock and serialized behind in-flight SDK calls,
+  // blowing past the 30s WebDriver execute_async_script budget.
+  void (async () => {
+    try {
+      const sdk = await import('@miden-sdk/miden-sdk/lazy');
+      (globalThis as any).__TEST_HEX_TO_BECH32_FAUCET__ = (
+        hex: string,
+        network: 'testnet' | 'devnet' = 'testnet'
+      ): string => {
+        const id = sdk.AccountId.fromHex(hex);
+        const netId = network === 'devnet' ? sdk.NetworkId.devnet() : sdk.NetworkId.testnet();
+        return sdk.Address.fromAccountId(id, 'BasicWallet').toBech32(netId);
+      };
+    } catch (e) {
+      // E2E-only path; failure here just means the iOS metadata-injection
+      // workaround won't work and we'd hit the original symptom (note
+      // hidden by attachMetadataToNotes filter).
+      console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
+    }
+  })();
+}

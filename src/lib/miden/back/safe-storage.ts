@@ -43,7 +43,7 @@ export async function fetchAndDecryptOne<T>(storageKey: string, key: CryptoKey) 
     let cursor = 0;
     const [saltHex, iv, dt] = [64, 32, -1].map(length =>
       payload.slice(cursor, length !== -1 ? (cursor += length) : undefined)
-    );
+    ) as [string, string, string];
     const encrypted = { dt, iv };
     const salt = new Uint8Array(Buffer.from(saltHex, 'hex'));
     const derivedPassKey = await Passworder.deriveKey(key, salt);
@@ -166,7 +166,7 @@ export async function fetchAndDecryptOneLegacy<T>(storageKey: string, passKey: C
   let cursor = 0;
   const [saltHex, iv, dt] = [64, 32, -1].map(length =>
     payload.slice(cursor, length !== -1 ? (cursor += length) : undefined)
-  );
+  ) as [string, string, string];
   const encrypted = { dt, iv };
   const salt = new Uint8Array(Buffer.from(saltHex, 'hex'));
   let derivedPassKey = await Passworder.deriveKeyLegacy(passKey, salt);

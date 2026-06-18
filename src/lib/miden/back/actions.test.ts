@@ -20,7 +20,16 @@ import {
   init,
   isDAppEnabled,
   revealMnemonic,
-  removeDAppSession
+  removeDAppSession,
+  decryptCiphertexts,
+  revealViewKey,
+  revealPrivateKey,
+  revealPublicKey,
+  removeAccount,
+  importAccount,
+  importMnemonicAccount,
+  importFundraiserAccount,
+  importWatchOnlyAccount
 } from './actions';
 
 // Create mock vault instance
@@ -34,7 +43,8 @@ const mockVault = {
   editAccountName: jest.fn(),
   updateSettings: jest.fn(),
   signTransaction: jest.fn(),
-  getAuthSecretKey: jest.fn()
+  getAuthSecretKey: jest.fn(),
+  importAccountFromPrivateKey: jest.fn()
 };
 
 // Mock store callbacks
@@ -61,6 +71,7 @@ jest.mock('lib/miden/back/vault', () => ({
     spawn: jest.fn(),
     setup: jest.fn(),
     revealMnemonic: jest.fn(),
+    revealPrivateKey: jest.fn(),
     spawnFromMidenClient: jest.fn(),
     getCurrentAccountPublicKey: jest.fn()
   }
@@ -84,6 +95,7 @@ jest.mock('./store', () => ({
 }));
 
 jest.mock('./dapp', () => ({
+  dappDebug: jest.fn(),
   getAllDApps: jest.fn(),
   removeDApp: jest.fn(),
   getCurrentPermission: jest.fn(),
@@ -96,7 +108,8 @@ jest.mock('./dapp', () => ({
   requestSign: jest.fn(),
   requestAssets: jest.fn(),
   requestImportPrivateNote: jest.fn(),
-  requestConsumableNotes: jest.fn()
+  requestConsumableNotes: jest.fn(),
+  waitForTransaction: jest.fn()
 }));
 
 jest.mock('webextension-polyfill', () => ({
@@ -174,6 +187,18 @@ describe('actions', () => {
 
       expect(result).toBe(false);
     });
+
+    it('defaults to true when DAppEnabled key is not in storage', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.isExist.mockResolvedValueOnce(true);
+
+      // Mock storage to return empty object (key not present)
+      const browser = jest.requireMock('webextension-polyfill');
+      browser.storage.local.get.mockResolvedValueOnce({});
+
+      const result = await isDAppEnabled();
+      expect(result).toBe(true);
+    });
   });
 
   describe('getFrontState', () => {
@@ -184,6 +209,16 @@ describe('actions', () => {
       const result = await getFrontState();
 
       expect(result.status).toBe(WalletStatus.Ready);
+    });
+
+    it('returns Idle immediately when inited is false (UI renders while backend inits)', async () => {
+      mockStoreState.inited = false;
+
+      const result = await getFrontState();
+
+      expect(result.status).toBe(WalletStatus.Idle);
+      expect(result.accounts).toEqual([]);
+      expect(result.currentAccount).toBeNull();
     });
   });
 
@@ -226,11 +261,28 @@ describe('actions', () => {
       };
       Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerNewWallet('password123', 'mnemonic words', true);
+      await registerNewWallet(WalletType.Guardian, 'password123', 'mnemonic words', true);
 
-      expect(Vault.spawn).toHaveBeenCalledWith('password123', 'mnemonic words', true);
+      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, 'password123', 'mnemonic words', true);
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
+    });
+  });
+
+  describe('registerNewWallet with undefined password', () => {
+    it('passes empty string when password is undefined', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const mockVaultInstance = {
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(false)
+      };
+      Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
+
+      await registerNewWallet(WalletType.Guardian, undefined, 'mnemonic words', true);
+
+      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, '', 'mnemonic words', true);
     });
   });
 
@@ -245,11 +297,29 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerImportedWallet('password123', 'mnemonic words');
+      await registerImportedWallet('password123', 'mnemonic words', []);
 
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words');
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words', []);
+      expect(Vault.setup).toHaveBeenCalledWith('password123');
+    });
+  });
+
+  describe('registerImportedWallet with undefined params', () => {
+    it('passes empty strings when password and mnemonic are undefined', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const mockVaultInstance = {
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+      };
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
+
+      await registerImportedWallet(undefined, undefined);
+
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', []);
     });
   });
 
@@ -415,7 +485,9 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.PermissionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestPermission).toHaveBeenCalledWith('https://example.com', req);
+      // PR-4 chunk 8: processDApp threads sessionId (undefined for legacy
+      // single-instance callers) through to handlers.
+      expect(requestPermission).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ approved: true });
     });
 
@@ -454,7 +526,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.TransactionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ txId: 'tx-123' });
     });
 
@@ -465,7 +537,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.SendTransactionRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestSendTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestSendTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ sent: true });
     });
 
@@ -476,7 +548,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.ConsumeRequest, data: {} };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(requestConsumeTransaction).toHaveBeenCalledWith('https://example.com', req);
+      expect(requestConsumeTransaction).toHaveBeenCalledWith('https://example.com', req, undefined);
       expect(result).toEqual({ consumed: true });
     });
 
@@ -522,6 +594,190 @@ describe('actions', () => {
 
       expect(requestConsumableNotes).toHaveBeenCalledWith('https://example.com', req);
       expect(result).toEqual({ notes: [] });
+    });
+
+    it('handles WaitForTransactionRequest', async () => {
+      const { waitForTransaction } = jest.requireMock('./dapp');
+      waitForTransaction.mockResolvedValueOnce({ status: 'completed' });
+
+      const req = { type: MidenDAppMessageType.WaitForTransactionRequest, txId: 'tx-123' };
+      const result = await processDApp('https://example.com', req as any);
+
+      expect(waitForTransaction).toHaveBeenCalledWith(req);
+      expect(result).toEqual({ status: 'completed' });
+    });
+  });
+
+  describe('stub action functions', () => {
+    it('decryptCiphertexts is a no-op stub', () => {
+      expect(() => decryptCiphertexts('pk', ['ct1'])).not.toThrow();
+    });
+
+    it('revealViewKey is a no-op stub', () => {
+      expect(() => revealViewKey('pk', 'pw')).not.toThrow();
+    });
+
+    it('revealPublicKey is a no-op stub', () => {
+      expect(() => revealPublicKey('pk')).not.toThrow();
+    });
+
+    it('removeAccount is a no-op stub', () => {
+      expect(() => removeAccount('pk', 'pw')).not.toThrow();
+    });
+
+    it('importMnemonicAccount is a no-op stub', () => {
+      expect(() => importMnemonicAccount('mnemonic')).not.toThrow();
+    });
+
+    it('importFundraiserAccount is a no-op stub', () => {
+      expect(() => importFundraiserAccount('e@x', 'pw', 'mnemonic')).not.toThrow();
+    });
+
+    it('importWatchOnlyAccount is a no-op stub', () => {
+      expect(() => importWatchOnlyAccount('vk')).not.toThrow();
+    });
+  });
+
+  describe('revealPrivateKey', () => {
+    it('delegates to Vault.revealPrivateKey', async () => {
+      const { Vault } = require('lib/miden/back/vault');
+      (Vault.revealPrivateKey as jest.Mock).mockResolvedValueOnce('deadbeef');
+
+      const result = await revealPrivateKey('pk-commitment-hex', 'password');
+
+      expect(Vault.revealPrivateKey).toHaveBeenCalledWith('pk-commitment-hex', 'password');
+      expect(result).toBe('deadbeef');
+    });
+
+    it('forwards undefined password for hardware-unlock path', async () => {
+      const { Vault } = require('lib/miden/back/vault');
+      (Vault.revealPrivateKey as jest.Mock).mockResolvedValueOnce('abc123');
+
+      await revealPrivateKey('pk-commitment-hex');
+
+      expect(Vault.revealPrivateKey).toHaveBeenCalledWith('pk-commitment-hex', undefined);
+    });
+  });
+
+  describe('importAccount', () => {
+    it('imports via vault, broadcasts accountsUpdated, returns new public key', async () => {
+      const newAccounts = [{ publicKey: 'mtst1newly-imported', name: 'Imported', isPublic: true, hdIndex: -1 }];
+      mockVault.importAccountFromPrivateKey.mockResolvedValueOnce(newAccounts);
+
+      const result = await importAccount('deadbeef', 'My Import');
+
+      expect(mockVault.importAccountFromPrivateKey).toHaveBeenCalledWith('deadbeef', 'My Import');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts: newAccounts });
+      expect(result).toBe('mtst1newly-imported');
+    });
+
+    it('rejects names that exceed 16 characters', async () => {
+      await expect(importAccount('deadbeef', 'a'.repeat(17))).rejects.toThrow(/Invalid name/);
+      expect(mockVault.importAccountFromPrivateKey).not.toHaveBeenCalled();
+    });
+
+    it('serializes concurrent imports through the unlock queue', async () => {
+      // Two importAccount calls fired simultaneously must not run their
+      // vault-level work in parallel — otherwise both can read the same
+      // stale accounts list pre-WASM and the later write clobbers the
+      // earlier one. PQueue concurrency: 1 inside `getUnlockQueue`
+      // enforces this; prove it by watching whether the second call's
+      // vault method observes the first still in-flight.
+      let firstCallInFlight = false;
+      let secondStartedWhileFirstInFlight = false;
+
+      mockVault.importAccountFromPrivateKey
+        .mockImplementationOnce(async () => {
+          firstCallInFlight = true;
+          await new Promise(r => setTimeout(r, 20));
+          firstCallInFlight = false;
+          return [{ publicKey: 'pk1', name: 'A', isPublic: true, hdIndex: -1 }];
+        })
+        .mockImplementationOnce(async () => {
+          if (firstCallInFlight) {
+            secondStartedWhileFirstInFlight = true;
+          }
+          return [
+            { publicKey: 'pk1', name: 'A', isPublic: true, hdIndex: -1 },
+            { publicKey: 'pk2', name: 'B', isPublic: true, hdIndex: -1 }
+          ];
+        });
+
+      const [pk1, pk2] = await Promise.all([importAccount('deadbeef', 'A'), importAccount('cafebabe', 'B')]);
+
+      expect(secondStartedWhileFirstInFlight).toBe(false);
+      expect(pk1).toBe('pk1');
+      expect(pk2).toBe('pk2');
+    });
+  });
+
+  // The lazy `getVault()` accessor in actions.ts has a `typeof init_vault === 'function'`
+  // guard that only fires in the SW bundle (Vite injects `init_vault`). In Jest the
+  // symbol is undefined, so the true arm of that branch is unreachable without a
+  // shim. We isolate the module, install a fake `init_vault` on globalThis, and
+  // re-import to drive the factory-await arm.
+  describe('lazy getVault() with init_vault present (SW bundle simulation)', () => {
+    it('awaits init_vault when defined and proceeds to Vault.isExist', async () => {
+      const initVaultStub = jest.fn(async () => {});
+      (globalThis as any).init_vault = initVaultStub;
+      try {
+        await jest.isolateModulesAsync(async () => {
+          jest.doMock('lib/miden/back/vault', () => ({
+            Vault: {
+              isExist: jest.fn().mockResolvedValue(true),
+              spawn: jest.fn(),
+              setup: jest.fn(),
+              spawnFromMidenClient: jest.fn(),
+              getCurrentAccountPublicKey: jest.fn()
+            }
+          }));
+          jest.doMock('./store', () => ({
+            store: { getState: jest.fn(() => ({ inited: true })) },
+            toFront: jest.fn(s => s),
+            inited: jest.fn(),
+            locked: jest.fn(),
+            unlocked: jest.fn(),
+            accountsUpdated: jest.fn(),
+            settingsUpdated: jest.fn(),
+            currentAccountUpdated: jest.fn(),
+            withInited: jest.fn(async (fn: any) => fn()),
+            withUnlocked: jest.fn(async (fn: any) => fn({ vault: {} }))
+          }));
+          jest.doMock('./dapp', () => ({
+            dappDebug: jest.fn(),
+            getAllDApps: jest.fn(),
+            removeDApp: jest.fn(),
+            getCurrentPermission: jest.fn(),
+            requestPermission: jest.fn(),
+            requestDisconnect: jest.fn(),
+            requestTransaction: jest.fn(),
+            requestSendTransaction: jest.fn(),
+            requestConsumeTransaction: jest.fn(),
+            requestPrivateNotes: jest.fn(),
+            requestSign: jest.fn(),
+            requestAssets: jest.fn(),
+            requestImportPrivateNote: jest.fn(),
+            requestConsumableNotes: jest.fn(),
+            waitForTransaction: jest.fn()
+          }));
+          jest.doMock('webextension-polyfill', () => ({
+            storage: { local: { get: jest.fn().mockResolvedValue({ DAppEnabled: true }) } }
+          }));
+
+          const isolated = await import('./actions');
+          await isolated.init();
+          // The factory must have been awaited at least once on first vault access.
+          expect(initVaultStub).toHaveBeenCalled();
+
+          // A second call (via isDAppEnabled) does NOT re-enter the factory because
+          // the lazy `_vault` is now memoized — exercises the falsy `if (!_vault)` arm.
+          initVaultStub.mockClear();
+          await isolated.isDAppEnabled();
+          expect(initVaultStub).not.toHaveBeenCalled();
+        });
+      } finally {
+        delete (globalThis as any).init_vault;
+      }
     });
   });
 });

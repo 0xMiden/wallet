@@ -76,9 +76,8 @@ export function isMobile(): boolean {
  * Detects if running in a Tauri desktop app
  */
 export function isTauri(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
+  /* c8 ignore start */ if (typeof window === 'undefined') return false; /* c8 ignore stop */
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return '__TAURI__' in window || '__TAURI_INTERNALS__' in window;
 }

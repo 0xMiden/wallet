@@ -130,20 +130,31 @@ describe('IntercomServer', () => {
     });
   });
 
-  it('returns undefined when no handlers initialized', async () => {
-    // Don't register any handlers
+  it('queues request messages until a handler is registered, then replays them', async () => {
+    // Connect first, no handlers yet
     connectListener(mockPort);
 
     const messageHandler = mockAddListener.mock.calls[0][0];
 
-    await messageHandler({ type: MessageType.Req, reqId: 'req-2', data: {} }, mockPort);
+    // Send a non-GET_STATE/SYNC request — should be queued, NOT responded to
+    await messageHandler({ type: MessageType.Req, reqId: 'req-2', data: { type: 'OTHER_REQUEST' } }, mockPort);
 
     await new Promise(resolve => setTimeout(resolve, 0));
 
+    // No response sent yet — message is queued
+    expect(mockPostMessage).not.toHaveBeenCalled();
+
+    // Register a handler — queued message replays through it
+    const handler = jest.fn().mockResolvedValue({ result: 'replayed' });
+    server.onRequest(handler);
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(handler).toHaveBeenCalledWith({ type: 'OTHER_REQUEST' }, mockPort);
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Res,
       reqId: 'req-2',
-      data: undefined
+      data: { result: 'replayed' }
     });
   });
 
@@ -219,5 +230,32 @@ describe('IntercomServer', () => {
     server.notify(mockPort as any, { event: 'update' });
 
     expect(mockPostMessage).not.toHaveBeenCalled();
+  });
+
+  it('calls onAllClientsDisconnected listeners when the last port disconnects', () => {
+    const disconnectHandler = jest.fn();
+    server.onAllClientsDisconnected(disconnectHandler);
+
+    connectListener(mockPort);
+    // Simulate disconnect — this is the only port, so ports.size becomes 0
+    const disconnectCallback = mockPort.onDisconnect.addListener.mock.calls[0][0];
+    disconnectCallback();
+
+    expect(disconnectHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it('catches errors in onAllClientsDisconnected listeners', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+    const throwingHandler = () => {
+      throw new Error('listener error');
+    };
+    server.onAllClientsDisconnected(throwingHandler);
+
+    connectListener(mockPort);
+    const disconnectCallback = mockPort.onDisconnect.addListener.mock.calls[0][0];
+    disconnectCallback();
+
+    expect(errorSpy).toHaveBeenCalledWith('[IntercomServer] Disconnect listener error:', expect.any(Error));
+    errorSpy.mockRestore();
   });
 });

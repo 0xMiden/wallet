@@ -3,7 +3,7 @@
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
-import { Address, FungibleAsset, NetworkId, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk';
+import { Address, FungibleAsset, SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -16,6 +16,7 @@ import { CustomRpsContext } from 'lib/analytics';
 import { AssetMetadata, MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { MidenDAppPayload } from 'lib/miden/types';
+import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { formatAmount } from 'lib/shared/format';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -156,8 +157,8 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <div className="flex items-center justify-center">
             <FormSecondaryButton
               type="button"
-              className="justify-center w-3/5 bg-gray-800 hover:bg-gray-700 text-black"
-              style={{ fontWeight: '400', color: 'black', border: 'none' }}
+              className="justify-center w-3/5 bg-chip-bg hover:bg-gray-100 text-black"
+              style={{ fontWeight: '400', border: 'none' }}
               onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
               small
             >
@@ -178,9 +179,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           </div>
           {account && (
             <>
-              <hr className="h-px bg-grey-100 my-4" />
+              <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">{t('account')}</span>
+                <span className="text-text-muted">{t('account')}</span>
                 <div className="text-black flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
@@ -188,10 +189,10 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
               </div>
             </>
           )}
-          <hr className="h-px bg-grey-100 my-4" />
+          <hr className="h-px bg-border-light my-4" />
           {payload.transactionMessages.slice(2).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Amount') {
               const microcredits = Number(value);
               const amount = microcredits / 10 ** MIDEN_METADATA.decimals;
@@ -201,7 +202,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             }
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                <span className="text-gray-600">{label}</span>
+                <span className="text-text-muted">{label}</span>
                 <span className="text-black">{value}</span>
               </div>
             );
@@ -219,32 +220,32 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           </div>
           {account && (
             <>
-              <hr className="h-px bg-grey-100 my-4" />
+              <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">{t('account')}</span>
+                <span className="text-text-muted">{t('account')}</span>
                 <div className="text-black flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
                 </div>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">{t('noteId')}</span>
+                <span className="text-text-muted">{t('noteId')}</span>
                 <div className="text-black flex flex-col items-end">
                   <span>{truncateHash(payload.noteId)}</span>
                 </div>
               </div>
             </>
           )}
-          <hr className="h-px bg-grey-100 my-4" />
+          <hr className="h-px bg-border-light my-4" />
           {payload.transactionMessages.slice(1).map((message, i) => {
             const [label, rawValue] = message.split(', ');
-            let value = rawValue;
+            let value = rawValue ?? '';
             if (label === 'Recipient') {
               value = truncateAddress(value);
             }
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
-                <span className="text-gray-600">{label}</span>
+                <span className="text-text-muted">{label}</span>
                 <span className="text-black">{value}</span>
               </div>
             );
@@ -360,7 +361,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
         const ts = signingInputs.transactionSummaryPayload();
         const accountDelta = ts.accountDelta();
         const accountAddress = Address.fromAccountId(accountDelta.id(), 'BasicWallet');
-        const accountAddressAsBech32 = accountAddress.toBech32(NetworkId.testnet());
+        const accountAddressAsBech32 = accountAddress.toBech32(getNetworkId());
         const vault = accountDelta.vault();
         const storage = accountDelta.storage();
         const inputNotes = ts.inputNotes();
@@ -386,7 +387,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
 
               {!vault.isEmpty() && (
                 <div className="flex flex-col w-full pt-4">
-                  <span className="text-gray-600">{t('assetChanges')}</span>
+                  <span className="text-text-muted">{t('assetChanges')}</span>
                   {removedFungibleAssets.length > 0 &&
                     removedFungibleAssetsDetails.map(details => (
                       <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
@@ -395,7 +396,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
-                        <span className="text-gray-600">{`~$${details.asset.amount()}`}</span>
+                        <span className="text-text-muted">{`~$${details.asset.amount()}`}</span>
                       </div>
                     ))}
 
@@ -407,7 +408,7 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
-                        <span className="text-gray-600">{`~$${details.asset.amount()}`}</span>
+                        <span className="text-text-muted">{`~$${details.asset.amount()}`}</span>
                       </div>
                     ))}
                 </div>
@@ -415,15 +416,15 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
             </div>
             <div className="flex flex-col w-full border-b border-gray-100 pb-4">
               <div className="flex flex-row w-full items-center justify-between pb-1">
-                <span className="text-gray-600">{t('inputNotesConsumed')}</span>
+                <span className="text-text-muted">{t('inputNotesConsumed')}</span>
                 <span>{numNotes}</span>
               </div>
               <div className="flex flex-row w-full items-center justify-between pb-1">
-                <span className="text-gray-600">{t('outputNotesCreated')}</span>
+                <span className="text-text-muted">{t('outputNotesCreated')}</span>
                 <span>{numOutputNotes}</span>
               </div>
               <div className="flex flex-row w-full items-center justify-between">
-                <span className="text-gray-600">{t('storageChanged')}</span>
+                <span className="text-text-muted">{t('storageChanged')}</span>
                 {storage.isEmpty() ? (
                   <span>{t('no')}</span>
                 ) : (
@@ -497,7 +498,7 @@ const ConfirmDAppForm: FC = () => {
       throw new Error(t('notIdentified'));
     }
     return pageId;
-  }, [loc.search]);
+  }, [loc.search, t]);
 
   const { data } = useRetryableSWR<MidenDAppPayload>([id], getDAppPayload, {
     suspense: true,
@@ -584,7 +585,7 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
   );
 
   const handleConfirmClick = useCallback(async () => {
@@ -711,7 +712,7 @@ const ConfirmDAppForm: FC = () => {
               <Icon name={IconName.Globe} fill="currentColor" size="md" />
               <div className="flex flex-col">
                 <Name className="font-semibold">{payload.origin}</Name>
-                <span className="text-gray-600">{t('requestsYourSignature')}</span>
+                <span className="text-text-muted">{t('requestsYourSignature')}</span>
               </div>
             </div>
           )
@@ -786,7 +787,7 @@ const ConfirmDAppForm: FC = () => {
           )
         };
     }
-  }, [error, payload, privateDataPermission, isPublicAccount]);
+  }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
   return (
     <CustomRpsContext.Provider value={'TODO'}>

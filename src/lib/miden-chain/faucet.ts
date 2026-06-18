@@ -1,5 +1,5 @@
-import { MIDEN_FAUCET_ENDPOINTS, MIDEN_NETWORK_NAME } from './constants';
+import { DEFAULT_NETWORK, MIDEN_FAUCET_ENDPOINTS } from './constants';
 
 export function getFaucetUrl(networkId: string): string {
-  return MIDEN_FAUCET_ENDPOINTS.get(networkId) ?? MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.TESTNET)!;
+  return MIDEN_FAUCET_ENDPOINTS.get(networkId) ?? MIDEN_FAUCET_ENDPOINTS.get(DEFAULT_NETWORK)!;
 }

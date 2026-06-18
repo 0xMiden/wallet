@@ -26,7 +26,7 @@ function ensureFileFetchSupport() {
 
 type Fixtures = {
   sdk: Awaited<typeof import('@miden-sdk/miden-sdk')>;
-  mockWebClient: any;
+  mockClient: any;
 };
 
 export const test = base.extend<Fixtures>({
@@ -35,10 +35,10 @@ export const test = base.extend<Fixtures>({
     const sdk = await import('@miden-sdk/miden-sdk');
     await use(sdk as any);
   },
-  mockWebClient: async ({ sdk }: any, use: any) => {
-    const client = await sdk.MockWebClient.createClient();
+  mockClient: async ({ sdk }: any, use: any) => {
+    const client = await sdk.MidenClient.createMock();
     await use(client);
-    client.free();
+    client.terminate();
   }
 });
 

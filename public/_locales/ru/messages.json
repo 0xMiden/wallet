@@ -338,6 +338,52 @@
     "message": "Название аккаунта",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "например Экономия",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "От 1 до 16 символов, не может начинаться с пробела или дефиса.",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Аккаунт с таким именем уже существует",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Прежде чем продолжить",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Ваш закрытый ключ дает полный контроль над этой учетной записью тому, кто ею владеет. Учетные записи Miden не могут менять ключи, поэтому утечка ключа навсегда ставит учетную запись под угрозу.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Я понимаю, что этот ключ нельзя повернуть или отозвать.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Импортированные аккаунты ( $importedCount$ ) не будет включен в этот файл. Чтобы создать их резервную копию, экспортируйте каждый закрытый ключ отдельно в меню «Настройки» → «Показать закрытый ключ».",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Этот зашифрованный файл был экспортирован с помощью $importedCount$ импортированные учетные записи, которые не являются частью резервной копии. Эти учетные записи не появятся в вашем восстановленном кошельке — для их повторного добавления вам понадобятся их оригинальные закрытые ключи. Нажмите «Продолжить импорт», чтобы продолжить.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Продолжить импорт",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Изменить имя учетной записи",
     "englishSource": "Edit Account Name"
@@ -397,6 +443,91 @@
   "generatingTransactionDescription": {
     "message": "Это может занять некоторое время в зависимости от уровня сетевого трафика.",
     "englishSource": "This may take a moment depending on the level network traffic"
+  },
+  "transactionStageSyncing": {
+    "message": "Синхронизация аккаунта",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "Получение последнего состояния вашего аккаунта.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "Отправка транзакции",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "Создание и доказательство вашей транзакции.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "Заявление note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "Выполнение транзакции",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageSwitching": {
+    "message": "Переключение опекуна",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Создание предложения",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Составление предложения по сделке для вашего опекуна.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Подписание с опекуном",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Ваш опекун подписывает предложение.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Отправка транзакции",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Отправка подписанной транзакции в сеть.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageConfirming": {
+    "message": "Подтверждение в цепочке",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "Ожидание подтверждения сети.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Регистрация у опекуна",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Регистрация состояния вашей учетной записи у нового опекуна.",
+    "englishSource": "Registering your account state with the new guardian."
+  },
+  "transactionStageDelivering": {
+    "message": "Доставка note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "Безопасная отправка note получателю.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ транзакций в процессе",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "status": {
     "message": "Положение дел",
@@ -743,8 +874,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "Операции не найдены",
-    "englishSource": "No operations found"
+    "message": "В настоящее время у вас нет транзакций.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Аккаунт на удаление.",
@@ -1514,6 +1645,46 @@
     "message": "Зашифрованный файл кошелька",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Хранитель",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Настройки стража",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Текущий страж",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Новая конечная точка Стража",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Переключить стража",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Направьте свою учетную запись Guardian на новую конечную точку Guardian. Переключатель подписывается как предложение в цепочке.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Смена опекуна...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Guardian успешно переключился.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Это уже ваш нынешний опекун.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "Введите действительный URL-адрес, начинающийся с http:// или https://.",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Введите свой пароль для доступа к вашему зашифрованному файлу кошелька.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1752,10 +1923,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Загрузить сгенерированные файлы",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Счет в сети (публичный)",
     "englishSource": "On-chain Account (Public)"
@@ -1783,6 +1950,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Позже вы сможете добавлять и управлять несколькими типами учетных записей в кошельке.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Настройка восстановления учетной записи",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Выберите, как вы хотите восстановить свою учетную запись, если вы потеряете доступ.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Хранитель",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Рекомендуется. Восстановление вашей учетной записи на основе Guardian, но оператор Guardian может видеть ваше состояние.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Полностью приватный",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Только локально, никто, кроме вас, не видит ваше состояние, но восстановления нет, потеря устройства приведет к безвозвратной потере ваших средств.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Общественный",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Восстановите общедоступную учетную запись в сети.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Как бы вы хотели восстановить этот кошелек?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Импорт через Guardian",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Используйте опекуна для восстановления и совместного подписания этой учетной записи.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Импортировать общедоступный аккаунт",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "Импортируйте общедоступную учетную запись, полученную из вашего seed phrase.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "URL-адрес хранителя",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Используйте другого опекуна",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Нам не удалось найти вашу учетную запись на этом опекуне. Вместо этого проверьте URL-адрес или импортируйте его как общедоступную учетную запись.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "По умолчанию",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "Файл транзакции",
@@ -1823,6 +2058,10 @@
   "viewOnExplorer": {
     "message": "Посмотреть в проводнике",
     "englishSource": "View on Explorer"
+  },
+  "viewOnMidenscan": {
+    "message": "Посмотреть на Миденскане",
+    "englishSource": "View on Midenscan"
   },
   "inProgress": {
     "message": "В ходе выполнения",
@@ -2126,6 +2365,46 @@
     "message": "Возможно, кошелек отключен от сети или не синхронизирован.",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "Кажется, вы не в сети",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "Проверьте подключение к Интернету и повторите попытку.",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "Невозможно добраться до узла Миден",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "Возможно, узел не работает или находится под большой нагрузкой. Возможно, ваш баланс устарел.",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "Доказательство недоступности услуги",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "Транзакции будут использовать локальное подтверждение до тех пор, пока услуга не вернется.",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "Повторное подключение",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "Пытаюсь восстановить соединение.",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "Попробуйте еще раз",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "Повторить попытку синхронизации",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "Ваша note была успешно использована.",
     "englishSource": "Your note was successfully consumed."
@@ -2270,6 +2549,165 @@
     "message": "Избранное",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Найдите dApps или вставьте URL-адрес",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Рекомендуемые",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Мои децентрализованные приложения",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Недавние",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Прокрутить влево",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Прокрутите вправо",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Быстрые действия",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Просматривать",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "НФТ",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Инструменты",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Социальные",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "В этой категории пока нет децентрализованных приложений",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Исследуйте экосистему Майдена",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Свернуть",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Переключение децентрализованных приложений",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Перезагрузить",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Больше возможностей",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Действия децентрализованного приложения",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Копировать ссылку",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Добавить в мои децентрализованные приложения",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Удалить из моих приложений",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Открыть заново",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Восстановить $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Закрывать $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ больше припаркованных децентрализованных приложений",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Ссылка скопирована",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Добавлено в мои приложения",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Невозможно загрузить это децентрализованное приложение",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Проверьте подключение и повторите попытку.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "Заголовок браузера dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Перетащите вниз, чтобы свернуть",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "переключатель децентрализованных приложений",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Закрыть переключатель децентрализованных приложений",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 открытое децентрализованное приложение",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} открытых децентрализованных приложений",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Утвердить",
     "englishSource": "Approve"
@@ -2407,6 +2845,22 @@
     "message": "Темный режим",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Тема",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "Система",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "Свет",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Темный",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Тактильная обратная связь",
     "englishSource": "Haptic Feedback"
@@ -2416,8 +2870,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "В настоящее время у вас нет notes, на которые можно претендовать, но когда вы это сделаете, они появятся здесь.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "В настоящее время у вас нет notes, на который можно претендовать.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Вы получили note",
@@ -2426,6 +2880,19 @@
   "noteReceivedTapToClaim": {
     "message": "Нажмите здесь, чтобы потребовать это",
     "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "tokenHistory": {
     "message": "$tokenName$ История",
@@ -2571,5 +3038,53 @@
   "type": {
     "message": "Тип",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Идентификатор передачи",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Созданный",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Подтвержденный",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Дата",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Добавьте note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Дополнительные параметры",
+    "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "кошелек Miden с булавками",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Нажмите на значок головоломки и закрепите Miden Wallet для быстрого доступа с панели инструментов.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Понятно",
+    "englishSource": "Got it"
+  },
+  "downloadGeneratedFiles": {
+    "message": "Загрузить сгенерированные файлы",
+    "englishSource": "Download Generated Files"
   }
 }

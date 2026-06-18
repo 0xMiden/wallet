@@ -12,7 +12,7 @@ import { useNetwork } from './ready';
 
 // Mock the storage module used by useNetwork
 jest.mock('lib/miden/front/storage', () => ({
-  usePassiveStorage: jest.fn((key: string, fallback: any) => {
+  usePassiveStorage: jest.fn((_key: string, fallback: any) => {
     return [fallback, jest.fn()];
   }),
   onStorageChanged: jest.fn(() => () => {}),

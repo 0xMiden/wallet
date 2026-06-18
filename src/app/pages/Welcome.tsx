@@ -6,14 +6,16 @@ import wordslist from 'bip39/src/wordlists/english.json';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { useMidenContext } from 'lib/miden/front';
+import { putToStorage } from 'lib/miden/front/storage';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
-import { WalletStatus } from 'lib/shared/types';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { WalletStatus, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { ImportType, OnboardingAction, OnboardingStep, OnboardingType } from 'screens/onboarding/types';
+import { ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 /**
  * Check if hardware security is available for vault key protection.
@@ -49,7 +51,7 @@ async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttem
   for (let i = 0; i < maxAttempts; i++) {
     try {
       console.log('[waitForReadyState] Attempt', i + 1);
-      const state = await fetchStateFromBackend(0);
+      const state = await fetchStateFromBackend();
       console.log('[waitForReadyState] Got state:', { status: state.status, hasAccounts: !!state.accounts?.length });
       syncFromBackend(state);
       if (state.status === WalletStatus.Ready) {
@@ -71,12 +73,15 @@ const Welcome: FC = () => {
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [importType, setImportType] = useState<ImportType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
+  const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
   const [importedWithFile, setImportedWithFile] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
   const [isHardwareSecurityAvailable, setIsHardwareSecurityAvailable] = useState(false);
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
+  const [guardianLookupError, setGuardianLookupError] = useState(false);
+  const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
   const { registerWallet, importWalletFromClient } = useMidenContext();
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
@@ -88,20 +93,63 @@ const Welcome: FC = () => {
     });
   }, []);
 
+  // Test bypass: skip onboarding via URL param or CDP global (mobile testing only)
+  // Usage from CDP: node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.hash = ""'
+  // Or navigate to /?__test_skip_onboarding=1
+  const [testBypassTriggered, setTestBypassTriggered] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const skipViaParam = params.get('__test_skip_onboarding') === '1';
+    const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;
+    if (!skipViaParam && !skipViaGlobal) return;
+
+    console.log('[Welcome] Test bypass: setting up seed + password');
+    const testSeed = generateMnemonic(128).split(' ');
+    const testPassword = params.get('password') || 'password1';
+    setSeedPhrase(testSeed);
+    setPassword(testPassword);
+    setOnboardingType(OnboardingType.Create);
+    setTestBypassTriggered(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Navigate to confirmation AFTER password state is committed
+  useEffect(() => {
+    if (testBypassTriggered && password) {
+      console.log('[Welcome] Test bypass: password set, navigating to confirmation');
+      navigate('/#confirmation');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testBypassTriggered, password]);
+
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       // For hardware-only wallets, pass undefined as password
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
       if (!importedWithFile) {
-        await registerWallet(actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
+        await registerWallet(walletType, actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
       } else {
-        await importWalletFromClient(actualPassword, seedPhraseFormatted);
+        try {
+          console.log('importing wallet from client');
+          await importWalletFromClient(actualPassword, seedPhraseFormatted, importedWalletAccounts);
+        } catch (e) {
+          console.error(e);
+        }
       }
     } else {
       throw new Error('Missing password or seed phrase');
     }
-  }, [password, seedPhrase, importedWithFile, registerWallet, onboardingType, importWalletFromClient]);
+  }, [
+    password,
+    seedPhrase,
+    importedWithFile,
+    registerWallet,
+    onboardingType,
+    importWalletFromClient,
+    walletType,
+    importedWalletAccounts
+  ]);
 
   const onAction = async (action: OnboardingAction) => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;
@@ -124,6 +172,7 @@ const Welcome: FC = () => {
       case 'import-wallet-file-submit':
         const seedPhrase = action.payload.split(' ');
         setSeedPhrase(seedPhrase);
+        setImportedWalletAccounts(action.walletAccounts);
         setImportedWithFile(true);
         // Check if hardware security is available - if so, skip password step
         {
@@ -147,9 +196,9 @@ const Welcome: FC = () => {
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
           if (hardwareAvailable) {
-            // Hardware-only mode: skip password, go directly to confirmation
+            // Hardware-only mode: skip password, go to recovery method selection
             setPassword('__HARDWARE_ONLY__');
-            navigate('/#confirmation');
+            navigate('/#import-select-recovery-method');
           } else {
             navigate('/#create-password');
           }
@@ -180,6 +229,23 @@ const Welcome: FC = () => {
         setPassword(action.payload.password);
         eventCategory = AnalyticsEventCategory.FormSubmit;
         // Hardware protection is automatically set up in Vault.spawn() when available
+        if (onboardingType === OnboardingType.Import && importType === ImportType.SeedPhrase) {
+          navigate('/#import-select-recovery-method');
+        } else {
+          navigate('/#select-recovery-method');
+        }
+        break;
+      case 'select-recovery-method':
+        setWalletType(action.payload);
+        navigate('/#confirmation');
+        break;
+      case 'import-select-recovery-method':
+        setWalletType(action.payload.walletType);
+        if (action.payload.walletType === WalletType.Guardian && action.payload.guardianEndpoint) {
+          console.log('Putting guardian endpoint to storage:', action.payload.guardianEndpoint);
+          await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
+        }
+        setGuardianLookupError(false);
         navigate('/#confirmation');
         break;
       case 'confirmation':
@@ -196,8 +262,11 @@ const Welcome: FC = () => {
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
-          // Track biometric attempts for hardware-only mode
-          if (password === '__HARDWARE_ONLY__') {
+          if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
+            setGuardianLookupError(true);
+            navigate('/#import-select-recovery-method');
+          } else if (password === '__HARDWARE_ONLY__') {
+            // Track biometric attempts for hardware-only mode
             const newAttempts = biometricAttempts + 1;
             setBiometricAttempts(newAttempts);
             setBiometricError(error instanceof Error ? error.message : 'Biometric authentication failed');
@@ -230,6 +299,18 @@ const Welcome: FC = () => {
             } else {
               navigate('/#import-from-seed');
             }
+          }
+        } else if (step === OnboardingStep.SelectRecoveryMethod) {
+          if (onboardingType === OnboardingType.Import && password === '__HARDWARE_ONLY__') {
+            navigate('/#import-from-seed');
+          } else {
+            navigate('/#create-password');
+          }
+        } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
+          if (password === '__HARDWARE_ONLY__') {
+            navigate('/#import-from-seed');
+          } else {
+            navigate('/#create-password');
           }
         } else if (step === OnboardingStep.ImportFromFile || step === OnboardingStep.ImportFromSeed) {
           navigate('/#select-import-type');
@@ -271,6 +352,12 @@ const Welcome: FC = () => {
       case '#create-password':
         setStep(OnboardingStep.CreatePassword);
         break;
+      case '#select-recovery-method':
+        setStep(OnboardingStep.SelectRecoveryMethod);
+        break;
+      case '#import-select-recovery-method':
+        setStep(OnboardingStep.ImportSelectRecoveryMethod);
+        break;
       case '#confirmation':
         if (!password) {
           navigate('/');
@@ -310,6 +397,7 @@ const Welcome: FC = () => {
       isHardwareSecurityAvailable={isHardwareSecurityAvailable}
       biometricAttempts={biometricAttempts}
       biometricError={biometricError}
+      guardianLookupError={guardianLookupError}
       onBiometricChange={setUseBiometric}
       onAction={onAction}
     />

@@ -49,7 +49,7 @@ export const ListItem: React.FC<ListItemProps> = ({
     'gap-x-4 bg-white', // Gap and background classes
     'rounded-lg transition', // Shape and transition classes
     'duration-300 ease-in-out', // Transition duration and timing function classes
-    'hover:bg-grey-50 cursor-pointer', // Hover and cursor classes
+    'hover:bg-gray-100 cursor-pointer', // Hover and cursor classes
     'overflow-hidden',
     className // User-defined classes
   );

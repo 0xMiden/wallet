@@ -57,7 +57,7 @@ export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[];
 
       const currentRoute = cardStack[cardStack.length - 1];
 
-      if (currentRoute.animationIn === 'push' && route.animationIn === 'present') {
+      if (currentRoute?.animationIn === 'push' && route.animationIn === 'present') {
         setNavigationDirection('up');
       } else {
         setNavigationDirection('forward');
@@ -84,7 +84,7 @@ export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[];
     if (cardStack.length > 1) {
       const currentRoute = cardStack[cardStack.length - 1];
       const previousRoute = cardStack[cardStack.length - 2];
-      if (currentRoute.animationIn === 'present' && previousRoute.animationIn === 'push') {
+      if (currentRoute?.animationIn === 'present' && previousRoute?.animationIn === 'push') {
         setNavigationDirection('down');
       }
       setCardStack(cardStack.slice(0, -1));
@@ -144,7 +144,7 @@ type AnimationConfig = {
 const PushInitialPosition: AnimationConfig = {
   x: '8%',
   opacity: 1,
-  backgroundColor: '#ffffff',
+  backgroundColor: 'var(--color-app-bg)',
   y: '0vw',
   scale: 1
 };
@@ -154,7 +154,7 @@ const FocusPosition: AnimationConfig = {
   y: '0vw',
   opacity: 1,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PushExitPosition: AnimationConfig = {
@@ -162,7 +162,7 @@ const PushExitPosition: AnimationConfig = {
   y: '0vw',
   opacity: 1,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PushHiddenPosition: AnimationConfig = {
@@ -170,7 +170,7 @@ const PushHiddenPosition: AnimationConfig = {
   y: '0vw',
   opacity: 1,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PushModalBackgroundPosition: AnimationConfig = {
@@ -186,7 +186,7 @@ const PresentInitialPosition: AnimationConfig = {
   y: '25vw',
   opacity: 0,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 const PresentExitPosition: AnimationConfig = {
@@ -194,7 +194,7 @@ const PresentExitPosition: AnimationConfig = {
   y: '25vw',
   opacity: 0,
   scale: 1,
-  backgroundColor: '#ffffff'
+  backgroundColor: 'var(--color-app-bg)'
 };
 
 export const DefaultAnimationConfig = {

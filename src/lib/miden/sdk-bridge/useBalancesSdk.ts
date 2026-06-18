@@ -3,9 +3,9 @@ import { useCallback, useMemo } from 'react';
 import { useAccount } from '@miden-sdk/react';
 import type { AssetBalance } from '@miden-sdk/react';
 
-import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, MIDEN_METADATA, DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
+import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
 
 const DEFAULT_MIDEN_FAUCET_ID = TOKEN_MAPPING[MidenTokens.Miden].faucetId;
 
@@ -83,7 +83,8 @@ function makeZeroMiden(): TokenBalanceData {
     tokenSlug: 'MIDEN',
     metadata: MIDEN_METADATA,
     fiatPrice: 1,
-    balance: 0
+    balance: 0,
+    change24h: 0
   };
 }
 

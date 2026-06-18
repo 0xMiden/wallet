@@ -1,7 +1,7 @@
 import { useAppEnv } from '../env';
 
 export const useAppEnvStyle = () => {
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
 
-  return { dropdownWidth: popup ? 328 : 382 };
+  return { dropdownWidth: compact ? 328 : 382 };
 };

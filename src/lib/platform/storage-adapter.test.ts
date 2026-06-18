@@ -1,5 +1,4 @@
-import { isDesktop, isExtension, isMobile } from './index';
-import { CapacitorStorage, DesktopStorage, ExtensionStorage, getStorageProvider } from './storage-adapter';
+import { CapacitorStorage, DesktopStorage, ExtensionStorage } from './storage-adapter';
 
 // Mock platform detection
 jest.mock('./index', () => ({
@@ -7,9 +6,6 @@ jest.mock('./index', () => ({
   isDesktop: jest.fn(),
   isExtension: jest.fn()
 }));
-
-const mockIsDesktop = isDesktop as jest.MockedFunction<typeof isDesktop>;
-const mockIsExtension = isExtension as jest.MockedFunction<typeof isExtension>;
 
 // Mock webextension-polyfill
 const mockStorageGet = jest.fn();
@@ -41,8 +37,6 @@ jest.mock('@capacitor/preferences', () => ({
     remove: (...args: unknown[]) => mockPreferencesRemove(...args)
   }
 }));
-
-const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
 
 describe('ExtensionStorage', () => {
   let storage: ExtensionStorage;

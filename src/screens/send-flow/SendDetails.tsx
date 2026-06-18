@@ -1,5 +1,6 @@
-import React, { ChangeEvent, useCallback, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import clsx from 'clsx';
 import { addDays, addHours, addMinutes, format, differenceInSeconds } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -9,7 +10,8 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { InputAmount } from 'components/InputAmount';
 import { NavigationHeader } from 'components/NavigationHeader';
-import { AutoSync } from 'lib/miden/front/autoSync';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { hapticError, hapticLight, hapticSuccess } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
@@ -38,7 +40,6 @@ export interface SendDetailsProps {
   amount: string;
   recipientAddress: string;
   sharePrivately: boolean;
-  delegateTransaction: boolean;
   recallBlocks?: string;
   isValidAmount: boolean;
   isValidAddress: boolean;
@@ -64,14 +65,12 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   amount,
   recipientAddress,
   sharePrivately,
-  delegateTransaction,
   isValidAmount,
   isValidAddress,
   amountError,
   addressError,
   recallDate,
   recallTime,
-  note,
   onAction,
   onGoBack,
   onAmountChange,
@@ -79,36 +78,77 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
   onScannedAddress,
   onYourAccounts,
   onRecallDateChange,
-  onRecallTimeChange,
-  onNoteChange
+  onRecallTimeChange
 }) => {
   const { t } = useTranslation();
+  const [syncHeight, setSyncHeight] = useState(0);
   const [scanError, setScanError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const advancedButtonRef = useRef<HTMLButtonElement>(null);
+
+  const findScrollContainer = useCallback((el: HTMLElement): HTMLElement | null => {
+    let node: HTMLElement | null = el.parentElement;
+    while (node) {
+      const overflowY = getComputedStyle(node).overflowY;
+      if (overflowY === 'auto' || overflowY === 'scroll') return node;
+      node = node.parentElement;
+    }
+    return null;
+  }, []);
+
+  const alignButtonToTop = useCallback(() => {
+    const button = advancedButtonRef.current;
+    if (!button) return;
+    const container = findScrollContainer(button);
+    if (!container) return;
+    const buttonRect = button.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const delta = buttonRect.top - containerRect.top;
+    if (delta !== 0) {
+      container.scrollTop += delta;
+    }
+  }, [findScrollContainer]);
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
   const showScanButton = isScanAvailable();
 
+  useEffect(() => {
+    let cancelled = false;
+    // Page-side SDK calls need WASM loaded — see ensureSdkWasmReady comment.
+    ensureSdkWasmReady()
+      .then(() => {
+        if (cancelled) return;
+        const rpc = new RpcClient(getRpcEndpoint());
+        return rpc.getBlockHeaderByNumber().then(header => {
+          if (!cancelled) setSyncHeight(header.blockNum());
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const computeAndSetRecallBlocks = useCallback(
     (targetDate: Date) => {
-      const currentBlockNum = AutoSync.lastHeight;
+      const currentBlockNum = syncHeight;
       const blocks = dateTimeToRecallBlocks(targetDate, currentBlockNum);
       onAction({
         id: SendFlowActionId.SetFormValues,
         payload: { recallBlocks: String(blocks) }
       });
     },
-    [onAction]
+    [onAction, syncHeight]
   );
 
   const applyDateTimeSelection = useCallback(
     (date: Date, time: string) => {
       const [hours, minutes] = time.split(':').map(Number);
       const dateWithTime = new Date(date);
-      dateWithTime.setHours(hours, minutes, 0, 0);
+      dateWithTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
       onRecallDateChange(date);
       onRecallTimeChange(time);
       computeAndSetRecallBlocks(dateWithTime);
@@ -138,6 +178,15 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
 
   const canProceed = isValidAmount && isValidAddress;
 
+  // On mobile, the primary CTA is hoisted to the always-on native navbar
+  // (morphs into compact mode with a 50/50 split). The React button below
+  // is hidden on mobile via !isMobile() so we don't render both.
+  useNativeNavbarAction({
+    label: t('continue'),
+    onTap: handleReviewOpen,
+    enabled: canProceed
+  });
+
   const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
 
   return (
@@ -147,12 +196,12 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
       <div className={clsx('flex flex-col flex-1 overflow-hidden relative w-full', isMobile() ? 'px-8' : 'px-4')}>
         <div className="flex flex-col flex-1 overflow-y-auto min-h-0 no-scrollbar">
           {/* Amount */}
-          <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 py-4 border-b border-grey-300/20">
+          <div className="relative flex flex-col items-center justify-center shrink-0 gap-2 py-4 border-b border-border-light">
             <InputAmount
               className="self-stretch text-black"
               value={amount}
               label={token.name}
-              onValueChange={(value, name, values) => onAmountChange(values?.formatted || value || '')}
+              onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
             />
             <div className="flex items-center justify-center">
               {amountError ? (
@@ -162,7 +211,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 </div>
               ) : (
                 <span className="text-heading-gray/60 text-sm">
-                  {t('balance')}: {token.balance.toFixed(2)} {token.name}
+                  {t('balance')}: {token.balance.toFixed(3)} {token.name}
                 </span>
               )}
             </div>
@@ -176,7 +225,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 <button
                   type="button"
                   onClick={onYourAccounts}
-                  className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
+                  className="p-1 rounded-lg hover:bg-gray-100 transition duration-200"
                   aria-label={t('yourAccounts')}
                 >
                   <Icon name={IconName.AddressBook} size="xs" className="text-text-muted" />
@@ -185,7 +234,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   <button
                     type="button"
                     onClick={handleScan}
-                    className="p-1 rounded-lg hover:bg-grey-100 transition duration-200"
+                    className="p-1 rounded-lg hover:bg-gray-100 transition duration-200"
                     aria-label={t('scanQr')}
                   >
                     <Icon name={IconName.ScanFrame} size="xs" className="text-text-muted" />
@@ -197,7 +246,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               <input
                 type="text"
                 placeholder={t('enterWalletAddress')}
-                className="w-full bg-pure-white border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-grey-400 outline-none overflow-hidden text-ellipsis"
+                className="w-full bg-white border-none rounded-[10px] h-14 px-3 font-medium text-base text-heading-gray placeholder-text-muted outline-none overflow-hidden text-ellipsis"
                 value={recipientAddress}
                 onChange={e => onAddressChange(e as any)}
               />
@@ -215,7 +264,7 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                 type="button"
                 className={clsx(
                   'flex-1 py-3 rounded-10 text-sm font-semibold transition-colors cursor-pointer',
-                  sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-pure-white text-heading-gray/40'
+                  sharePrivately ? 'bg-primary-500 text-pure-white' : 'bg-input-bg text-heading-gray/40'
                 )}
                 onClick={() => {
                   hapticLight();
@@ -246,14 +295,18 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
               placeholder={t('addANote')}
               value={note}
               onChange={e => onNoteChange(e.target.value)}
-              className="w-full bg-pure-white border-none rounded-10 px-4 py-4 font-medium text-base text-heading-gray placeholder-grey-400 outline-none resize-none min-h-[100px]"
+              className="w-full bg-surface-solid border-none rounded-10 px-4 py-4 font-medium text-base text-heading-gray placeholder-text-muted outline-none resize-none min-h-[100px]"
             />
           </div> */}
 
           {/* Advanced Options */}
           <button
             type="button"
-            className="mt-6 flex items-center justify-between w-full rounded-[10px] px-4 py-3.5 transition-colors bg-pure-white cursor-pointer"
+            ref={advancedButtonRef}
+            className={clsx(
+              'mt-6 flex items-center justify-between w-full px-4 py-3.5 transition-colors bg-white cursor-pointer',
+              showAdvanced ? 'rounded-t-[10px]' : 'rounded-[10px]'
+            )}
             onClick={() => {
               hapticLight();
               setShowAdvanced(prev => !prev);
@@ -276,22 +329,19 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
                   collapsed: { opacity: 0, height: 0 }
                 }}
                 transition={{ duration: 0.3 }}
-                className="bg-white"
+                onUpdate={() => {
+                  if (showAdvanced) alignButtonToTop();
+                }}
+                className="bg-white rounded-b-[10px] overflow-hidden shrink-0"
               >
-                <div className="px-4 bg-white rounded-b-10">
-                  <div className="mt-4">
-                    <OptionItem
-                      title={t('delegateProving')}
-                      subTitle={t('delegateProvingDescription')}
-                      value={delegateTransaction}
-                      onToggle={(val: boolean) => {
-                        onAction({
-                          id: SendFlowActionId.SetFormValues,
-                          payload: { delegateTransaction: val }
-                        });
-                      }}
-                    />
-                  </div>
+                <div className="px-4 pb-4">
+                  {/* Per-send delegate-proving toggle removed: this is now
+                      driven by the global setting in General Settings only.
+                      Rationale: with mt-wasm + offscreen-doc proving, local
+                      proving is fast enough (~5s) that the per-tx escape
+                      hatch is no longer needed; consolidating to one global
+                      setting also cleans up the speculation logic (we only
+                      pre-prove when the global setting says local). */}
 
                   {/* Recall Height */}
                   <div className="mt-4 pb-2">
@@ -324,15 +374,17 @@ export const SendDetails: React.FC<SendDetailsProps> = ({
           {/* Continue Button */}
         </div>
 
-        <div className="pt-4 pb-4 shrink-0">
-          <Button
-            title={t('continue')}
-            variant={ButtonVariant.Primary}
-            onClick={handleReviewOpen}
-            disabled={!canProceed}
-            className="w-full rounded-[10px] text-base font-semibold"
-          />
-        </div>
+        {!isMobile() && (
+          <div className="pt-4 pb-4 shrink-0">
+            <Button
+              title={t('continue')}
+              variant={ButtonVariant.Primary}
+              onClick={handleReviewOpen}
+              disabled={!canProceed}
+              className="w-full rounded-[10px] text-base font-semibold"
+            />
+          </div>
+        )}
 
         {/* Calendar Drawer */}
         <Drawer open={showCalendar} onOpenChange={setShowCalendar}>

@@ -338,6 +338,52 @@
     "message": "Hesap adı",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "örneğin Tasarruf",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1-16 karakter, boşluk veya kısa çizgiyle başlayamaz",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Aynı ada sahip hesap zaten mevcut",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Devam etmeden önce",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Özel anahtarınız bu hesabın tam kontrolünü, onu elinde bulunduran kişiye verir. Miden hesapları anahtarları değiştiremez, bu nedenle sızdırılan bir anahtar hesabın güvenliğini kalıcı olarak tehlikeye atar.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Bu anahtarın değiştirilemeyeceğini veya iptal edilemeyeceğini anlıyorum.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "İçe aktarılan hesaplar ( $importedCount$ ) bu dosyaya dahil edilmeyecektir. Bunları yedeklemek için, her özel anahtarı ayrı ayrı Ayarlar → Özel Anahtarı Göster bölümünden dışa aktarın.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Bu şifrelenmiş dosya şu şekilde dışa aktarıldı: $importedCount$ yedeklemenin parçası olmayan içe aktarılmış hesaplar. Bu hesaplar geri yüklenen cüzdanınızda görünmeyecek; onları yeniden eklemek için orijinal özel anahtarlarına ihtiyacınız olacak. Devam etmek için İçe Aktarmaya Devam Et'i tıklayın.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "İçe Aktarmaya Devam Et",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Hesap Adını Düzenle",
     "englishSource": "Edit Account Name"
@@ -397,6 +443,91 @@
   "generatingTransactionDescription": {
     "message": "Ağ trafiğinin seviyesine bağlı olarak bu işlem biraz zaman alabilir",
     "englishSource": "This may take a moment depending on the level network traffic"
+  },
+  "transactionStageSyncing": {
+    "message": "Hesap senkronize ediliyor",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "En son hesap durumunuz getiriliyor.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "İşlem gönderiliyor",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "İşleminizi oluşturmak ve kanıtlamak.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "note için hak talebinde bulunuluyor",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "İşlem yürütülüyor",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageSwitching": {
+    "message": "Vasi değiştiriliyor",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Teklif oluşturuluyor",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Vasiniz için işlem teklifini oluşturmak.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Vasi ile imza atmak",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Vasiniz teklifi imzalıyor.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "İşlem gönderiliyor",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "İmzalı işleminiz ağa gönderiliyor.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageConfirming": {
+    "message": "Zincirde onaylanıyor",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "Ağ onayı bekleniyor.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Vasiye kaydolmak",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Hesap durumunuz yeni vasiye kaydediliyor.",
+    "englishSource": "Registering your account state with the new guardian."
+  },
+  "transactionStageDelivering": {
+    "message": "note teslim ediliyor",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "note alıcıya güvenli bir şekilde gönderiliyor.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ işlemler devam ediyor",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "status": {
     "message": "Durum",
@@ -743,8 +874,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "İşlem bulunamadı",
-    "englishSource": "No operations found"
+    "message": "Şu anda herhangi bir işleminiz bulunmamaktadır.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Kaldırılacak hesap.",
@@ -1513,6 +1644,46 @@
     "message": "Şifreli Cüzdan Dosyası",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Gardiyan",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Gözetmen Ayarları",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Mevcut Gardiyan",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Yeni Guardian Uç Noktası",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Anahtar Koruması",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Guardian hesabınızı yeni bir koruyucu uç noktasına yönlendirin. Anahtar, zincir içi bir teklif olarak imzalandı.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Vasi değiştiriliyor...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Guardian başarıyla geçiş yaptı.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Bu zaten sizin şu anki vasiniz.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "http:// veya https:// ile başlayan geçerli bir URL girin",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Şifreli Cüzdan Dosyanıza erişmek için şifrenizi girin.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1751,10 +1922,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Oluşturulan Dosyaları İndir",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Zincir İçi Hesap (Herkese Açık)",
     "englishSource": "On-chain Account (Public)"
@@ -1782,6 +1949,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Daha sonra cüzdanın içine birden fazla hesap türü ekleyebilir ve yönetebilirsiniz.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Hesap Kurtarmayı Ayarlayın",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Erişiminizi kaybederseniz hesabınızı nasıl kurtarmak istediğinizi seçin.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Gardiyan",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Tavsiye edilen. Hesabınız için koruyucu tabanlı kurtarma ancak gaurdian operatörü durumunuzu görebilir.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Tamamen Özel",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Yalnızca yerel, durumunuzu sizden başka kimse göremez ancak iyileşme olmaz, cihazınızı kaybetmek, paranızın kalıcı olarak kaybolmasına neden olur.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Halk",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Herkese açık bir zincir içi hesabı kurtarın.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Bu cüzdanı nasıl kurtarmak istersiniz?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Guardian aracılığıyla içe aktar",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Bu hesabı kurtarmak ve birlikte imza atmak için bir veli kullanın.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Herkese açık hesabı içe aktar",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "seed phrase hesabınızdan türetilen genel hesabı içe aktarın.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "Veli URL'si",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Farklı bir veli kullan",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Bu velide hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine herkese açık bir hesap olarak içe aktarın.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "Varsayılan",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "İşlem dosyası",
@@ -1822,6 +2057,10 @@
   "viewOnExplorer": {
     "message": "Explorer'da görüntüle",
     "englishSource": "View on Explorer"
+  },
+  "viewOnMidenscan": {
+    "message": "Midenscan'de görüntüle",
+    "englishSource": "View on Midenscan"
   },
   "inProgress": {
     "message": "Devam etmekte",
@@ -2113,6 +2352,46 @@
     "message": "Cüzdan çevrimdışı olabilir veya senkronize olmayabilir.",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "Çevrimdışı görünüyorsunuz",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "İnternet bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "Miden düğümüne ulaşılamıyor",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "Düğüm kapalı veya ağır yük altında olabilir. Bakiyeniz güncel olmayabilir.",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "Hizmetin kullanılamadığını kanıtlama",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "Hizmet geri dönene kadar işlemlerde yerel kanıtlama kullanılacaktır.",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "Yeniden bağlanılıyor",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "Bağlantınız yeniden kurulmaya çalışılıyor.",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "Tekrar deneyin",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "Senkronizasyonu yeniden dene",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "Notunuz başarıyla kullanıldı.",
     "englishSource": "Your note was successfully consumed."
@@ -2257,6 +2536,165 @@
     "message": "Favoriler",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "DApp'lerde arama yapın veya URL'yi yapıştırın",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Öne Çıkanlar",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "DApp'lerim",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Son Kullanılanlar",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Sola kaydır",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Sağa kaydır",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Hızlı eylemler",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Göz at",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Aletler",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Sosyal",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "Bu kategoride henüz dApp yok",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Miden ekosistemini keşfedin",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Küçült",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "DApp'leri değiştirin",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Yeniden yükle",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Daha fazla seçenek",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "dApp eylemleri",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Bağlantıyı kopyala",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Dapps'lerime ekle",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Dapps'imden kaldır",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Yeniden aç",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Eski haline getirmek $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Kapalı $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ daha fazla park edilmiş dApp",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Bağlantı kopyalandı",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Dapps'lerime eklendi",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Bu dApp yüklenemiyor",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dApp tarayıcı başlığı",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Küçültmek için aşağı sürükleyin",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp değiştirici",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "DApp değiştiriciyi kapat",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 açık dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} açık dApp'ler",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Onaylamak",
     "englishSource": "Approve"
@@ -2394,6 +2832,22 @@
     "message": "Karanlık Mod",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Tema",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "Sistem",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "Işık",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Karanlık",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Dokunsal Geribildirim",
     "englishSource": "Haptic Feedback"
@@ -2403,8 +2857,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Şu anda talep edebileceğiniz notes yok, ancak aldığınızda burada görünecekler.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Şu anda talep edebileceğiniz notes hakkınız yok.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Bir note aldınız",
@@ -2413,6 +2867,19 @@
   "noteReceivedTapToClaim": {
     "message": "Hak talebinde bulunmak için buraya dokunun",
     "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "tokenHistory": {
     "message": "$tokenName$ Geçmiş",
@@ -2558,5 +3025,53 @@
   "type": {
     "message": "Tip",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Gönderim kimliği",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Oluşturuldu",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Onaylandı",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Tarih",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Detaylar",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Bir note ekleyin",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Gelişmiş Seçenekler",
+    "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Miden Cüzdanını Pinle",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Araç çubuğunuzdan hızlı erişim için bulmaca simgesine tıklayın ve Miden Cüzdanını sabitleyin.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "Anladım",
+    "englishSource": "Got it"
+  },
+  "downloadGeneratedFiles": {
+    "message": "Oluşturulan Dosyaları İndir",
+    "englishSource": "Download Generated Files"
   }
 }

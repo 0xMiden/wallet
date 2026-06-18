@@ -116,7 +116,7 @@ const LocaleSelect: FC<LocaleSelectProps> = ({ className }) => {
     if (exact) return exact;
     // Fall back to base language match (handles de_DE → de, en-US → en)
     const base = selectedLocale.split(/[-_]/)[0];
-    return localeOptions.find(({ code }) => code === base) || localeOptions[0];
+    return localeOptions.find(({ code }) => code === base) ?? localeOptions[0]!;
   }, [selectedLocale]);
 
   const handleLocaleChange = useCallback(

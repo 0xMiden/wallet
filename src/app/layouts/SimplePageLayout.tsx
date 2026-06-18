@@ -14,7 +14,7 @@ interface SimplePageLayoutProps extends PropsWithChildren {
 }
 
 const SimplePageLayout: FC<SimplePageLayoutProps> = ({ title, icon, children }) => {
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   // Platform-specific sizing:
   // - Mobile: 100% height/width to fill viewport (body has safe area padding)
   // - Desktop: responsive sizing (100% height, maxWidth: 600px, centered)
@@ -25,6 +25,8 @@ const SimplePageLayout: FC<SimplePageLayoutProps> = ({ title, icon, children }) 
     containerStyle = { height: '100%', width: '100%', overflow: 'hidden' };
   } else if (isDesktop()) {
     containerStyle = { height: '100%', width: '100%', maxWidth: '600px', margin: '0 auto', overflow: 'hidden' };
+  } else if (sidePanel) {
+    containerStyle = { height: '100%', width: '100%', overflow: 'hidden' };
   } else if (fullPage) {
     containerStyle = { height: '600px', width: '360px', margin: 'auto', overflow: 'hidden' };
   } else {

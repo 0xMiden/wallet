@@ -38,6 +38,10 @@ export enum WalletMessageType {
   RevealViewKeyResponse = 'REVEAL_VIEW_KEY_RESPONSE',
   RevealPrivateKeyRequest = 'REVEAL_PRIVATE_KEY_REQUEST',
   RevealPrivateKeyResponse = 'REVEAL_PRIVATE_KEY_RESPONSE',
+  RevealHotKeyRequest = 'REVEAL_HOT_KEY_REQUEST',
+  RevealHotKeyResponse = 'REVEAL_HOT_KEY_RESPONSE',
+  RevealGuardianKeysRequest = 'REVEAL_GUARDIAN_KEYS_REQUEST',
+  RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
   RemoveAccountRequest = 'REMOVE_ACCOUNT_REQUEST',
@@ -56,6 +60,14 @@ export enum WalletMessageType {
   SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
+  SignWordRequest = 'SIGN_WORD_REQUEST',
+  SignWordResponse = 'SIGN_WORD_RESPONSE',
+  PersistNewHotKeyRequest = 'PERSIST_NEW_HOT_KEY_REQUEST',
+  PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
+  SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
+  SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
+  GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
+  GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
   GetAuthSecretKeyResponse = 'GET_AUTH_SECRET_KEY_RESPONSE',
   SubmitTransactionRequest = 'SUBMIT_TRANSACTION_REQUEST',
@@ -110,7 +122,15 @@ export enum WalletMessageType {
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
-  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE'
+  GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
+  // Speculative pre-prove (popup → SW): kicked off when the review screen
+  // mounts so prove runs in parallel with the user reading the review;
+  // invalidated on review-screen unmount or if form params change.
+  // See lib/miden/back/speculation-manager.ts.
+  SpeculateSendRequest = 'SPECULATE_SEND_REQUEST',
+  SpeculateSendResponse = 'SPECULATE_SEND_RESPONSE',
+  SpeculateInvalidate = 'SPECULATE_INVALIDATE',
+  SpeculateInvalidateResponse = 'SPECULATE_INVALIDATE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -230,6 +250,40 @@ export interface GetInputNoteDetailsRequest extends WalletMessageBase {
   noteIds: string[];
 }
 
+/**
+ * Pre-prove the user's in-flight send transaction with the params currently
+ * showing on the review screen. Fire-and-forget from the popup; the SW kicks
+ * off execute + offscreen prove and caches the {txResult, proven} bytes
+ * keyed by params hash. When the user clicks Confirm, the existing send
+ * pipeline (initiateSendTransaction → SW processor) hits the cache via
+ * MidenClientInterface.proveLocallyViaOffscreen and skips the prove step.
+ *
+ * Params shape mirrors what the wallet's SendTransaction DB record holds.
+ * Skipping speculation when `recallBlocks` is set — block-height drift
+ * between speculate-time and commit-time would invalidate the cached
+ * reclaim height, easier to skip than handle.
+ */
+export interface SpeculateSendRequest extends WalletMessageBase {
+  type: WalletMessageType.SpeculateSendRequest;
+  accountId: string;
+  recipientAccountId: string;
+  faucetId: string;
+  noteType: 'public' | 'private';
+  amount: string; // bigint as string (postMessage-safe)
+}
+
+export interface SpeculateSendResponse extends WalletMessageBase {
+  type: WalletMessageType.SpeculateSendResponse;
+}
+
+export interface SpeculateInvalidate extends WalletMessageBase {
+  type: WalletMessageType.SpeculateInvalidate;
+}
+
+export interface SpeculateInvalidateResponse extends WalletMessageBase {
+  type: WalletMessageType.SpeculateInvalidateResponse;
+}
+
 export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsResponse;
   notes: SerializedInputNoteDetail[];
@@ -264,12 +318,43 @@ export interface ReadyWalletState extends WalletState {
   currentAccount: WalletAccount;
 }
 
+/**
+ * Auth scheme an account uses for signing.
+ *
+ * Mirrors `@miden-sdk/miden-sdk` `AuthSchemeType` ("falcon" | "ecdsa").
+ *
+ * Optional on stored `WalletAccount` records. Records written before this
+ * field existed have it absent on read; consumers MUST treat missing as
+ * `"falcon"` (the historical wallet default). This preserves restore +
+ * sign behavior 1:1 for pre-migration wallets while letting new accounts
+ * be stamped with the new default ("ecdsa").
+ *
+ * Miden accounts cannot rotate auth, so this field is fixed at account
+ * creation time and never mutated.
+ */
+export type AuthScheme = 'falcon' | 'ecdsa';
+
 export interface WalletAccount {
   publicKey: string;
   name: string;
   isPublic: boolean;
   type: WalletType;
   hdIndex: number;
+  // Set on Guardian accounts created with the 3-key model (hot + cold + guardian).
+  // Absent on non-Guardian accounts and on legacy single-signer Guardian records
+  // produced before the migration; consumers should treat absence as "not 3-key".
+  hotPublicKey?: string;
+  coldPublicKey?: string;
+  // True for Guardian accounts adopted via seed-phrase recovery — the on-chain
+  // hot signer's secret is unrecoverable, so the wallet defers replacement to
+  // a user-triggered rotation (banner on the home view). Cleared by Vault.swapHotKey
+  // once the cold+guardian-signed update_signers tx lands on-chain.
+  requiresHotKeyRotation?: boolean;
+  /**
+   * Auth scheme this account was created with. See {@link AuthScheme} for
+   * the missing-on-read → `"falcon"` legacy interpretation.
+   */
+  authScheme?: AuthScheme;
 }
 
 export interface WalletNetwork {
@@ -288,6 +373,7 @@ export interface NewWalletRequest extends WalletMessageBase {
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic?: string;
   ownMnemonic?: boolean;
+  walletType: WalletType;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {
@@ -354,12 +440,36 @@ export interface RevealViewKeyResponse extends WalletMessageBase {
 export interface RevealPrivateKeyRequest extends WalletMessageBase {
   type: WalletMessageType.RevealPrivateKeyRequest;
   accountPublicKey: string;
-  password: string;
+  password?: string;
 }
 
 export interface RevealPrivateKeyResponse extends WalletMessageBase {
   type: WalletMessageType.RevealPrivateKeyResponse;
   privateKey: string;
+}
+
+export interface RevealHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.RevealHotKeyRequest;
+  accountPublicKey: string;
+  password?: string;
+}
+
+export interface RevealHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.RevealHotKeyResponse;
+  hotPrivateKey: string;
+}
+
+export interface RevealGuardianKeysRequest extends WalletMessageBase {
+  type: WalletMessageType.RevealGuardianKeysRequest;
+  accountPublicKey: string;
+  password?: string;
+}
+
+export interface RevealGuardianKeysResponse extends WalletMessageBase {
+  type: WalletMessageType.RevealGuardianKeysResponse;
+  coldPrivateKey: string;
+  coldPublicKey: string;
+  hotPublicKey?: string;
 }
 
 export interface RevealMnemonicRequest extends WalletMessageBase {
@@ -395,11 +505,12 @@ export interface EditAccountResponse extends WalletMessageBase {
 export interface ImportAccountRequest extends WalletMessageBase {
   type: WalletMessageType.ImportAccountRequest;
   privateKey: string;
-  encPassword?: string;
+  name?: string;
 }
 
 export interface ImportAccountResponse extends WalletMessageBase {
   type: WalletMessageType.ImportAccountResponse;
+  accountPublicKey: string;
 }
 
 export interface ImportWatchOnlyAccountRequest extends WalletMessageBase {
@@ -465,6 +576,47 @@ export interface SignTransactionRequest extends WalletMessageBase {
 export interface SignTransactionResponse extends WalletMessageBase {
   type: WalletMessageType.SignTransactionResponse;
   signature: string;
+}
+
+export interface SignWordRequest extends WalletMessageBase {
+  type: WalletMessageType.SignWordRequest;
+  publicKey: string;
+  wordHex: string;
+}
+
+export interface SignWordResponse extends WalletMessageBase {
+  type: WalletMessageType.SignWordResponse;
+  signature: string;
+}
+
+export interface PersistNewHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.PersistNewHotKeyRequest;
+  newHotPubKey: string;
+  newHotCiphertext: string;
+}
+
+export interface PersistNewHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.PersistNewHotKeyResponse;
+}
+
+export interface SwapHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.SwapHotKeyRequest;
+  accountPublicKey: string;
+  newHotPubKey: string;
+}
+
+export interface SwapHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.SwapHotKeyResponse;
+}
+
+export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
+  type: WalletMessageType.GetPublicKeyForCommitmentRequest;
+  commitment: string;
+}
+
+export interface GetPublicKeyForCommitmentResponse extends WalletMessageBase {
+  type: WalletMessageType.GetPublicKeyForCommitmentResponse;
+  publicKey: string;
 }
 
 export interface GetAuthSecretKeyRequest extends WalletMessageBase {
@@ -631,6 +783,7 @@ export interface ImportFromClientRequest extends WalletMessageBase {
   type: WalletMessageType.ImportFromClientRequest;
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic: string;
+  walletAccounts: WalletAccount[];
 }
 
 export interface ImportFromClientResponse extends WalletMessageBase {
@@ -655,6 +808,8 @@ export type WalletRequest =
   | RevealPublicKeyRequest
   | RevealViewKeyRequest
   | RevealPrivateKeyRequest
+  | RevealHotKeyRequest
+  | RevealGuardianKeysRequest
   | RevealMnemonicRequest
   | RemoveAccountRequest
   | EditAccountRequest
@@ -665,6 +820,10 @@ export type WalletRequest =
   | UpdateSettingsRequest
   | SignDataRequest
   | SignTransactionRequest
+  | SignWordRequest
+  | PersistNewHotKeyRequest
+  | SwapHotKeyRequest
+  | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
   | DAppGetPayloadRequest
@@ -688,7 +847,9 @@ export type WalletRequest =
   | ProcessTransactionsRequest
   | ImportNoteBytesRequest
   | ExportNoteRequest
-  | GetInputNoteDetailsRequest;
+  | GetInputNoteDetailsRequest
+  | SpeculateSendRequest
+  | SpeculateInvalidate;
 
 export type WalletResponse =
   | MidenResponse
@@ -703,6 +864,8 @@ export type WalletResponse =
   | RevealPublicKeyResponse
   | RevealViewKeyResponse
   | RevealPrivateKeyResponse
+  | RevealHotKeyResponse
+  | RevealGuardianKeysResponse
   | RevealMnemonicResponse
   | RemoveAccountResponse
   | EditAccountResponse
@@ -713,6 +876,10 @@ export type WalletResponse =
   | UpdateSettingsResponse
   | SignDataResponse
   | SignTransactionResponse
+  | SignWordResponse
+  | PersistNewHotKeyResponse
+  | SwapHotKeyResponse
+  | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse
   //   | DAppGetPayloadResponse
@@ -736,4 +903,6 @@ export type WalletResponse =
   | ProcessTransactionsResponse
   | ImportNoteBytesResponse
   | ExportNoteResponse
-  | GetInputNoteDetailsResponse;
+  | GetInputNoteDetailsResponse
+  | SpeculateSendResponse
+  | SpeculateInvalidateResponse;

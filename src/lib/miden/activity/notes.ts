@@ -1,84 +1,79 @@
-import { useCallback } from 'react';
+import { logger } from 'shared/logger';
 
-import { fetchFromStorage, putToStorage, useStorage } from '../front';
-import { NoteExportType } from '../sdk/constants';
+import { fetchFromStorage, putToStorage } from '../front';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const IMPORT_NOTES_KEY = 'miden-notes-pending-import';
-const OUTPUT_NOTES_KEY = 'miden-export-note-ids';
+
+// A queued note is dropped after this many failed import attempts. The bound is
+// what keeps the queue draining: a deterministically bad note (e.g. a dApp sent
+// raw Note bytes where a serialized NoteFile is expected) fails every attempt
+// and would otherwise re-throw on every transaction-loop iteration forever,
+// jamming all transaction generation and bricking the wallet. The retries before
+// the drop give genuinely transient failures (e.g. a NoteId import fetches over
+// RPC and can hit a network blip) a chance to succeed, so a recoverable note —
+// including a private note whose bytes are its only copy — isn't lost to one blip.
+const MAX_IMPORT_ATTEMPTS = 3;
+
+// Persisted queue entries. Legacy entries were bare base64 strings; they are
+// normalized to the object form on read, so no migration step is needed.
+type QueuedNoteImport = { bytes: string; attempts: number };
+type StoredEntry = string | QueuedNoteImport;
+
+const normalizeEntry = (entry: StoredEntry): QueuedNoteImport =>
+  typeof entry === 'string' ? { bytes: entry, attempts: 0 } : entry;
 
 export const queueNoteImport = async (noteBytes: string) => {
-  const queuedImports = (await fetchFromStorage<string[]>(IMPORT_NOTES_KEY)) || [];
+  const queuedImports = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
   await putToStorage(IMPORT_NOTES_KEY, [...queuedImports, noteBytes]);
 };
 
 export const importAllNotes = async () => {
-  const queuedImports: string[] = (await fetchFromStorage<string[]>(IMPORT_NOTES_KEY)) || [];
-  if (queuedImports.length === 0) {
+  const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+  if (rawQueue.length === 0) {
     return;
   }
+  const snapshot = rawQueue.map(normalizeEntry);
+
   // Wrap all WASM client operations in a lock to prevent concurrent access
   await withWasmClientLock(async () => {
     const midenClient = await getMidenClient();
-    for (const noteBytes of queuedImports) {
-      const byteArray = new Uint8Array(Buffer.from(noteBytes, 'base64'));
-      await midenClient.importNoteBytes(byteArray);
+    const retry: QueuedNoteImport[] = [];
+    for (const note of snapshot) {
+      try {
+        const byteArray = new Uint8Array(Buffer.from(note.bytes, 'base64'));
+        await midenClient.importNoteBytes(byteArray);
+      } catch (e) {
+        const attempts = note.attempts + 1;
+        if (attempts >= MAX_IMPORT_ATTEMPTS) {
+          logger.error(
+            `Dropping queued note after ${attempts} failed import attempts (${note.bytes.length} b64 chars)`,
+            e
+          );
+        } else {
+          logger.warning(`Failed to import queued note (attempt ${attempts}/${MAX_IMPORT_ATTEMPTS}); will retry`, e);
+          retry.push({ bytes: note.bytes, attempts });
+        }
+      }
     }
+
+    // Rebuild the queue as the retry-eligible notes plus anything queueNoteImport
+    // appended during this pass — it only ever appends, so those are exactly the
+    // entries beyond our snapshot. Doing this inside the lock and before syncState
+    // means a syncState throw can't leave processed notes queued for retry without
+    // bumping their attempt count, which would let a poison note loop unbounded.
+    //
+    // NOTE: queueNoteImport's read-modify-write is not serialized against this
+    // rewrite (it runs outside the WASM lock), so a concurrent enqueue landing
+    // between the read and write below can be lost or a processed note re-added.
+    // Neither can re-brick the wallet (a re-added note is just retried under the
+    // cap), but a queue-level lock shared by queueNoteImport and this rewrite
+    // would close the window entirely.
+    const current = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+    const appendedDuringPass = current.slice(rawQueue.length);
+    await putToStorage(IMPORT_NOTES_KEY, [...retry, ...appendedDuringPass]);
+
     await new Promise(resolve => setTimeout(resolve, 2000));
     await midenClient.syncState();
   });
-  await putToStorage(IMPORT_NOTES_KEY, []);
-};
-
-export interface NoteDownload {
-  noteId: string;
-  downloadUrl: string;
-}
-
-export const useExportNotes = (): [string[], () => Promise<void>] => {
-  const [exportedNotes] = useStorage<string[]>(OUTPUT_NOTES_KEY, []);
-
-  const downloadAll = useCallback(async () => {
-    // Wrap all WASM client operations in a lock to prevent concurrent access
-    const noteDataList = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
-      const results: { noteId: string; noteBytes: Uint8Array }[] = [];
-      for (const noteId of exportedNotes) {
-        const noteBytes = await midenClient.exportNote(noteId, NoteExportType.DETAILS);
-        results.push({ noteId, noteBytes });
-      }
-      return results;
-    });
-
-    // Process the downloaded notes outside the lock
-    for (const { noteId, noteBytes } of noteDataList) {
-      const blob = new Blob([new Uint8Array(noteBytes)], { type: 'application/octet-stream' });
-      // Create a URL for the Blob
-      const url = URL.createObjectURL(blob);
-      // Create a temporary anchor element
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `midenNote${noteId.slice(0, 6)}.mno`; // Specify the file name
-
-      // Append the anchor to the document
-      document.body.appendChild(a);
-
-      // Programmatically click the anchor to trigger the download
-      a.click();
-
-      // Remove the anchor from the document
-      document.body.removeChild(a);
-
-      // Revoke the object URL to free up resources
-      URL.revokeObjectURL(url);
-    }
-    await putToStorage(OUTPUT_NOTES_KEY, []);
-  }, [exportedNotes]);
-
-  return [exportedNotes, downloadAll];
-};
-
-export const registerOutputNote = async (noteId: string) => {
-  const outputNotes = (await fetchFromStorage<string[]>(OUTPUT_NOTES_KEY)) || [];
-  await putToStorage(OUTPUT_NOTES_KEY, [...outputNotes, noteId]);
 };

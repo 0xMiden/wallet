@@ -25,7 +25,7 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
     <Popper
       placement="bottom-end"
       strategy="fixed"
-      popup={({ opened, setOpened }) => (
+      popup={({ opened }) => (
         <DropdownWrapper opened={opened} className="origin-top-right">
           <div className={styles.scroll}>
             <h2
@@ -44,7 +44,7 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
         </DropdownWrapper>
       )}
     >
-      {({ ref, opened, toggleOpened }) => (
+      {({ ref, opened }) => (
         <Button
           ref={ref}
           className={classNames(
@@ -55,7 +55,7 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
             'px-2',
             opened ? 'opacity-100' : 'opacity-90 hover:opacity-100 focus:opacity-100',
             'flex items-center text-[10px] leading-4 gap-2',
-            'select-none border border-grey-200 rounded-3xl'
+            'select-none border border-border-light rounded-3xl'
           )}
           // Disabled until we redo screen & add more networks
           // onClick={toggleOpened}

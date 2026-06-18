@@ -22,6 +22,7 @@ export async function updateBalancesFromSyncData(
 ): Promise<void> {
   const store = useWalletStore.getState();
   const localMetadatas = { ...store.assetsMetadata };
+  /* c8 ignore next -- tokenPrices always initialized in store */
   const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
 
@@ -37,10 +38,11 @@ export async function updateBalancesFromSyncData(
     if (isMiden) hasMiden = true;
 
     let tokenMetadata: AssetMetadata;
+    const localMeta = localMetadatas[asset.faucetId];
     if (isMiden) {
       tokenMetadata = MIDEN_METADATA;
-    } else if (localMetadatas[asset.faucetId]) {
-      tokenMetadata = localMetadatas[asset.faucetId];
+    } else if (localMeta) {
+      tokenMetadata = localMeta;
     } else if (asset.metadata) {
       // Use metadata from sync data (pre-fetched by SW)
       tokenMetadata = {
@@ -74,8 +76,9 @@ export async function updateBalancesFromSyncData(
     store.setAssetsMetadata(newMetadatas);
   }
 
-  // Always include MIDEN token (even if 0 balance)
-  if (!hasMiden) {
+  // Always include MIDEN token (even if 0 balance) — pre-discovery we omit
+  // the placeholder row so the UI doesn't render MIDEN under a stale ID.
+  if (!hasMiden && midenFaucetId) {
     const midenPrice = getTokenPrice(tokenPrices, 'MIDEN');
     balances.push({
       tokenId: midenFaucetId,

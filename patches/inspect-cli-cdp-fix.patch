@@ -1,0 +1,102 @@
+--- /tmp/inspect-orig/package/dist/src/services/server.js	1985-10-26 09:15:00
++++ /Users/celrisen/.nvm/versions/node/v22.22.0/lib/node_modules/@inspectdotdev/cli/dist/src/services/server.js	2026-04-13 23:48:29
+@@ -39,12 +39,17 @@
+     logger;
+     frontendUrl;
+     deviceIdTarget;
++    // Reference count of active WebSocket connections per target ID.
++    // Prevents the close handler of an old connection from tearing down
++    // a target that a newer connection is still using.
++    _targetRefCounts;
+     constructor(logger, frontendUrl = null, deviceId = '', deviceListPort = 9221, deviceTargetPort = 9222) {
+         this.logger = logger;
+         this.frontendUrl = frontendUrl;
+         this.deviceListPort = deviceListPort;
+         this.deviceTargetPort = deviceTargetPort;
+         this.deviceIdTarget = deviceId;
++        this._targetRefCounts = new Map();
+         // Device list server (port 9221)
+         this.deviceListApp = express();
+         this.deviceListHttpServer = http.createServer(this.deviceListApp);
+@@ -154,16 +159,25 @@
+             if (!params) {
+                 return;
+             }
+-            const targetId = params[1];
++            // Decode URL-encoded target IDs (pipe chars may arrive as %7C)
++            const targetId = decodeURIComponent(params[1]);
+             if (!targetId) {
+                 return;
+             }
+             this.logger.info(`new WS connection for target id ${targetId}`);
++            // Increment reference count BEFORE selecting so the close handler
++            // of a previous connection sees the new count and skips unselectTarget.
++            const prevCount = this._targetRefCounts.get(targetId) || 0;
++            this._targetRefCounts.set(targetId, prevCount + 1);
+             try {
+                 await this.deviceAdaptor.selectTarget(targetId);
+             }
+             catch (error) {
+                 this.logger.error('Failed to select target:', error);
++                // Decrement ref count on failure
++                const c = (this._targetRefCounts.get(targetId) || 1) - 1;
++                if (c <= 0) this._targetRefCounts.delete(targetId);
++                else this._targetRefCounts.set(targetId, c);
+                 socket.close(1011, 'Target selection failed');
+                 return;
+             }
+@@ -218,22 +232,30 @@
+                     }
+                 }
+             });
++            // Shared cleanup helper: decrement ref count and only unselectTarget
++            // when this is the LAST connection for this target.
++            const cleanupTarget = () => {
++                this.deviceAdaptor.off('messageFromTarget', messageHandler);
++                if (targetId) {
++                    const count = (this._targetRefCounts.get(targetId) || 1) - 1;
++                    if (count <= 0) {
++                        this._targetRefCounts.delete(targetId);
++                        this.deviceAdaptor.unselectTarget(targetId);
++                    } else {
++                        this._targetRefCounts.set(targetId, count);
++                        this.logger.info(`SOCKET CLOSE (target still has ${count} active connection(s), skipping unselectTarget)`);
++                    }
++                }
++            };
+             // Handle socket errors
+             socket.on('error', error => {
+                 this.logger.error('WebSocket error:', error);
+-                this.deviceAdaptor.off('messageFromTarget', messageHandler);
+-                if (targetId) {
+-                    this.deviceAdaptor.unselectTarget(targetId);
+-                }
++                cleanupTarget();
+             });
+             // Client disconnect - properly clean up event listeners
+             socket.on('close', () => {
+                 this.logger.info('SOCKET CLOSE');
+-                // Remove the specific message handler to prevent memory leaks
+-                this.deviceAdaptor.off('messageFromTarget', messageHandler);
+-                if (targetId) {
+-                    this.deviceAdaptor.unselectTarget(targetId);
+-                }
++                cleanupTarget();
+             });
+         });
+         // Debug server endpoints
+--- /tmp/inspect-orig/package/dist/bundled-deps/@inspectdotdev/ios-adaptor/dist/src/ios/iosAdaptor.js	1985-10-26 09:15:00
++++ /Users/celrisen/.nvm/versions/node/v22.22.0/lib/node_modules/@inspectdotdev/cli/dist/bundled-deps/@inspectdotdev/ios-adaptor/dist/src/ios/iosAdaptor.js	2026-04-13 23:49:34
+@@ -79,6 +79,12 @@
+         }
+         let deviceDebugger = this.deviceDebuggers.get(device.id);
+         await (deviceDebugger === null || deviceDebugger === void 0 ? void 0 : deviceDebugger.unselectPage(app.id, page.pageId));
++        // Clear activeTargetId so subsequent selectTarget calls for the same
++        // target don't early-return thinking the target is still selected.
++        if (this.activeTargetId === page.id) {
++            this.activeTargetId = null;
++            this.activeTargetOrigin = null;
++        }
+     }
+     async unselectActiveTarget() {
+         if (this.activeTargetId) {

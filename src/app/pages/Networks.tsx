@@ -28,20 +28,23 @@ const NetworksSettings: FC = () => {
           <div key={group.id} className="flex flex-col gap-y-2">
             <p className="text-xs text-grey-600">{group.title}</p>
             <ul className="flex flex-col gap-y-4">
-              {group.items.map((item, index) => (
-                <CardItem
-                  key={item.id}
-                  title={item.name}
-                  className="hover:bg-grey-50 cursor-pointer"
-                  iconLeft={
-                    <div className="bg-pure-black rounded-full w-8 h-8 flex items-center justify-center p-2">
-                      <Icon name={IconName.MidenLogoWhite} />
-                    </div>
-                  }
-                  iconRight={network.id === item.id ? IconName.CheckboxCircleFill : null}
-                  onClick={() => onNetworkSelect(item.id)}
-                />
-              ))}
+              {group.items.map(item => {
+                if (!item) return null;
+                return (
+                  <CardItem
+                    key={item.id}
+                    title={item.name}
+                    className="hover:bg-grey-50 cursor-pointer"
+                    iconLeft={
+                      <div className="bg-pure-black rounded-full w-8 h-8 flex items-center justify-center p-2">
+                        <Icon name={IconName.MidenLogoWhite} />
+                      </div>
+                    }
+                    iconRight={network.id === item.id ? IconName.CheckboxCircleFill : null}
+                    onClick={() => onNetworkSelect(item.id)}
+                  />
+                );
+              })}
             </ul>
           </div>
         ))}

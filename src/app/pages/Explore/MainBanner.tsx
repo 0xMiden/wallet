@@ -20,17 +20,17 @@ const BalanceBanner: FC<{ balance: BigNumber }> = ({ balance }) => {
   const { selectedFiatCurrency } = useFiatCurrency();
   return (
     <div className="mt-1 text-heading-gray flex text-[64px] leading-none font-bold">
-      <span>{selectedFiatCurrency.symbol}</span>
+      <span>{selectedFiatCurrency?.symbol}</span>
       <Money fiat>{balance}</Money>
     </div>
   );
 };
 
 const AssetBanner: FC = () => {
-  const { popup } = useAppEnv();
+  const { compact } = useAppEnv();
 
   return (
-    <BannerLayout name={<Name style={{ maxWidth: popup ? '11rem' : '13rem' }}>{'Miden'}</Name>}>
+    <BannerLayout name={<Name style={{ maxWidth: compact ? '11rem' : '13rem' }}>{'Miden'}</Name>}>
       <Balance>{balance => <BalanceBanner balance={balance} />}</Balance>
     </BannerLayout>
   );
@@ -40,7 +40,7 @@ interface BannerLayoutProps extends PropsWithChildren {
   name: ReactNode;
 }
 
-const BannerLayout: FC<BannerLayoutProps> = ({ name, children }) => (
+const BannerLayout: FC<BannerLayoutProps> = ({ children }) => (
   <div className={classNames('flex flex-col justify-start max-w-sm')}>
     <div className={classNames('flex')}>{children}</div>
   </div>

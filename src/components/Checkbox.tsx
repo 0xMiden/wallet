@@ -14,14 +14,14 @@ export interface CheckboxProps extends Omit<React.InputHTMLAttributes<HTMLInputE
 const propsForStatus = {
   default: {
     backgroundColor: 'bg-white',
-    border: 'border-2 border-grey-200 hover:border-grey-300'
+    border: 'border-2 border-border-light hover:border-border-light'
   },
   checked: {
     backgroundColor: 'bg-primary-500 hover:bg-primary-600',
     border: 'border-0'
   },
   disabled: {
-    backgroundColor: 'bg-grey-200',
+    backgroundColor: 'bg-gray-50',
     border: 'border-0'
   }
 };

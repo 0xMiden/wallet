@@ -52,16 +52,16 @@ const OpenInExplorerChip: FC<OpenInExplorerChipProps> = ({
         (() => {
           switch (bgShade) {
             case 100:
-              return 'bg-gray-100 hover:bg-gray-200';
+              return 'bg-gray-100 hover:bg-gray-100';
 
             case 200:
-              return 'bg-gray-200 hover:bg-gray-300';
+              return 'bg-chip-bg hover:bg-gray-100';
           }
         })(),
         (() => {
           switch (textShade) {
             case 500:
-              return 'text-gray-500';
+              return 'text-text-muted';
 
             case 600:
               return 'text-black';

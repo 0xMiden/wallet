@@ -1,43 +1,82 @@
-import React, { FC, useCallback, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
-import { ReactComponent as AddressBookIcon } from 'app/icons/settings/address-book.svg';
-import { ReactComponent as ToolIcon } from 'app/icons/settings/advanced-settings.svg';
-import { ReactComponent as AppsIcon } from 'app/icons/settings/dapp.svg';
-import { ReactComponent as EncryptedWalletIcon } from 'app/icons/settings/encrypted-wallet-file.svg';
-import { ReactComponent as SettingsIcon } from 'app/icons/settings/general.svg';
-import { ReactComponent as LanguageIcon } from 'app/icons/settings/language.svg';
-import { ReactComponent as PrivacyPolicyIcon } from 'app/icons/settings/privacy-policy.svg';
-import { ReactComponent as SeedPhraseIcon } from 'app/icons/settings/seed-phrase.svg';
-import { ReactComponent as TosIcon } from 'app/icons/settings/tos.svg';
+import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
+import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
+import { ReactComponent as ToolIconDevnet } from 'app/icons/settings/advanced-settings-devnet.svg';
+import { ReactComponent as ToolIconOrange } from 'app/icons/settings/advanced-settings.svg';
+import { ReactComponent as AppsIconDevnet } from 'app/icons/settings/dapp-devnet.svg';
+import { ReactComponent as AppsIconOrange } from 'app/icons/settings/dapp.svg';
+import { ReactComponent as EncryptedWalletIconDevnet } from 'app/icons/settings/encrypted-wallet-file-devnet.svg';
+import { ReactComponent as EncryptedWalletIconOrange } from 'app/icons/settings/encrypted-wallet-file.svg';
+import { ReactComponent as SettingsIconDevnet } from 'app/icons/settings/general-devnet.svg';
+import { ReactComponent as SettingsIconOrange } from 'app/icons/settings/general.svg';
+import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/language-devnet.svg';
+import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
+import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
+import { ReactComponent as PrivacyPolicyIconOrange } from 'app/icons/settings/privacy-policy.svg';
+import { ReactComponent as SecretKeyIconDevnet } from 'app/icons/settings/secret-key-devnet.svg';
+import { ReactComponent as SecretKeyIconOrange } from 'app/icons/settings/secret-key.svg';
+import { ReactComponent as SeedPhraseIconDevnet } from 'app/icons/settings/seed-phrase-devnet.svg';
+import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-phrase.svg';
+import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
+import { ReactComponent as TosIconOrange } from 'app/icons/settings/tos.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
 import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
+import GuardianSettings from 'app/templates/GuardianSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
+import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
+import { WalletType } from 'screens/onboarding/types';
 
-import pkg from '../../../package.json';
 import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
+import pkg from '../../../package.json';
+import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
+
+const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
+const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
+const ToolIcon = isDevnet ? ToolIconDevnet : ToolIconOrange;
+const AppsIcon = isDevnet ? AppsIconDevnet : AppsIconOrange;
+const EncryptedWalletIcon = isDevnet ? EncryptedWalletIconDevnet : EncryptedWalletIconOrange;
+const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
+const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
+const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
+const SecretKeyIcon = isDevnet ? SecretKeyIconDevnet : SecretKeyIconOrange;
+const SeedPhraseIcon = isDevnet ? SeedPhraseIconDevnet : SeedPhraseIconOrange;
+const TosIcon = isDevnet ? TosIconDevnet : TosIconOrange;
 
 type SettingsProps = {
   tabSlug?: string | null;
 };
+
+const RevealPrivateKey: FC = () => {
+  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
+  const isGuardian = currentAccountType === WalletType.Guardian;
+  return <RevealSecret reveal={isGuardian ? 'guardian-keys' : 'private-key'} />;
+};
+
+const RevealHotKey: FC = () => <RevealSecret reveal="hot-key" />;
 
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English',
@@ -69,6 +108,11 @@ type Tab = {
   linksOutsideOfWallet?: boolean;
   isDrawer?: boolean;
   onClick?: () => void;
+  guardianOnly?: boolean;
+  // Hide on Guardian accounts whose hot key is not yet activated (post-recovery,
+  // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
+  // set on the WalletAccount or it'll fail immediately on the vault lookup.
+  requiresActivatedHotKey?: boolean;
 };
 
 type TabGroup = {
@@ -118,12 +162,36 @@ const TAB_GROUPS: TabGroup[] = [
         hasOwnLayout: true
       },
       {
+        slug: 'reveal-private-key',
+        titleI18nKey: 'revealPrivateKey',
+        Icon: SecretKeyIcon,
+        Component: RevealPrivateKey,
+        testID: SettingsSelectors.RevealPrivateKeyButton
+      },
+      {
+        slug: 'reveal-hot-key',
+        titleI18nKey: 'revealHotKey',
+        Icon: SecretKeyIcon,
+        Component: RevealHotKey,
+        testID: SettingsSelectors.RevealHotKeyButton,
+        guardianOnly: true,
+        requiresActivatedHotKey: true
+      },
+      {
         slug: 'encrypted-wallet-file',
         titleI18nKey: 'encryptedWalletFile',
         Icon: EncryptedWalletIcon,
         Component: EncryptedFileFlow,
         testID: SettingsSelectors.EncryptedWalletFile,
         hasOwnLayout: true
+      },
+      {
+        slug: 'guardian-settings',
+        titleI18nKey: 'guardianSettings',
+        Icon: SettingsIcon,
+        Component: GuardianSettings,
+        isDrawer: true,
+        guardianOnly: true
       }
     ]
   },
@@ -152,14 +220,14 @@ const TAB_GROUPS: TabGroup[] = [
     titleI18nKey: 'about',
     tabs: [
       {
-        slug: '#',
+        slug: PRIVACY_POLICY_URL,
         titleI18nKey: 'privacyPolicy',
         Icon: PrivacyPolicyIcon,
         Component: () => null,
         linksOutsideOfWallet: true
       },
       {
-        slug: '#',
+        slug: TERMS_OF_USE_URL,
         titleI18nKey: 'termsOfService',
         Icon: TosIcon,
         Component: () => null,
@@ -193,18 +261,98 @@ const HIDDEN_TABS: Tab[] = [
   }
 ];
 
-// Flat list of all tabs for route lookup
-const ALL_TABS: Tab[] = [...TAB_GROUPS.flatMap(g => g.tabs), ...HIDDEN_TABS];
-
-// Collect all drawer tabs for rendering
-const DRAWER_TABS = TAB_GROUPS.flatMap(g => g.tabs).filter(t => t.isDrawer);
-
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
-  const activeTab = useMemo(() => ALL_TABS.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null, [tabSlug]);
+  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
+  const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
+  const isGuardianAccount = currentAccountType === WalletType.Guardian;
+  const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
+
+  const tabIsVisible = useCallback(
+    (tab: Tab) => {
+      if (tab.guardianOnly && !isGuardianAccount) return false;
+      if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
+      return true;
+    },
+    [isGuardianAccount, hasActivatedHotKey]
+  );
+
+  // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
+  // the Guardian Settings entry at all (menu, drawer, or routable page).
+  const tabGroups = useMemo(
+    () =>
+      TAB_GROUPS.map(group => ({
+        ...group,
+        tabs: group.tabs.filter(tabIsVisible)
+      })).filter(group => group.tabs.length > 0),
+    [tabIsVisible]
+  );
+
+  const allTabs = useMemo(
+    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tabIsVisible)],
+    [tabGroups, tabIsVisible]
+  );
+
+  const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);
+
+  const activeTab = useMemo(
+    () => allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null,
+    [allTabs, tabSlug]
+  );
   const languageLabel = getCurrentLanguageLabel();
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
+
+  // On mobile, morph the native navbar AND the parked-dApp bubbles
+  // OUT when a settings drawer / seed-warning overlay takes over the
+  // bottom of the screen — both would otherwise fight with the drawer
+  // for the same real estate. The navbar morph is a Swift spring
+  // animation on the native UIWindow; the bubbles morph via a CSS
+  // rule keyed on `body[data-drawer-open]` (see main.css).
+  //
+  // Morphs back IN when the drawer closes. No-op on desktop/extension.
+  const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (drawerOrSheetOpen) {
+      document.body.setAttribute('data-drawer-open', '');
+      InAppBrowser.morphNavbarOut().catch(() => {});
+    } else {
+      document.body.removeAttribute('data-drawer-open');
+      InAppBrowser.morphNavbarIn().catch(() => {});
+    }
+    // Unmount cleanup: if the Settings page unmounts while a drawer
+    // is still open (e.g. user swipes back mid-open), force both the
+    // navbar and the bubbles back in so nothing is stranded
+    // off-screen on the next page.
+    return () => {
+      if (!isMobile()) return;
+      if (drawerOrSheetOpen) {
+        document.body.removeAttribute('data-drawer-open');
+        InAppBrowser.morphNavbarIn().catch(() => {});
+      }
+    };
+  }, [drawerOrSheetOpen]);
+
+  // Mark Settings as an edge-to-edge page so it extends behind the
+  // navbar pill (no 88pt bottom gutter from main.css). The list
+  // container below adds its own pb-[88px] so the last item can
+  // still be scrolled above the floating toolbar — without that
+  // internal padding the bottom item would sit permanently under
+  // the pill and be unreachable. Only apply when we're showing the
+  // settings root (not an active sub-tab with its own layout).
+  const showSettingsRoot = !activeTab;
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (showSettingsRoot) {
+      document.body.setAttribute('data-edge-to-edge', '');
+    } else {
+      document.body.removeAttribute('data-edge-to-edge');
+    }
+    return () => {
+      document.body.removeAttribute('data-edge-to-edge');
+    };
+  }, [showSettingsRoot]);
 
   const handleSeedWarningClose = useCallback(() => {
     hapticLight();
@@ -234,10 +382,15 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             </>
           )
         ) : (
-          <div className="flex flex-col w-full py-4 gap-8 text-heading-gray px-4">
-            {TAB_GROUPS.map(group => (
+          // pb-[88px] reserves space at the bottom equal to the native
+          // navbar pill's height (76 + 12 gap = 88pt) so the last menu
+          // item can be scrolled above the floating toolbar. Without
+          // this, opting out of the body gutter via data-edge-to-edge
+          // would leave the bottom row permanently hidden behind the pill.
+          <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
+            {tabGroups.map(group => (
               <div key={group.titleI18nKey}>
-                <h3 className="font-medium pb-4 text-base text-[#868686]">{t(group.titleI18nKey)}</h3>
+                <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>
                 <div className="overflow-hidden flex flex-col gap-6">
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
@@ -272,12 +425,12 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               </div>
             ))}
 
-            <p className="text-base font-medium text-grey-300 pt-2">Version {pkg.version}</p>
+            <p className="text-base font-medium text-text-muted pt-2">Version {pkg.version}</p>
           </div>
         )}
       </div>
 
-      {DRAWER_TABS.map(tab => (
+      {drawerTabs.map(tab => (
         <Drawer key={tab.slug} open={openDrawer === tab.slug} onOpenChange={open => !open && setOpenDrawer(null)}>
           <DrawerContent>
             <DrawerHeader>
@@ -312,7 +465,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                 <div className="bg-gray-25 rounded-2xl px-6 py-8">
                   <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
                     {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-[#BABABA]" style={{ width: 144 }} />
+                      <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
                     ))}
                   </div>
                 </div>

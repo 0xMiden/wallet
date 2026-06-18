@@ -15,7 +15,7 @@ export interface CardItemProps extends React.ComponentProps<'div'> {
   iconRight?: React.ReactNode | IconName;
   title?: string;
   subtitle?: string;
-  titleRight?: string;
+  titleRight?: React.ReactNode;
   subtitleRight?: string;
   hoverable?: boolean;
   titleClassName?: string;
@@ -35,7 +35,7 @@ export const LeftIconOrComponent = ({
 }) => {
   if (Object.values(IconName).includes(icon as IconName)) {
     return (
-      <div className="bg-grey-50 p-2 rounded-full">
+      <div className="bg-gray-50 p-2 rounded-full">
         <Icon name={icon as IconName} fill={color} className="w-4 h-4" size={size} />
       </div>
     );

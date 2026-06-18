@@ -13,7 +13,7 @@ export function getAssetUrl(path: string): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const browser = require('webextension-polyfill');
     return browser.runtime.getURL(path);
-  } catch {
+  } /* c8 ignore next 3 -- extension-only require() fallback */ catch {
     // Fallback for non-extension contexts
     return `/${path}`;
   }

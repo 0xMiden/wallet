@@ -31,7 +31,7 @@ const getAnimalIndex = (publicKey: string): number => {
   return Math.floor(random * NUM_ANIMALS);
 };
 
-const AnimalIdenticon: FC<AnimalIdenticonProps> = ({ publicKey, size = 100, className, style = {}, ...rest }) => {
+const AnimalIdenticon: FC<AnimalIdenticonProps> = ({ publicKey, size = 100, className }) => {
   const color = randomColor({ seed: publicKey });
   const animalIndex = getAnimalIndex(publicKey);
   const viewBox = indexToViewBox(animalIndex);

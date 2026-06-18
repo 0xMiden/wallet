@@ -13,7 +13,7 @@ export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTML
 
 export type Actions = 'select-wallet-type' | 'select-import-type';
 
-export const WelcomeScreen = ({ onSubmit, ...props }: WelcomeScreenProps) => {
+export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center bg-app-bg max-w-full h-full" data-testid="onboarding-welcome">

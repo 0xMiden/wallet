@@ -2,9 +2,11 @@ import { Runtime } from 'webextension-polyfill';
 
 import * as Actions from 'lib/miden/back/actions';
 import { intercom } from 'lib/miden/back/defaults';
+import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing } from 'lib/miden/back/transaction-processor';
+import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { SerializedInputNoteDetail, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { NoteExportType } from '../sdk/constants';
@@ -12,18 +14,41 @@ import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
-const frontStore = store.map(toFront);
+// frontStore is initialized lazily inside start() because with Vite's TLA stripping,
+// `store` may not be initialized at module scope evaluation time.
+let frontStore: ReturnType<typeof store.map> | null = null;
 
 export async function start() {
   console.log('Miden background script started');
   intercom.onRequest(processRequest);
+
+  // NOTE: The Vite sw-patches plugin injects await init_*() calls here
+  // (between intercom registration and Actions.init)
+
   await Actions.init();
+
+  // SpeculationManager wires through the same MidenClientInterface singleton
+  // the rest of the SW uses. Lazy because the client is only created on
+  // unlock; the manager doesn't run anything until a SPECULATE_SEND_REQUEST
+  // arrives, by which point the client must already exist (the user is on
+  // the send-flow review screen, which is gated on unlock).
+  initSpeculationManager(() => getMidenClient());
+
+  // Native asset ID is network-wide on-chain state — prime discovery here so
+  // the first balance / metadata consumer after SW start already has it cached.
+  // Cheap (one RPC round-trip on cache miss, no-op on hit).
+  primeNativeAssetId();
+
+  frontStore = store.map(toFront);
   frontStore.watch(() => {
     intercom.broadcast({ type: WalletMessageType.StateUpdated });
   });
+  // Force frontend to re-fetch state now that everything is initialized
+  intercom.broadcast({ type: WalletMessageType.StateUpdated });
 }
 
-async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<WalletResponse | void> {
+async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<WalletResponse | void> {
+  console.log('[processRequest] type:', req?.type);
   switch (req?.type) {
     case WalletMessageType.SyncRequest:
       doSync().catch(err => console.warn('[SyncManager] Error:', err));
@@ -41,7 +66,7 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         const client = await getMidenClient();
         const id = await client.importNoteBytes(noteBytes);
         await client.syncState();
-        return id.toString();
+        return id;
       });
       return { type: WalletMessageType.ImportNoteBytesResponse, noteId };
     }
@@ -62,7 +87,7 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         const results: SerializedInputNoteDetail[] = [];
         for (const noteId of req.noteIds) {
           try {
-            const record = await client.webClient.getInputNote(noteId);
+            const record = await client.getInputNote(noteId);
             if (!record) continue;
             const assets = record
               .details()
@@ -86,6 +111,29 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
       });
       return { type: WalletMessageType.GetInputNoteDetailsResponse, notes: serialized };
     }
+    case WalletMessageType.SpeculateSendRequest: {
+      // Fire-and-forget. SpeculationManager queues at most one pending; if
+      // it's already running an identical speculation, this is a no-op.
+      // No withWasmClientLock here — the manager handles serialization
+      // internally (it calls executeAndProveForSpeculation which does its
+      // own execute under-lock + offscreen prove with yieldWasmClientLock).
+      const mgr = getSpeculationManager();
+      if (mgr) {
+        mgr.speculate({
+          accountId: req.accountId,
+          recipientAccountId: req.recipientAccountId,
+          faucetId: req.faucetId,
+          noteType: req.noteType,
+          amount: BigInt(req.amount)
+        });
+      }
+      return { type: WalletMessageType.SpeculateSendResponse };
+    }
+    case WalletMessageType.SpeculateInvalidate: {
+      const mgr = getSpeculationManager();
+      mgr?.invalidate();
+      return { type: WalletMessageType.SpeculateInvalidateResponse };
+    }
     // case WalletMessageType.SendTrackEventRequest:
     //   await Analytics.trackEvent(req);
     //   return { type: WalletMessageType.SendTrackEventResponse };
@@ -102,10 +150,17 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         state
       };
     case WalletMessageType.NewWalletRequest:
-      await Actions.registerNewWallet(req.password, req.mnemonic, req.ownMnemonic);
+      console.log('[processRequest] NEW_WALLET_REQUEST received, calling registerNewWallet...');
+      try {
+        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
+        console.log('[processRequest] registerNewWallet completed successfully');
+      } catch (err: unknown) {
+        console.error('[processRequest] registerNewWallet FAILED:', err);
+        throw err;
+      }
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic);
+      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
@@ -134,12 +189,28 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
     //     type: WalletMessageType.RevealViewKeyResponse,
     //     viewKey
     //   };
-    // case WalletMessageType.RevealPrivateKeyRequest:
-    //   const privateKey = await Actions.revealPrivateKey(req.accountPublicKey, req.password);
-    //   return {
-    //     type: WalletMessageType.RevealPrivateKeyResponse,
-    //     privateKey
-    //   };
+    case WalletMessageType.RevealPrivateKeyRequest:
+      const privateKey = await Actions.revealPrivateKey(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.RevealPrivateKeyResponse,
+        privateKey: privateKey ?? ''
+      };
+    case WalletMessageType.RevealHotKeyRequest: {
+      const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.RevealHotKeyResponse,
+        hotPrivateKey: hotPrivateKey ?? ''
+      };
+    }
+    case WalletMessageType.RevealGuardianKeysRequest: {
+      const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.RevealGuardianKeysResponse,
+        coldPrivateKey: keys?.coldPrivateKey ?? '',
+        coldPublicKey: keys?.coldPublicKey ?? '',
+        hotPublicKey: keys?.hotPublicKey
+      };
+    }
     case WalletMessageType.RevealMnemonicRequest:
       const mnemonic = await Actions.revealMnemonic(req.password);
       return {
@@ -157,9 +228,10 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
         type: WalletMessageType.EditAccountResponse
       };
     case WalletMessageType.ImportAccountRequest:
-      await Actions.importAccount(req.privateKey, req.encPassword);
+      const importedAccountPublicKey = await Actions.importAccount(req.privateKey, req.name);
       return {
-        type: WalletMessageType.ImportAccountResponse
+        type: WalletMessageType.ImportAccountResponse,
+        accountPublicKey: importedAccountPublicKey ?? ''
       };
     // case WalletMessageType.ImportWatchOnlyAccountRequest:
     //   await Actions.importWatchOnlyAccount(req.viewKey);
@@ -181,6 +253,28 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
       return {
         type: WalletMessageType.SignTransactionResponse,
         signature
+      };
+    case WalletMessageType.SignWordRequest:
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      return {
+        type: WalletMessageType.SignWordResponse,
+        signature: wordSignature
+      };
+    case WalletMessageType.PersistNewHotKeyRequest:
+      await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
+      return {
+        type: WalletMessageType.PersistNewHotKeyResponse
+      };
+    case WalletMessageType.SwapHotKeyRequest:
+      await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+      return {
+        type: WalletMessageType.SwapHotKeyResponse
+      };
+    case WalletMessageType.GetPublicKeyForCommitmentRequest:
+      const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
+      return {
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey: commitmentPublicKey
       };
     case WalletMessageType.GetAuthSecretKeyRequest:
       const key = await Actions.getAuthSecretKey(req.key);
@@ -209,7 +303,9 @@ async function processRequest(req: WalletRequest, port: Runtime.Port): Promise<W
             payload: 'PONG'
           };
         }
-        const resPayload = await Actions.processDApp(req.origin, req.payload);
+        // PR-4 chunk 8: thread sessionId through (extension flow leaves
+        // it undefined; mobile/desktop multi-instance pass it).
+        const resPayload = await Actions.processDApp(req.origin, req.payload, (req as any).sessionId);
         return {
           type: MidenMessageType.PageResponse,
           payload: resPayload ?? null

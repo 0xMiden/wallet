@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 
 import { AnalyticsEventCategory } from 'lib/miden/analytics-types';
 import { WalletMessageType } from 'lib/shared/types';
@@ -12,7 +12,7 @@ jest.mock('../miden/front', () => ({
 }));
 
 jest.mock('lib/miden/front/local-storage', () => ({
-  useLocalStorage: jest.fn((key: string, defaultValue: { enabled?: boolean; userId: string }) => {
+  useLocalStorage: jest.fn((_key: string, defaultValue: { enabled?: boolean; userId: string }) => {
     const state = { ...defaultValue };
     const setState = jest.fn((newState: typeof state) => {
       Object.assign(state, newState);

@@ -34,6 +34,7 @@ interface BinanceTicker24hr {
  */
 export async function fetchTokenPrices(): Promise<TokenPrices> {
   const entries = Object.entries(KNOWN_SYMBOLS);
+  /* c8 ignore next -- KNOWN_SYMBOLS is a compile-time constant, never empty */
   if (entries.length === 0) return {};
 
   const binanceSymbols = entries.map(([, pair]) => pair);

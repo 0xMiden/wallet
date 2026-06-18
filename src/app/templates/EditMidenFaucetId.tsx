@@ -66,7 +66,7 @@ const EditMidenFaucetId: FC = () => {
           id="set-faucet-id"
           type="text"
           name="faucetId"
-          placeholder={faucetId}
+          placeholder={faucetId ?? ''}
           errorCaption={errors.faucetId?.message}
           containerClassName="mb-4"
           onChange={() => {
@@ -95,7 +95,7 @@ const EditMidenFaucetId: FC = () => {
         {submitSuccess && <div className="mt-4 text-green-600 text-sm font-medium">{t('faucetIdUpdated')}</div>}
       </form>
     );
-  }, [faucetId, errors, handleSubmit, onSubmit, register, isSubmitting, clearErrors, submitSuccess]);
+  }, [faucetId, errors, handleSubmit, onSubmit, register, isSubmitting, clearErrors, submitSuccess, t]);
 
   return <div className="w-full max-w-sm p-2 mx-auto">{content}</div>;
 };

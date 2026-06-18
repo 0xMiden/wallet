@@ -115,12 +115,12 @@ class MobileSecureStorage implements SecureStorageAPI {
     throw new Error('Mobile secure storage not yet implemented');
   }
 
-  async encrypt(data: string): Promise<string> {
+  async encrypt(_data: string): Promise<string> {
     // TODO: Implement
     throw new Error('Mobile secure storage not yet implemented');
   }
 
-  async decrypt(encrypted: string): Promise<string> {
+  async decrypt(_encrypted: string): Promise<string> {
     // TODO: Implement
     throw new Error('Mobile secure storage not yet implemented');
   }

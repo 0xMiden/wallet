@@ -2,6 +2,11 @@ import { MidenDAppMessageType } from 'lib/adapter/types';
 import { MidenDAppSessions } from 'lib/miden/types';
 import { Vault } from './vault';
 
+// Mirrors the real dapp.ts export so tests that run through
+// processDApp → dappDebug don't blow up with "dappDebug is not a
+// function". The mock is a no-op regardless of DEBUG_DAPP_BRIDGE.
+export const dappDebug = (..._args: unknown[]) => {};
+
 const sessions: MidenDAppSessions = {};
 
 const defaultSession = (origin: string, accountId: string) => ({

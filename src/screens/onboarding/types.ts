@@ -1,3 +1,5 @@
+import type { WalletAccount } from 'lib/shared/types';
+
 export enum OnboardingType {
   Create = 'create',
   Import = 'import'
@@ -5,6 +7,7 @@ export enum OnboardingType {
 
 export enum WalletType {
   OffChain = 'off-chain',
+  Guardian = 'guardian',
   OnChain = 'on-chain'
 }
 
@@ -24,6 +27,8 @@ export enum OnboardingStep {
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
   SelectTransactionType = 'select-transaction-type',
+  SelectRecoveryMethod = 'select-recovery-method',
+  ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
 }
 export type OnboardingActionId =
@@ -37,6 +42,8 @@ export type OnboardingActionId =
   | 'create-password-submit'
   | 'biometric-setup-submit'
   | 'select-transaction-type'
+  | 'select-recovery-method'
+  | 'import-select-recovery-method'
   | 'confirmation'
   | 'import-from-file'
   | 'import-from-seed';
@@ -80,6 +87,16 @@ export type SelectTransactionTypeAction = {
   payload: string;
 };
 
+export type SelectRecoveryMethodAction = {
+  id: 'select-recovery-method';
+  payload: WalletType;
+};
+
+export type ImportSelectRecoveryMethodAction = {
+  id: 'import-select-recovery-method';
+  payload: { walletType: WalletType; guardianEndpoint?: string };
+};
+
 export type ConfirmationAction = {
   id: 'confirmation';
 };
@@ -92,6 +109,7 @@ export type BiometricSetupSubmitAction = {
 export type ImportWalletFileSubmitAction = {
   id: 'import-wallet-file-submit';
   payload: string;
+  walletAccounts: WalletAccount[];
 };
 
 export type ImportSeedPhraseSubmitAction = {
@@ -116,6 +134,8 @@ export type OnboardingAction =
   | CreatePasswordSubmitAction
   | BiometricSetupSubmitAction
   | SelectTransactionTypeAction
+  | SelectRecoveryMethodAction
+  | ImportSelectRecoveryMethodAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction
   | BackAction
@@ -129,30 +149,3 @@ export type OnboardingAction =
 export type OnboardingPlan = {
   steps: OnboardingStep[]; // Order maintained
 };
-
-export enum ForgotPasswordStep {
-  Welcome = 'welcome',
-  BackupSeedPhrase = 'backup-seed-phrase',
-  VerifySeedPhrase = 'verify-seed-phrase',
-  SelectImportType = 'select-import-type',
-  ImportFromSeed = 'import-from-seed',
-  ImportFromFile = 'import-from-file',
-  CreatePassword = 'create-password',
-  SelectTransactionType = 'select-transaction-type',
-  Confirmation = 'confirmation'
-}
-
-export type ForgotPasswordAction =
-  | CreateWalletAction
-  | BackupSeedPhraseAction
-  | VerifySeedPhraseAction
-  | SelectTransactionTypeAction
-  | SelectImportTypeAction
-  | ImportFromSeedAction
-  | ImportFromFileAction
-  | ImportSeedPhraseSubmitAction
-  | ImportWalletFileSubmitAction
-  | CreatePasswordAction
-  | CreatePasswordSubmitAction
-  | ConfirmationAction
-  | BackAction;

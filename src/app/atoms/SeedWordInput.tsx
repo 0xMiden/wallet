@@ -23,7 +23,6 @@ export const SeedWordInput: FC<SeedWordInputProps> = ({
   submitted,
   showSeed,
   value,
-  isFirstAccount,
   autoComplete = 'off',
   setShowSeed,
   onChange,
@@ -128,7 +127,7 @@ export const SeedWordInput: FC<SeedWordInputProps> = ({
             setShowSeed(true);
           }}
         >
-          <p className={classNames('flex items-center', 'text-gray-500 text-sm')}>
+          <p className={classNames('flex items-center', 'text-text-muted text-sm')}>
             <LockAltIcon className={classNames('mr-1', 'h-6 w-auto', 'stroke-current stroke-2')} />
             <span>{t('clickToReveal')}</span>
           </p>

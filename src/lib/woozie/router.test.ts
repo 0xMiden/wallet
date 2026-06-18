@@ -21,7 +21,7 @@ describe('woozie router', () => {
       expect(map[0]).toHaveProperty('resolveResult');
       expect(map[0]).toHaveProperty('pattern');
       expect(map[0]).toHaveProperty('keys');
-      expect(map[0].pattern).toBeInstanceOf(RegExp);
+      expect(map[0]!.pattern).toBeInstanceOf(RegExp);
     });
 
     it('creates map with multiple routes', () => {
@@ -41,7 +41,7 @@ describe('woozie router', () => {
 
       const map = createMap(routes);
 
-      expect(map[0].keys).toContain('id');
+      expect(map[0]!.keys).toContain('id');
     });
 
     it('handles multiple parameters', () => {
@@ -49,15 +49,14 @@ describe('woozie router', () => {
 
       const map = createMap(routes);
 
-      expect(map[0].keys).toContain('userId');
-      expect(map[0].keys).toContain('postId');
+      expect(map[0]!.keys).toContain('userId');
+      expect(map[0]!.keys).toContain('postId');
     });
   });
 
   describe('resolve', () => {
     const homeComponent = React.createElement('div', null, 'Home');
     const aboutComponent = React.createElement('div', null, 'About');
-    const userComponent = React.createElement('div', null, 'User');
 
     let routeMap: RouteMap<{}>;
 
@@ -140,6 +139,45 @@ describe('woozie router', () => {
       resolver.mockClear();
       resolve(map, '/items/123', {});
       expect(resolver).toHaveBeenCalledWith({ id: '123' }, {});
+    });
+
+    it('returns empty params when keys is false', () => {
+      // Create a route map entry with keys=false (e.g., wildcard pattern)
+      const resolver = jest.fn(() => React.createElement('div'));
+      const map: RouteMap<{}> = [
+        {
+          route: '/(.*)',
+          resolveResult: resolver,
+          pattern: /^\/(.*)$/,
+          keys: false
+        }
+      ];
+
+      resolve(map, '/anything', {});
+      expect(resolver).toHaveBeenCalledWith({}, {});
+    });
+
+    it('returns empty params when pattern does not match in createParams', () => {
+      // Create a route map entry where pattern.test passes but pattern.exec returns null
+      // This can happen with lookahead patterns
+      const resolver = jest.fn(() => React.createElement('div'));
+      const testPattern = {
+        test: () => true,
+        exec: () => null,
+        source: '',
+        flags: ''
+      } as unknown as RegExp;
+      const map: RouteMap<{}> = [
+        {
+          route: '/test',
+          resolveResult: resolver,
+          pattern: testPattern,
+          keys: ['id']
+        }
+      ];
+
+      resolve(map, '/test', {});
+      expect(resolver).toHaveBeenCalledWith({}, {});
     });
   });
 });

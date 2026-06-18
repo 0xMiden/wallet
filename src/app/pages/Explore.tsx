@@ -1,29 +1,24 @@
 import React, { FC, useCallback, useEffect, useMemo } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import Header from 'app/layouts/PageLayout/Header';
-import { ChainInstabilityBanner } from 'components/ChainInstabilityBanner';
+import { ActivateHotKeyBanner } from 'app/templates/ActivateHotKeyBanner';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { ActionButtons } from 'components/explore/ActionButtons';
 import { PriceChangeBadge } from 'components/explore/PriceChangeBadge';
-import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
 import {
-  hasQueuedTransactions,
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import { setFaucetIdSetting, useAccount, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { openFaucetWebview } from 'lib/mobile/faucet-webview';
-import { hapticLight } from 'lib/mobile/haptics';
-import { isExtension, isMobile } from 'lib/platform';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/constants';
+import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
-import { useWalletStore } from 'lib/store';
-import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
 
@@ -31,7 +26,6 @@ import MainBanner from './Explore/MainBanner';
 import Tokens from './Explore/Tokens';
 
 const Explore: FC = () => {
-  const { t } = useTranslation();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
   const { signTransaction } = useMidenContext();
@@ -81,7 +75,7 @@ const Explore: FC = () => {
       requestSWTransactionProcessing();
     } else {
       // Process auto-consume transactions silently in the background (no modal/tab)
-      startBackgroundTransactionProcessing(signTransaction);
+      startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
     }
   }, [
     midenNotes,
@@ -99,27 +93,19 @@ const Explore: FC = () => {
     }
   }, [autoConsumeMidenNotes, hasAutoConsumableNotes]);
 
-  const { data: queuedDbTransactions } = useRetryableSWR(
-    [`has-queued-transactions`, address],
-    async () => hasQueuedTransactions(),
-    {
-      revalidateOnMount: true,
-      refreshInterval: 15_000,
-      dedupingInterval: 5_000
-    }
-  );
-
-  // Check if user explicitly dismissed the transaction modal (prevents auto-reopen)
-  const isTransactionModalDismissedByUser = useWalletStore(state => state.isTransactionModalDismissedByUser);
-
-  useEffect(() => {
-    // On mobile, don't auto-open the modal - it's intrusive and blocks UI
-    // The modal is opened explicitly when user initiates send/claim
-    if (isMobile()) return;
-    // Don't auto-open if user explicitly dismissed the modal (they clicked Hide)
-    if (isTransactionModalDismissedByUser) return;
-    if (queuedDbTransactions) useWalletStore.getState().openTransactionModal();
-  }, [queuedDbTransactions, isTransactionModalDismissedByUser]);
+  // NOTE: We used to auto-open the transaction-progress modal on Explore mount
+  // whenever `hasQueuedTransactions()` returned true. That was meant to restore
+  // tx progress visibility after a page reload, but it has a nasty side effect:
+  // after ANY reload (including one triggered from a claim flow or the popup
+  // reopening), the user lands on Explore, the modal auto-opens over whatever
+  // they were trying to do next, and — because it's a z-index:9999 portal with
+  // `shouldCloseOnOverlayClick` gated on transactionComplete — it blocks the
+  // entire UI until the SW finishes processing. Surfaced by the E2E stress
+  // suite: wallet-B op#24 send stayed queued, B's page reloaded during the next
+  // claim cycle, Explore auto-opened the modal, and every subsequent navigate
+  // to /send found the TST token row behind an unclickable overlay. Dropped
+  // here; background tx processing continues in the SW regardless, and any
+  // explicit user send still opens the modal via SendManager.
 
   useEffect(() => {
     // 6-17-25 Force wallet reset if account is still using hex address
@@ -153,7 +139,7 @@ const Explore: FC = () => {
     <div className="flex flex-col h-full overflow-hidden text-heading-gray font-geist">
       <div className="flex-shrink-0">
         <ConnectivityIssueBanner />
-        <ChainInstabilityBanner />
+        <ActivateHotKeyBanner />
         <Header />
         <div className={classNames('flex flex-col justify-start', 'pt-4 px-4')}>
           <div className="flex flex-col justify-center items-center pb-4">

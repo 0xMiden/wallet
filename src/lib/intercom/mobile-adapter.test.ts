@@ -3,7 +3,7 @@ import { store } from 'lib/miden/back/store';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { MobileIntercomAdapter, getMobileIntercomAdapter } from './mobile-adapter';
+import { MobileIntercomAdapter } from './mobile-adapter';
 
 // Mock the dependencies
 jest.mock('lib/miden/back/actions', () => ({
@@ -16,9 +16,10 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn().mockResolvedValue(undefined),
   updateCurrentAccount: jest.fn().mockResolvedValue(undefined),
   revealMnemonic: jest.fn().mockResolvedValue('test mnemonic'),
+  revealPrivateKey: jest.fn().mockResolvedValue('deadbeef'),
   removeAccount: jest.fn().mockResolvedValue(undefined),
   editAccount: jest.fn().mockResolvedValue(undefined),
-  importAccount: jest.fn().mockResolvedValue(undefined),
+  importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
@@ -81,12 +82,13 @@ describe('MobileIntercomAdapter', () => {
     it('handles NewWalletRequest', async () => {
       const response = await adapter.request({
         type: WalletMessageType.NewWalletRequest,
+        walletType: 'on-chain',
         password: 'test123',
         mnemonic: 'word1 word2 word3',
         ownMnemonic: false
       } as any);
 
-      expect(Actions.registerNewWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', false);
+      expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'test123', 'word1 word2 word3', false);
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
     });
 
@@ -94,10 +96,11 @@ describe('MobileIntercomAdapter', () => {
       const response = await adapter.request({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'test123',
-        mnemonic: 'word1 word2 word3'
-      } as any);
+        mnemonic: 'word1 word2 word3',
+        walletAccounts: []
+      });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3');
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', []);
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 
@@ -178,11 +181,28 @@ describe('MobileIntercomAdapter', () => {
       const response = await adapter.request({
         type: WalletMessageType.ImportAccountRequest,
         privateKey: 'private-key-123',
-        encPassword: 'enc-pass'
+        name: 'Imported'
       } as any);
 
-      expect(Actions.importAccount).toHaveBeenCalledWith('private-key-123', 'enc-pass');
-      expect(response).toEqual({ type: WalletMessageType.ImportAccountResponse });
+      expect(Actions.importAccount).toHaveBeenCalledWith('private-key-123', 'Imported');
+      expect(response).toEqual({
+        type: WalletMessageType.ImportAccountResponse,
+        accountPublicKey: 'mtst1imported-pk'
+      });
+    });
+
+    it('handles RevealPrivateKeyRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.RevealPrivateKeyRequest,
+        accountPublicKey: 'pk-commitment',
+        password: 'pw'
+      } as any);
+
+      expect(Actions.revealPrivateKey).toHaveBeenCalledWith('pk-commitment', 'pw');
+      expect(response).toEqual({
+        type: WalletMessageType.RevealPrivateKeyResponse,
+        privateKey: 'deadbeef'
+      });
     });
 
     it('handles UpdateSettingsRequest', async () => {
@@ -268,7 +288,7 @@ describe('MobileIntercomAdapter', () => {
         payload: { method: 'test' }
       } as any);
 
-      expect(Actions.processDApp).toHaveBeenCalledWith('https://example.com', { method: 'test' });
+      expect(Actions.processDApp).toHaveBeenCalledWith('https://example.com', { method: 'test' }, undefined);
       expect(response).toEqual({
         type: MidenMessageType.PageResponse,
         payload: { result: 'success' }

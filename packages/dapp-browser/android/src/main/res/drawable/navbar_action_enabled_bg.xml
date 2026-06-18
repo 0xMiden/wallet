@@ -1,0 +1,12 @@
+<!--
+  Miden patch — compact-mode action button enabled background.
+  Solid pill-active orange matching iOS `NavbarActionButton.enabledBg`
+  (red=1.0, green=0.42, blue=0.0 = #FF6B00). Rounded-full via a
+  large corner radius (the parent is ~34dp tall so 20dp gives
+  full pill shape).
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <solid android:color="#FFFF6B00" />
+</shape>

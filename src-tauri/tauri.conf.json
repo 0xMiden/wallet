@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Miden Wallet",
   "identifier": "com.miden.wallet",
-  "version": "1.13.0",
+  "version": "1.13.2",
   "build": {
     "beforeBuildCommand": "yarn build:desktop",
     "beforeDevCommand": "yarn build:desktop:dev",

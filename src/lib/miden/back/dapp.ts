@@ -7,7 +7,7 @@ import {
   PrivateDataPermission,
   SendTransaction
 } from '@demox-labs/miden-wallet-adapter-base';
-import { AccountInterface, NetworkId, NoteFilter, NoteFilterTypes, NoteId, NoteType } from '@miden-sdk/miden-sdk';
+import { AccountInterface, NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
@@ -53,6 +53,7 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -60,6 +61,9 @@ import { WalletStatus } from 'lib/shared/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
+import { getCurrentMidenNetwork } from './safe-network';
+import { store, withUnlocked } from './store';
+import { startTransactionProcessing } from './transaction-processor';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -68,16 +72,42 @@ import {
 } from '../activity/transactions';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { store, withUnlocked } from './store';
-import { startTransactionProcessing } from './transaction-processor';
 
-/** Starts background transaction processing using the unified SW transaction processor. */
+/**
+ * Starts background transaction processing using the unified SW
+ * transaction processor. Defensive: any synchronous throw from the
+ * lazy-import chain is swallowed here so the caller can safely run
+ * `resolve(...)` afterwards. A thrown startup error would otherwise
+ * cause the tx preview to succeed, the tx to actually sign, and then
+ * the dApp promise to reject with "InvalidParams" — the dApp would
+ * believe its request failed even though it broadcast on-chain.
+ */
 function startDappBackgroundProcessing() {
-  startTransactionProcessing().catch(err => console.error('[DApp] Transaction processing error:', err));
+  try {
+    startTransactionProcessing().catch(err => console.error('[DApp] Transaction processing error:', err));
+  } catch (err) {
+    console.error('[DApp] startTransactionProcessing sync throw:', err);
+  }
 }
 
-// Log to Rust stdout for desktop debugging
+// Debug logger — gated so production builds don't dump wallet request
+// payloads (addresses, amounts, allowedPrivateData) into platform logs.
+// Enable via `DEBUG_DAPP_BRIDGE=1` env at build time. Exported so
+// `actions.ts` can use the same gate for its top-level dispatcher log.
+const DEBUG_DAPP_BRIDGE = typeof process !== 'undefined' && process.env?.DEBUG_DAPP_BRIDGE === '1';
+export const dappDebug = (...args: unknown[]) => {
+  /* c8 ignore start */ if (DEBUG_DAPP_BRIDGE) console.log(...args); /* c8 ignore stop */
+};
+
+// Log to Rust stdout for desktop debugging. Gated behind the same
+// DEBUG_DAPP_BRIDGE flag as `dappDebug` — several call sites in this
+// file pass the origin / sessionId / appMeta.name and these breadcrumbs
+// would otherwise land unredacted in the Tauri process's stdout on
+// every dApp connection in production desktop builds. Desktop devs can
+// flip the env flag at build time to see the stream again.
 async function dappLog(message: string): Promise<void> {
+  /* c8 ignore start */ if (!DEBUG_DAPP_BRIDGE) return; /* c8 ignore stop */
+  /* c8 ignore start */
   if (isDesktop()) {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
@@ -86,6 +116,7 @@ async function dappLog(message: string): Promise<void> {
       // Not in Tauri context
     }
   }
+  /* c8 ignore stop */
 }
 
 async function getAccountPublicKeyB64(accountId: string): Promise<string> {
@@ -98,16 +129,15 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
   if (publicKeyCommitments.length === 0) {
     throw new Error('Account has no public key commitments');
   }
-  return u8ToB64(publicKeyCommitments[0].serialize());
+  return u8ToB64(publicKeyCommitments[0]!.serialize());
 }
 
 // Lazy-loaded browser polyfill (only in extension context)
 type Browser = import('webextension-polyfill').Browser;
 let browserInstance: Browser | null = null;
 async function getBrowser(): Promise<Browser> {
-  if (!isExtension()) {
-    throw new Error('Browser extension APIs only available in extension context');
-  }
+  /* c8 ignore start */ if (!isExtension())
+    throw new Error('Browser extension APIs only available in extension context'); /* c8 ignore stop */
   if (!browserInstance) {
     const module = await import('webextension-polyfill');
     browserInstance = module.default;
@@ -143,7 +173,7 @@ export async function requestDisconnect(
 ): Promise<MidenDAppDisconnectResponse> {
   const currentAccountPubKey = await Vault.getCurrentAccountPublicKey();
   if (currentAccountPubKey) {
-    const dApp = currentAccountPubKey ? await getDApp(origin, currentAccountPubKey) : undefined;
+    const dApp = await getDApp(origin, currentAccountPubKey);
     if (dApp) {
       await removeDApp(origin, currentAccountPubKey);
       return {
@@ -156,11 +186,15 @@ export async function requestDisconnect(
 
 export async function requestPermission(
   origin: string,
-  req: MidenDAppPermissionRequest
+  req: MidenDAppPermissionRequest,
+  // PR-4 chunk 8: optional multi-instance session id, threaded into the
+  // confirmation store so the React modal can route the prompt to the
+  // matching foreground session.
+  sessionId?: string
 ): Promise<MidenDAppPermissionResponse> {
-  console.log('[requestPermission] Called with origin:', origin);
-  console.log('[requestPermission] Request:', JSON.stringify(req));
-  console.log('[requestPermission] isExtension():', isExtension());
+  dappDebug('[requestPermission] Called with origin:', origin);
+  dappDebug('[requestPermission] Request:', JSON.stringify(req));
+  dappDebug('[requestPermission] isExtension():', isExtension());
   let network = req?.network?.toString();
   const reqChainId = network;
 
@@ -189,7 +223,8 @@ export async function requestPermission(
         dApp.appMeta,
         !!dApp,
         dApp.privateDataPermission,
-        dApp.allowedPrivateData
+        dApp.allowedPrivateData,
+        sessionId
       );
     }
     dappLog('[requestPermission] PATH: existing permission, wallet unlocked, DIRECT RETURN');
@@ -212,7 +247,8 @@ export async function requestPermission(
     req.appMeta,
     !!dApp,
     req.privateDataPermission,
-    req.allowedPrivateData
+    req.allowedPrivateData,
+    sessionId
   );
 }
 
@@ -223,19 +259,22 @@ export async function generatePromisifyRequestPermission(
   appMeta: DappMetadata,
   existingPermission: boolean,
   privateDataPermission?: PrivateDataPermission,
-  allowedPrivateData?: AllowedPrivateData
+  allowedPrivateData?: AllowedPrivateData,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppPermissionResponse> {
-  console.log('[generatePromisifyRequestPermission] Called, isExtension:', isExtension());
+  dappDebug('[generatePromisifyRequestPermission] Called, isExtension:', isExtension());
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     const id = nanoid();
-    dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id}`);
+    dappLog(`[DApp] Non-extension requesting confirmation for: ${origin} id: ${id} sessionId: ${sessionId}`);
     dappLog(`[DApp] Calling dappConfirmationStore.requestConfirmation...`);
 
     // Request confirmation from the user via the confirmation store
     dappLog(`[DApp] About to call requestConfirmation, store instance: ${dappConfirmationStore.getInstanceId()}`);
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'connect',
       origin,
       appMeta,
@@ -276,7 +315,7 @@ export async function generatePromisifyRequestPermission(
       });
     }
 
-    console.log('[DApp] Non-extension approved connection for:', origin);
+    dappDebug('[DApp] Non-extension approved connection for:', origin);
     return {
       type: MidenDAppMessageType.PermissionResponse,
       accountId: accountPublicKey,
@@ -308,7 +347,7 @@ export async function generatePromisifyRequestPermission(
         if (confirmReq?.type === MidenMessageType.DAppPermConfirmationRequest && confirmReq?.id === id) {
           const { confirmed, accountPublicKey, privateDataPermission } = confirmReq;
           if (confirmed && accountPublicKey) {
-            let publicKey = null;
+            let publicKey: string | null = null;
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
@@ -319,23 +358,32 @@ export async function generatePromisifyRequestPermission(
             } catch (e) {
               console.error('Error fetching account public key:', e);
             }
-            if (!existingPermission)
-              await setDApp(origin, {
-                network,
-                appMeta,
+            if (publicKey == null) {
+              // A failed public-key fetch must fail the connect, not persist a
+              // session with publicKey: null. The direct-return path hands that
+              // null pubkey back verbatim on every later connect, wedging the
+              // dApp at "Connecting…" until the session is cleared. Mirrors the
+              // non-extension branch, which throws NotGranted on the same failure.
+              decline();
+            } else {
+              if (!existingPermission)
+                await setDApp(origin, {
+                  network,
+                  appMeta,
+                  accountId: accountPublicKey,
+                  privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
+                  allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
+                  publicKey
+                });
+              resolve({
+                type: MidenDAppMessageType.PermissionResponse,
                 accountId: accountPublicKey,
+                network,
                 privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
                 allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-                publicKey: publicKey!
+                publicKey
               });
-            resolve({
-              type: MidenDAppMessageType.PermissionResponse,
-              accountId: accountPublicKey,
-              network,
-              privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,
-              allowedPrivateData: allowedPrivateData || AllowedPrivateData.None,
-              publicKey: publicKey!
-            });
+            }
           } else {
             decline();
           }
@@ -358,10 +406,6 @@ export async function requestSign(origin: string, req: MidenDAppSignRequest): Pr
   const dApp = await getDApp(origin, req.sourceAccountId);
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourceAccountId !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifySign(resolve, reject, dApp, req));
@@ -430,10 +474,6 @@ export async function requestPrivateNotes(
   const dApp = await getDApp(origin, req.sourcePublicKey);
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifyRequestPrivateNotes(resolve, reject, dApp, req));
@@ -508,16 +548,28 @@ const generatePromisifyRequestPrivateNotes = async (
   }
 };
 
+function noteFilterTypeToQuery(filterType: NoteFilterTypes, noteIds?: string[]): NoteQuery | undefined {
+  if (filterType === NoteFilterTypes.List && noteIds) return { ids: noteIds };
+  const statusMap: Record<string, string> = {
+    [NoteFilterTypes.Consumed]: 'consumed',
+    [NoteFilterTypes.Committed]: 'committed',
+    [NoteFilterTypes.Expected]: 'expected',
+    [NoteFilterTypes.Processing]: 'processing',
+    [NoteFilterTypes.Unverified]: 'unverified'
+  };
+  const status = statusMap[filterType as unknown as string];
+  if (status) return { status } as NoteQuery;
+  return undefined;
+}
+
 async function getPrivateNoteDetails(notefilterType: NoteFilterTypes, noteIds?: string[]): Promise<InputNoteDetails[]> {
   let privateNotes: InputNoteDetails[] = [];
   try {
     privateNotes = await withUnlocked(async () => {
-      // Wrap WASM client operations in a lock to prevent concurrent access
       return await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
-        const midenNoteIds = noteIds ? noteIds.map(id => NoteId.fromHex(id)) : undefined;
-        const noteFilter = new NoteFilter(notefilterType, midenNoteIds);
-        let allNotes = await midenClient.getInputNoteDetails(noteFilter);
+        const query = noteFilterTypeToQuery(notefilterType, noteIds);
+        let allNotes = await midenClient.getInputNoteDetails(query);
         let privateNotes = allNotes.filter(note => note.noteType === NoteType.Private);
         return privateNotes;
       });
@@ -539,10 +591,6 @@ export async function requestConsumableNotes(
   const dApp = await getDApp(origin, req.sourcePublicKey);
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifyRequestConsumableNotes(resolve, reject, dApp, req));
@@ -625,28 +673,35 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
       return await withWasmClientLock(async () => {
         const midenClient = await getMidenClient();
         await midenClient.syncState();
-        const consumableNotes = await midenClient.getConsumableNotes(accountId);
-        const consumableNotesDetails = consumableNotes.map(note => {
+        const notes = await midenClient.getConsumableNotes(accountId);
+        const consumableNotesDetails = notes.flatMap(note => {
+          // Partial (metadata-less) notes have no ID — and, since 0.15
+          // nullifiers fold in metadata, no nullifier either. They cannot
+          // be consumed, so skip until sync completes them.
+          const noteId = note.id();
+          const nullifier = note.nullifier();
+          if (!noteId || !nullifier) {
+            return [];
+          }
           const assets = note
-            .inputNoteRecord()
             .details()
             .assets()
             .fungibleAssets()
             .map(asset => ({
               amount: asset.amount().toString(),
-              faucetId: asset.faucetId().toBech32(NetworkId.testnet(), AccountInterface.BasicWallet)
+              faucetId: asset.faucetId().toBech32(getNetworkId(), AccountInterface.BasicWallet)
             }));
-          const inputNoteRecord = note.inputNoteRecord();
-          return {
-            noteId: inputNoteRecord.id().toString(),
-            noteType: inputNoteRecord.metadata()?.noteType(),
-            senderAccountId:
-              inputNoteRecord.metadata()?.sender()?.toBech32(NetworkId.testnet(), AccountInterface.BasicWallet) ||
-              undefined,
-            nullifier: inputNoteRecord.nullifier(),
-            state: inputNoteRecord.state(),
-            assets: assets
-          };
+          return [
+            {
+              noteId: noteId.toString(),
+              noteType: note.metadata()?.noteType(),
+              senderAccountId:
+                note.metadata()?.sender()?.toBech32(getNetworkId(), AccountInterface.BasicWallet) || undefined,
+              nullifier,
+              state: note.state(),
+              assets: assets
+            }
+          ];
         });
         return consumableNotesDetails;
       });
@@ -665,10 +720,6 @@ export async function requestAssets(origin: string, req: MidenDAppAssetsRequest)
   const dApp = await getDApp(origin, req.sourcePublicKey);
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
   }
 
   return new Promise((resolve, reject) => generatePromisifyRequestAssets(resolve, reject, dApp, req));
@@ -780,10 +831,6 @@ export async function requestImportPrivateNote(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
   return new Promise((resolve, reject) => generatePromisifyImportPrivateNote(resolve, reject, dApp, req));
 }
 
@@ -826,7 +873,10 @@ export const generatePromisifyImportPrivateNote = async (
             });
             resolve({
               type: MidenDAppMessageType.ImportPrivateNoteResponse,
-              noteId: noteId.toString()
+              // Hex string: the note ID for metadata-bearing files, or the
+              // details commitment for details-only imports (the common
+              // dApp `noteBytes` path).
+              noteId
             });
           } catch (e) {
             reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
@@ -846,9 +896,11 @@ export const generatePromisifyImportPrivateNote = async (
 
 export async function requestTransaction(
   origin: string,
-  req: MidenDAppTransactionRequest
+  req: MidenDAppTransactionRequest,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppTransactionResponse> {
-  console.log(req, 'requestTransaction, dapp.ts');
+  dappDebug('requestTransaction, dapp.ts', req);
   if (!req?.sourcePublicKey || !req?.transaction) {
     throw new Error(MidenDAppErrorType.InvalidParams);
   }
@@ -859,19 +911,56 @@ export async function requestTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
-  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyTransaction(resolve, reject, dApp, req, sessionId));
 }
 
 const generatePromisifyTransaction = async (
   resolve: (value: MidenDAppTransactionResponse | PromiseLike<MidenDAppTransactionResponse>) => void,
   reject: (reason?: any) => void,
   dApp: MidenDAppSession,
-  req: MidenDAppTransactionRequest
+  req: MidenDAppTransactionRequest,
+  sessionId?: string
 ) => {
+  // The generalized TransactionRequest carries a tagged `MidenTransaction`
+  // ({ type, payload }). A `send`/`consume` payload is not a custom-transaction
+  // payload, so delegate those to their dedicated flows (preview, confirmation
+  // UI and execution) instead of validating them as a CustomTransaction —
+  // otherwise they fail with "Invalid CustomTransaction payload". Only `custom`
+  // (and bare/legacy payloads) fall through to the custom flow below. Issue #88.
+  // `req.transaction.type` is a string enum from `MidenTransaction`
+  // ('send' | 'consume' | 'custom'). Compare by value rather than importing
+  // the `TransactionType` enum as a runtime value: adapter-base is consumed
+  // type-only in this module, and its runtime exports aren't loadable in the
+  // unit-test (jest) setup. The string values are part of the dApp↔wallet
+  // wire contract, so they're stable.
+  const type: string = req.transaction.type;
+  if (type === 'send') {
+    return generatePromisifySendTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppSendTransactionResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppSendTransactionRequest,
+      sessionId
+    );
+  }
+  if (type === 'consume') {
+    return generatePromisifyConsumeTransaction(
+      value =>
+        resolve({
+          type: MidenDAppMessageType.TransactionResponse,
+          transactionId: (value as MidenDAppConsumeResponse).transactionId
+        }),
+      reject,
+      dApp,
+      { ...req, transaction: req.transaction.payload } as unknown as MidenDAppConsumeRequest,
+      sessionId
+    );
+  }
+
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
@@ -881,21 +970,23 @@ const generatePromisifyTransaction = async (
       const { payload } = req.transaction;
       const customTransaction = payload as MidenCustomTransaction;
       if (!customTransaction.address || !customTransaction.transactionRequest) {
-        reject(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
+        throw new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`);
       }
 
       return formatCustomTransactionPreview(customTransaction);
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    return;
   }
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    console.log('[DApp] Non-extension requesting transaction confirmation');
+    dappDebug('[DApp] Non-extension requesting transaction confirmation');
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'transaction',
       origin: dApp.appMeta.name,
       appMeta: dApp.appMeta,
@@ -993,7 +1084,9 @@ const generatePromisifyTransaction = async (
 
 export async function requestSendTransaction(
   origin: string,
-  req: MidenDAppSendTransactionRequest
+  req: MidenDAppSendTransactionRequest,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppSendTransactionResponse> {
   if (!req?.transaction) {
     throw new Error(MidenDAppErrorType.InvalidParams);
@@ -1005,18 +1098,15 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
-  return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifySendTransaction(resolve, reject, dApp, req, sessionId));
 }
 
 const generatePromisifySendTransaction = async (
   resolve: (value: MidenDAppSendTransactionResponse | PromiseLike<MidenDAppSendTransactionResponse>) => void,
   reject: (reason?: any) => void,
   dApp: MidenDAppSession,
-  req: MidenDAppSendTransactionRequest
+  req: MidenDAppSendTransactionRequest,
+  sessionId?: string
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
@@ -1028,14 +1118,16 @@ const generatePromisifySendTransaction = async (
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    return;
   }
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    console.log('[DApp] Non-extension requesting send transaction confirmation');
+    dappDebug('[DApp] Non-extension requesting send transaction confirmation');
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'transaction',
       origin: dApp.appMeta.name,
       appMeta: dApp.appMeta,
@@ -1131,7 +1223,9 @@ const generatePromisifySendTransaction = async (
 
 export async function requestConsumeTransaction(
   origin: string,
-  req: MidenDAppConsumeRequest
+  req: MidenDAppConsumeRequest,
+  // PR-4 chunk 8: optional multi-instance session id.
+  sessionId?: string
 ): Promise<MidenDAppConsumeResponse> {
   if (!req?.sourcePublicKey || !req?.transaction) {
     throw new Error(MidenDAppErrorType.InvalidParams);
@@ -1143,18 +1237,15 @@ export async function requestConsumeTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
-  if (req.sourcePublicKey !== dApp.accountId) {
-    throw new Error(MidenDAppErrorType.NotFound);
-  }
-
-  return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req));
+  return new Promise((resolve, reject) => generatePromisifyConsumeTransaction(resolve, reject, dApp, req, sessionId));
 }
 
 const generatePromisifyConsumeTransaction = async (
   resolve: (value: MidenDAppConsumeResponse | PromiseLike<MidenDAppConsumeResponse>) => void,
   reject: (reason?: any) => void,
   dApp: MidenDAppSession,
-  req: MidenDAppConsumeRequest
+  req: MidenDAppConsumeRequest,
+  sessionId?: string
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
@@ -1166,14 +1257,16 @@ const generatePromisifyConsumeTransaction = async (
     });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    return;
   }
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    console.log('[DApp] Non-extension requesting consume transaction confirmation');
+    dappDebug('[DApp] Non-extension requesting consume transaction confirmation');
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
+      sessionId,
       type: 'consume',
       origin: dApp.appMeta.name,
       appMeta: dApp.appMeta,
@@ -1297,7 +1390,7 @@ export async function setDApp(origin: string, permissions: MidenDAppSession) {
 
 export async function removeDApp(origin: string, accountId: string) {
   const { [origin]: permissionsToRemove, ...restDApps } = await getAllDApps();
-  const newPermissions = permissionsToRemove.filter(session => session.accountId !== accountId);
+  const newPermissions = permissionsToRemove?.filter(session => session.accountId !== accountId) ?? [];
   await setDApps({ ...restDApps, [origin]: newPermissions });
   return restDApps;
 }
@@ -1319,16 +1412,14 @@ type RequestConfirmParams = {
 };
 
 async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }: RequestConfirmParams) {
-  // DApp confirmation windows only available in extension context
-  if (!isExtension()) {
-    throw new Error('DApp confirmation popup is only available in extension context');
-  }
+  /* c8 ignore start */ if (!isExtension())
+    throw new Error('DApp confirmation popup is only available in extension context'); /* c8 ignore stop */
 
   const browser = await getBrowser();
 
   let closing = false;
   const close = async () => {
-    if (closing) return;
+    /* c8 ignore start */ if (closing) return; /* c8 ignore stop */
     closing = true;
 
     try {
@@ -1420,9 +1511,22 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest }:
   const stopTimeout = () => clearTimeout(t);
 }
 
-export async function getNetworkRPC(net: string) {
-  const targetRpc = NETWORKS.find(n => n.id === net)!.rpcBaseURL;
-  return targetRpc;
+export async function getNetworkRPC(net: string | undefined) {
+  // dApp didn't specify a network — fall back to the wallet's currently
+  // selected one. Prevents an immediate connect() failure for dApps that
+  // (legitimately) just want to use whatever the user is on.
+  if (!net) {
+    const current = await getCurrentMidenNetwork();
+    if (!current) {
+      throw new Error(MidenDAppErrorType.NetworkNotGranted);
+    }
+    return current.rpcBaseURL;
+  }
+  const found = NETWORKS.find(n => n.id === net);
+  if (!found) {
+    throw new Error(MidenDAppErrorType.NetworkNotGranted);
+  }
+  return found.rpcBaseURL;
 
   // if (typeof net === 'string') {
   //   try {
@@ -1484,10 +1588,8 @@ function formatCustomTransactionPreview(payload: MidenCustomTransaction): string
 // Background-safe helpers (duplicated from UI without UI deps)
 function formatAmountSafe(amount: bigint, transactionType: 'send' | 'consume', tokenDecimals: number | undefined) {
   const normalizedAmount = formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals);
-  if (transactionType === 'send') {
-    return `-${normalizedAmount}`;
-  } else if (transactionType === 'consume') {
+  if (transactionType === 'consume') {
     return `+${normalizedAmount}`;
   }
-  return normalizedAmount;
+  return transactionType === 'send' ? `-${normalizedAmount}` : normalizedAmount;
 }

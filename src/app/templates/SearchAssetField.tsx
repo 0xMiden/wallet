@@ -18,7 +18,7 @@ const SearchAssetField: FC<SearchAssetFieldProps> = ({ className, ...rest }) => 
         'py-2 pl-8 pr-4',
         'bg-gray-100 focus:bg-transparent',
         'border border-transparent',
-        'focus:outline-none focus:border-gray-300',
+        'focus:outline-none focus:border-border-card',
         'transition ease-in-out duration-200',
         'rounded-md',
         'text-black text-sm leading-tight',
@@ -27,7 +27,7 @@ const SearchAssetField: FC<SearchAssetFieldProps> = ({ className, ...rest }) => 
       )}
       placeholder={t('searchAssets')}
       searchIconClassName="h-5 w-auto"
-      searchIconWrapperClassName="px-2 text-gray-500"
+      searchIconWrapperClassName="px-2 text-text-muted"
       {...rest}
     />
   );

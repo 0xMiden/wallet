@@ -63,7 +63,7 @@ const InFiat: FC<InFiatProps> = ({
             {roundedInFiat}
           </Money>
         ),
-        symbol: selectedFiatCurrency.symbol
+        symbol: selectedFiatCurrency?.symbol ?? ''
       })
     : null;
 };

@@ -1,0 +1,16 @@
+# Swift Package Manager build artifacts
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode build artifacts
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# macOS junk
+.DS_Store
+._*
+
+# Node modules (none in this package, but defensive)
+node_modules/

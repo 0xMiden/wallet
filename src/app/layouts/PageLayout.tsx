@@ -14,8 +14,8 @@ import { isDesktop, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
-import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
 import { PageLayoutSelectors } from './PageLayout.selectors';
+import { useOnboardingProgress } from '../hooks/useOnboardingProgress';
 import { ChangelogOverlay } from './PageLayout/ChangelogOverlay/ChangelogOverlay';
 
 interface PageLayoutProps extends PropsWithChildren, ToolbarProps {
@@ -31,7 +31,7 @@ const PageLayout: FC<PageLayoutProps> = ({
   showBottomBorder = true,
   ...toolbarProps
 }) => {
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
 
   // Platform-specific sizing:
   // - Mobile: 100% to inherit from parent chain (body has safe area padding)
@@ -41,9 +41,11 @@ const PageLayout: FC<PageLayoutProps> = ({
     ? { height: '100%', width: '100%' }
     : isDesktop()
       ? { height: '100%', width: '100%', maxWidth: '600px' }
-      : fullPage
-        ? { height: '640px', width: '600px' }
-        : { height: '600px', width: '360px' };
+      : sidePanel
+        ? { height: '100%', width: '100%' }
+        : fullPage
+          ? { height: '640px', width: '600px' }
+          : { height: '600px', width: '360px' };
 
   return (
     <>
@@ -157,8 +159,12 @@ const Toolbar: FC<ToolbarProps> = ({
     });
   }, [registerBackHandler, historyPosition, inHome]);
 
+  // `sticked` is intentionally unread — the setter fires an
+  // IntersectionObserver-driven state change that could be consumed
+  // later (e.g. to swap a sticky-header shadow). Prefix-underscore to
+  // keep TS's noUnusedLocals happy without losing the slot.
   // eslint-disable-next-line
-  const [sticked, setSticked] = useState(false);
+  const [, setSticked] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -167,6 +173,7 @@ const Toolbar: FC<ToolbarProps> = ({
     if ('IntersectionObserver' in window && toolbarEl) {
       const observer = new IntersectionObserver(
         ([entry]) => {
+          if (!entry) return;
           setSticked(entry.boundingClientRect.y < entry.rootBounds!.y);
         },
         { threshold: [1] }
@@ -229,7 +236,7 @@ const Toolbar: FC<ToolbarProps> = ({
               onClick={step ? onStepBack : onBack}
               testID={PageLayoutSelectors.BackButton}
             >
-              <Icon name={IconName.Close} fill={'black'} />
+              <Icon name={IconName.Close} fill={'currentColor'} />
             </Button>
           )}
         </div>

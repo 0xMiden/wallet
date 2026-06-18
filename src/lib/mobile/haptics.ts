@@ -91,3 +91,23 @@ export const hapticSelection = async () => {
     // Ignore errors on unsupported devices
   }
 };
+
+/**
+ * Semantic aliases for the dApp browser drag/bubble interactions.
+ * These map to existing impact styles but communicate intent at the call site.
+ */
+
+/**
+ * Drag-to-minimize crosses the commit threshold — the drag is now committed to a snap.
+ */
+export const hapticDragSnap = hapticMedium;
+
+/**
+ * Floating bubble lands on a corner after a drag (magnetic snap).
+ */
+export const hapticBubbleAttach = hapticMedium;
+
+/**
+ * Floating bubble released into the discard zone (about to close).
+ */
+export const hapticBubbleRelease = hapticHeavy;

@@ -8,14 +8,17 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import NoSpaceField from 'app/atoms/NoSpaceField';
 import TabSwitcher from 'app/atoms/TabSwitcher';
+import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import PageLayout from 'app/layouts/PageLayout';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext, useAllAccounts } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
 import { clearClipboard } from '../../lib/ui/util';
 
 type ImportAccountProps = {
-  tabSlug: string | null;
+  tabSlug: string | null | undefined;
 };
 
 interface ImportTabDescriptor {
@@ -29,12 +32,20 @@ const ImportAccount: FC<ImportAccountProps> = ({ tabSlug }) => {
   const allAccounts = useAllAccounts();
   const { updateCurrentAccount } = useMidenContext();
 
+  // Fallback auto-switch: if anything adds an account while this page is
+  // mounted (e.g. a legacy code path that doesn't return its id),
+  // still select the newcomer. The private-key form below uses the
+  // returned id directly for a tighter flow; this effect covers the
+  // watch-only form and any future additions.
   const prevAccLengthRef = useRef(allAccounts.length);
   useEffect(() => {
     const accLength = allAccounts.length;
     if (prevAccLengthRef.current < accLength) {
-      updateCurrentAccount(allAccounts[accLength - 1].publicKey);
-      navigate('/');
+      const lastAccount = allAccounts[accLength - 1];
+      if (lastAccount) {
+        updateCurrentAccount(lastAccount.publicKey);
+        navigate('/');
+      }
     }
     prevAccLengthRef.current = accLength;
   }, [allAccounts, updateCurrentAccount]);
@@ -57,7 +68,7 @@ const ImportAccount: FC<ImportAccountProps> = ({ tabSlug }) => {
   );
   const { slug, Form } = useMemo(() => {
     const tab = tabSlug ? allTabs.find(currentTab => currentTab.slug === tabSlug) : null;
-    return tab ?? allTabs[0];
+    return tab ?? allTabs[0]!;
   }, [allTabs, tabSlug]);
 
   return (
@@ -81,12 +92,12 @@ export default ImportAccount;
 
 interface ByPrivateKeyFormData {
   privateKey: string;
-  encPassword?: string;
+  name?: string;
 }
 
 const ByPrivateKeyForm: FC = () => {
   const { t } = useTranslation();
-  const { importAccount } = useMidenContext();
+  const { importAccount, updateCurrentAccount } = useMidenContext();
 
   const {
     register,
@@ -96,12 +107,22 @@ const ByPrivateKeyForm: FC = () => {
   const [error, setError] = useState<ReactNode>(null);
 
   const onSubmit = useCallback(
-    async ({ privateKey, encPassword }: ByPrivateKeyFormData) => {
+    async ({ privateKey, name }: ByPrivateKeyFormData) => {
       if (isSubmitting) return;
 
       setError(null);
       try {
-        await importAccount(privateKey.replace(/\s/g, ''), encPassword);
+        const newAccountPublicKey = await importAccount(privateKey.replace(/\s/g, ''), name?.trim() || undefined);
+        // Switch directly to the returned account id rather than
+        // waiting on the parent page's length-change effect — the
+        // effect works, but fires one render later because it depends
+        // on the `StateUpdated` broadcast landing first. Using the
+        // return value makes the navigation independent of broadcast
+        // ordering.
+        if (newAccountPublicKey) {
+          await updateCurrentAccount(newAccountPublicKey);
+          navigate('/');
+        }
       } catch (err: any) {
         console.error(err);
 
@@ -110,8 +131,14 @@ const ByPrivateKeyForm: FC = () => {
         setError(err.message);
       }
     },
-    [importAccount, isSubmitting, setError]
+    [importAccount, updateCurrentAccount, isSubmitting, setError]
   );
+
+  useNativeNavbarAction({
+    label: t('importAccount'),
+    onTap: handleSubmit(onSubmit),
+    enabled: !isSubmitting
+  });
 
   return (
     <form className="w-full max-w-sm mx-auto my-8" onSubmit={handleSubmit(onSubmit)} style={{ minHeight: '325px' }}>
@@ -134,23 +161,40 @@ const ByPrivateKeyForm: FC = () => {
         className="resize-none"
         onPaste={() => clearClipboard()}
       />
-      <div className="mb-6 text-gray-200" style={{ fontSize: '12px', lineHeight: '16px' }}>
+      <div className="mb-6 text-text-muted" style={{ fontSize: '12px', lineHeight: '16px' }}>
         {t('privateKeyInputDescription')}
       </div>
-      <FormSubmitButton
-        className="capitalize w-full justify-center"
-        style={{
-          fontSize: '18px',
-          lineHeight: '24px',
-          paddingLeft: '0.5rem',
-          paddingRight: '0.5rem',
-          paddingTop: '12px',
-          paddingBottom: '12px'
-        }}
-        loading={isSubmitting}
-      >
-        {t('importAccount')}
-      </FormSubmitButton>
+      <FormField
+        {...register('name', {
+          pattern: { value: ACCOUNT_NAME_PATTERN, message: t('accountNameInputInvalid') }
+        })}
+        name="name"
+        id="importacc-name"
+        label={
+          <div className="font-medium -mb-2" style={{ fontSize: '14px', lineHeight: '20px' }}>
+            {t('accountName')}
+          </div>
+        }
+        placeholder={t('accountNameInputPlaceholder')}
+        errorCaption={errors.name?.message}
+        containerClassName="mb-6"
+      />
+      {!isMobile() && (
+        <FormSubmitButton
+          className="capitalize w-full justify-center"
+          style={{
+            fontSize: '18px',
+            lineHeight: '24px',
+            paddingLeft: '0.5rem',
+            paddingRight: '0.5rem',
+            paddingTop: '12px',
+            paddingBottom: '12px'
+          }}
+          loading={isSubmitting}
+        >
+          {t('importAccount')}
+        </FormSubmitButton>
+      )}
     </form>
   );
 };
@@ -201,6 +245,12 @@ const WatchOnlyForm: FC = () => {
     [importWatchOnlyAccount, isSubmitting, setError]
   );
 
+  useNativeNavbarAction({
+    label: t('importAccount'),
+    onTap: handleSubmit(onSubmit),
+    enabled: !isSubmitting
+  });
+
   return (
     <form className="w-full max-w-sm mx-auto my-8" onSubmit={handleSubmit(onSubmit)} style={{ minHeight: '325px' }}>
       {error && <Alert type="error" title={t('error')} description={error} autoFocus className="mb-6" />}
@@ -210,7 +260,7 @@ const WatchOnlyForm: FC = () => {
         control={control}
         rules={{
           required: true,
-          validate: (value: any) => true
+          validate: () => true
         }}
         render={({ field }) => (
           <NoSpaceField
@@ -233,24 +283,26 @@ const WatchOnlyForm: FC = () => {
           />
         )}
       />
-      <div className="mb-6 text-gray-200" style={{ fontSize: '12px', lineHeight: '16px' }}>
+      <div className="mb-6 text-text-muted" style={{ fontSize: '12px', lineHeight: '16px' }}>
         {t('viewKeyInputDescription')}
       </div>
 
-      <FormSubmitButton
-        className="capitalize w-full justify-center"
-        style={{
-          fontSize: '18px',
-          lineHeight: '24px',
-          paddingLeft: '0.5rem',
-          paddingRight: '0.5rem',
-          paddingTop: '12px',
-          paddingBottom: '12px'
-        }}
-        loading={isSubmitting}
-      >
-        {t('importAccount')}
-      </FormSubmitButton>
+      {!isMobile() && (
+        <FormSubmitButton
+          className="capitalize w-full justify-center"
+          style={{
+            fontSize: '18px',
+            lineHeight: '24px',
+            paddingLeft: '0.5rem',
+            paddingRight: '0.5rem',
+            paddingTop: '12px',
+            paddingBottom: '12px'
+          }}
+          loading={isSubmitting}
+        >
+          {t('importAccount')}
+        </FormSubmitButton>
+      )}
     </form>
   );
 };

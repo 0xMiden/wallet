@@ -8,7 +8,9 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import PageLayout from 'app/layouts/PageLayout';
 import { useFormAnalytics } from 'lib/analytics';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useAccount, useMidenContext } from 'lib/miden/front';
+import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
 type FormData = {
@@ -63,6 +65,13 @@ const UpdateAccountName: FC = () => {
     [account.name, account.publicKey, isSubmitting, clearErrors, setError, editAccountName, formAnalytics]
   );
 
+  // Hoist Save to the native navbar on mobile.
+  useNativeNavbarAction({
+    label: t('save'),
+    onTap: handleSubmit(onSubmit),
+    enabled: !isSubmitting
+  });
+
   return (
     <PageLayout pageTitle={<>{t('editAccountName')}</>}>
       <div className="w-full max-w-sm mx-auto mt-6 px-4" style={{ height: '420px' }}>
@@ -86,20 +95,22 @@ const UpdateAccountName: FC = () => {
             errorCaption={errors.name?.message}
           />
 
-          <FormSubmitButton
-            className="capitalize w-full justify-center mt-8"
-            loading={isSubmitting}
-            style={{
-              fontSize: '18px',
-              lineHeight: '24px',
-              paddingLeft: '0.5rem',
-              paddingRight: '0.5rem',
-              paddingTop: '12px',
-              paddingBottom: '12px'
-            }}
-          >
-            {t('save')}
-          </FormSubmitButton>
+          {!isMobile() && (
+            <FormSubmitButton
+              className="capitalize w-full justify-center mt-8"
+              loading={isSubmitting}
+              style={{
+                fontSize: '18px',
+                lineHeight: '24px',
+                paddingLeft: '0.5rem',
+                paddingRight: '0.5rem',
+                paddingTop: '12px',
+                paddingBottom: '12px'
+              }}
+            >
+              {t('save')}
+            </FormSubmitButton>
+          )}
         </form>
       </div>
     </PageLayout>

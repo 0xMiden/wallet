@@ -181,7 +181,7 @@ export async function fetchLocaleMessages(locale: string) {
 function appendPlaceholderLists(messages: LocaleMessages) {
   for (const name in messages) {
     const val = messages[name];
-    if (val.placeholders) {
+    if (val?.placeholders) {
       val.placeholderList = [];
       for (const pKey in val.placeholders) {
         const placeholder: { content: string } | undefined = val.placeholders[pKey];

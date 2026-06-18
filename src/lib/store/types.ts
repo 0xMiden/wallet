@@ -1,13 +1,12 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
+import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
-
-import { TokenBalanceData } from '../miden/front/balance';
 
 /**
  * Core wallet state (synced from backend)
@@ -22,7 +21,7 @@ export interface WalletSlice {
 }
 
 /**
- * Balance state (previously separate SWR cache)
+ * Balance state (cached from IndexedDB via fetchBalances)
  */
 export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
@@ -74,8 +73,28 @@ export interface TransactionModalSlice {
   isTransactionModalOpen: boolean;
   /** Whether the user explicitly dismissed the modal (prevents auto-reopen until transactions complete) */
   isTransactionModalDismissedByUser: boolean;
-  /** Whether the dApp browser is open (mobile only) */
+  /**
+   * Whether the dApp browser is open (mobile only).
+   *
+   * Backwards-compat boolean — kept in lockstep with `activeDappSessionId`.
+   * Existing consumers like `native-notifications.ts` continue to read this.
+   * New code should prefer `activeDappSessionId` (a string id is friendlier
+   * for the multi-instance world that lands in PR-4).
+   */
   isDappBrowserOpen: boolean;
+  /**
+   * The id of the dApp session currently in the foreground, or null when the
+   * launcher is showing. Single-session in PR-1; PR-3 adds a parked-session
+   * list; PR-4 generalizes to a per-instance map.
+   */
+  activeDappSessionId: string | null;
+  /**
+   * On-chain hash of the most recently completed transaction initiated in
+   * this session, used to render a "View on Midenscan" action in the
+   * transaction-complete modal. Cleared when the modal opens for a new tx
+   * or closes, so a stale hash never leaks across sends.
+   */
+  lastCompletedTxHash: string | null;
 }
 
 /**
@@ -98,8 +117,17 @@ export interface WalletActions {
   syncFromBackend: (state: MidenState) => void;
 
   // Auth actions
-  registerWallet: (password: string | undefined, mnemonic?: string, ownMnemonic?: boolean) => Promise<void>;
-  importWalletFromClient: (password: string | undefined, mnemonic: string) => Promise<void>;
+  registerWallet: (
+    walletType: WalletType,
+    password: string | undefined,
+    mnemonic: string,
+    ownMnemonic: boolean
+  ) => Promise<void>;
+  importWalletFromClient: (
+    password: string | undefined,
+    mnemonic: string,
+    walletAccounts: WalletAccount[]
+  ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 
   // Account actions
@@ -107,6 +135,13 @@ export interface WalletActions {
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
+  revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  revealGuardianKeys: (
+    accountPublicKey: string,
+    password?: string
+  ) => Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }>;
+  importAccount: (privateKey: string, name?: string) => Promise<string>;
 
   // Settings actions
   updateSettings: (newSettings: Partial<WalletSettings>) => Promise<void>;
@@ -114,6 +149,10 @@ export interface WalletActions {
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
+  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
+  swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
+  getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 
   // DApp actions
@@ -141,16 +180,13 @@ export interface WalletActions {
 }
 
 /**
- * Balance actions
+ * Asset actions
  */
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
 }
 
-/**
- * Asset actions
- */
 export interface AssetActions {
   setAssetsMetadata: (metadata: Record<string, AssetMetadata>) => void;
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;
@@ -183,6 +219,12 @@ export interface TransactionModalActions {
   /** Reset the dismissed flag (called when all transactions complete) */
   resetTransactionModalDismiss: () => void;
   setDappBrowserOpen: (isOpen: boolean) => void;
+  /**
+   * Set the active dApp session id (or clear it). Updates `isDappBrowserOpen`
+   * in lockstep so legacy consumers stay correct.
+   */
+  setActiveDappSession: (sessionId: string | null) => void;
+  setLastCompletedTxHash: (txHash: string | null) => void;
 }
 
 /**
@@ -201,6 +243,8 @@ export interface ExtensionSyncSlice {
 export interface ExtensionSyncActions {
   setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
   addExtensionClaimingNoteId: (noteId: string) => void;
+  /** Remove specific note IDs from the claiming set (e.g. those no longer consumable). */
+  removeExtensionClaimingNoteIds: (noteIds: string[]) => void;
   clearExtensionClaimingNoteIds: () => void;
 }
 

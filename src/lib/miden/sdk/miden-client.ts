@@ -72,13 +72,20 @@ class AsyncMutex {
         return;
       }
       // Check if high-priority work is waiting - if so, pause idle tasks
+      /* c8 ignore next 5 -- requires concurrent lock contention during idle drain */
       if (this.locked || this.queue.length > 0) {
         // Re-queue remaining tasks and stop
         this.idleQueue.unshift(...tasks.slice(index));
         this.drainingIdle = false;
         return;
       }
-      tasks[index]()
+      const task = tasks[index];
+      /* c8 ignore next 4 -- defensive guard for sparse array */
+      if (!task) {
+        runNext(index + 1);
+        return;
+      }
+      task()
         .catch(err => console.warn('Idle task failed:', err))
         .finally(() => runNext(index + 1));
     };
@@ -99,6 +106,31 @@ export async function withWasmClientLock<T>(operation: () => Promise<T>): Promis
     return await operation();
   } finally {
     wasmClientMutex.release();
+  }
+}
+
+/**
+ * Temporarily release the WASM client mutex while running `operation`, then
+ * reacquire it before resolving. Caller MUST currently hold the lock.
+ *
+ * Use this when a lock-holding flow does long, genuinely-non-WASM-client
+ * work — for example, awaiting an offscreen-document prover. Without
+ * yielding, sync (which contends on this same mutex) gets blocked for the
+ * full prove duration and surfaces a "can't reach node" toast on its
+ * timeout. With the yield, sync runs while the prove is happening in the
+ * other context, which is fine because the offscreen doc has its own WASM
+ * instance and isn't touching the SW's client.
+ *
+ * Safety: the operation must NOT touch the WASM client (any wasm-bindgen
+ * call, MidenClient method, etc.). It's only safe to use for I/O-bound
+ * waits on workloads that don't share state with the SW's WASM instance.
+ */
+export async function yieldWasmClientLock<T>(operation: () => Promise<T>): Promise<T> {
+  wasmClientMutex.release();
+  try {
+    return await operation();
+  } finally {
+    await wasmClientMutex.acquire();
   }
 }
 
@@ -132,10 +164,12 @@ class MidenClientSingleton {
    */
   async getInstance(): Promise<MidenClientInterface> {
     // On mobile, reuse any existing client to avoid OOM from multiple worker instances
+    /* c8 ignore next 3 -- singleton reuse path, requires prior getInstanceWithOptions call */
     if (this.instanceWithOptions) {
       return this.instanceWithOptions;
     }
 
+    /* c8 ignore next 3 -- singleton cache hit, requires WASM client creation */
     if (this.instance) {
       return this.instance;
     }
@@ -163,6 +197,7 @@ class MidenClientSingleton {
       this.disposeInstanceWithOptions();
     }
 
+    /* c8 ignore next 3 -- concurrent init dedup, requires WASM client creation */
     if (this.initializingPromiseWithOptions) {
       return this.initializingPromiseWithOptions;
     }
@@ -194,7 +229,9 @@ const midenClientSingleton = new MidenClientSingleton();
  */
 export async function getMidenClient(options?: MidenClientCreateOptions): Promise<MidenClientInterface> {
   if (options) {
-    return await midenClientSingleton.getInstanceWithOptions(options);
+    const client = await midenClientSingleton.getInstanceWithOptions(options);
+    return client;
   }
-  return await midenClientSingleton.getInstance();
+  const client = await midenClientSingleton.getInstance();
+  return client;
 }

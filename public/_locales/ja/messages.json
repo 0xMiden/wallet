@@ -338,6 +338,52 @@
     "message": "アカウント名",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "例えば貯蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1 ～ 16 文字、空白またはハイフンで始めることはできません",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "同じ名前のアカウントがすでに存在します",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "続行する前に",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "秘密キーを保持している人は誰でも、このアカウントを完全に制御できます。 Miden アカウントはキーをローテーションできないため、キーが漏洩するとアカウントが永久に侵害されます。",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "このキーはローテーションまたは取り消しできないことを理解しています。",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "インポートされたアカウント ( $importedCount$ ) はこのファイルには含まれません。バックアップするには、[設定] → [秘密キーの公開] から各秘密キーを個別にエクスポートします。",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "この暗号化ファイルは次の方法でエクスポートされました。 $importedCount$ バックアップに含まれていないインポートされたアカウント。これらのアカウントは復元されたウォレットには表示されません。再追加するには元の秘密キーが必要です。 「インポートを続行」をクリックして続行します。",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "インポートを続行する",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "アカウント名の編集",
     "englishSource": "Edit Account Name"
@@ -397,6 +443,91 @@
   "generatingTransactionDescription": {
     "message": "ネットワークトラフィックのレベルに応じて、これには少し時間がかかる場合があります",
     "englishSource": "This may take a moment depending on the level network traffic"
+  },
+  "transactionStageSyncing": {
+    "message": "アカウントを同期しています",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "最新のアカウント状態を取得しています。",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "送信トランザクション",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "トランザクションを構築して証明します。",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "note を主張しています",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "トランザクションの実行中",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageSwitching": {
+    "message": "ガーディアンの切り替え",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "提案書の作成",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "保護者向けの取引提案書を作成します。",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "保護者とのサイン",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "あなたの保護者が提案書に署名しています。",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "トランザクションの送信",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "署名されたトランザクションをネットワークに送信します。",
+    "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageConfirming": {
+    "message": "チェーンで確認中",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "ネットワークの確認を待っています。",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "保護者への登録",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "新しい保護者にアカウントの状態を登録します。",
+    "englishSource": "Registering your account state with the new guardian."
+  },
+  "transactionStageDelivering": {
+    "message": "note を配信中",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "note を受信者に安全に送信します。",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ 件のトランザクションが進行中です",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "status": {
     "message": "スターテス",
@@ -743,8 +874,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "オペレーションが見つかりませんでした",
-    "englishSource": "No operations found"
+    "message": "現在取引はありません。",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "削除するアカウント。",
@@ -1513,6 +1644,46 @@
     "message": "暗号化されたウォレットファイル",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "ガーディアン",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "ガーディアンの設定",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "現在のガーディアン",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "新しいガーディアン エンドポイント",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "スイッチガーディアン",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Guardian アカウントを新しいガーディアン エンドポイントに向けます。スイッチはオンチェーン プロポーザルとして署名されます。",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "守護者を切り替えます...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "ガーディアンが正常に切り替わりました。",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "それはすでにあなたの現在の保護者です。",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "http:// または https:// で始まる有効な URL を入力してください",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "パスワードを入力して、暗号化されたウォレット ファイルにアクセスします。",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1751,10 +1922,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "生成されたファイルをダウンロードする",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "オンチェーンアカウント (パブリック)",
     "englishSource": "On-chain Account (Public)"
@@ -1782,6 +1949,74 @@
   "canAddMultipleAccountsLater": {
     "message": "後からウォレット内で複数のアカウント タイプを追加および管理できます。",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "アカウント回復のセットアップ",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "アクセスできなくなった場合にアカウントを回復する方法を選択します。",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "ガーディアン",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "推奨。アカウントは Guardian ベースで回復されますが、Guurdian オペレーターはお客様の状態を確認できます。",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "完全プライベート",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "ローカルのみ、あなた以外の誰もあなたの状態を見ることはできませんが、回復はできません。デバイスを失うと資金が永久に失われます。",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "公共",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "公開オンチェーン アカウントを回復します。",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "このウォレットをどのように復元しますか?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Guardian 経由でインポートする",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "保護者を使用してこのアカウントを回復し、共同署名してください。",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "パブリックアカウントをインポートする",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "seed phrase から派生した公開アカウントをインポートします。",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "ガーディアンのURL",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "別のガーディアンを使用する",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "このガーディアンであなたのアカウントが見つかりませんでした。 URL を確認するか、代わりにパブリック アカウントとしてインポートしてください。",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "デフォルト",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "トランザクションファイル",
@@ -1822,6 +2057,10 @@
   "viewOnExplorer": {
     "message": "エクスプローラーで見る",
     "englishSource": "View on Explorer"
+  },
+  "viewOnMidenscan": {
+    "message": "ミデンスキャンで見る",
+    "englishSource": "View on Midenscan"
   },
   "inProgress": {
     "message": "進行中",
@@ -2125,6 +2364,46 @@
     "message": "ウォレットがオフラインであるか同期していない可能性があります。",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "オフラインのようです",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "インターネット接続を確認して、もう一度試してください。",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "ミデンノードに到達できません",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "ノードがダウンしているか、高負荷がかかっている可能性があります。残高が期限切れになっている可能性があります。",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "証明サービスが利用できない",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "サービスが再開されるまで、トランザクションではローカル証明が使用されます。",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "再接続中",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "接続を復元しようとしています。",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "もう一度やり直してください",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "同期を再試行します",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "Noteは正常に消費されました。",
     "englishSource": "Your note was successfully consumed."
@@ -2269,6 +2548,165 @@
     "message": "お気に入り",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "dAppを検索するかURLを貼り付けてください",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "注目の",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "私のdApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "最近",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "左にスクロール",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "右にスクロール",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "クイックアクション",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "ブラウズ",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "ツール",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "社交",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "このカテゴリにはまだ dApp がありません",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "ミデンのエコシステムを探索する",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "最小化する",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "dAppを切り替える",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "リロード",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "その他のオプション",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "dApp アクション",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "リンクをコピー",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "私のDappsに追加",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "My Dapps から削除する",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "再開",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "復元する $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "近い $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ より多くの dApp が駐車されています",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "リンクがコピーされました",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "私のDappsに追加されました",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "この dApp を読み込めません",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "接続を確認して、もう一度試してください。",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "dAppブラウザのヘッダー",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "下にドラッグして最小化します",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dAppスイッチャー",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "dAppスイッチャーを閉じる",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 dAppを開く",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} 個の dApp を開きます",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "承認する",
     "englishSource": "Approve"
@@ -2406,6 +2844,22 @@
     "message": "ダークモード",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "テーマ",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "システム",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "ライト",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "暗い",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "触覚フィードバック",
     "englishSource": "Haptic Feedback"
@@ -2415,8 +2869,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "現在、申請できる notes はありませんが、申請するとここに表示されます。",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "現在、申請できる notes はありません。",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "note を受け取りました",
@@ -2425,6 +2879,19 @@
   "noteReceivedTapToClaim": {
     "message": "ここをタップして申請してください",
     "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "tokenHistory": {
     "message": "$tokenName$ の歴史",
@@ -2570,5 +3037,53 @@
   "type": {
     "message": "タイプ",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "送信ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "作成されました",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "確認済み",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "日付",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "note を追加します",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "詳細オプション",
+    "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "ピンミデンウォレット",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "パズル アイコンをクリックして Miden Wallet を固定すると、ツールバーから簡単にアクセスできます。",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "わかった",
+    "englishSource": "Got it"
+  },
+  "downloadGeneratedFiles": {
+    "message": "生成されたファイルをダウンロードする",
+    "englishSource": "Download Generated Files"
   }
 }

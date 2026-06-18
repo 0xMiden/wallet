@@ -1,0 +1,15 @@
+<!--
+  Miden patch — Android navbar Send icon.
+  Material Icons "arrow_outward" / north_east. Matches the iOS
+  `arrow.up.right` SF Symbol — diagonal outgoing arrow for "send".
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M9,5v2h6.59L4,18.59 5.41,20 17,8.41V15h2V5z"/>
+</vector>

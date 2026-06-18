@@ -338,6 +338,52 @@
     "message": "Ім'я аккаунту",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "напр. Економія",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1–16 символів, не може починатися з пробілів або дефіса",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Обліковий запис із такою назвою вже існує",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Перш ніж продовжити",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Ваш особистий ключ надає повний контроль над цим обліковим записом тому, хто ним володіє. Облікові записи Miden не можуть змінювати ключі, тому витік ключа постійно компрометує обліковий запис.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Я розумію, що цей ключ не можна змінити або відкликати.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Імпортовані облікові записи ( $importedCount$ ) не буде включено в цей файл. Щоб створити їх резервну копію, експортуйте кожен закритий ключ окремо в меню «Параметри» → «Відкрити закритий ключ».",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Цей зашифрований файл було експортовано за допомогою $importedCount$ імпортовані облікові записи, які не є частиною резервної копії. Ці облікові записи не відображатимуться у вашому відновленому гаманці — вам знадобляться їхні оригінальні закриті ключі, щоб повторно додати їх. Натисніть «Продовжити імпорт», щоб продовжити.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Продовжити імпорт",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Редагувати назву облікового запису",
     "englishSource": "Edit Account Name"
@@ -397,6 +443,91 @@
   "generatingTransactionDescription": {
     "message": "Це може зайняти деякий час залежно від рівня мережевого трафіку",
     "englishSource": "This may take a moment depending on the level network traffic"
+  },
+  "transactionStageSyncing": {
+    "message": "Синхронізація облікового запису",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "Отримання останнього стану облікового запису.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "Відправка транзакції",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "Побудова та підтвердження вашої транзакції.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "Вимагання note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "Виконання транзакції",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageSwitching": {
+    "message": "Зміна опікуна",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Створення пропозиції",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Створення пропозиції транзакції для вашого опікуна.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Підписання з опікуном",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Ваш опікун підписує пропозицію.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Подання транзакції",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Надсилання підписаної транзакції в мережу.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageConfirming": {
+    "message": "Підтвердження по ланцюжку",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "Очікування підтвердження мережі.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Реєстрація в опікуна",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Реєстрація стану вашого облікового запису у нового опікуна.",
+    "englishSource": "Registering your account state with the new guardian."
+  },
+  "transactionStageDelivering": {
+    "message": "Доставка note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "Безпечне надсилання note одержувачу.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ поточних транзакцій",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "status": {
     "message": "Статус",
@@ -743,8 +874,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "Операцій не знайдено",
-    "englishSource": "No operations found"
+    "message": "Зараз у вас немає транзакцій.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Аккаунт для видалення.",
@@ -1514,6 +1645,46 @@
     "message": "Зашифрований файл гаманця",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Опікун",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Налаштування опікуна",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Поточний опікун",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Нова кінцева точка Guardian",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Switch Guardian",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Направте свій обліковий запис Guardian на нову кінцеву точку опікуна. Комутатор підписаний як пропозиція в ланцюжку.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Зміна опікуна...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Опікун перейшов успішно.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "Це вже ваш поточний опікун.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "Введіть дійсну URL-адресу, яка починається з http:// або https://",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Введіть свій пароль, щоб отримати доступ до зашифрованого файлу гаманця.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1752,10 +1923,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Завантажте згенеровані файли",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Обліковий запис у мережі (публічний)",
     "englishSource": "On-chain Account (Public)"
@@ -1783,6 +1950,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Пізніше в гаманці можна додати кілька типів облікових записів і керувати ними.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Налаштувати відновлення облікового запису",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Виберіть спосіб відновлення облікового запису, якщо ви втратите доступ.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Опікун",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Рекомендовано. Відновлення вашого облікового запису на основі опікуна, але оператор-охоронець може бачити ваш стан.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Повністю приватний",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Лише локально, ніхто не бачить ваш стан, крім вас, але відновлення не відбувається, втрата пристрою призведе до остаточної втрати ваших коштів.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Громадський",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Відновіть загальнодоступний обліковий запис у мережі.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Як би ви хотіли відновити цей гаманець?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Імпортувати через Guardian",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Скористайтеся опікуном, щоб відновити та підписати цей обліковий запис.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Імпорт публічного облікового запису",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "Імпортуйте публічний обліковий запис, отриманий із вашого seed phrase.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "URL-адреса опікуна",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Використовуйте іншого опікуна",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Нам не вдалося знайти ваш обліковий запис у цього опікуна. Перевірте URL-адресу або імпортуйте як публічний обліковий запис.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "За замовчуванням",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "Файл транзакцій",
@@ -1823,6 +2058,10 @@
   "viewOnExplorer": {
     "message": "Переглянути в Провіднику",
     "englishSource": "View on Explorer"
+  },
+  "viewOnMidenscan": {
+    "message": "Переглянути на Midenscan",
+    "englishSource": "View on Midenscan"
   },
   "inProgress": {
     "message": "В роботі",
@@ -2126,6 +2365,46 @@
     "message": "Гаманець може бути офлайн або не синхронізований.",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "Здається, ви офлайн",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "Перевірте підключення до Інтернету та повторіть спробу.",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "Не вдається досягти вузла Miden",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "Можливо, вузол не працює або перебуває під великим навантаженням. Ваш баланс може бути застарілим.",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "Підтвердження того, що послуга недоступна",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "Трансакції використовуватимуть локальне підтвердження до відновлення служби.",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "Повторне підключення",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "Спроба відновити з’єднання.",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "Спробуйте знову",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "Повторити синхронізацію",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "Вашу note успішно використано.",
     "englishSource": "Your note was successfully consumed."
@@ -2270,6 +2549,165 @@
     "message": "Вибране",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Знайдіть dApps або вставте URL-адресу",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "Рекомендовані",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Мої dApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Останні",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Прокрутіть вліво",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Прокрутіть праворуч",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Швидкі дії",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "переглядати",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DeFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Інструменти",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Соціальний",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "У цій категорії ще немає dApps",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Дослідіть екосистему Miden",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Згорнути",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Переключити dApps",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Перезавантажити",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Більше варіантів",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Дії dApp",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Копіювати посилання",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Додати до моїх Dapps",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Видалити з Моїх програм",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Знову відкрити",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Відновити $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Закрити $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ більше припаркованих dApps",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Посилання скопійовано",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Додано до My Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Не вдається завантажити цей dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Перевірте підключення та повторіть спробу.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "Заголовок браузера dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Перетягніть вниз, щоб згорнути",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "dApp перемикач",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Закрийте перемикач програм dApp",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 відкрити dApp",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} відкритих програм dApps",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Затвердити",
     "englishSource": "Approve"
@@ -2407,6 +2845,22 @@
     "message": "Темний режим",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Тема",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "система",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "світло",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Темний",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Тактильний зворотний зв'язок",
     "englishSource": "Haptic Feedback"
@@ -2416,8 +2870,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Зараз у вас немає notes, щоб вимагати, але коли ви це зробите, вони з’являться тут.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Наразі у вас немає notes, щоб вимагати.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Ви отримали note",
@@ -2426,6 +2880,19 @@
   "noteReceivedTapToClaim": {
     "message": "Торкніться тут, щоб отримати його",
     "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "tokenHistory": {
     "message": "Історія $tokenName$",
@@ -2571,5 +3038,53 @@
   "type": {
     "message": "Тип",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "Tx ID",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Створено",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Підтверджено",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Дата",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Подробиці",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Додайте note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Додаткові параметри",
+    "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Pin Miden Wallet",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Клацніть піктограму головоломки та закріпіть Miden Wallet для швидкого доступу з панелі інструментів.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "зрозумів",
+    "englishSource": "Got it"
+  },
+  "downloadGeneratedFiles": {
+    "message": "Завантажте згенеровані файли",
+    "englishSource": "Download Generated Files"
   }
 }

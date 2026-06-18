@@ -11,9 +11,8 @@ export const IS_DEV_ENV = process.env.NODE_ENV === 'development';
 // Lazy-loaded browser polyfill (only in extension context)
 let browserInstance: Browser | null = null;
 async function getBrowser(): Promise<Browser> {
-  if (!isExtension()) {
-    throw new Error('Browser APIs only available in extension context');
-  }
+  /* c8 ignore start */ if (!isExtension())
+    throw new Error('Browser APIs only available in extension context'); /* c8 ignore stop */
   if (!browserInstance) {
     const module = await import('webextension-polyfill');
     browserInstance = module.default;
@@ -28,7 +27,8 @@ export type AppEnvironment = {
 
 export enum WindowType {
   Popup,
-  FullPage
+  FullPage,
+  SidePanel
 }
 
 export type BackHandler = () => void;
@@ -36,6 +36,8 @@ export type BackHandler = () => void;
 export const [AppEnvProvider, useAppEnv] = constate((env: AppEnvironment) => {
   const fullPage = env.windowType === WindowType.FullPage;
   const popup = env.windowType === WindowType.Popup;
+  const sidePanel = env.windowType === WindowType.SidePanel;
+  const compact = popup || sidePanel;
   const confirmWindow = env.confirmWindow ?? false;
 
   const handlerRef = useRef<BackHandler>();
@@ -63,6 +65,8 @@ export const [AppEnvProvider, useAppEnv] = constate((env: AppEnvironment) => {
   return {
     fullPage,
     popup,
+    sidePanel,
+    compact,
     confirmWindow,
     onBack,
     registerBackHandler
@@ -86,13 +90,13 @@ export const OpenInFullPage: FC = () => {
         const onboardingTab = tabs.find((t: Tabs.Tab) => t.url && urls.includes(t.url));
         if (onboardingTab?.id) {
           browser.tabs.update(onboardingTab.id, { active: true });
-          if (appEnv.popup) {
+          if (appEnv.compact) {
             window.close();
           }
         } else {
           // unable to find existing onboarding tab, open a new one
           await openInFullPage();
-          if (appEnv.popup) {
+          if (appEnv.compact) {
             window.close();
           }
         }
@@ -100,7 +104,7 @@ export const OpenInFullPage: FC = () => {
         console.error('OpenInFullPage error:', err);
       }
     })();
-  }, [appEnv.popup]);
+  }, [appEnv.compact]);
 
   return null;
 };

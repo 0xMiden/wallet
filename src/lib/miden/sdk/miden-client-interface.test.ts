@@ -16,94 +16,108 @@ describe('MidenClientInterface', () => {
     errorSpy.mockRestore();
   });
 
-  it('creates a client with provided callbacks', async () => {
-    const fakeWebClient = {
-      free: jest.fn(),
-      newWallet: jest.fn(async () => ({ id: () => 'id' })),
-      importPublicAccountFromSeed: jest.fn(async () => ({ id: () => 'id' })),
-      newConsumeTransactionRequest: jest.fn(() => ({})),
-      executeTransaction: jest.fn(async () => ({
-        serialize: () => new Uint8Array([2])
-      })),
-      importNoteFile: jest.fn(async () => 'note'),
-      getAccount: jest.fn(async () => 'acc'),
-      importAccountById: jest.fn(async () => 'acc'),
-      getAccounts: jest.fn(async () => ['acc']),
-      getInputNote: jest.fn(async () => ({ toNote: () => ({}) })),
-      getInputNotes: jest.fn(async () => [
-        {
-          id: () => ({ toString: () => 'note-1' }),
-          metadata: () => ({
-            noteType: () => 'type',
-            sender: () => 'sender'
-          }),
-          nullifier: () => 'nullifier',
-          state: () => 'state',
-          details: () => ({
-            assets: () => ({
-              fungibleAssets: () => [
-                {
-                  amount: () => ({ toString: () => '10' }),
-                  faucetId: () => 'faucet'
-                }
-              ]
+  const fakeTransactionResult = {
+    executedTransaction: () => ({
+      id: () => ({ toHex: () => 'tx-hex' }),
+      outputNotes: () => ({ notes: () => [] }),
+      inputNotes: () => ({ notes: () => [] })
+    }),
+    serialize: () => new Uint8Array([7])
+  };
+
+  function buildFakeMidenClient(overrides: Record<string, any> = {}) {
+    return {
+      accounts: {
+        create: jest.fn(async () => ({ id: () => 'id' })),
+        get: jest.fn(async () => 'acc'),
+        list: jest.fn(async () => ['acc']),
+        import: jest.fn(async () => ({ id: () => 'id' })),
+        ...overrides.accounts
+      },
+      notes: {
+        list: jest.fn(async () => [
+          {
+            id: () => ({ toString: () => 'note-1' }),
+            metadata: () => ({
+              noteType: () => 'type',
+              sender: () => 'sender'
+            }),
+            nullifier: () => 'nullifier',
+            state: () => 'state',
+            details: () => ({
+              assets: () => ({
+                fungibleAssets: () => [
+                  {
+                    amount: () => ({ toString: () => '10' }),
+                    faucetId: () => 'faucet'
+                  }
+                ]
+              })
             })
-          })
-        }
-      ]),
-      syncState: jest.fn(async () => ({ blockNum: () => 5 })),
-      exportNoteFile: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })),
-      getConsumableNotes: jest.fn(() => [
-        {
-          noteConsumability: () => [{ accountId: () => 'id', consumableAfterBlock: () => 1 }]
-        }
-      ]),
-      getSpentNotes: jest.fn(() => []),
-      proveTransaction: jest.fn(() => ({ serialize: () => new Uint8Array([1]) })),
-      submitProvenTransaction: jest.fn(async () => 10),
-      applyTransaction: jest.fn(),
-      submitNewTransaction: jest.fn(async () => {}),
-      exportStore: jest.fn(async () => 'dump'),
-      forceImportStore: jest.fn(),
-      newSendTransactionRequest: jest.fn(() => ({})),
-      importAccountFile: jest.fn(async () => ({ id: () => 'id' })),
-      exportNoteBytes: jest.fn(() => new Uint8Array([3])),
-      getTransactions: jest.fn(() => [
-        { accountId: () => 'id', serialize: () => new Uint8Array([9]) },
-        { accountId: () => 'other', serialize: () => new Uint8Array([9]) }
-      ]),
-      terminate: jest.fn()
+          }
+        ]),
+        listAvailable: jest.fn(async () => []),
+        import: jest.fn(async () => 'note'),
+        export: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
+        sendPrivate: jest.fn(async () => undefined),
+        ...overrides.notes
+      },
+      transactions: {
+        send: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
+        consume: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
+        submit: jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult })),
+        list: jest.fn(async () => [
+          { accountId: () => 'id', serialize: () => new Uint8Array([9]) },
+          { accountId: () => 'other', serialize: () => new Uint8Array([9]) }
+        ]),
+        waitFor: jest.fn(async () => {}),
+        ...overrides.transactions
+      },
+      sync: jest.fn(async () => ({ blockNum: () => 5 })),
+      storeIdentifier: jest.fn(() => 'test-store'),
+      terminate: jest.fn(),
+      defaultProver: null,
+      ...overrides
     };
+  }
 
-    const createClientWithExternalKeystore = jest.fn(async () => fakeWebClient);
+  it('creates a client with provided callbacks', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+    const createMock = jest.fn(async () => fakeMidenClient);
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
-      WebClient: { createClientWithExternalKeystore },
-      AccountStorageMode: { public: jest.fn(() => 'public'), private: jest.fn(() => 'private') },
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      MidenClient: { create: createMock, createMock: jest.fn() },
       NoteFile: { deserialize: jest.fn(() => ({})) },
       AccountFile: { deserialize: jest.fn(() => ({})) },
+      NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
       TransactionRequest: { deserialize: jest.fn(() => ({})) },
-      TransactionResult: { deserialize: jest.fn(() => ({ serialize: () => new Uint8Array([7]) })) },
       TransactionProver: {
         newRemoteProver: jest.fn(() => 'remote'),
         newLocalProver: jest.fn(() => 'local')
       },
-      TransactionFilter: { all: jest.fn(() => 'all') },
-      MIDEN_NETWORK_NAME: { TESTNET: 'testnet' }
+      exportStore: jest.fn(async () => '{"version":1,"data":"dump"}'),
+      importStore: jest.fn()
     }));
     jest.doMock('lib/miden-chain/constants', () => ({
       MIDEN_NETWORK_ENDPOINTS: new Map([
         ['testnet', 'rpc'],
-        ['devnet', 'rpc-dev']
+        ['devnet', 'rpc-dev'],
+        ['localnet', 'rpc-local']
       ]),
-      MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS: new Map([['testnet', undefined]]),
-      MIDEN_PROVING_ENDPOINTS: new Map([['testnet', 'prover']]),
-      MIDEN_NETWORK_NAME: { TESTNET: 'testnet', DEVNET: 'devnet' },
-      MIDEN_TRANSPORT_LAYER_NAME: { TESTNET: 'testnet' }
+      MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS: new Map([
+        ['testnet', undefined],
+        ['localnet', undefined]
+      ]),
+      getNoteTransportUrl: (_network: string) => undefined,
+      MIDEN_PROVING_ENDPOINTS: new Map([
+        ['testnet', 'prover'],
+        ['localnet', undefined]
+      ]),
+      MIDEN_NETWORK_NAME: { TESTNET: 'testnet', DEVNET: 'devnet', LOCALNET: 'localnet' },
+      DEFAULT_NETWORK: 'localnet'
     }));
     jest.doMock('./constants', () => ({ NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
-      accountIdStringToSdk: (id: string) => id,
       getBech32AddressFromAccountId: (id: any) => String(id)
     }));
     jest.doMock('../helpers', () => ({ toNoteType: jest.fn() }));
@@ -114,6 +128,10 @@ describe('MidenClientInterface', () => {
     jest.doMock('screens/onboarding/types', () => ({
       WalletType: { OnChain: 'on-chain', OffChain: 'off-chain' }
     }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
     const insertKeyCallback = jest.fn();
@@ -122,30 +140,29 @@ describe('MidenClientInterface', () => {
       insertKeyCallback
     });
 
-    expect(createClientWithExternalKeystore).toHaveBeenCalledWith(
-      'rpc',
-      undefined,
-      expect.any(Uint8Array),
-      undefined,
-      undefined,
-      insertKeyCallback,
-      undefined
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rpcUrl: 'rpc-local',
+        seed: expect.any(Uint8Array),
+        keystore: expect.objectContaining({
+          insertKey: insertKeyCallback
+        })
+      })
     );
 
     client.free();
-    expect(client.webClient.terminate).toBeDefined();
-    // smoke a few methods to raise coverage
+    expect(client.client.terminate).toBeDefined();
+
+    // smoke a few methods
     await client.createMidenWallet('on-chain' as any, new Uint8Array([4]));
     await client.importPublicMidenWalletFromSeed(new Uint8Array([5]));
     await client.importNoteBytes(new Uint8Array([1, 2]));
-    await client.consumeNoteId({ accountId: 'id', noteId: 'note', faucetId: 'f', type: 'public' } as any);
-    await client.getInputNoteDetails({} as any);
+    await client.getInputNoteDetails();
     await client.getConsumableNotes('id');
     await client.exportNote('note', {} as any);
     await client.getTransactionsForAccount('id');
     await client.exportDb();
-    await client.importDb('dump');
-    await client.submitTransaction(new Uint8Array([1, 2]), true);
+    await client.importDb('{"version":1,"data":"dump"}');
     await client.sendTransaction({
       accountId: 'id',
       amount: BigInt(1),
@@ -158,206 +175,214 @@ describe('MidenClientInterface', () => {
       initiatedAt: Math.floor(Date.now() / 1000),
       displayIcon: 'SEND'
     } as any);
+    await client.consumeNoteId({
+      accountId: 'id',
+      noteId: 'note',
+      faucetId: 'f',
+      type: 'consume'
+    } as any);
+    await client.newTransaction('acc-id', new Uint8Array([1, 2]));
   });
 
-  it('creates client from existing WebClient using fromWebClient', async () => {
-    const fakeWebClient = {
-      free: jest.fn(),
-      getAccount: jest.fn(async () => 'account'),
-      getAccounts: jest.fn(async () => ['acc1', 'acc2']),
-      getInputNotes: jest.fn(async () => []),
-      syncState: jest.fn(async () => ({ blockNum: () => 10 })),
-      importAccountById: jest.fn(async () => 'imported-acc')
-    };
+  it('creates client from existing MidenClient using fromClient', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('./helpers', () => ({
-      accountIdStringToSdk: (id: string) => id,
       getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
     expect(client.network).toBe('testnet');
-    expect(client.webClient).toBe(fakeWebClient);
+    expect(client.client).toBe(fakeMidenClient);
 
     // Test passthrough methods
     await client.getAccount('acc-id');
-    expect(fakeWebClient.getAccount).toHaveBeenCalled();
+    expect(fakeMidenClient.accounts.get).toHaveBeenCalled();
 
     await client.getAccounts();
-    expect(fakeWebClient.getAccounts).toHaveBeenCalled();
+    expect(fakeMidenClient.accounts.list).toHaveBeenCalled();
 
-    await client.getInputNotes({} as any);
-    expect(fakeWebClient.getInputNotes).toHaveBeenCalled();
+    await client.getInputNotes();
+    expect(fakeMidenClient.notes.list).toHaveBeenCalled();
 
     await client.syncState();
-    expect(fakeWebClient.syncState).toHaveBeenCalled();
+    expect(fakeMidenClient.sync).toHaveBeenCalled();
 
     await client.importAccountById('acc-123');
-    expect(fakeWebClient.importAccountById).toHaveBeenCalled();
+    expect(fakeMidenClient.accounts.import).toHaveBeenCalled();
+  });
+
+  it('getInputNoteDetails skips partial notes whose id() is undefined', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+    // A partial (metadata-less) record: id() returns undefined until sync
+    // completes the note. It must be filtered out, not crash the mapper.
+    fakeMidenClient.notes.list = jest.fn(
+      async (): Promise<any[]> => [
+        { id: () => undefined, nullifier: () => undefined },
+        {
+          id: () => ({ toString: () => 'note-2' }),
+          metadata: () => ({
+            noteType: () => 'type',
+            sender: () => 'sender'
+          }),
+          nullifier: () => 'nullifier',
+          state: () => 'state',
+          details: () => ({
+            assets: () => ({
+              fungibleAssets: () => []
+            })
+          })
+        }
+      ]
+    );
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const details = await client.getInputNoteDetails();
+    expect(details).toHaveLength(1);
+    expect(details[0]?.noteId).toBe('note-2');
   });
 
   it('imports wallet from bytes', async () => {
-    const fakeWebClient = {
-      importAccountFile: jest.fn(async () => ({ id: () => 'imported-id' }))
-    };
+    const fakeMidenClient = buildFakeMidenClient();
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
       AccountFile: { deserialize: jest.fn(() => ({})) }
     }));
     jest.doMock('./helpers', () => ({
-      accountIdStringToSdk: (id: string) => id,
       getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
     const result = await client.importMidenWallet(new Uint8Array([1, 2, 3]));
-    expect(result).toBe('imported-id');
-    expect(fakeWebClient.importAccountFile).toHaveBeenCalled();
+    expect(result).toBe('id');
+    expect(fakeMidenClient.accounts.import).toHaveBeenCalled();
   });
 
   it('sends private note', async () => {
-    const fakeWebClient = {
-      sendPrivateNote: jest.fn(async () => undefined)
-    };
+    const fakeMidenClient = buildFakeMidenClient();
 
-    const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
-
-    const mockNote = {} as any;
-    const mockAddress = {} as any;
-    await client.sendPrivateNote(mockNote, mockAddress);
-
-    expect(fakeWebClient.sendPrivateNote).toHaveBeenCalledWith(mockNote, mockAddress);
-  });
-
-  it('executes new transaction', async () => {
-    const fakeWebClient = {
-      executeTransaction: jest.fn(async () => ({
-        serialize: () => new Uint8Array([4, 5, 6])
-      }))
-    };
-
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
-      TransactionRequest: { deserialize: jest.fn(() => ({})) }
-    }));
-    jest.doMock('./helpers', () => ({
-      accountIdStringToSdk: (id: string) => id,
-      getBech32AddressFromAccountId: (id: any) => String(id)
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    const result = await client.newTransaction('acc-id', new Uint8Array([1, 2]));
-    expect(result).toEqual(new Uint8Array([4, 5, 6]));
+    const mockNote = { id: () => 'note-id', assets: () => [] } as any;
+    await client.sendPrivateNote(mockNote, 'recipient-bech32');
+
+    expect(fakeMidenClient.notes.sendPrivate).toHaveBeenCalledWith({
+      note: mockNote,
+      to: 'recipient-bech32'
+    });
   });
 
-  it('waits for transaction commit successfully', async () => {
-    let syncCallCount = 0;
-    const fakeWebClient = {
-      syncState: jest.fn(async () => {
-        syncCallCount++;
-        return {};
-      }),
-      getTransactions: jest.fn(async () => {
-        // First call: transaction still pending, second call: committed
-        if (syncCallCount < 2) {
-          return [{ id: () => ({ toHex: () => 'tx-123' }) }];
-        }
-        return [];
-      })
-    };
+  it('executes new transaction and returns TransactionResult', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
 
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
-      TransactionFilter: { uncommitted: jest.fn(() => 'uncommitted') }
-    }));
-
-    const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
-
-    await client.waitForTransactionCommit('tx-123', 5000, 10);
-    expect(fakeWebClient.syncState).toHaveBeenCalled();
-  });
-
-  it('throws timeout when transaction does not commit', async () => {
-    const fakeWebClient = {
-      syncState: jest.fn(async () => ({})),
-      getTransactions: jest.fn(async () => [{ id: () => ({ toHex: () => 'tx-456' }) }])
-    };
-
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
-      TransactionFilter: { uncommitted: jest.fn(() => 'uncommitted') }
-    }));
-
-    const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
-
-    await expect(client.waitForTransactionCommit('tx-456', 50, 10)).rejects.toThrow(
-      'Timeout waiting for transaction commit'
-    );
-  });
-
-  it('calls consumeTransaction method', async () => {
-    const note1 = { id: 'note-1' };
-    const note2 = { id: 'note-2' };
-    const notesById: Record<string, any> = {
-      'note-1': note1,
-      'note-2': note2
-    };
-    const fakeWebClient = {
-      getInputNote: jest.fn(async (noteId: string) => ({
-        toNote: () => notesById[noteId]
-      })),
-      newConsumeTransactionRequest: jest.fn(() => ({})),
-      executeTransaction: jest.fn(async () => ({ serialize: () => new Uint8Array([1]) })),
-      syncState: jest.fn(async () => ({})),
-      proveTransaction: jest.fn(async () => ({})),
-      submitProvenTransaction: jest.fn(async () => 10),
-      applyTransaction: jest.fn()
-    };
-
-    jest.doMock('@miden-sdk/miden-sdk', () => ({
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionRequest: { deserialize: jest.fn(() => ({})) },
       TransactionProver: {
-        newRemoteProver: jest.fn(() => 'remote'),
         newLocalProver: jest.fn(() => 'local')
       }
     }));
-    jest.doMock('lib/miden-chain/constants', () => ({
-      MIDEN_PROVING_ENDPOINTS: new Map([['testnet', 'prover-url']])
-    }));
     jest.doMock('./helpers', () => ({
-      accountIdStringToSdk: (id: string) => id,
       getBech32AddressFromAccountId: (id: any) => String(id)
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-    await client.consumeTransaction('acc-id', ['note-1', 'note-2'], false);
+    const result = await client.newTransaction('acc-id', new Uint8Array([1, 2]));
+    expect(result).toBe(fakeTransactionResult);
+    expect(fakeMidenClient.transactions.submit).toHaveBeenCalled();
+  });
 
-    expect(fakeWebClient.newConsumeTransactionRequest).toHaveBeenCalledWith([note1, note2]);
+  it('waits for transaction commit successfully', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.waitForTransactionCommit('tx-123', 5000, 10);
+    expect(fakeMidenClient.transactions.waitFor).toHaveBeenCalledWith('tx-123', {
+      timeout: 5000,
+      interval: 10
+    });
+  });
+
+  it('throws timeout when transaction does not commit', async () => {
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: {
+        waitFor: jest.fn(async () => {
+          throw new Error('Transaction confirmation timed out after 50ms');
+        })
+      }
+    });
+
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(client.waitForTransactionCommit('tx-456', 50, 10)).rejects.toThrow(
+      'Transaction confirmation timed out'
+    );
   });
 
   it('sends transaction without recall blocks', async () => {
-    const fakeWebClient = {
-      newSendTransactionRequest: jest.fn(() => ({})),
-      executeTransaction: jest.fn(async () => ({
-        serialize: () => new Uint8Array([7, 8])
-      }))
-    };
+    const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('./helpers', () => ({
-      accountIdStringToSdk: (id: string) => id,
       getBech32AddressFromAccountId: (id: any) => String(id)
     }));
-    jest.doMock('../helpers', () => ({ toNoteType: jest.fn(() => 'public') }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local')
+      }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
-    const client = MidenClientInterface.fromWebClient(fakeWebClient as any, 'testnet');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
     const result = await client.sendTransaction({
       accountId: 'sender',
@@ -368,7 +393,1249 @@ describe('MidenClientInterface', () => {
       extraInputs: {}
     } as any);
 
-    expect(result).toEqual(new Uint8Array([7, 8]));
-    expect(fakeWebClient.newSendTransactionRequest).toHaveBeenCalled();
+    expect(result).toBe(fakeTransactionResult);
+    expect(fakeMidenClient.transactions.send).toHaveBeenCalled();
+  });
+
+  it('consumeNoteId returns TransactionResult', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local')
+      }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const result = await client.consumeNoteId({
+      accountId: 'acc-id',
+      noteId: 'note-1',
+      type: 'consume'
+    } as any);
+
+    expect(result).toBe(fakeTransactionResult);
+    expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
+  });
+
+  describe('miscellaneous branches', () => {
+    it('create() returns a mock-network client when MIDEN_USE_MOCK_CLIENT=true', async () => {
+      const fakeMockClient = buildFakeMidenClient();
+      const createMock = jest.fn(async () => fakeMockClient);
+
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        MidenClient: { create: jest.fn(), createMock },
+        NoteFile: { deserialize: jest.fn(() => ({})) },
+        AccountFile: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionProver: {
+          newRemoteProver: jest.fn(() => 'remote'),
+          newLocalProver: jest.fn(() => 'local')
+        },
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        exportStore: jest.fn(async () => '{}'),
+        importStore: jest.fn()
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc']]),
+        MIDEN_PROVING_ENDPOINTS: new Map(),
+        getNoteTransportUrl: () => undefined,
+        DEFAULT_NETWORK: 'localnet',
+        MIDEN_NETWORK_NAME: { LOCALNET: 'localnet', DEVNET: 'devnet', TESTNET: 'testnet' }
+      }));
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+
+      const prev = process.env.MIDEN_USE_MOCK_CLIENT;
+      process.env.MIDEN_USE_MOCK_CLIENT = 'true';
+      try {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = await MidenClientInterface.create({ seed: new Uint8Array([1, 2, 3]) });
+        expect(client.network).toBe('mock');
+        expect(createMock).toHaveBeenCalledWith({ seed: expect.any(Uint8Array) });
+      } finally {
+        process.env.MIDEN_USE_MOCK_CLIENT = prev;
+      }
+    });
+
+    it('create() omits keystore when no keystore callbacks are provided', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+      const createReal = jest.fn(async () => fakeMidenClient);
+
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        MidenClient: { create: createReal, createMock: jest.fn() },
+        NoteFile: { deserialize: jest.fn(() => ({})) },
+        AccountFile: { deserialize: jest.fn(() => ({})) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionProver: {
+          newRemoteProver: jest.fn(() => 'remote'),
+          newLocalProver: jest.fn(() => 'local')
+        },
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        exportStore: jest.fn(async () => '{}'),
+        importStore: jest.fn()
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc']]),
+        MIDEN_PROVING_ENDPOINTS: new Map(),
+        getNoteTransportUrl: () => undefined,
+        DEFAULT_NETWORK: 'localnet',
+        MIDEN_NETWORK_NAME: { LOCALNET: 'localnet', DEVNET: 'devnet', TESTNET: 'testnet' }
+      }));
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      await MidenClientInterface.create({}); // no callbacks → hasKeystore=false → keystore: undefined
+
+      expect(createReal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keystore: undefined
+        })
+      );
+    });
+
+    it('createGuardianMidenWallet returns accountId + hot/cold key material', async () => {
+      const fakeMidenClient = buildFakeMidenClient();
+      const keys = {
+        hotPublicKey: 'hot-pub',
+        coldPublicKey: 'cold-pub',
+        hotCiphertext: 'hot-ct',
+        coldSecretKeyHex: 'cold-sk'
+      };
+      const createGuardianAccount = jest.fn(async () => ({
+        account: { id: () => ({ toString: () => 'guardian-id' }) },
+        keys
+      }));
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
+      }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('../guardian/account', () => ({
+        createGuardianAccount,
+        getSignerDetailsFromAccount: jest.fn()
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.createGuardianMidenWallet(new Uint8Array([9]));
+
+      expect(createGuardianAccount).toHaveBeenCalledWith(fakeMidenClient, expect.any(Uint8Array));
+      expect(result).toEqual({ accountId: 'guardian-id', keys });
+    });
+
+    it('getInputNote delegates to client.notes.get and returns its result', async () => {
+      const fakeMidenClient = buildFakeMidenClient({
+        notes: { get: jest.fn(async () => 'fetched-note') }
+      });
+
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(client.getInputNote('note-xyz')).resolves.toBe('fetched-note' as never);
+      expect(fakeMidenClient.notes.get).toHaveBeenCalledWith('note-xyz');
+    });
+  });
+
+  describe('importAccountBySeed', () => {
+    it('delegates to importPublicMidenWalletFromSeed', async () => {
+      const fakeMidenClient = buildFakeMidenClient({
+        accounts: {
+          import: jest.fn(async () => ({ id: () => 'public-acc-id' }))
+        }
+      });
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('screens/onboarding/types', () => ({
+        WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({
+        addConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.importAccountBySeed(new Uint8Array([1, 2, 3]));
+
+      expect(result).toBe('public-acc-id');
+      expect(fakeMidenClient.accounts.import).toHaveBeenCalledWith({ seed: expect.any(Uint8Array) });
+    });
+
+    // importGuardianAccountBySeed was removed in Phase 8 — replaced by the
+    // atomic recoverGuardianAccountsBySeed orchestrator that does lookup +
+    // adopt + cold-signed `replace_signer` rotation in one step. The
+    // orchestrator's end-to-end behavior depends on the guardian SDK,
+    // secureHotKey facade, and on-chain proving — covered by the manual
+    // devnet smoke in the Phase 8 plan rather than a fully-mocked unit
+    // test. Phase 9 will add comprehensive coverage with a faked
+    // MultisigClient.
+  });
+
+  it('recordProveTiming swallows globalThis.__PROVE_TIMINGS__ push errors silently', async () => {
+    // Cover the catch branch in recordProveTiming — verifies the helper
+    // doesn't throw when __PROVE_TIMINGS__ is frozen / non-writable.
+    const prevFlag = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    Object.defineProperty(globalThis, '__PROVE_TIMINGS__', {
+      value: Object.freeze([]),
+      writable: false,
+      configurable: true
+    });
+
+    try {
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient();
+      await jest.isolateModulesAsync(async () => {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        // Should not throw despite the frozen array — the catch swallows it.
+        const result = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume'
+        } as any);
+        expect(result).toBe(fakeTransactionResult);
+      });
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MIDEN_E2E_TEST;
+      } else {
+        process.env.MIDEN_E2E_TEST = prevFlag;
+      }
+      Object.defineProperty(globalThis, '__PROVE_TIMINGS__', {
+        value: undefined,
+        writable: true,
+        configurable: true
+      });
+      delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+    }
+  });
+
+  it('consumeNoteId records prove-timing markers under MIDEN_E2E_TEST=true', async () => {
+    // The PROVE_TIMING_ENABLED constant is captured at module-load time,
+    // so isolateModules + a fresh require is needed to flip the gate on.
+    const prevFlag = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+
+    try {
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient();
+      let consumeResult!: unknown;
+      await jest.isolateModulesAsync(async () => {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        consumeResult = await client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume'
+        } as any);
+      });
+
+      expect(consumeResult).toBe(fakeTransactionResult);
+      const markers = (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__ ?? [];
+      expect(markers.length).toBeGreaterThan(0);
+      expect(markers.some(l => /consumeNoteId entered/.test(l))).toBe(true);
+      expect(markers.some(l => /consumeNoteId SDK consume returned/.test(l))).toBe(true);
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MIDEN_E2E_TEST;
+      } else {
+        process.env.MIDEN_E2E_TEST = prevFlag;
+      }
+      delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+    }
+  });
+
+  it('localProverFactory uses newCallbackProver(buildNativeProverCallback()) when isMobile()', async () => {
+    // Mobile path branch — withProverFallback should construct a
+    // CallbackProver routed through the native-prover plugin, not a
+    // LocalProver. Mocks isMobile + native-prover plugin + TransactionProver
+    // so the branch is reachable from jsdom without a real Capacitor host.
+    const newCallbackProver = jest.fn(
+      (_callback: (input: Uint8Array) => Promise<Uint8Array>) => 'callback-prover-instance'
+    );
+    const newLocalProver = jest.fn(() => 'should-not-be-called');
+    const nativeProverPlugin = { prove: jest.fn() };
+
+    const consume = jest.fn().mockResolvedValue({ txId: 'tx-1', result: fakeTransactionResult });
+    const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+    // Scope doMocks inside isolateModulesAsync so they don't leak to other
+    // tests in this file (Jest's doMock state is per-module-registry).
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('lib/platform', () => ({
+        isMobile: () => true,
+        isExtension: () => false,
+        isDesktop: () => false
+      }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newCallbackProver, newLocalProver }
+      }));
+      jest.doMock('@miden/native-prover', () => ({ MidenNativeProver: nativeProverPlugin }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      const result = await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: false
+      } as any);
+      expect(result).toBe(fakeTransactionResult);
+    });
+
+    // The mobile branch picks newCallbackProver, not newLocalProver.
+    expect(newCallbackProver).toHaveBeenCalledTimes(1);
+    expect(newLocalProver).not.toHaveBeenCalled();
+    // ...and forwards a function (the callback closure) into it.
+    const firstCall = newCallbackProver.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    expect(typeof firstCall![0]).toBe('function');
+
+    // The SDK then receives that closure-wrapping prover instance.
+    const lastConsumeArgs = consume.mock.calls.at(-1)?.[0];
+    expect(lastConsumeArgs?.prover).toBe('callback-prover-instance');
+
+    // Important: jest.doMock persists past jest.resetModules — explicitly
+    // undo the mobile/native-prover mocks so the next test's default
+    // isMobile()=false / no-native-prover environment is restored.
+    jest.dontMock('lib/platform');
+    jest.dontMock('@miden/native-prover');
+  });
+
+  it('consumeNoteId surfaces SDK exception with name+message in prove-timing log', async () => {
+    const prevFlag = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+
+    try {
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const consumeErr = new Error('kernel exec failed');
+      consumeErr.name = 'TestKernelError';
+      const fakeMidenClient = buildFakeMidenClient({
+        transactions: {
+          consume: jest.fn().mockRejectedValue(consumeErr)
+        }
+      });
+
+      await jest.isolateModulesAsync(async () => {
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        await expect(
+          client.consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
+        ).rejects.toBe(consumeErr);
+      });
+
+      const markers = (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__ ?? [];
+      expect(markers.some(l => /consumeNoteId SDK consume THREW.*TestKernelError.*kernel exec failed/.test(l))).toBe(
+        true
+      );
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MIDEN_E2E_TEST;
+      } else {
+        process.env.MIDEN_E2E_TEST = prevFlag;
+      }
+      delete (globalThis as { __PROVE_TIMINGS__?: string[] }).__PROVE_TIMINGS__;
+    }
+  });
+
+  describe('withProverFallback connectivity-state categorization', () => {
+    // Build a client that fails the first (delegate) call with a provided error and
+    // succeeds the second (local-prover) call. Returns the connectivity-state spies
+    // so the caller can assert whether prover was marked / cleared.
+    async function runDelegateFailureCase(err: Error) {
+      const markConnectivityIssue = jest.fn();
+      const clearConnectivityIssue = jest.fn();
+      const consume = jest
+        .fn()
+        .mockImplementationOnce(async () => {
+          throw err;
+        })
+        .mockImplementationOnce(async () => ({ txId: 'tx-id', result: fakeTransactionResult }));
+
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue,
+        clearConnectivityIssue
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
+
+      expect(result).toBe(fakeTransactionResult);
+      expect(consume).toHaveBeenCalledTimes(2); // delegate attempt + local retry
+      return { markConnectivityIssue, clearConnectivityIssue };
+    }
+
+    it('does NOT mark prover for "note has already been consumed"', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(
+        new Error('failed to execute transaction: invalid transaction request: note 0xdead has already been consumed')
+      );
+      expect(markConnectivityIssue).not.toHaveBeenCalled();
+    });
+
+    it('rethrows immediately without local-prover retry when delegateTransaction=false', async () => {
+      // shouldDelegate=false → the local-prover-fallback branch is skipped and
+      // the error bubbles straight through the `throw err` line.
+      const markConnectivityIssue = jest.fn();
+      const clearConnectivityIssue = jest.fn();
+      const consume = jest.fn().mockRejectedValueOnce(new Error('prover unreachable'));
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue,
+        clearConnectivityIssue
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.consumeNoteId({
+          accountId: 'acc-id',
+          noteId: 'note-1',
+          type: 'consume',
+          delegateTransaction: false
+        } as any)
+      ).rejects.toThrow('prover unreachable');
+
+      // Called once (no local-prover retry) and banner untouched.
+      expect(consume).toHaveBeenCalledTimes(1);
+      expect(markConnectivityIssue).not.toHaveBeenCalled();
+    });
+
+    it('does NOT mark prover for "invalid transaction request"', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(
+        new Error('invalid transaction request: something else went wrong')
+      );
+      expect(markConnectivityIssue).not.toHaveBeenCalled();
+    });
+
+    it('DOES mark prover on "Failed to fetch"', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(new Error('Failed to fetch'));
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
+    });
+
+    it('DOES mark prover on 502 Bad Gateway', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(
+        new Error('prover responded with status code 502: Bad Gateway')
+      );
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
+    });
+
+    it('DOES mark prover on abort / timeout', async () => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(new Error('The operation was aborted'));
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
+    });
+
+    it.each([
+      ['NetworkError when attempting to fetch resource'],
+      ['grpc network error occurred'],
+      ['Load failed'],
+      ['request was abort'],
+      ['request timed out after 30s'],
+      ['timeout waiting for response'],
+      ['connection refused'],
+      ['transport error: closed stream'],
+      ['rpc error: deadline exceeded']
+    ])('DOES mark prover for %p', async message => {
+      const { markConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+      expect(markConnectivityIssue).toHaveBeenCalledWith('prover');
+    });
+
+    it.each([['note has already been consumed'], ['some unrecognized wasm error']])(
+      'does NOT mark prover for %p',
+      async message => {
+        const { markConnectivityIssue } = await runDelegateFailureCase(new Error(message));
+        expect(markConnectivityIssue).not.toHaveBeenCalled();
+      }
+    );
+
+    it('clears prover on a successful prover call', async () => {
+      const markConnectivityIssue = jest.fn();
+      const clearConnectivityIssue = jest.fn();
+      const consume = jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult }));
+      const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
+
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue,
+        clearConnectivityIssue
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
+
+      expect(markConnectivityIssue).not.toHaveBeenCalled();
+      expect(clearConnectivityIssue).toHaveBeenCalledWith('prover');
+    });
+  });
+
+  // Offscreen-prove + speculation paths.
+  //
+  // Each test runs with `MIDEN_USE_OFFSCREEN_PROVING=true` (set before the
+  // module is imported, via `process.env`) so `shouldUseOffscreenProver`
+  // returns true. We mock `isOffscreenAvailable` to true and stub the
+  // proveViaOffscreen + speculation manager + WASM lock surfaces.
+  //
+  // The mock client carries `_withInnerWebClient` running its callback
+  // against a stub `inner` that captures executeTransaction /
+  // submitProvenTransaction / applyTransaction calls so we can assert the
+  // right pipeline pieces ran.
+  describe('proveLocallyViaOffscreen', () => {
+    const ORIGINAL_OFFSCREEN_FLAG = process.env.MIDEN_USE_OFFSCREEN_PROVING;
+
+    beforeEach(() => {
+      process.env.MIDEN_USE_OFFSCREEN_PROVING = 'true';
+    });
+
+    afterEach(() => {
+      if (ORIGINAL_OFFSCREEN_FLAG === undefined) {
+        delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+      } else {
+        process.env.MIDEN_USE_OFFSCREEN_PROVING = ORIGINAL_OFFSCREEN_FLAG;
+      }
+    });
+
+    function buildOffscreenStubs(
+      opts: {
+        cacheHit?: { txResultBytes: Uint8Array; provenBytes: Uint8Array; paramsHash: string } | null;
+        hasInFlightMatching?: boolean;
+        awaitMatching?: () => Promise<void>;
+        proveViaOffscreen?: jest.Mock;
+      } = {}
+    ) {
+      const consumeCacheHit = jest.fn(() => opts.cacheHit ?? null);
+      const hasInFlightMatching = jest.fn(() => opts.hasInFlightMatching ?? false);
+      const awaitMatching = jest.fn(opts.awaitMatching ?? (async () => {}));
+      const isOffscreenAvailable = jest.fn(() => true);
+      const proveViaOffscreen =
+        opts.proveViaOffscreen ??
+        jest.fn(async () => ({
+          provenBytes: new Uint8Array([0x99, 0x99]).buffer,
+          durationMs: 42
+        }));
+
+      jest.doMock('lib/miden/back/offscreen-prover', () => ({
+        isOffscreenAvailable,
+        proveViaOffscreen
+      }));
+      jest.doMock('lib/miden/back/speculation-manager', () => ({
+        getSpeculationManager: () => ({
+          consumeCacheHit,
+          hasInFlightMatching,
+          awaitMatching
+        })
+      }));
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+      }));
+
+      return { consumeCacheHit, hasInFlightMatching, awaitMatching, proveViaOffscreen };
+    }
+
+    function buildWasmStub() {
+      return {
+        TransactionResult: {
+          deserialize: jest.fn(() => fakeTransactionResult)
+        },
+        ProvenTransaction: {
+          deserialize: jest.fn(() => 'fake-proven')
+        },
+        AccountId: {
+          fromHex: jest.fn((id: string) => ({ tag: 'hex', id })),
+          fromBech32: jest.fn((id: string) => ({ tag: 'bech32', id }))
+        },
+        NoteType: { Public: 'Public', Private: 'Private' }
+      };
+    }
+
+    function buildClientWithInner(inner: any, fakeWasm: any) {
+      const fakeMidenClient = buildFakeMidenClient();
+      // The proveLocallyViaOffscreen path runs its critical sections via
+      // `_withInnerWebClient(fn)` — install a stub that runs `fn` against
+      // a tracker so the test can assert submitProvenTransaction +
+      // applyTransaction were called in order.
+      (fakeMidenClient as any)._withInnerWebClient = async (fn: any) => fn(inner);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) }
+      }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+      return fakeMidenClient;
+    }
+
+    it('cache hit: skips execute+prove, runs only submit+apply', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        newSendTransactionRequest: jest.fn(async () => ({}))
+      };
+      const cacheHit = {
+        txResultBytes: new Uint8Array([1, 2, 3]),
+        provenBytes: new Uint8Array([4, 5, 6]),
+        paramsHash: 'sender|recip|faucet|public|100'
+      };
+      const stubs = buildOffscreenStubs({ cacheHit });
+
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      // Make sure getWasmOrThrow returns our fake wasm.
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any);
+
+      expect(result).toBe(fakeTransactionResult);
+      // Cache hit was consumed, NO execute, just submit + apply.
+      expect(stubs.consumeCacheHit).toHaveBeenCalledTimes(1);
+      expect(inner.executeTransaction).not.toHaveBeenCalled();
+      expect(stubs.proveViaOffscreen).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).toHaveBeenCalled();
+      expect(inner.applyTransaction).toHaveBeenCalled();
+    });
+
+    it('cache miss + in-flight matching: awaits, then re-checks cache', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        newSendTransactionRequest: jest.fn(async () => ({}))
+      };
+      // The first consumeCacheHit returns null (initial miss). After
+      // awaitMatching resolves, the second consumeCacheHit returns the hit
+      // (the speculation we awaited just completed and populated the cache).
+      const consumeCacheHit = jest
+        .fn()
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce({
+          txResultBytes: new Uint8Array([1]),
+          provenBytes: new Uint8Array([2]),
+          paramsHash: 'sender|recip|faucet|public|100'
+        });
+      const hasInFlightMatching = jest.fn(() => true);
+      const awaitMatching = jest.fn(async () => {});
+      jest.doMock('lib/miden/back/offscreen-prover', () => ({
+        isOffscreenAvailable: () => true,
+        proveViaOffscreen: jest.fn()
+      }));
+      jest.doMock('lib/miden/back/speculation-manager', () => ({
+        getSpeculationManager: () => ({ consumeCacheHit, hasInFlightMatching, awaitMatching })
+      }));
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+      }));
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any);
+
+      expect(awaitMatching).toHaveBeenCalledTimes(1);
+      expect(consumeCacheHit).toHaveBeenCalledTimes(2);
+      // Hit on the re-check → execute is still skipped.
+      expect(inner.executeTransaction).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).toHaveBeenCalled();
+    });
+
+    it('cache miss without in-flight matching: runs fresh execute + prove + submit + apply', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        newSendTransactionRequest: jest.fn(async () => ({}))
+      };
+      const stubs = buildOffscreenStubs({ cacheHit: null, hasInFlightMatching: false });
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any);
+
+      // No cache hit and no in-flight match → awaitMatching skipped, fresh
+      // execute + prove + submit + apply.
+      expect(stubs.consumeCacheHit).toHaveBeenCalledTimes(1);
+      expect(stubs.awaitMatching).not.toHaveBeenCalled();
+      expect(inner.executeTransaction).toHaveBeenCalledTimes(1);
+      expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
+      expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+      expect(inner.applyTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('cache miss with reclaimAfter set: skips speculation cache (no cacheParams)', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        newSendTransactionRequest: jest.fn(async () => ({}))
+      };
+      const stubs = buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: { recallBlocks: 5 }
+      } as any);
+
+      // recallBlocks set → cacheParams is undefined → no cache check at all.
+      expect(stubs.consumeCacheHit).not.toHaveBeenCalled();
+      expect(stubs.hasInFlightMatching).not.toHaveBeenCalled();
+      expect(inner.executeTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('consumeNoteId offscreen path: builds request from inner.getInputNote → toNote → array', async () => {
+      const fakeWasm = buildWasmStub();
+      const note = { kind: 'note' };
+      const inputNoteRecord = { toNote: jest.fn(() => note) };
+      const inner = {
+        getInputNote: jest.fn(async () => inputNoteRecord),
+        newConsumeTransactionRequest: jest.fn(async () => ({ kind: 'request' })),
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined)
+      };
+      const stubs = buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await client.consumeNoteId({
+        accountId: 'mtst1acc',
+        noteId: 'note-id-123',
+        type: 'consume'
+      } as any);
+
+      expect(inner.getInputNote).toHaveBeenCalledWith('note-id-123');
+      expect(inputNoteRecord.toNote).toHaveBeenCalledTimes(1);
+      // Plain JS array, NOT wasm.NoteArray.
+      expect(inner.newConsumeTransactionRequest).toHaveBeenCalledWith([note]);
+      // Then through the offscreen pipeline.
+      expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
+      expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+      expect(inner.applyTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('consumeNoteId offscreen path: throws when getInputNote returns null', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        getInputNote: jest.fn(async () => null),
+        newConsumeTransactionRequest: jest.fn(),
+        executeTransaction: jest.fn(),
+        submitProvenTransaction: jest.fn(),
+        applyTransaction: jest.fn()
+      };
+      buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.consumeNoteId({
+          accountId: 'mtst1acc',
+          noteId: 'missing-note',
+          type: 'consume'
+        } as any)
+      ).rejects.toThrow(/Note missing-note not found in store/);
+    });
+
+    it('newTransaction offscreen path: deserializes a fresh request and runs the offscreen pipeline', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined)
+      };
+      const stubs = buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      const txRequestDeserialize = jest.fn(() => ({ kind: 'fresh-request' }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: txRequestDeserialize },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const requestBytes = new Uint8Array([0xde, 0xad]);
+      await client.newTransaction('mtst1acc', requestBytes);
+
+      // Two deserialize calls: one at the top of the method (used as the
+      // fallback path's request) and one inside proveLocallyViaOffscreen's
+      // builder closure (a fresh deserialization, since wasm-bindgen
+      // executeTransaction consumes the value).
+      expect(txRequestDeserialize).toHaveBeenCalledTimes(2);
+      expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
+      expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws and logs when proveLocallyViaOffscreen pipeline fails', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => {
+          throw new Error('execute failed');
+        }),
+        submitProvenTransaction: jest.fn(),
+        applyTransaction: jest.fn(),
+        newSendTransactionRequest: jest.fn(async () => ({}))
+      };
+      buildOffscreenStubs({});
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+      ).rejects.toThrow(/execute failed/);
+    });
+  });
+
+  describe('executeAndProveForSpeculation', () => {
+    const ORIGINAL_OFFSCREEN_FLAG = process.env.MIDEN_USE_OFFSCREEN_PROVING;
+    beforeEach(() => {
+      process.env.MIDEN_USE_OFFSCREEN_PROVING = 'true';
+    });
+    afterEach(() => {
+      if (ORIGINAL_OFFSCREEN_FLAG === undefined) {
+        delete process.env.MIDEN_USE_OFFSCREEN_PROVING;
+      } else {
+        process.env.MIDEN_USE_OFFSCREEN_PROVING = ORIGINAL_OFFSCREEN_FLAG;
+      }
+    });
+
+    it('throws when isOffscreenAvailable is false', async () => {
+      jest.doMock('lib/miden/back/offscreen-prover', () => ({
+        isOffscreenAvailable: () => false,
+        proveViaOffscreen: jest.fn()
+      }));
+      jest.doMock('lib/miden/back/speculation-manager', () => ({
+        getSpeculationManager: () => null
+      }));
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+      }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient();
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.executeAndProveForSpeculation({
+          accountId: 'sender',
+          recipientAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public',
+          amount: 100n
+        })
+      ).rejects.toThrow(/without chrome.offscreen available/);
+    });
+
+    it('throws when _withInnerWebClient is missing on the client', async () => {
+      const fakeWasm = {
+        TransactionResult: { deserialize: jest.fn() },
+        ProvenTransaction: { deserialize: jest.fn() },
+        AccountId: { fromBech32: jest.fn(), fromHex: jest.fn() },
+        NoteType: { Public: 'Public', Private: 'Private' }
+      };
+      jest.doMock('lib/miden/back/offscreen-prover', () => ({
+        isOffscreenAvailable: () => true,
+        proveViaOffscreen: jest.fn()
+      }));
+      jest.doMock('lib/miden/back/speculation-manager', () => ({
+        getSpeculationManager: () => null
+      }));
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+      }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient();
+      // No _withInnerWebClient attached.
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      await expect(
+        client.executeAndProveForSpeculation({
+          accountId: 'sender',
+          recipientAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public',
+          amount: 100n
+        })
+      ).rejects.toThrow(/_withInnerWebClient missing/);
+    });
+
+    it('returns serialized cache entry on success', async () => {
+      const fakeWasm = {
+        TransactionResult: { deserialize: jest.fn() },
+        ProvenTransaction: { deserialize: jest.fn() },
+        AccountId: {
+          fromBech32: jest.fn((id: string) => ({ tag: 'b32', id })),
+          fromHex: jest.fn((id: string) => ({ tag: 'hex', id }))
+        },
+        NoteType: { Public: 'Public', Private: 'Private' }
+      };
+      const txResult = {
+        serialize: () => new Uint8Array([0xa, 0xb])
+      };
+      const inner = {
+        executeTransaction: jest.fn(async () => txResult),
+        newSendTransactionRequest: jest.fn(async () => ({ kind: 'request' }))
+      };
+      const proveViaOffscreen = jest.fn(async () => ({
+        provenBytes: new Uint8Array([0xc, 0xd]).buffer,
+        durationMs: 5
+      }));
+      jest.doMock('lib/miden/back/offscreen-prover', () => ({
+        isOffscreenAvailable: () => true,
+        proveViaOffscreen
+      }));
+      jest.doMock('lib/miden/back/speculation-manager', () => ({
+        getSpeculationManager: () => null
+      }));
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+      }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id)
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient();
+      (fakeMidenClient as any)._withInnerWebClient = async (fn: any) => fn(inner);
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const entry = await client.executeAndProveForSpeculation({
+        accountId: 'mtst1sender',
+        recipientAccountId: '0xrecipient',
+        faucetId: 'mtst1faucet',
+        noteType: 'private',
+        amount: 250n
+      });
+
+      expect(entry.paramsHash).toBe('mtst1sender|0xrecipient|mtst1faucet|private|250');
+      expect(entry.txResultBytes).toEqual(new Uint8Array([0xa, 0xb]));
+      expect(new Uint8Array(entry.provenBytes)).toEqual(new Uint8Array([0xc, 0xd]));
+
+      // Account ID resolution: accounts beginning with 0x → fromHex,
+      // otherwise → fromBech32.
+      expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
+      expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xrecipient');
+      expect(proveViaOffscreen).toHaveBeenCalledWith(expect.any(Uint8Array), null, { speculative: true });
+    });
+  });
+
+  describe('importNoteBytes', () => {
+    // Builds a MidenClientInterface with the SDK's note (de)serialization mocked,
+    // so we can drive importNoteBytes down each branch. Mirrors the doMock scaffold
+    // used by the smoke test above.
+    async function setup(sdk: {
+      noteFileDeserialize: jest.Mock;
+      noteDeserialize: jest.Mock;
+      fromNoteDetails?: jest.Mock;
+    }) {
+      const fakeMidenClient = buildFakeMidenClient();
+      const importMock = fakeMidenClient.notes.import as jest.Mock;
+      const fromNoteDetails = sdk.fromNoteDetails ?? jest.fn((details: any) => ({ kind: 'from-details', details }));
+      const NoteDetailsCtor = jest.fn(function (this: any, assets: any, recipient: any) {
+        this.assets = assets;
+        this.recipient = recipient;
+      });
+
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        MidenClient: { create: jest.fn(async () => fakeMidenClient) },
+        NoteFile: { deserialize: sdk.noteFileDeserialize, fromNoteDetails },
+        Note: { deserialize: sdk.noteDeserialize },
+        NoteDetails: NoteDetailsCtor,
+        AccountFile: { deserialize: jest.fn(() => ({})) },
+        NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        TransactionProver: { newRemoteProver: jest.fn(), newLocalProver: jest.fn() },
+        exportStore: jest.fn(),
+        importStore: jest.fn()
+      }));
+      jest.doMock('lib/miden-chain/constants', () => ({
+        MIDEN_NETWORK_ENDPOINTS: new Map([['localnet', 'rpc-local']]),
+        MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS: new Map([['localnet', undefined]]),
+        getNoteTransportUrl: () => undefined,
+        MIDEN_PROVING_ENDPOINTS: new Map([['localnet', undefined]]),
+        MIDEN_NETWORK_NAME: { TESTNET: 'testnet', DEVNET: 'devnet', LOCALNET: 'localnet' },
+        DEFAULT_NETWORK: 'localnet'
+      }));
+      jest.doMock('./constants', () => ({ NoteExportType: {} }));
+      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('../helpers', () => ({ toNoteType: jest.fn() }));
+      jest.doMock('../db/types', () => ({ ConsumeTransaction: class {}, SendTransaction: class {} }));
+      jest.doMock('screens/onboarding/types', () => ({ WalletType: { OnChain: 'on-chain', OffChain: 'off-chain' } }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = await MidenClientInterface.create({
+        seed: new Uint8Array([1, 2, 3]),
+        insertKeyCallback: jest.fn()
+      });
+      return { client, importMock, fromNoteDetails, NoteDetailsCtor };
+    }
+
+    it('imports serialized NoteFile bytes directly without touching the Note fallback', async () => {
+      const noteFileDeserialize = jest.fn(() => ({ kind: 'notefile' }));
+      const noteDeserialize = jest.fn();
+      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+
+      await client.importNoteBytes(new Uint8Array([1, 2]));
+
+      expect(noteFileDeserialize).toHaveBeenCalled();
+      expect(noteDeserialize).not.toHaveBeenCalled();
+      expect(importMock).toHaveBeenCalledWith({ kind: 'notefile' });
+    });
+
+    it('wraps a serialized Note (e.g. note.serialize()) into a NoteFile and imports it', async () => {
+      const noteFileDeserialize = jest.fn(() => {
+        throw new Error('notefile deserialization failed: invalid utf-8 sequence of 1 bytes from index 1');
+      });
+      const fakeNote = { assets: jest.fn(() => 'note-assets'), recipient: jest.fn(() => 'note-recipient') };
+      const noteDeserialize = jest.fn(() => fakeNote);
+      const fromNoteDetails = jest.fn((details: any) => ({ kind: 'wrapped', details }));
+      const { client, importMock, NoteDetailsCtor } = await setup({
+        noteFileDeserialize,
+        noteDeserialize,
+        fromNoteDetails
+      });
+
+      await client.importNoteBytes(new Uint8Array([9, 9, 9]));
+
+      expect(noteDeserialize).toHaveBeenCalled();
+      // NoteDetails built from the note's assets + recipient, then wrapped.
+      expect(NoteDetailsCtor).toHaveBeenCalledWith('note-assets', 'note-recipient');
+      expect(fromNoteDetails).toHaveBeenCalled();
+      expect(importMock).toHaveBeenCalledWith(expect.objectContaining({ kind: 'wrapped' }));
+    });
+
+    it('throws a clear, actionable error when bytes are neither a NoteFile nor a Note', async () => {
+      const noteFileDeserialize = jest.fn(() => {
+        throw new Error('notefile deserialization failed');
+      });
+      const noteDeserialize = jest.fn(() => {
+        throw new Error('note deserialization failed');
+      });
+      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+
+      await expect(client.importNoteBytes(new Uint8Array([0]))).rejects.toThrow(
+        /neither a serialized NoteFile nor a serialized Note/
+      );
+      expect(importMock).not.toHaveBeenCalled();
+    });
+
+    it('stringifies non-Error throwables when reporting the neither-NoteFile-nor-Note error', async () => {
+      // Deserializers can throw non-Error values; the error message must still
+      // surface their details via String(...) rather than printing [object].
+      // Throw through an indirection so the intentional non-Error throw doesn't
+      // trip eslint's no-throw-literal.
+      const reject = (value: unknown) => {
+        throw value;
+      };
+      const noteFileDeserialize = jest.fn(() => reject('raw-notefile-failure'));
+      const noteDeserialize = jest.fn(() => reject('raw-note-failure'));
+      const { client, importMock } = await setup({ noteFileDeserialize, noteDeserialize });
+
+      await expect(client.importNoteBytes(new Uint8Array([0]))).rejects.toThrow(
+        /NoteFile parse error: raw-notefile-failure; Note parse error: raw-note-failure/
+      );
+      expect(importMock).not.toHaveBeenCalled();
+    });
   });
 });

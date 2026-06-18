@@ -1,57 +1,5 @@
 import { expect, test } from '../fixtures/extension';
 
-const TEST_PASSWORD = 'pw';
-const TEST_MNEMONIC = 'test test test test test test test test test test test test';
-
-async function sendWalletMessage(page: any, message: any) {
-  try {
-    return await page.evaluate(
-      (msg: any) =>
-        new Promise((resolve, reject) => {
-          // @ts-ignore
-          chrome.runtime.sendMessage(msg, (response: any) => {
-            // @ts-ignore
-            const err = chrome.runtime.lastError;
-            if (err) {
-              reject(new Error(err.message));
-              return;
-            }
-            resolve(response);
-          });
-        }),
-      message
-    );
-  } catch (err: any) {
-    if (String(err.message).includes('The message port closed')) {
-      await page.waitForTimeout(500);
-      return sendWalletMessage(page, message);
-    }
-    throw err;
-  }
-}
-
-async function ensureWalletReady(page: any) {
-  for (let i = 0; i < 5; i++) {
-    const stateRes: any = await sendWalletMessage(page, { type: 'GET_STATE_REQUEST' });
-    const status = stateRes?.state?.status;
-    if (status === 'READY') {
-      return stateRes.state;
-    }
-    if (status === 'LOCKED') {
-      await sendWalletMessage(page, { type: 'UNLOCK_REQUEST', password: TEST_PASSWORD });
-    } else {
-      await sendWalletMessage(page, {
-        type: 'NEW_WALLET_REQUEST',
-        password: TEST_PASSWORD,
-        mnemonic: TEST_MNEMONIC,
-        ownMnemonic: true
-      });
-    }
-    await page.waitForTimeout(500);
-  }
-  throw new Error('Wallet not ready after retries');
-}
-
 test.describe.configure({ mode: 'serial' });
 
 test.describe('Fullpage UI', () => {
@@ -125,6 +73,11 @@ test.describe('Fullpage UI', () => {
     await page.locator('input[placeholder="Enter password again"]').first().fill('Password123!');
     await page.getByRole('button', { name: /continue/i }).click();
 
+    // Recovery method step — pick "Fully Private" to avoid the guardian backend.
+    await page.getByRole('heading', { name: /set up account recovery/i }).waitFor({ timeout: 15000 });
+    await page.getByText(/fully private/i).first().click();
+    await page.getByRole('button', { name: /continue/i }).click();
+
     // Complete onboarding and verify we reach the Explore page
     await expect(page.getByText(/your wallet is ready/i)).toBeVisible();
     await page.getByRole('button', { name: /get started/i }).click();
@@ -155,13 +108,18 @@ test.describe('Fullpage UI', () => {
       ' '
     );
     for (let i = 0; i < words.length; i++) {
-      await page.locator(`#seed-phrase-input-${i}`).fill(words[i]);
+      await page.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
     }
     await page.getByRole('button', { name: /continue/i }).click();
 
     await expect(page).toHaveURL(/create-password/);
     await page.locator('input[placeholder="Enter password"]').first().fill('Password123!');
     await page.locator('input[placeholder="Enter password again"]').first().fill('Password123!');
+    await page.getByRole('button', { name: /continue/i }).click();
+
+    // Import-recovery-method step — pick "Import public account".
+    await page.getByTestId('import-recovery-method').waitFor({ timeout: 15000 });
+    await page.getByText(/import public account/i).click();
     await page.getByRole('button', { name: /continue/i }).click();
 
     await expect(page.getByText(/your wallet is ready/i)).toBeVisible();
@@ -202,7 +160,7 @@ test.describe('Fullpage UI', () => {
       ' '
     );
     for (let i = 0; i < words.length; i++) {
-      await seedForm.locator(`#seed-phrase-input-${i}`).fill(words[i]);
+      await seedForm.locator(`#seed-phrase-input-${i}`).fill(words[i]!);
     }
 
     await expect(continueButton).toBeEnabled();

@@ -4,7 +4,7 @@ import classNames from 'clsx';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticSelection } from 'lib/mobile/haptics';
-import colors from 'utils/tailwind-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   icon: IconName;
@@ -13,7 +13,7 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
 }
 
 const Tab: React.FC<TabProps> = ({ className, icon, active, activeIcon, ...props }) => {
-  const iconColor = active ? colors.primary[500] : 'black';
+  const iconColor = active ? PRIMARY_HEX : 'black';
   return (
     <button
       type="button"
@@ -24,9 +24,9 @@ const Tab: React.FC<TabProps> = ({ className, icon, active, activeIcon, ...props
         className={classNames(
           'aspect-square flex items-center justify-center rounded-full',
           'transition duration-300 ease-in-out',
-          'group-hover:bg-grey-25',
+          'group-hover:bg-gray-25',
           {
-            'bg-grey-25': active,
+            'bg-gray-25': active,
             'bg-transparent': !active
           }
         )}

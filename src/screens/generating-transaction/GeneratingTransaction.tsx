@@ -5,7 +5,6 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import useBeforeUnload from 'app/hooks/useBeforeUnload';
 import { Icon, IconName } from 'app/icons/v2';
 import { Alert, AlertVariant } from 'components/Alert';
 import { useAnalytics } from 'lib/analytics';
@@ -14,13 +13,30 @@ import {
   getAllUncompletedTransactions,
   getFailedTransactions
 } from 'lib/miden/activity';
-import { useExportNotes } from 'lib/miden/activity/notes';
+import { ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension, isMobile } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
+import { PRIMARY_HEX, PRIMARY_HEX_LIGHT_ALPHA } from 'utils/brand-colors';
+
+/**
+ * Picks the transaction whose stage the modal should display. Prefers the
+ * one currently `GeneratingTransaction`; falls back to the oldest queued
+ * one so the user sees "Syncing" immediately rather than a blank label
+ * before the SDK call starts.
+ */
+const pickActiveTx = (
+  txs: Array<{ status: ITransactionStatus; stage?: ITransactionStage; type: ITransactionType }>
+) => {
+  const processing = txs.find(tx => tx.status === ITransactionStatus.GeneratingTransaction);
+  return processing ?? txs[0];
+};
 
 export interface GeneratingTransactionPageProps {
   keepOpen?: boolean;
@@ -29,7 +45,6 @@ export interface GeneratingTransactionPageProps {
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ keepOpen = false }) => {
   const { signTransaction } = useMidenContext();
   const { pageEvent, trackEvent } = useAnalytics();
-  const [outputNotes, downloadAll] = useExportNotes();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Track failed transaction count during this session
   const [failedCount, setFailedCount] = useState(0);
@@ -43,8 +58,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     async () => getAllUncompletedTransactions(),
     {
       revalidateOnMount: true,
-      refreshInterval: 5_000,
-      dedupingInterval: 3_000
+      // Faster poll so per-stage label changes feel responsive — stages can
+      // flip every ~500ms–1s during a single tx and a 5s poll hides them.
+      refreshInterval: 500,
+      dedupingInterval: 250
     }
   );
 
@@ -104,12 +121,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   }, [transactions, hasStartedProcessing, failedCount]);
 
   useEffect(() => {
-    if (
-      outputNotes.length === 0 &&
-      prevTransactionsLength.current &&
-      prevTransactionsLength.current > 0 &&
-      transactions.length === 0
-    ) {
+    if (prevTransactionsLength.current && prevTransactionsLength.current > 0 && transactions.length === 0) {
       new Promise(res => setTimeout(res, 10_000)).then(async () => {
         await trackEvent('GeneratingTransaction Page Closed Automatically');
         isAutoCloseEnabled() && onClose();
@@ -117,12 +129,12 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     }
 
     prevTransactionsLength.current = transactions.length;
-  }, [transactions, trackEvent, outputNotes, onClose]);
+  }, [transactions, trackEvent, onClose]);
 
   const generateTransaction = useCallback(async () => {
     setHasStartedProcessing(true);
     try {
-      const success = await dbTransactionsLoop(signTransaction);
+      const success = await dbTransactionsLoop(signTransaction, false, zustandProvider);
       // Don't stop on failure - continue processing remaining transactions
       // The failed transaction is already marked as Failed in IndexedDB
       if (success === false) {
@@ -148,10 +160,21 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     };
   }, [generateTransaction]);
 
-  useBeforeUnload(transactions.length !== 0, downloadAll);
   const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   const transactionComplete = transactions.length === 0 && hasStartedProcessing;
   const hasErrors = failedCount > 0;
+
+  const active = pickActiveTx(transactions);
+  const activeStage = active?.stage;
+  const activeType = active?.type;
+  const remainingCount = transactions.length;
+
+  const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
+  const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
+  const onViewExplorer = useCallback(() => {
+    if (!explorerUrl) return;
+    openExternalUrl({ url: explorerUrl, title: 'Midenscan' });
+  }, [explorerUrl]);
 
   return (
     <div
@@ -171,6 +194,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           hasErrors={hasErrors}
           failedCount={failedCount}
           keepOpen={keepOpen}
+          activeStage={activeStage}
+          activeType={activeType}
+          remainingCount={remainingCount}
+          onViewExplorer={explorerUrl ? onViewExplorer : undefined}
         />
       </div>
     </div>
@@ -184,14 +211,29 @@ export interface GeneratingTransactionProps {
   failedCount?: number;
   keepOpen?: boolean;
   progress?: number;
+  /** Stage of the tx currently being processed (or head of queue). */
+  activeStage?: ITransactionStage;
+  /** Type of the tx currently being processed (for type-specific labels). */
+  activeType?: ITransactionType;
+  /** Number of tx still in-flight (queued + generating). */
+  remainingCount?: number;
+  /**
+   * When provided and the tx completed successfully, renders a "View on
+   * Midenscan" button below the success message. Parent decides how to
+   * open the URL (new tab on desktop, InAppBrowser overlay on mobile).
+   */
+  onViewExplorer?: () => void;
 }
 
 export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
-  onDoneClick,
   transactionComplete,
   hasErrors = false,
   failedCount = 0,
-  keepOpen
+  keepOpen,
+  activeStage,
+  activeType,
+  remainingCount = 0,
+  onViewExplorer
 }) => {
   const { t } = useTranslation();
   const inExtension = isExtension();
@@ -205,8 +247,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return (
         <svg className="size-32" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="64" cy="64" r="64" fill="rgba(255,85,0,0.10)" />
-          <circle cx="64" cy="64" r="42" fill="#FF5500" />
+          <circle cx="64" cy="64" r="64" fill={PRIMARY_HEX_LIGHT_ALPHA} />
+          <circle cx="64" cy="64" r="42" fill={PRIMARY_HEX} />
           <path
             d="M48 64L58 74L80 52"
             stroke="white"
@@ -246,6 +288,43 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     );
   }, [transactionComplete, hasErrors, inExtension]);
 
+  /**
+   * Stage label picks up the tx type so a claim flow reads "Claiming
+   * note" instead of "Sending transaction" during the SDK call. Other
+   * stages are type-neutral — they either describe network state
+   * (syncing, confirming), only apply to one type (delivering → private
+   * send only; registering-guardian → switch-guardian only), or describe
+   * Guardian-specific phases that are the same action regardless of what the
+   * proposal does (creating-proposal / signing-proposal / submitting).
+   */
+  const stageTitleKey = useCallback((stage?: ITransactionStage, type?: ITransactionType): string => {
+    if (!stage) return 'generatingTransaction';
+    if (stage === 'syncing') return 'transactionStageSyncing';
+    if (stage === 'creating-proposal') return 'transactionStageCreatingProposal';
+    if (stage === 'signing-proposal') return 'transactionStageSigningProposal';
+    if (stage === 'submitting') return 'transactionStageSubmitting';
+    if (stage === 'confirming') return 'transactionStageConfirming';
+    if (stage === 'registering-guardian') return 'transactionStageRegisteringGuardian';
+    if (stage === 'delivering') return 'transactionStageDelivering';
+    // stage === 'sending' — only this one varies by type
+    if (type === 'consume') return 'transactionStageClaiming';
+    if (type === 'execute') return 'transactionStageExecuting';
+    if (type === 'switch-guardian') return 'transactionStageSwitching';
+    return 'transactionStageSending';
+  }, []);
+
+  const stageDescriptionKey = useCallback((stage?: ITransactionStage): string => {
+    if (!stage) return 'generatingTransactionDescription';
+    if (stage === 'syncing') return 'transactionStageSyncingDescription';
+    if (stage === 'creating-proposal') return 'transactionStageCreatingProposalDescription';
+    if (stage === 'signing-proposal') return 'transactionStageSigningProposalDescription';
+    if (stage === 'submitting') return 'transactionStageSubmittingDescription';
+    if (stage === 'confirming') return 'transactionStageConfirmingDescription';
+    if (stage === 'registering-guardian') return 'transactionStageRegisteringGuardianDescription';
+    if (stage === 'delivering') return 'transactionStageDeliveringDescription';
+    return 'transactionStageSendingDescription';
+  }, []);
+
   const headerText = useCallback(() => {
     if (transactionComplete && hasErrors) {
       return t('transactionFailed');
@@ -253,8 +332,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return t('transactionCompleted');
     }
-    return t('generatingTransaction');
-  }, [transactionComplete, hasErrors, t]);
+    return t(stageTitleKey(activeStage, activeType));
+  }, [transactionComplete, hasErrors, t, stageTitleKey, activeStage, activeType]);
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
@@ -266,8 +345,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (transactionComplete) {
       return t('transactionSuccessDescription');
     }
-    return t('generatingTransactionDescription');
-  }, [transactionComplete, hasErrors, failedCount, t]);
+    return t(stageDescriptionKey(activeStage));
+  }, [transactionComplete, hasErrors, failedCount, t, stageDescriptionKey, activeStage]);
 
   const alertText = useCallback(() => {
     if (keepOpen) {
@@ -302,6 +381,40 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <p className="text-heading-gray text-center mt-2 max-w-70" style={{ fontSize: 14, lineHeight: '130%' }}>
               {descriptionText()}
             </p>
+          )}
+
+          {/* Batch subtitle — only when more than one tx is in flight */}
+          {!transactionComplete && remainingCount > 1 && (
+            <p className="text-heading-gray/60 text-center mt-3" style={{ fontSize: 12, lineHeight: '130%' }}>
+              {t('transactionsRemainingInBatch', { count: remainingCount })}
+            </p>
+          )}
+
+          {/* View on Midenscan — only on success, and only when parent wired up a URL. */}
+          {transactionComplete && !hasErrors && onViewExplorer && (
+            <button
+              type="button"
+              onClick={onViewExplorer}
+              className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-heading-gray/80 hover:text-heading-gray underline-offset-2 hover:underline"
+            >
+              {t('viewOnMidenscan')}
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M4 2H10V8M10 2L3 9"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
           )}
         </div>
       </div>

@@ -6,7 +6,7 @@ export function u8ToB64(u8: Uint8Array): string {
   // Prefer browser builtins (no polyfills)
   if (typeof globalThis.btoa === 'function') {
     let s = '';
-    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]!);
     return globalThis.btoa(s);
   }
   // Node/Buffer fallback (won’t be bundled if never executed in browsers)
@@ -31,7 +31,7 @@ export function b64ToU8(b64: string): Uint8Array {
 export function bytesToHex(u8: Uint8Array): string {
   let s = '';
   for (let i = 0; i < u8.length; i++) {
-    const h = u8[i].toString(16).padStart(2, '0');
+    const h = u8[i]!.toString(16).padStart(2, '0');
     s += h;
   }
   return s;

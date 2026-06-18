@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 
-import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { fetchBalances } from 'lib/store/utils/fetchBalances';
@@ -19,20 +19,27 @@ export interface TokenBalanceData {
 const REFRESH_INTERVAL = 5_000;
 const DEDUPING_INTERVAL = 10_000;
 
-// Default faucet ID for immediate display before async lookup
-const DEFAULT_MIDEN_FAUCET_ID = TOKEN_MAPPING[MidenTokens.Miden].faucetId;
-
-// Default balance showing 0 MIDEN - displayed immediately before IndexedDB lookup
-const DEFAULT_ZERO_MIDEN_BALANCE: TokenBalanceData[] = [
-  {
-    tokenId: DEFAULT_MIDEN_FAUCET_ID,
-    tokenSlug: 'MIDEN',
-    metadata: MIDEN_METADATA,
-    fiatPrice: 1,
-    change24h: 0,
-    balance: 0
-  }
-];
+/**
+ * Default zero-balance row shown before the first fetch resolves.
+ * Built lazily: we only render the placeholder row once the native asset ID
+ * has been discovered (cached in memory), otherwise return `[]` and let the
+ * loading state drive a skeleton. This avoids flashing a row with the wrong
+ * tokenId while discovery is in flight on first install.
+ */
+function buildDefaultZeroBalance(): TokenBalanceData[] {
+  const midenFaucetId = getNativeAssetIdSync();
+  if (!midenFaucetId) return [];
+  return [
+    {
+      tokenId: midenFaucetId,
+      tokenSlug: 'MIDEN',
+      metadata: MIDEN_METADATA,
+      fiatPrice: 1,
+      change24h: 0,
+      balance: 0
+    }
+  ];
+}
 
 // Global lock to prevent concurrent fetches to WASM client (per address)
 export const fetchingAddresses = new Set<string>();
@@ -52,8 +59,9 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
 
   // Derive values with stable defaults
-  // Show 0 MIDEN immediately before any async lookup completes
-  const balances = balancesMap[address] ?? DEFAULT_ZERO_MIDEN_BALANCE;
+  // Show 0 MIDEN immediately before any async lookup completes — only once
+  // the native asset ID has been learned, otherwise show `[]` (skeleton).
+  const balances = balancesMap[address] ?? buildDefaultZeroBalance();
   const balancesLastFetched = balancesLastFetchedMap[address] ?? 0;
   // Consider loading if: explicitly loading OR never fetched yet
   const balancesLoading = balancesLoadingMap[address] ?? balancesLastFetched === 0;

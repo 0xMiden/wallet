@@ -1,42 +1,149 @@
 import browser from 'webextension-polyfill';
 
 import { getMessage } from 'lib/i18n';
+import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { getIntercom } from './defaults';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+
+// `init_vault` is the ESM module factory for `./vault`, injected by Vite's
+// SW bundle transform. We must NOT add a source-level binding (e.g.
+// `declare const init_vault`) because Rolldown would rename the factory to
+// `init_vault$1` to avoid the collision, breaking the lazy accessor at
+// runtime. The @ts-expect-error below is the intended escape hatch.
 
 const ALARM_NAME = 'miden-sync';
-const SYNC_TIMEOUT_MS = 25_000;
 
-let isSyncing = false;
+// Watchdog ceiling for a single syncState call. On testnet with slow RPC a
+// sync can legitimately take 5-25s, so this is set well above the typical
+// worst case: it exists to catch a genuinely wedged sync, not to cap a
+// slow-but-healthy one. Note this timeout does NOT release the WASM client
+// mutex early — withTimeout (below) only rejects the outer promise; the
+// underlying syncState keeps running and holding the lock until it truly
+// settles. So an aggressive ceiling buys nothing for lock contention and
+// merely turns healthy slow syncs into spurious "node unreachable" reports.
+// On a real breach the circuit breaker (below) trips and we back off.
+const SYNC_TIMEOUT_MS = 30_000;
 
-export async function doSync(): Promise<void> {
-  if (isSyncing) return;
-  isSyncing = true;
+// Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
+// a row we skip sync attempts for BACKOFF_MS, then allow one probe. A
+// successful sync resets the counter. Protects both the wasm client and the
+// RPC backend from being hammered when the network (or the node) is flapping.
+const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
+const BACKOFF_MS = 30_000;
 
+// Concurrent doSync() callers join the in-flight sync instead of being dropped.
+// The previous boolean-guard silently no-op'd concurrent calls, so a single stuck
+// sync made every triggerSync() during that window return without having synced.
+let inFlight: Promise<void> | null = null;
+
+// Circuit-breaker state. Module-level is fine — the SW process is the only
+// doSync caller in the extension path; mobile/desktop runs have one sync loop.
+let consecutiveSyncFailures = 0;
+let syncBackoffUntilMs = 0;
+
+// Lazy Vault initialization to prevent service worker cold-start race.
+// See actions.ts:getVault for the full explanation. In Jest, `init_vault`
+// is undefined; the typeof guard skips the factory call.
+let _vault: typeof Vault | null = null;
+async function getVault() {
+  if (!_vault) {
+    // @ts-expect-error init_vault is injected by Vite's SW bundle transform
+    if (typeof init_vault === 'function') await init_vault();
+    _vault = Vault;
+  }
+  return _vault;
+}
+
+export function doSync(): Promise<void> {
+  if (inFlight) return inFlight;
+  // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
+  // the backoff window. Returning resolved-void here keeps the existing contract
+  // for callers (triggerSync, alarm) that don't distinguish success from skip.
+  if (Date.now() < syncBackoffUntilMs) {
+    return Promise.resolve();
+  }
+  inFlight = runSync().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+async function runSync(): Promise<void> {
   try {
     // Skip if wallet not set up
-    const exists = await Vault.isExist();
+    const vault = await getVault();
+    const exists = await vault.isExist();
     if (!exists) return;
 
-    // [Lock 1] THE sync for the whole app
-    await withTimeout(
-      withWasmClientLock(async () => {
+    // [Lock 1] THE sync for the whole app. The timeout bounds only the
+    // RPC itself, NOT the lock acquisition — when a local prove is in
+    // flight it holds the wasm-client mutex for the full prove window
+    // (~5–15 s on a typical send/consume), and previously that contention
+    // looked indistinguishable from a real node-unreachable timeout. The
+    // banner that fires on `markConnectivityIssue('node')` is the
+    // user-visible "cannot reach the miden node" toast, and seeing it
+    // every time a local-prove tx runs is the wrong UX. With the bound
+    // around the RPC only, a queued sync waits patiently behind the
+    // prove (which itself yields the lock via `yieldWasmClientLock`
+    // around the offscreen-doc step, so the wait is short), then runs
+    // its actual network call — and only THAT call's slowness fires
+    // the timeout. A subsequent sync after the prove yields is the one
+    // that clears any active issue, so the steady state is correct.
+    try {
+      await withWasmClientLock(async () => {
         const client = await getMidenClient();
         if (!client) return;
-        await client.syncState();
-      }),
-      SYNC_TIMEOUT_MS
-    );
+        await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
+      });
+      consecutiveSyncFailures = 0;
+      // Sync went through end-to-end: the user has connectivity AND the
+      // node is responding. Clear any active reachability category. We
+      // don't touch `prover` — that's a separate service with separate
+      // health and is owned by withProverFallback.
+      clearReachabilityIssues();
+    } catch (err) {
+      consecutiveSyncFailures++;
+      console.warn(
+        `[SyncManager] syncState failed (${consecutiveSyncFailures}/${MAX_CONSECUTIVE_SYNC_FAILURES}):`,
+        err
+      );
+      // Only surface a connectivity banner once failures are *sustained*.
+      // Testnet RPC syncs can legitimately run longer than the watchdog
+      // window, so a lone failure (especially a synthetic `Sync timeout`)
+      // routinely fires while the node is healthy and block height is still
+      // advancing; banner-ing on it produces a flapping false "node
+      // unreachable". Gate the banner on the same MAX_CONSECUTIVE_SYNC_FAILURES
+      // streak that opens the circuit breaker, so it only appears when the node
+      // is persistently unreachable. A later successful sync resets the counter
+      // and clears the banner via clearReachabilityIssues().
+      if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
+        // Categorize as network (browser is offline) or node (we reached the
+        // open net but the Miden RPC didn't answer). Skip semantic /
+        // non-transport errors so a malformed-response bug in the SDK doesn't
+        // masquerade as connectivity. The synthetic `Sync timeout` from
+        // withTimeout counts — timeouts are themselves transport-shaped.
+        if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
+          markConnectivityIssue(classifySyncError(err));
+        }
+        syncBackoffUntilMs = Date.now() + BACKOFF_MS;
+        consecutiveSyncFailures = 0;
+        console.warn(`[SyncManager] circuit breaker open — skipping syncs for ${BACKOFF_MS}ms`);
+      }
+      // Continue to the downstream read path: the client may still have
+      // cached state from a prior successful sync worth surfacing.
+    }
 
     const intercom = getIntercom()!;
-    const accountPubKey = await Vault.getCurrentAccountPublicKey();
+    const vault2 = await getVault();
+    const accountPubKey = await vault2.getCurrentAccountPublicKey();
 
     if (accountPubKey) {
       // [Lock 2] Read notes + vault assets from warm WASM client
@@ -50,10 +157,12 @@ export async function doSync(): Promise<void> {
         const notes: SerializedConsumableNote[] = (rawNotes || [])
           .map((note: any) => {
             try {
-              const noteRecord = note.inputNoteRecord();
-              const noteId = noteRecord.id().toString();
-              const noteMeta = noteRecord.metadata();
-              const details = noteRecord.details();
+              // Partial (metadata-less) notes have no ID yet and cannot be
+              // consumed — skip until sync completes them.
+              const noteId = note.id()?.toString();
+              if (!noteId) return null;
+              const noteMeta = note.metadata();
+              const details = note.details();
               const fungibleAssets = details.assets().fungibleAssets();
               if (!fungibleAssets || fungibleAssets.length === 0) return null;
               const firstAsset = fungibleAssets[0];
@@ -103,9 +212,7 @@ export async function doSync(): Promise<void> {
               name: base.name,
               thumbnailUri: base.thumbnailUri
             };
-          } catch {
-            // Leave metadata undefined — frontend will handle
-          }
+          } catch {}
         })
       );
 
@@ -166,14 +273,12 @@ export async function doSync(): Promise<void> {
     }
   } catch (err) {
     console.warn('[SyncManager] Sync error:', err);
-    // Always broadcast SyncCompleted so frontends don't get stuck with isSyncing=true
+    // Always broadcast SyncCompleted so frontends don't get stuck waiting.
     try {
       getIntercom()!.broadcast({ type: WalletMessageType.SyncCompleted });
     } catch {
       // No frontends connected
     }
-  } finally {
-    isSyncing = false;
   }
 }
 

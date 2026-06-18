@@ -5,7 +5,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import colors from 'utils/tailwind-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 type PrivateDataPermissionBannerProps = {
   privateDataPermission: PrivateDataPermission;
@@ -20,9 +20,7 @@ const PrivateDataPermissionBanner: FC<PrivateDataPermissionBannerProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const checkboxIcon = (
-    <Icon name={IconName.CheckboxCircle} size="sm" fill={colors.primary[500]} className="shrink-0 mr-3" />
-  );
+  const checkboxIcon = <Icon name={IconName.CheckboxCircle} size="sm" fill={PRIMARY_HEX} className="shrink-0 mr-3" />;
   return (
     <div className={classNames('w-full', 'flex flex-col')}>
       <div className={classNames('flex', 'mb-4')}>

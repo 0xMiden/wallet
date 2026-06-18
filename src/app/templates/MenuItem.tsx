@@ -18,13 +18,7 @@ type MenuItemProps = {
   rightText?: string;
 };
 
-const ClickableContent: FC<Partial<MenuItemProps>> = ({
-  titleI18nKey,
-  Icon,
-  iconStyle,
-  linksOutsideOfWallet,
-  rightText
-}) => {
+const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, Icon, iconStyle, rightText }) => {
   const { t } = useTranslation();
 
   return (

@@ -173,5 +173,25 @@ describe('haptics', () => {
       (Haptics.selectionChanged as jest.Mock).mockRejectedValueOnce(new Error('Device not supported'));
       await expect(hapticSelection()).resolves.not.toThrow();
     });
+
+    it('hapticMedium handles errors gracefully', async () => {
+      (Haptics.impact as jest.Mock).mockRejectedValueOnce(new Error('Device not supported'));
+      await expect(hapticMedium()).resolves.not.toThrow();
+    });
+
+    it('hapticHeavy handles errors gracefully', async () => {
+      (Haptics.impact as jest.Mock).mockRejectedValueOnce(new Error('Device not supported'));
+      await expect(hapticHeavy()).resolves.not.toThrow();
+    });
+
+    it('hapticWarning handles errors gracefully', async () => {
+      (Haptics.notification as jest.Mock).mockRejectedValueOnce(new Error('Device not supported'));
+      await expect(hapticWarning()).resolves.not.toThrow();
+    });
+
+    it('hapticError handles errors gracefully', async () => {
+      (Haptics.notification as jest.Mock).mockRejectedValueOnce(new Error('Device not supported'));
+      await expect(hapticError()).resolves.not.toThrow();
+    });
   });
 });

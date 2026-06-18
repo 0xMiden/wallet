@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import colors from 'utils/tailwind-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 export interface SelectTransactionTypeScreenProps {
   onSubmit?: (selectedType: 'delegate' | 'local') => void;
@@ -126,10 +126,10 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
 
             <div className="flex flex-col grow overflow-scroll no-scrollbar">
               <h2 className="font-semibold text-base text-center whitespace-pre">{option.title}</h2>
-              <ul className="flex flex-1 flex-col mt-6 px-5 divide-y divide-grey-100">
+              <ul className="flex flex-1 flex-col mt-6 px-5 divide-y divide-border-light">
                 {option.features.map((feature, index) => (
                   <li key={index} className="flex flex-col py-2 justify-center">
-                    <p className={classNames('text-center text-sm', { 'text-grey-600': !!feature.subtitle })}>
+                    <p className={classNames('text-center text-sm', { 'text-text-muted': !!feature.subtitle })}>
                       {feature.title}
                     </p>
                     {feature.subtitle && <p className="text-sm text-center">{feature.subtitle}</p>}
@@ -143,10 +143,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               className={classNames('mt-4', { 'text-primary-500': selectedType === option.id })}
               iconLeft={
                 selectedType === option.id ? (
-                  <Icon
-                    name={IconName.CheckboxCircleFill}
-                    fill={selectedType === option.id ? colors.primary[500] : 'black'}
-                  />
+                  <Icon name={IconName.CheckboxCircleFill} fill={selectedType === option.id ? PRIMARY_HEX : 'black'} />
                 ) : null
               }
             />

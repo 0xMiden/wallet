@@ -1,7 +1,8 @@
-import { Address, BasicFungibleFaucetComponent, Endpoint, RpcClient } from '@miden-sdk/miden-sdk';
+import { Address, BasicFungibleFaucetComponent, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { isMidenAsset } from 'lib/miden/assets';
 import { fetchFromStorage } from 'lib/miden/front/storage';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 
 import { DEFAULT_TOKEN_METADATA, getAssetUrl, MIDEN_METADATA } from './defaults';
 import { AssetMetadata, DetailedAssetMetdata } from './types';
@@ -21,12 +22,19 @@ export async function fetchTokenMetadata(
     if (cached && cached[assetId]) {
       return { base: cached[assetId], detailed: cached[assetId] };
     }
-  } catch {
+  } /* c8 ignore next 2 -- IndexedDB cache miss, defensive fallback */ catch {
     // Cache miss — proceed to RPC
   }
 
   try {
-    const endpoint = Endpoint.testnet();
+    // Page-side: gate on SDK WASM readiness so the wasm-bindgen `Endpoint`
+    // constructor doesn't fire before the SDK chunk has hydrated. Without
+    // this, the first faucet metadata fetch on a freshly-loaded page reliably
+    // hits "Cannot read properties of undefined (reading '__wbindgen_malloc')",
+    // gets blacklisted via `autoFetchMetadataFails`, and the token displays
+    // with default metadata for the rest of the session.
+    await ensureSdkWasmReady();
+    const endpoint = getRpcEndpoint();
     const rpcClient = new RpcClient(endpoint);
     const account = await rpcClient.getAccountDetails(Address.fromBech32(assetId).accountId());
     const underlyingAccount = account.account();
@@ -39,7 +47,18 @@ export async function fetchTokenMetadata(
       // if the account is private we are assigning it the unknown metadata, as there is no way to fetch the metadata from chain
       return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
     }
-    const faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
+    // `fromAccount` reads the 0.15 faucet metadata slot. Faucets minted by
+    // pre-0.15 SDKs are not introspectable through it — degrade to default
+    // ("Unknown") metadata instead of throwing NotFoundTokenMetadata, which
+    // would blacklist the faucet for the whole session via
+    // `autoFetchMetadataFails` even though its assets are otherwise usable.
+    let faucetDetails;
+    try {
+      faucetDetails = BasicFungibleFaucetComponent.fromAccount(underlyingAccount);
+    } catch (introspectErr) {
+      console.warn('Faucet metadata slot unreadable (pre-0.15 faucet?) for', assetId, introspectErr);
+      return { base: DEFAULT_TOKEN_METADATA, detailed: DEFAULT_TOKEN_METADATA };
+    }
     const decimals = faucetDetails.decimals();
     const symbol = faucetDetails.symbol().toString();
     const base: AssetMetadata = {

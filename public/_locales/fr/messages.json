@@ -338,6 +338,52 @@
     "message": "Nom de compte",
     "englishSource": "Account name"
   },
+  "accountNameInputPlaceholder": {
+    "message": "par ex. Économies",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1 à 16 caractères, ne peut pas commencer par des espaces ou un trait d'union",
+    "englishSource": "1–16 characters, cannot start with whitespace or hyphen"
+  },
+  "accountAlreadyExists": {
+    "message": "Un compte du même nom existe déjà",
+    "englishSource": "Account with same name already exists"
+  },
+  "privateKeyRevealWarningTitle": {
+    "message": "Avant de continuer",
+    "englishSource": "Before you continue"
+  },
+  "privateKeyRevealWarningBody": {
+    "message": "Votre clé privée donne le contrôle total de ce compte à celui qui le détient. Les comptes Miden ne peuvent pas alterner les clés, donc une clé divulguée compromet le compte de manière permanente.",
+    "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
+  },
+  "privateKeyRevealAcknowledge": {
+    "message": "Je comprends que cette clé ne peut pas être modifiée ou révoquée.",
+    "englishSource": "I understand this key cannot be rotated or revoked."
+  },
+  "encryptedFileImportedAccountsOmitted": {
+    "message": "Comptes importés ( $importedCount$ ) ne sera pas inclus dans ce fichier. Pour les sauvegarder, exportez chaque clé privée individuellement depuis Paramètres → Révéler la clé privée.",
+    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "encryptedFileImportedAccountsOmittedRestoreNotice": {
+    "message": "Ce fichier crypté a été exporté avec $importedCount$ compte(s) importé(s) qui ne font pas partie de la sauvegarde. Ces comptes n'apparaîtront pas dans votre portefeuille restauré : vous aurez besoin de leurs clés privées d'origine pour les rajouter. Cliquez sur Continuer l'importation pour continuer.",
+    "englishSource": "This encrypted file was exported with $importedCount$ imported account(s) that are not part of the backup. Those accounts will not appear in your restored wallet — you'll need their original private keys to re-add them. Click Continue Import to proceed.",
+    "placeholders": {
+      "importedcount": {
+        "content": "$1"
+      }
+    }
+  },
+  "continueImport": {
+    "message": "Continuer l'importation",
+    "englishSource": "Continue Import"
+  },
   "editAccountName": {
     "message": "Modifier le nom du compte",
     "englishSource": "Edit Account Name"
@@ -397,6 +443,91 @@
   "generatingTransactionDescription": {
     "message": "Cela peut prendre un moment en fonction du niveau de trafic réseau",
     "englishSource": "This may take a moment depending on the level network traffic"
+  },
+  "transactionStageSyncing": {
+    "message": "Compte de synchronisation",
+    "englishSource": "Syncing account"
+  },
+  "transactionStageSyncingDescription": {
+    "message": "Récupération de votre dernier état de compte.",
+    "englishSource": "Fetching your latest account state."
+  },
+  "transactionStageSending": {
+    "message": "Envoi de transaction",
+    "englishSource": "Sending transaction"
+  },
+  "transactionStageSendingDescription": {
+    "message": "Construire et prouver votre transaction.",
+    "englishSource": "Building and proving your transaction."
+  },
+  "transactionStageClaiming": {
+    "message": "Réclamer note",
+    "englishSource": "Claiming note"
+  },
+  "transactionStageExecuting": {
+    "message": "Exécution de la transaction",
+    "englishSource": "Executing transaction"
+  },
+  "transactionStageSwitching": {
+    "message": "Changer de tuteur",
+    "englishSource": "Switching guardian"
+  },
+  "transactionStageCreatingProposal": {
+    "message": "Création d'une proposition",
+    "englishSource": "Creating proposal"
+  },
+  "transactionStageCreatingProposalDescription": {
+    "message": "Construire la proposition de transaction pour votre tuteur.",
+    "englishSource": "Building the transaction proposal for your guardian."
+  },
+  "transactionStageSigningProposal": {
+    "message": "Signature avec tuteur",
+    "englishSource": "Signing with guardian"
+  },
+  "transactionStageSigningProposalDescription": {
+    "message": "Votre tuteur signe la proposition.",
+    "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSubmitting": {
+    "message": "Soumission de la transaction",
+    "englishSource": "Submitting transaction"
+  },
+  "transactionStageSubmittingDescription": {
+    "message": "Envoi de votre transaction signée au réseau.",
+    "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageConfirming": {
+    "message": "Confirmation en chaîne",
+    "englishSource": "Confirming on chain"
+  },
+  "transactionStageConfirmingDescription": {
+    "message": "En attente de confirmation du réseau.",
+    "englishSource": "Waiting for network confirmation."
+  },
+  "transactionStageRegisteringGuardian": {
+    "message": "Inscription auprès du tuteur",
+    "englishSource": "Registering with guardian"
+  },
+  "transactionStageRegisteringGuardianDescription": {
+    "message": "Enregistrement de l'état de votre compte auprès du nouveau tuteur.",
+    "englishSource": "Registering your account state with the new guardian."
+  },
+  "transactionStageDelivering": {
+    "message": "Livraison de note",
+    "englishSource": "Delivering note"
+  },
+  "transactionStageDeliveringDescription": {
+    "message": "Envoi sécurisé du note au destinataire.",
+    "englishSource": "Securely sending the note to the recipient."
+  },
+  "transactionsRemainingInBatch": {
+    "message": "$count$ transactions en cours",
+    "englishSource": "$count$ transactions in progress",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "status": {
     "message": "Statut",
@@ -743,8 +874,8 @@
     "englishSource": "Continue"
   },
   "noOperationsFound": {
-    "message": "Aucune opération trouvée",
-    "englishSource": "No operations found"
+    "message": "Vous n'avez actuellement aucune transaction.",
+    "englishSource": "You don't currently have any transactions."
   },
   "accountToBeRemoved": {
     "message": "Compte à retirer.",
@@ -1512,6 +1643,46 @@
     "message": "Fichier de portefeuille crypté",
     "englishSource": "Encrypted Wallet File"
   },
+  "guardianBadge": {
+    "message": "Tuteur",
+    "englishSource": "Guardian"
+  },
+  "guardianSettings": {
+    "message": "Paramètres du tuteur",
+    "englishSource": "Guardian Settings"
+  },
+  "currentGuardianEndpoint": {
+    "message": "Tuteur actuel",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianEndpoint": {
+    "message": "Nouveau point de terminaison Guardian",
+    "englishSource": "New Guardian Endpoint"
+  },
+  "switchGuardian": {
+    "message": "Changer de gardien",
+    "englishSource": "Switch Guardian"
+  },
+  "switchGuardianDescription": {
+    "message": "Pointez votre compte Guardian vers un nouveau point de terminaison Guardian. Le changement est signé comme une proposition en chaîne.",
+    "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
+  },
+  "switchingGuardian": {
+    "message": "Changer de tuteur...",
+    "englishSource": "Switching guardian..."
+  },
+  "guardianSwitched": {
+    "message": "Le gardien a changé avec succès.",
+    "englishSource": "Guardian switched successfully."
+  },
+  "guardianEndpointUnchanged": {
+    "message": "C'est déjà votre tuteur actuel.",
+    "englishSource": "That's already your current guardian."
+  },
+  "invalidUrl": {
+    "message": "Saisissez une URL valide commençant par http:// ou https://",
+    "englishSource": "Enter a valid URL starting with http:// or https://"
+  },
   "encryptedWalletFileDescription": {
     "message": "Entrez votre mot de passe pour accéder à votre fichier de portefeuille crypté.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
@@ -1750,10 +1921,6 @@
       }
     }
   },
-  "downloadGeneratedFiles": {
-    "message": "Télécharger les fichiers générés",
-    "englishSource": "Download Generated Files"
-  },
   "onChainAccountPublic": {
     "message": "Compte en chaîne (public)",
     "englishSource": "On-chain Account (Public)"
@@ -1781,6 +1948,74 @@
   "canAddMultipleAccountsLater": {
     "message": "Vous pouvez ajouter et gérer plusieurs types de comptes ultérieurement dans le portefeuille.",
     "englishSource": "You can add and manage multiple account types later within the wallet."
+  },
+  "chooseRecoveryMethod": {
+    "message": "Configurer la récupération de compte",
+    "englishSource": "Set Up Account Recovery"
+  },
+  "chooseRecoveryMethodDescription": {
+    "message": "Choisissez comment vous souhaitez récupérer votre compte si vous perdez l'accès.",
+    "englishSource": "Choose how you want to recover your account if you lose access."
+  },
+  "guardianRecovery": {
+    "message": "Tuteur",
+    "englishSource": "Guardian"
+  },
+  "guardianRecoveryDescription": {
+    "message": "Recommandé. Récupération basée sur le tuteur pour votre compte, mais l'opérateur gardien peut voir votre état.",
+    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+  },
+  "fullyPrivateRecovery": {
+    "message": "Entièrement privé",
+    "englishSource": "Fully Private"
+  },
+  "fullyPrivateRecoveryDescription": {
+    "message": "Local uniquement, personne ne voit votre état sauf vous mais pas de récupération, la perte de votre appareil entraînera une perte permanente de vos fonds.",
+    "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
+  },
+  "publicAccountRecovery": {
+    "message": "Publique",
+    "englishSource": "Public"
+  },
+  "publicAccountRecoveryDescription": {
+    "message": "Récupérez un compte public en chaîne.",
+    "englishSource": "Recover a public on-chain account."
+  },
+  "importRecoveryMethodTitle": {
+    "message": "Comment souhaiteriez-vous récupérer ce portefeuille ?",
+    "englishSource": "How would you like to recover this wallet?"
+  },
+  "importViaGuardian": {
+    "message": "Importer via Guardian",
+    "englishSource": "Import via Guardian"
+  },
+  "importViaGuardianDescription": {
+    "message": "Utilisez un tuteur pour récupérer et co-signer ce compte.",
+    "englishSource": "Use a guardian to recover and co-sign for this account."
+  },
+  "importPublicAccount": {
+    "message": "Importer un compte public",
+    "englishSource": "Import public account"
+  },
+  "importPublicAccountDescription": {
+    "message": "Importez le compte public dérivé de votre seed phrase.",
+    "englishSource": "Import the public account derived from your seed phrase."
+  },
+  "guardianEndpoint": {
+    "message": "URL du tuteur",
+    "englishSource": "Guardian URL"
+  },
+  "useDifferentGuardian": {
+    "message": "Utiliser un autre tuteur",
+    "englishSource": "Use a different guardian"
+  },
+  "guardianAccountNotFound": {
+    "message": "Nous n'avons pas trouvé votre compte sur ce tuteur. Vérifiez l'URL ou importez plutôt en tant que compte public.",
+    "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "default": {
+    "message": "Défaut",
+    "englishSource": "Default"
   },
   "transactionFile": {
     "message": "Fichier de transactions",
@@ -1821,6 +2056,10 @@
   "viewOnExplorer": {
     "message": "Afficher sur l'Explorateur",
     "englishSource": "View on Explorer"
+  },
+  "viewOnMidenscan": {
+    "message": "Vue sur Midenscan",
+    "englishSource": "View on Midenscan"
   },
   "inProgress": {
     "message": "En cours",
@@ -2112,6 +2351,46 @@
     "message": "Le portefeuille est peut-être hors ligne ou désynchronisé.",
     "englishSource": "Wallet may be offline or out of sync."
   },
+  "connectivityNetworkTitle": {
+    "message": "Vous semblez être hors ligne",
+    "englishSource": "You appear to be offline"
+  },
+  "connectivityNetworkBody": {
+    "message": "Vérifiez votre connexion Internet et réessayez.",
+    "englishSource": "Check your internet connection and try again."
+  },
+  "connectivityNodeTitle": {
+    "message": "Impossible d'atteindre le nœud Miden",
+    "englishSource": "Cannot reach the Miden node"
+  },
+  "connectivityNodeBody": {
+    "message": "Le nœud peut être en panne ou soumis à une charge importante. Votre solde est peut-être obsolète.",
+    "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
+  },
+  "connectivityProverTitle": {
+    "message": "Prouver que le service n'est pas disponible",
+    "englishSource": "Proving service unavailable"
+  },
+  "connectivityProverBody": {
+    "message": "Les transactions utiliseront la preuve locale jusqu'à ce que le service soit de retour.",
+    "englishSource": "Transactions will use local proving until the service is back."
+  },
+  "connectivityResolvingTitle": {
+    "message": "Reconnexion",
+    "englishSource": "Reconnecting"
+  },
+  "connectivityResolvingBody": {
+    "message": "J'essaie de restaurer votre connexion.",
+    "englishSource": "Trying to restore your connection."
+  },
+  "connectivityRetry": {
+    "message": "Essayer à nouveau",
+    "englishSource": "Try again"
+  },
+  "connectivityRetrySync": {
+    "message": "Réessayez la synchronisation",
+    "englishSource": "Retry sync"
+  },
   "noteConsumedSuccessfully": {
     "message": "Votre note a été consommée avec succès.",
     "englishSource": "Your note was successfully consumed."
@@ -2256,6 +2535,165 @@
     "message": "Favoris",
     "englishSource": "Favourites"
   },
+  "searchDapps": {
+    "message": "Rechercher des dApps ou coller l'URL",
+    "englishSource": "Search dApps or paste URL"
+  },
+  "featuredDapps": {
+    "message": "En vedette",
+    "englishSource": "Featured"
+  },
+  "myDapps": {
+    "message": "Mes dApps",
+    "englishSource": "My dApps"
+  },
+  "recents": {
+    "message": "Récents",
+    "englishSource": "Recents"
+  },
+  "scrollLeft": {
+    "message": "Faites défiler vers la gauche",
+    "englishSource": "Scroll left"
+  },
+  "scrollRight": {
+    "message": "Faites défiler vers la droite",
+    "englishSource": "Scroll right"
+  },
+  "homeActionPills": {
+    "message": "Actions rapides",
+    "englishSource": "Quick actions"
+  },
+  "browseCategories": {
+    "message": "Parcourir",
+    "englishSource": "Browse"
+  },
+  "categoryDefi": {
+    "message": "DéFi",
+    "englishSource": "DeFi"
+  },
+  "categoryNft": {
+    "message": "NFT",
+    "englishSource": "NFT"
+  },
+  "categoryTools": {
+    "message": "Outils",
+    "englishSource": "Tools"
+  },
+  "categorySocial": {
+    "message": "Sociale",
+    "englishSource": "Social"
+  },
+  "noDappsInCategory": {
+    "message": "Pas encore de dApps dans cette catégorie",
+    "englishSource": "No dApps in this category yet"
+  },
+  "exploreCta": {
+    "message": "Explorez l'écosystème Miden",
+    "englishSource": "Explore the Miden ecosystem"
+  },
+  "minimize": {
+    "message": "Minimiser",
+    "englishSource": "Minimize"
+  },
+  "switchDapps": {
+    "message": "Changer de dApp",
+    "englishSource": "Switch dApps"
+  },
+  "reload": {
+    "message": "Recharger",
+    "englishSource": "Reload"
+  },
+  "moreOptions": {
+    "message": "Plus d'options",
+    "englishSource": "More options"
+  },
+  "dappActionsSheet": {
+    "message": "Actions dApp",
+    "englishSource": "dApp actions"
+  },
+  "dappActionCopyLink": {
+    "message": "Copier le lien",
+    "englishSource": "Copy link"
+  },
+  "dappActionAddToMyDapps": {
+    "message": "Ajouter à mes Dapps",
+    "englishSource": "Add to My Dapps"
+  },
+  "dappActionRemoveFromMyDapps": {
+    "message": "Supprimer de mes Dapps",
+    "englishSource": "Remove from My Dapps"
+  },
+  "dappActionReopen": {
+    "message": "Rouvrir",
+    "englishSource": "Reopen"
+  },
+  "restoreDappCard": {
+    "message": "Restaurer $name$ ",
+    "englishSource": "Restore $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDappCard": {
+    "message": "Fermer $name$ ",
+    "englishSource": "Close $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllDapps": {
+    "message": "+ $count$ plus de dApps garées",
+    "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "dappLinkCopied": {
+    "message": "Lien copié",
+    "englishSource": "Link copied"
+  },
+  "dappAddedToMyDapps": {
+    "message": "Ajouté à Mes Dapps",
+    "englishSource": "Added to My Dapps"
+  },
+  "dappLoadFailed": {
+    "message": "Impossible de charger cette dApp",
+    "englishSource": "Can't load this dApp"
+  },
+  "dappLoadFailedHint": {
+    "message": "Vérifiez votre connexion et réessayez.",
+    "englishSource": "Check your connection and try again."
+  },
+  "dappBrowserCapsule": {
+    "message": "En-tête du navigateur dApp",
+    "englishSource": "dApp browser header"
+  },
+  "dragToMinimize": {
+    "message": "Faites glisser vers le bas pour minimiser",
+    "englishSource": "Drag down to minimize"
+  },
+  "dappSwitcher": {
+    "message": "sélecteur dApp",
+    "englishSource": "dApp switcher"
+  },
+  "closeDappSwitcher": {
+    "message": "Fermer le sélecteur dApp",
+    "englishSource": "Close dApp switcher"
+  },
+  "openDappCountOne": {
+    "message": "1 application ouverte",
+    "englishSource": "1 open dApp"
+  },
+  "openDappCountPlural": {
+    "message": "{count} dApps ouvertes",
+    "englishSource": "{count} open dApps"
+  },
   "approve": {
     "message": "Approuver",
     "englishSource": "Approve"
@@ -2393,6 +2831,22 @@
     "message": "Mode sombre",
     "englishSource": "Dark Mode"
   },
+  "theme": {
+    "message": "Thème",
+    "englishSource": "Theme"
+  },
+  "themeSystem": {
+    "message": "Système",
+    "englishSource": "System"
+  },
+  "themeLight": {
+    "message": "Lumière",
+    "englishSource": "Light"
+  },
+  "themeDark": {
+    "message": "Sombre",
+    "englishSource": "Dark"
+  },
   "hapticFeedback": {
     "message": "Retour haptique",
     "englishSource": "Haptic Feedback"
@@ -2402,8 +2856,8 @@
     "englishSource": "Feel a vibration when tapping buttons and controls"
   },
   "noNotesToClaim": {
-    "message": "Vous n'avez actuellement pas de notes à réclamer, mais lorsque vous le ferez, ils apparaîtront ici.",
-    "englishSource": "You don't currently have notes to claim, but when you do, they will appear here."
+    "message": "Vous n'avez actuellement pas notes à réclamer.",
+    "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
     "message": "Vous avez reçu un note",
@@ -2412,6 +2866,19 @@
   "noteReceivedTapToClaim": {
     "message": "Appuyez ici pour le réclamer",
     "englishSource": "Tap here to claim it"
+  },
+  "noteReceivedClickToClaim": {
+    "message": "Click to view and claim it",
+    "englishSource": "Click to view and claim it"
+  },
+  "noteReceivedMultiple": {
+    "message": "You have $count$ new notes to claim",
+    "englishSource": "You have $count$ new notes to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
   },
   "tokenHistory": {
     "message": "Historique de $tokenName$",
@@ -2557,5 +3024,53 @@
   "type": {
     "message": "Taper",
     "englishSource": "Type"
+  },
+  "txIdLabel": {
+    "message": "ID d'émission",
+    "englishSource": "Tx ID"
+  },
+  "notesSection": {
+    "message": "Notes",
+    "englishSource": "Notes"
+  },
+  "created": {
+    "message": "Créé",
+    "englishSource": "Created"
+  },
+  "confirmed": {
+    "message": "Confirmé",
+    "englishSource": "Confirmed"
+  },
+  "date": {
+    "message": "Date",
+    "englishSource": "Date"
+  },
+  "details": {
+    "message": "Détails",
+    "englishSource": "Details"
+  },
+  "addANote": {
+    "message": "Ajoutez un note",
+    "englishSource": "Add a note"
+  },
+  "advancedOptions": {
+    "message": "Options avancées",
+    "englishSource": "Advanced Options"
+  },
+  "pinExtensionTitle": {
+    "message": "Portefeuille Pin Miden",
+    "englishSource": "Pin Miden Wallet"
+  },
+  "pinExtensionDescription": {
+    "message": "Cliquez sur l'icône du puzzle et épinglez Miden Wallet pour un accès rapide depuis votre barre d'outils.",
+    "englishSource": "Click the puzzle icon and pin Miden Wallet for quick access from your toolbar."
+  },
+  "gotIt": {
+    "message": "J'ai compris",
+    "englishSource": "Got it"
+  },
+  "downloadGeneratedFiles": {
+    "message": "Télécharger les fichiers générés",
+    "englishSource": "Download Generated Files"
   }
 }

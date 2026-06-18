@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
-import colors from 'utils/tailwind-colors';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 export interface ToggleProps extends HTMLAttributes<HTMLDivElement> {
   className?: string;
@@ -34,7 +34,7 @@ export const Toggle: React.FC<ToggleProps> = ({
         'w-10 h-5 rounded-full cursor-pointer flex border items-center px-1',
         {
           'justify-end bg-primary-500 border-primary-500': value,
-          'justify-start bg-white border-grey-200': !value,
+          'justify-start bg-white border-border-light': !value,
           'opacity-50 cursor-not-allowed': disabled
         },
         className
@@ -47,7 +47,7 @@ export const Toggle: React.FC<ToggleProps> = ({
           'bg-white': value,
           'bg-primary-500': !value
         })}
-        animate={{ backgroundColor: value ? '#ffffff' : colors.primary[500] }}
+        animate={{ backgroundColor: value ? '#ffffff' : PRIMARY_HEX }}
         layout={!isExtension()}
         transition={
           isExtension()

@@ -1,16 +1,16 @@
 import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import classNames from 'clsx';
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
-import { useAccountBadgeTitle } from 'app/defaults';
 import AccountBanner from 'app/templates/AccountBanner';
 import { Button, ButtonVariant } from 'components/Button';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
@@ -21,15 +21,20 @@ type FormData = {
 };
 
 type RevealSecretProps = {
-  reveal: 'view-key' | 'private-key' | 'seed-phrase';
+  reveal: 'private-key' | 'seed-phrase' | 'hot-key' | 'guardian-keys';
+};
+
+type GuardianKeysBundle = {
+  coldPrivateKey: string;
+  coldPublicKey: string;
+  hotPublicKey?: string;
 };
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const { t } = useTranslation();
-  const accountBadgeTitle = useAccountBadgeTitle();
-  const { revealMnemonic } = useMidenContext();
+  const { revealMnemonic, revealPrivateKey, revealHotKey, revealGuardianKeys } = useMidenContext();
   const account = useAccount();
-  const { fieldRef: secretFieldRef, copy, copied } = useCopyToClipboard();
+  const { fieldRef: secretFieldRef } = useCopyToClipboard();
 
   const {
     register,
@@ -42,7 +47,21 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
+  const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
+  // The native iOS / Android navbar pill renders in a separate UIWindow / Dialog
+  // above the WebView, so any content at the bottom of this page (notably the
+  // Unlock button on hardware-protected wallets, where there's no password
+  // input to push the button up) gets z-covered and becomes unclickable.
+  // Morph the pill out while the reveal screen is mounted; restores on unmount.
+  useHideNavbarWhileOpen(true);
+  // Private-key + guardian-keys reveals require the user to tick an "I
+  // understand" checkbox before the Continue button enables. The warning
+  // banner alone is passive; this gate forces one deliberate interaction
+  // before handing out recovery material. Hot-key reveal skips the gate
+  // because hot keys rotate from Settings → Rotate Device Key.
+  const [privateKeyAcknowledged, setPrivateKeyAcknowledged] = useState(false);
+  const requiresAcknowledge = reveal === 'private-key' || reveal === 'guardian-keys';
 
   useEffect(() => {
     Vault.hasHardwareProtector().then(setHasHardwareProtector);
@@ -50,7 +69,10 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   useEffect(() => {
     if (account.publicKey) {
-      return () => setSecret(null);
+      return () => {
+        setSecret(null);
+        setGuardianBundle(null);
+      };
     }
     return undefined;
   }, [account.publicKey, setSecret]);
@@ -80,8 +102,17 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
       clearErrors('password');
       try {
-        const secret = await revealMnemonic(hasHardwareProtector ? undefined : password);
-        setSecret(secret);
+        const unlockPassword = hasHardwareProtector ? undefined : password;
+        if (reveal === 'private-key') {
+          const pubKeyCommitment = await getAccountPublicKeyCommitment(account.publicKey);
+          setSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
+        } else if (reveal === 'hot-key') {
+          setSecret(await revealHotKey(account.publicKey, unlockPassword));
+        } else if (reveal === 'guardian-keys') {
+          setGuardianBundle(await revealGuardianKeys(account.publicKey, unlockPassword));
+        } else {
+          setSecret(await revealMnemonic(unlockPassword));
+        }
       } catch (err: any) {
         console.error(err);
 
@@ -91,28 +122,24 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         if (!hasHardwareProtector) focusPasswordField();
       }
     },
-    [isSubmitting, clearErrors, setError, revealMnemonic, setSecret, focusPasswordField, hasHardwareProtector]
+    [
+      isSubmitting,
+      clearErrors,
+      setError,
+      revealMnemonic,
+      revealPrivateKey,
+      revealHotKey,
+      revealGuardianKeys,
+      setSecret,
+      focusPasswordField,
+      hasHardwareProtector,
+      reveal,
+      account.publicKey
+    ]
   );
 
   const texts = useMemo(() => {
     switch (reveal) {
-      case 'view-key':
-        return {
-          name: t('viewKey'),
-          accountBanner: (
-            <AccountBanner labelDescription={t('ifYouWantToRevealViewKeyFromOtherAccount')} className="mb-6" />
-          ),
-          attention: (
-            <div className="flex flex-col text-left text-black">
-              <span className="font-medium" style={{ fontSize: '14px', lineHeight: '20px', marginBottom: '4px' }}>
-                {t('doNotShareViewKey1')} <br />
-              </span>
-              <span className="text-xs">{t('doNotShareViewKey2')}</span>
-            </div>
-          ),
-          fieldDesc: t('viewKeyFieldDescription')
-        };
-
       case 'private-key':
         return {
           name: t('privateKey'),
@@ -145,35 +172,68 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             </div>
           )
         };
+
+      case 'hot-key':
+        return {
+          name: t('hotPrivateKey'),
+          accountBanner: null,
+          attention: null,
+          fieldDesc: <div className="text-heading-gray text-sm">{t('revealHotKeyDescription')}</div>
+        };
+
+      case 'guardian-keys':
+        return {
+          name: t('coldPrivateKey'),
+          accountBanner: null,
+          attention: null,
+          fieldDesc: <div className="text-heading-gray text-sm">{t('guardianKeysRevealDescription')}</div>
+        };
     }
   }, [reveal, t]);
 
-  const forbidPrivateKeyRevealing = reveal === 'private-key';
   const mainContent = useMemo(() => {
-    if (forbidPrivateKeyRevealing) {
+    if (guardianBundle) {
       return (
-        <Alert
-          title={t('privateKeyCannotBeRevealed')}
-          description={
-            <p>
-              {t('youCannotGetPrivateKeyFromThisAccountType', {
-                accountType: (
-                  <span
-                    key="account-type"
-                    className={classNames('rounded-sm', 'border', 'px-1 py-px', 'font-normal leading-tight')}
-                    style={{
-                      fontSize: '0.75em',
-                      borderColor: 'currentColor'
-                    }}
-                  >
-                    {accountBadgeTitle}
-                  </span>
-                )
-              })}
-            </p>
-          }
-          className="mb-4 bg-blue-200 border-primary-500 rounded-none text-black"
-        />
+        <div className="pt-8 flex flex-col gap-6">
+          <FormField
+            ref={secretFieldRef}
+            secret
+            textarea
+            rows={3}
+            readOnly
+            label={t('coldPrivateKey')}
+            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+            labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
+            id="reveal-guardian-cold-private"
+            spellCheck={false}
+            className="resize-none notranslate"
+            value={guardianBundle.coldPrivateKey}
+          />
+          <FormField
+            textarea
+            rows={2}
+            readOnly
+            label={t('coldPublicKeyLabel')}
+            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+            id="reveal-guardian-cold-public"
+            spellCheck={false}
+            className="resize-none notranslate"
+            value={guardianBundle.coldPublicKey}
+          />
+          {guardianBundle.hotPublicKey && (
+            <FormField
+              textarea
+              rows={2}
+              readOnly
+              label={t('hotPublicKeyLabel')}
+              labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+              id="reveal-guardian-hot-public"
+              spellCheck={false}
+              className="resize-none notranslate"
+              value={guardianBundle.hotPublicKey}
+            />
+          )}
+        </div>
       );
     }
 
@@ -234,21 +294,20 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       </form>
     );
   }, [
-    forbidPrivateKeyRevealing,
     errors,
     onSubmit,
     register,
     secret,
+    guardianBundle,
     texts,
     clearErrors,
     secretFieldRef,
     t,
-    accountBadgeTitle,
     hasHardwareProtector,
     handleSubmit
   ]);
 
-  const showButton = !forbidPrivateKeyRevealing && !secret;
+  const showButton = !secret && !guardianBundle;
 
   if (hasHardwareProtector === null) {
     return null;
@@ -258,6 +317,35 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
       {texts.accountBanner}
 
+      {requiresAcknowledge && showButton && (
+        <>
+          <Alert
+            type="warn"
+            title={t('privateKeyRevealWarningTitle')}
+            description={<p>{t('privateKeyRevealWarningBody')}</p>}
+            className="mb-4 rounded-lg"
+          />
+          <label className="mb-4 flex items-start gap-2 text-sm text-black cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={privateKeyAcknowledged}
+              onChange={e => setPrivateKeyAcknowledged(e.target.checked)}
+            />
+            <span>{t('privateKeyRevealAcknowledge')}</span>
+          </label>
+        </>
+      )}
+
+      {reveal === 'hot-key' && showButton && (
+        <Alert
+          type="warn"
+          title={t('hotKeyRevealWarningTitle')}
+          description={<p>{t('hotKeyRevealWarningBody')}</p>}
+          className="mb-4 rounded-lg"
+        />
+      )}
+
       {mainContent}
 
       {showButton && (
@@ -266,7 +354,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             className="w-full justify-center"
             variant={ButtonVariant.Primary}
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-            disabled={isSubmitting || (hasHardwareProtector ? false : !passwordValue)}
+            disabled={
+              isSubmitting ||
+              (requiresAcknowledge && !privateKeyAcknowledged) ||
+              (hasHardwareProtector ? false : !passwordValue)
+            }
             isLoading={isSubmitting}
             onClick={hasHardwareProtector ? () => onSubmit({ password: '' }) : handleSubmit(onSubmit)}
           />
@@ -277,3 +369,23 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 };
 
 export default RevealSecret;
+
+// Returns the hex-encoded auth public-key commitment for an account.
+// This is the key under which the vault stores the matching secret key —
+// distinct from the account's bech32 id (`WalletAccount.publicKey`), which
+// identifies the account on-chain.
+const getAccountPublicKeyCommitment = async (accPublicKey: string): Promise<string> => {
+  const commitmentHex = await withWasmClientLock(async () => {
+    const client = await getMidenClient();
+    const account = await client.getAccount(accPublicKey);
+    if (!account) {
+      throw new Error('Account not found');
+    }
+    const commitments = account.getPublicKeyCommitments();
+    if (commitments.length === 0) {
+      throw new Error('Account has no public key');
+    }
+    return commitments[0]!.toHex();
+  });
+  return commitmentHex.startsWith('0x') ? commitmentHex.slice(2) : commitmentHex;
+};

@@ -29,6 +29,7 @@ export const TextArea: React.FC<TextAreaProps> = ({ className, value, ...props }
         'transition duration-300 ease-in-out',
         'min-h-[48px] p-3',
         'resize-none overflow-hidden',
+        'bg-white text-black',
         'placeholder-grey-400 font-base text-base',
         'border border-grey-200 hover:border-grey-300',
         'hover:border-grey-300',

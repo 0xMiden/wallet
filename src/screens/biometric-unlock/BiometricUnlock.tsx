@@ -5,9 +5,14 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
-import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg';
+// `?url` — see Unlock.tsx for why the suffix is load-bearing.
+import LogoVerticalTitleDevnet from 'app/misc/logo-vertical-title-devnet.svg?url';
+import LogoVerticalTitle from 'app/misc/logo-vertical-title.svg?url';
 import { Button, ButtonVariant } from 'components/Button';
 import { BiometricAvailability, checkBiometricAvailability, unlockWithBiometric } from 'lib/biometric';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+
+const WalletLogo = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET ? LogoVerticalTitleDevnet : LogoVerticalTitle;
 
 export interface BiometricUnlockProps {
   onSuccess: (password: string) => void;
@@ -80,7 +85,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
     <SimplePageLayout
       icon={
         <>
-          <img alt="Miden Wallet Logo" src={`${LogoVerticalTitle}`} />
+          <img alt="Miden Wallet Logo" src={`${WalletLogo}`} />
         </>
       }
     >
@@ -88,7 +93,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
         {/* Biometric Icon */}
         <div
           className={classNames(
-            'w-24 h-24 rounded-full bg-grey-50 flex items-center justify-center mb-8',
+            'w-24 h-24 rounded-full bg-gray-50 flex items-center justify-center mb-8',
             isAuthenticating && 'animate-pulse'
           )}
         >
@@ -99,7 +104,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
         <h2 className="text-xl font-semibold text-center mb-2">{getBiometricLabel()}</h2>
 
         {/* Subtitle/Status */}
-        <p className="text-sm text-grey-600 text-center mb-8">
+        <p className="text-sm text-text-muted text-center mb-8">
           {isAuthenticating ? t('biometricAuthRequired') : error || t('unlockWithBiometric')}
         </p>
 

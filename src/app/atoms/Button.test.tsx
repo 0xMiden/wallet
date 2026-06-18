@@ -105,7 +105,8 @@ describe('Button', () => {
   it('does not call onClick if not provided', () => {
     render(<Button>Click</Button>);
 
-    // Should not throw
-    fireEvent.click(screen.getByRole('button'));
+    // Should not throw when clicked without an onClick handler.
+    const button = screen.getByRole('button');
+    expect(() => fireEvent.click(button)).not.toThrow();
   });
 });

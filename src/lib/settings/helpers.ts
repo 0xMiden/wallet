@@ -8,13 +8,14 @@ import {
   HAPTIC_FEEDBACK_STORAGE_KEY,
   DEFAULT_HAPTIC_FEEDBACK,
   THEME_STORAGE_KEY,
-  DEFAULT_THEME
+  DEFAULT_THEME,
+  ThemeSetting
 } from './constants';
 
 function setSetting(key: string, value: boolean) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
+  } /* c8 ignore next -- jsdom localStorage.setItem is non-configurable */ catch {}
 }
 
 function getSetting(key: string, defaultValue: boolean) {
@@ -54,17 +55,20 @@ export function isHapticFeedbackEnabled() {
   return getSetting(HAPTIC_FEEDBACK_STORAGE_KEY, DEFAULT_HAPTIC_FEEDBACK);
 }
 
-export function setThemeSetting(theme: 'light' | 'dark') {
+export function setThemeSetting(theme: ThemeSetting) {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
-  } catch {}
+  } /* c8 ignore next -- jsdom localStorage.setItem is non-configurable */ catch {}
 }
 
-export function getThemeSetting(): 'light' | 'dark' {
+export function getThemeSetting(): ThemeSetting {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    return stored === 'dark' ? 'dark' : DEFAULT_THEME;
-  } catch {
+    if (stored === 'dark' || stored === 'light' || stored === 'system') {
+      return stored;
+    }
+    return DEFAULT_THEME;
+  } /* c8 ignore next 2 -- jsdom localStorage.getItem is non-configurable */ catch {
     return DEFAULT_THEME;
   }
 }

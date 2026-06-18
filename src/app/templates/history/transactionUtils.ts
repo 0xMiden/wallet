@@ -1,8 +1,8 @@
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
 import { ITransactionType } from 'lib/miden/db/types';
+import { MidenTokens, TOKEN_MAPPING } from 'lib/miden-chain/constants';
 
 import { IHistoryEntry } from './IHistoryEntry';
 

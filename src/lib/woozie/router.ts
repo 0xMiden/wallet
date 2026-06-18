@@ -59,7 +59,8 @@ function createParams(path: Path, pattern: Pattern, keys: Keys): Params {
 
   let i = 0;
   while (i < keys.length) {
-    params[keys[i]] = matches[++i] || null;
+    const key = keys[i]!;
+    params[key] = matches[++i] || null;
   }
   return params;
 }

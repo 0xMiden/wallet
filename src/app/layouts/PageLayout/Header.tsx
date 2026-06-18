@@ -6,17 +6,16 @@ import { Button } from 'app/atoms/Button';
 import ColorIdenticon from 'app/atoms/ColorIdenticon';
 import Name from 'app/atoms/Name';
 import { openInFullPage, useAppEnv } from 'app/env';
-import { ReactComponent as ChevronDownIcon } from 'app/icons/chevron-down.svg';
 import { ReactComponent as MaximiseIcon } from 'app/icons/maximise.svg';
+import { ReactComponent as MinimiseIcon } from 'app/icons/minimise.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
 import AddressChip from 'app/templates/AddressChip';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
+import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { Link, navigate } from 'lib/woozie';
-
-import { HeaderSelectors } from './Header.selectors';
+import { navigate } from 'lib/woozie';
 
 const Header: FC = () => {
   const appEnv = useAppEnv();
@@ -42,7 +41,7 @@ const SyncSpinner: FC<{ visible: boolean }> = ({ visible }) => (
     style={{
       width: 16,
       height: 16,
-      border: '2px solid #E5E7EB',
+      border: '2px solid var(--color-border-secondary)',
       borderTopColor: '#F97316',
       borderRadius: '50%',
       opacity: visible ? 1 : 0,
@@ -53,7 +52,7 @@ const SyncSpinner: FC<{ visible: boolean }> = ({ visible }) => (
 
 const Control: FC = () => {
   const account = useAccount();
-  const { popup } = useAppEnv();
+  const { popup, sidePanel, compact } = useAppEnv();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { isLoading: isLoadingBalances } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const hasCompletedInitialSync = useWalletStore(s => s.hasCompletedInitialSync);
@@ -70,9 +69,40 @@ const Control: FC = () => {
     return () => clearTimeout(hideTimeout);
   }, [isSyncing]);
 
-  const handleMaximiseViewClick = () => {
+  const handleMaximiseViewClick = async () => {
+    const chromeApi = (globalThis as any).chrome;
+    const hasSidePanel = isExtension() && chromeApi?.sidePanel?.open;
+
+    if (sidePanel && hasSidePanel) {
+      // Switch back to popup mode
+      chromeApi.storage.local.set({ sidepanel_mode: false });
+      chromeApi.action.setPopup({ popup: 'popup.html' });
+      chromeApi.sidePanel
+        .setPanelBehavior({ openPanelOnActionClick: false })
+        .catch((err: Error) => console.warn('[Header] setPanelBehavior error:', err));
+      window.close();
+      return;
+    }
+    if (popup && hasSidePanel) {
+      // Switch to side panel mode
+      try {
+        await chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+        chromeApi.action.setPopup({ popup: '' });
+        chromeApi.storage.local.set({ sidepanel_mode: true });
+        const win = await chromeApi.windows.getLastFocused();
+        await chromeApi.sidePanel.open({ windowId: win.id });
+        window.close();
+        return;
+      } catch (err) {
+        // Restore popup mode on failure
+        chromeApi.action.setPopup({ popup: 'popup.html' });
+        chromeApi.storage.local.set({ sidepanel_mode: false });
+        chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+        console.warn('[Header] Side panel open failed, falling back to fullpage:', err);
+      }
+    }
     openInFullPage();
-    if (popup) {
+    if (compact) {
       window.close();
     }
   };
@@ -103,7 +133,7 @@ const Control: FC = () => {
         </div>
         <div className="flex items-center gap-1">
           {showSpinner && <SyncSpinner visible={isSyncing} />}
-          {popup && (
+          {compact && (
             <Button
               className={classNames(
                 'flex items-center justify-center',
@@ -115,7 +145,11 @@ const Control: FC = () => {
               )}
               onClick={handleMaximiseViewClick}
             >
-              <MaximiseIcon className="w-4 h-4 stroke-black" />
+              {sidePanel ? (
+                <MinimiseIcon className="w-4 h-4 stroke-heading-gray" />
+              ) : (
+                <MaximiseIcon className="w-4 h-4 stroke-heading-gray" />
+              )}
             </Button>
           )}
           <Button
@@ -125,7 +159,11 @@ const Control: FC = () => {
               navigate('/settings');
             }}
           >
-            <Icon name={IconName.SettingsNew} className="w-5 h-5 stroke-black fill-black" fill="currentColor" />
+            <Icon
+              name={IconName.SettingsNew}
+              className="w-5 h-5 stroke-heading-gray fill-heading-gray"
+              fill="currentColor"
+            />
           </Button>
         </div>
       </div>

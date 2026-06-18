@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import FormField from 'app/atoms/FormField';
 import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
@@ -14,6 +16,7 @@ import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { QRCode } from 'components/QRCode';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
+import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { formatBigInt } from 'lib/i18n/numbers';
 import {
   getFailedTransactions,
@@ -57,7 +60,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
-  const { fullPage } = useAppEnv();
+  const { fullPage, sidePanel } = useAppEnv();
   const safeClaimableNotes = useMemo(
     () => (claimableNotes ?? []).filter((n): n is NonNullable<typeof n> => n != null),
     [claimableNotes]
@@ -195,12 +198,10 @@ export const Receive: React.FC<ReceiveProps> = () => {
               }
             }
           } else {
-            const { InputNoteState, NoteFilter, NoteFilterTypes, NoteId } = await import('@miden-sdk/miden-sdk');
-            const noteIds = safeClaimableNotes.map(n => NoteId.fromHex(n.id));
+            const noteIds = safeClaimableNotes.map(n => n.id);
             const noteDetails = await withWasmClientLock(async () => {
               const midenClient = await getMidenClient();
-              const noteFilter = new NoteFilter(NoteFilterTypes.List, noteIds);
-              return await midenClient.getInputNoteDetails(noteFilter);
+              return await midenClient.getInputNoteDetails({ ids: noteIds });
             });
 
             for (const note of noteDetails) {
@@ -238,9 +239,10 @@ export const Receive: React.FC<ReceiveProps> = () => {
     // Refresh the claimable notes list before queueing to avoid race conditions
     // with auto-consume (Explore page may have already started claiming some notes)
     const freshNotes = await mutateClaimableNotes();
-    const freshUnclaimedNotes = (freshNotes ?? []).filter(
-      n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
-    );
+    // On extension, mutate returns undefined (fire-and-forget sync), so fall back to unclaimedNotes
+    const freshUnclaimedNotes = freshNotes
+      ? freshNotes.filter(n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id))
+      : unclaimedNotes;
 
     if (freshUnclaimedNotes.length === 0) {
       // All notes are already being claimed (likely by auto-consume)
@@ -250,10 +252,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
     // Mark unclaimed notes as being claimed
     const noteIds = freshUnclaimedNotes.map(n => n!.id);
     setClaimingNoteIds(new Set(noteIds));
-
-    // Track results
-    let failed = 0;
-    let queueFailed = 0;
 
     // Clear previous failures
     setFailedNoteIds(new Set());
@@ -268,7 +266,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
           transactionIds.push({ noteId: note.id, txId: id });
         } catch (err) {
           console.error('Error queuing note for claim:', note.id, err);
-          queueFailed++;
           // Mark as failed and remove from claiming set
           setFailedNoteIds(prev => new Set(prev).add(note.id));
           setClaimingNoteIds(prev => {
@@ -380,13 +377,56 @@ export const Receive: React.FC<ReceiveProps> = () => {
   }, []);
 
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding)
-  const containerClass = isMobile()
-    ? 'h-full w-full'
-    : fullPage
-      ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl'
-      : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  const containerClass =
+    isMobile() || sidePanel
+      ? 'h-full w-full'
+      : fullPage
+        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px] border rounded-3xl'
+        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
 
   const [isQRSheetOpen, setIsQRSheetOpen] = useState(false);
+
+  // On mobile, morph the native navbar OUT while the QR sheet
+  // covers the bottom of the screen — they'd otherwise fight for
+  // the same real estate. The navbar morph is a Swift spring
+  // animation on the native UIWindow; the `data-drawer-open` body
+  // attribute drives a matching CSS morph for parked-dApp bubbles
+  // (see main.css). Morphs back IN when the sheet closes. The
+  // unmount cleanup re-morphs in case the page unmounts mid-open
+  // (e.g. swipe-back), so nothing is stranded off-screen on the
+  // next page. Same pattern as Settings (Settings.tsx).
+  useEffect(() => {
+    if (!isMobile()) return;
+    if (isQRSheetOpen) {
+      document.body.setAttribute('data-drawer-open', '');
+      InAppBrowser.morphNavbarOut().catch(() => {});
+    } else {
+      document.body.removeAttribute('data-drawer-open');
+      InAppBrowser.morphNavbarIn().catch(() => {});
+    }
+    return () => {
+      if (!isMobile()) return;
+      if (isQRSheetOpen) {
+        document.body.removeAttribute('data-drawer-open');
+        InAppBrowser.morphNavbarIn().catch(() => {});
+      }
+    };
+  }, [isQRSheetOpen]);
+
+  // Lift the Claim All button into the native navbar overlay on mobile.
+  // The navbar morphs to compact mode when claimableNotes appear and
+  // back to default when they're all gone — handles the dynamic case
+  // where the background sync surfaces claimable notes mid-page-life.
+  const isClaimingAll = claimingNoteIds.size > 0;
+  useNativeNavbarAction(
+    unclaimedNotes.length > 0
+      ? {
+          label: t('claimAll'),
+          onTap: handleClaimAll,
+          enabled: !isClaimingAll
+        }
+      : null
+  );
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
@@ -425,6 +465,30 @@ export const Receive: React.FC<ReceiveProps> = () => {
         onDragEnter={onDragEnter}
         data-testid="receive-page"
       >
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 cursor-pointer"
+          aria-label="Back"
+        >
+          <Icon name={IconName.ChevronLeft} size="sm" fill="currentColor" className="text-black" />
+        </button>
+        <h1 className="text-[20px] font-medium text-black">{t('receive')}</h1>
+
+        <button
+          type="button"
+          className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 cursor-pointer"
+          aria-label={t('showQrCode')}
+          onClick={() => {
+            hapticLight();
+            setIsQRSheetOpen(true);
+          }}
+        >
+          <QRIcon className="text-black" style={{ width: '22px', height: '22px' }} />
+        </button>
+      </div>
+
+      <div className="flex-1 flex flex-col min-h-0" data-testid="receive-page">
         <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
         <div className={classNames('w-full mx-auto py-4 flex flex-col flex-1 min-h-0', isMobile() ? 'px-8' : 'px-4')}>
           {safeClaimableNotes.length === 0 ? (
@@ -484,7 +548,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
               </div>
             </>
           )}
-          {unclaimedNotes.length > 0 && (
+          {unclaimedNotes.length > 0 && !isMobile() && (
             <div className="flex justify-center mt-4 pb-4 shrink-0">
               <Button
                 className="w-30 h-10 text-md"
@@ -566,17 +630,17 @@ const AssetNoteGroupComponent: React.FC<AssetNoteGroupProps> = ({
   const claimingCount = notes.filter(n => n.isBeingClaimed || claimingNoteIds.has(n.id)).length;
 
   // Single note - render inline without collapsible
-  if (notes.length === 1) {
-    const note = notes[0];
+  const soloNote = notes.length === 1 ? notes[0] : null;
+  if (soloNote) {
     return (
       <SingleNoteRow
-        note={note}
+        note={soloNote}
         account={account}
         mutateClaimableNotes={mutateClaimableNotes}
         isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-        isClaimingFromParent={claimingNoteIds.has(note.id)}
-        hasFailedFromParent={failedNoteIds.has(note.id)}
-        isCheckingFromParent={checkingNoteIds.has(note.id)}
+        isClaimingFromParent={claimingNoteIds.has(soloNote.id)}
+        hasFailedFromParent={failedNoteIds.has(soloNote.id)}
+        isCheckingFromParent={checkingNoteIds.has(soloNote.id)}
         onClaimingStateChange={onClaimingStateChange}
       />
     );
@@ -754,7 +818,7 @@ const SingleNoteRow: React.FC<SingleNoteRowProps> = ({
         setIsLoading(false);
       }
     }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note]);
+  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
 
   const { metadata, faucetId } = note;
   const symbol = metadata?.symbol || 'UNKNOWN';
@@ -879,7 +943,7 @@ const NoteTableRow: React.FC<NoteTableRowProps> = ({
         setIsLoading(false);
       }
     }
-  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note]);
+  }, [account, isDelegatedProvingEnabled, mutateClaimableNotes, note, t]);
 
   const { metadata } = note;
   const formattedAmount = formatBigInt(BigInt(note.amount), metadata?.decimals || 6);
