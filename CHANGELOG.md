@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.1 (TBD)
+
+### Changes
+
+* [CHANGE][all] Bumped `@miden-sdk/miden-sdk` and `@miden-sdk/react` to the stable `0.15.1` release, replacing the `0.15.0-alpha.7` prerelease (npm `next` dist-tag) that shipped in 1.15.0 with the GA build on the `latest` dist-tag. `@miden-sdk/vite-plugin` stays at `0.14.11` (no 0.15.x is published; it's SDK-version-agnostic), and the `**/@miden-sdk/miden-sdk` resolution pin tracks the same `0.15.1`.
+
 ## 1.15.0 (2026-06-12)
 
 ### Features
