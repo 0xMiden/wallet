@@ -5,6 +5,7 @@
 ### Changes
 
 * [CHANGE][all] Bumped `@miden-sdk/miden-sdk` and `@miden-sdk/react` to the stable `0.15.1` release, replacing the `0.15.0-alpha.7` prerelease (npm `next` dist-tag) that shipped in 1.15.0 with the GA build on the `latest` dist-tag. `@miden-sdk/vite-plugin` stays at `0.14.11` (no 0.15.x is published; it's SDK-version-agnostic), and the `**/@miden-sdk/miden-sdk` resolution pin tracks the same `0.15.1`.
+* [CHANGE][ci] Mobile E2E iOS build now targets a generic simulator destination (`generic/platform=iOS Simulator`) instead of a named device (`name=iPhone 17`), matching the approach `build-mobile.yml`'s release build already uses. A build needs no concrete booted device, and the generic destination resolves even when Xcode's IDE-layer CoreSimulator goes blind to concrete sims on macos-26 runners — the flake that was failing `Mobile E2E` at the build step (`xcodebuild: Unable to find a device`). The now-redundant "wait for xcodebuild to see the simulators" gate is removed (it could hard-fail the job for a condition that no longer blocks the build); pinned sims are still pre-booted for the test-run phase, which reaches them via `simctl`.
 
 ## 1.15.0 (2026-06-12)
 
