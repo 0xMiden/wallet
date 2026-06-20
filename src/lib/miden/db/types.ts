@@ -221,7 +221,8 @@ export class SwapTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { requestedFaucetId: string; requestedAmount: bigint };
+  // `orderId` is actually output info but a little hack until I decide if I want to change the schema or not
+  extraInputs: { requestedFaucetId: string; requestedAmount: bigint; orderId?: bigint };
   delegateTransaction?: boolean;
   /**
    * Serialized PSWAP-create `TransactionRequest`, populated lazily by the

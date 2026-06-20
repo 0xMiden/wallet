@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import PageLayout from 'app/layouts/PageLayout';
-import { getTransactionById } from 'lib/miden/activity';
+import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
@@ -20,6 +20,20 @@ import { fontColorForType, formatDate } from './transactionUtils';
 
 interface HistoryDetailsProps {
   transactionId: string;
+}
+
+/** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
+interface SwapExtraInputs {
+  requestedFaucetId?: string;
+  requestedAmount?: bigint;
+  orderId?: bigint;
+}
+
+/** Requested-token display info for the swap order tracking card. */
+interface RequestedTokenInfo {
+  amount: bigint;
+  decimals?: number;
+  symbol?: string;
 }
 
 const AccountDisplay: FC<{
@@ -58,6 +72,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const account = useAccount();
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
+  // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
+  const [orderId, setOrderId] = useState<string | bigint | null>(null);
+  const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
+  const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
@@ -82,6 +102,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         txType: tx.type
       } as IHistoryEntry;
 
+      if (tx.type === 'swap') {
+        const extra: SwapExtraInputs = tx.extraInputs ?? {};
+        if (extra.orderId != null) {
+          const requestedMeta = extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
+          setRequestedToken({
+            amount: extra.requestedAmount ?? 0n,
+            decimals: requestedMeta?.decimals,
+            symbol: requestedMeta?.symbol
+          });
+          setOrderId(extra.orderId);
+        }
+      }
+
       setEntry(historyEntry);
     } catch (error) {
       console.error('[HistoryDetails] Failed to load transaction:', error);
@@ -92,6 +125,46 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
+
+  useEffect(() => {
+    if (orderId == null) return;
+    let cancelled = false;
+    setTrackingLoading(true);
+    trackOrderId(orderId)
+      .then(result => {
+        console.log(result);
+        if (!cancelled) setSwapTracking(result);
+      })
+      .catch(error => {
+        console.error('[HistoryDetails] Failed to track swap order:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setTrackingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
+  const orderStatusLabel = (state: SwapOrderState): string => {
+    switch (state) {
+      case 'filled':
+        return t('orderStatusFilled');
+      case 'reclaimed':
+        return t('orderStatusReclaimed');
+      default:
+        return t('orderStatusActive');
+    }
+  };
+
+  // How much of the requested amount has been filled so far, derived from the
+  // original requested amount and the lineage's still-outstanding remainder.
+  const filledRequested =
+    requestedToken && swapTracking
+      ? swapTracking.remainingRequested > requestedToken.amount
+        ? 0n
+        : requestedToken.amount - swapTracking.remainingRequested
+      : undefined;
 
   const fromAddress = entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
   const toAddress = entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
@@ -174,6 +247,39 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     {entry.noteType ? t('on') : t('off')}
                   </span>
                 </DetailRow>
+              </DetailCard>
+            </div>
+          )}
+
+          {/* Swap order tracking */}
+          {entry.txType === 'swap' && orderId != null && (
+            <div className="mt-6 mb-4">
+              <DetailCard title={t('orderTracking')}>
+                <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
+                  {swapTracking ? (
+                    <span className="text-sm text-heading-gray font-medium">
+                      {orderStatusLabel(swapTracking.state)}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-text-muted font-medium">
+                      {trackingLoading ? t('loading') : t('trackingUnavailable')}
+                    </span>
+                  )}
+                </DetailRow>
+                {swapTracking && (
+                  <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
+                    <span className="text-sm text-heading-gray font-medium">{swapTracking.currentDepth}</span>
+                  </DetailRow>
+                )}
+                {swapTracking && requestedToken && (
+                  <DetailRow label={t('amountFilled')} isLast>
+                    <span className="text-sm text-heading-gray font-medium">
+                      {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
+                      {formatAmount(requestedToken.amount, requestedToken.decimals)}
+                      {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
+                    </span>
+                  </DetailRow>
+                )}
               </DetailCard>
             </div>
           )}

@@ -2,6 +2,7 @@ import {
   InputNoteState,
   Note,
   NoteType,
+  PswapLineageState,
   TransactionProver,
   TransactionResult,
   WasmWebClient
@@ -419,10 +420,14 @@ export const initiateSwapTransaction = async (
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const outputNoteIds = executedTx
-    .outputNotes()
-    .notes()
-    .map(note => note.id().toString());
+  const outputNote = executedTx.outputNotes().notes()[0];
+
+  if (!outputNote) {
+    throw new Error('Swap Transaction Failed');
+  }
+
+  // orderId for tracking the swap note through the lineage
+  const orderId = outputNote.intoFull()?.recipient().serialNum().toFelts()[1]?.asInt();
 
   // TODO: track the created PSWAP note + payback note for richer activity
   // display (offered/requested asset breakdown). For now record the tx as
@@ -430,9 +435,10 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
-    outputNoteIds,
+    outputNoteIds: [outputNote.id().toString()],
     completedAt: Math.floor(Date.now() / 1000), // seconds
-    resultBytes: result.serialize()
+    resultBytes: result.serialize(),
+    extraInputs: { ...tx.extraInputs, orderId }
   });
 };
 
@@ -1297,6 +1303,61 @@ export const getTransactionById = async (id: string) => {
   const tx = await Repo.transactions.where({ id }).first();
   if (!tx) throw new Error('Transaction not found');
   return tx;
+};
+
+/**
+ * Lifecycle state of a swap order's PSWAP-note lineage, surfaced to the UI as
+ * a stable string so the activity layer doesn't leak the wasm
+ * `PswapLineageState` enum into React components:
+ *   - active    : still fillable / reclaimable
+ *   - filled    : fully filled (terminal)
+ *   - reclaimed : reclaimed by the creator (terminal)
+ */
+export type SwapOrderState = 'active' | 'filled' | 'reclaimed';
+
+export interface SwapOrderTracking {
+  /** Stable order id shared by every note in the lineage (decimal string). */
+  orderId: string;
+  state: SwapOrderState;
+  /** 0 for the original PSWAP note, +1 per fill round. */
+  currentDepth: number;
+  /** Offered amount still unfilled on the current tip, in base units. */
+  remainingOffered: bigint;
+  /** Requested amount still outstanding on the current tip, in base units. */
+  remainingRequested: bigint;
+}
+
+const pswapStateToOrderState = (state: PswapLineageState): SwapOrderState => {
+  switch (state) {
+    case PswapLineageState.FullyFilled:
+      return 'filled';
+    case PswapLineageState.Reclaimed:
+      return 'reclaimed';
+    default:
+      return 'active';
+  }
+};
+
+/**
+ * Look up the live PSWAP lineage for a swap order so the activity detail page
+ * can show how far the order has been filled. `orderId` is the value persisted
+ * on the swap transaction's `extraInputs.orderId` by `completeSwapTransaction`.
+ * Returns `null` when this client isn't tracking the order (e.g. not synced
+ * yet). Reads IndexedDB via the wasm client, so it takes the client lock.
+ */
+export const trackOrderId = async (orderId: string | bigint): Promise<SwapOrderTracking | null> => {
+  return withWasmClientLock(async () => {
+    const client = await getMidenClient();
+    const lineage = await client.client.pswap.lineage(orderId);
+    if (!lineage) return null;
+    return {
+      orderId: lineage.orderId(),
+      state: pswapStateToOrderState(lineage.state()),
+      currentDepth: lineage.currentDepth(),
+      remainingOffered: lineage.remainingOffered(),
+      remainingRequested: lineage.remainingRequested()
+    };
+  });
 };
 
 export const generateTransactionsLoop = async (
