@@ -11,7 +11,7 @@
     "rev": "733720a7ce5886a390c848402b61079be1e6aa38"
   },
   "scripts": {
-    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules && patch-package",
+    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package",
     "start": "yarn watch:src",
     "dev": "rimraf ./dist && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:bg && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:cs && concurrently -n bg,ext -c blue,green \"cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development vite build --config vite.background.config.ts --watch\" \"cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 MODE_ENV=development NODE_ENV=development vite build --config vite.extension.config.ts --watch\"",
     "dev-clean": "rimraf node_modules && yarn cache clean && yarn install && yarn dev",
@@ -128,14 +128,14 @@
     "@dicebear/avatars-jdenticon-sprites": "4.2.5",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.15.0-alpha.7",
-    "@miden-sdk/react": "0.15.0-alpha.7",
+    "@miden-sdk/miden-sdk": "file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client",
+    "@miden-sdk/react": "0.15.0",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
-    "@noble/hashes": "^1.4.0",
-    "@openzeppelin/guardian-client": "^0.14.9",
-    "@openzeppelin/miden-multisig-client": "^0.14.9",
+    "@noble/hashes": "^1.0",
+    "@openzeppelin/guardian-client": "file:/Users/utkarshdagoat/dev/miden/private-state-manager/packages/guardian-client",
+    "@openzeppelin/miden-multisig-client": "file:/Users/utkarshdagoat/dev/miden/private-state-manager/packages/miden-multisig-client",
     "@peculiar/webcrypto": "1.1.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@segment/analytics-node": "^2.3.0",
@@ -320,6 +320,8 @@
     ]
   },
   "resolutions": {
+    "@miden-sdk/miden-sdk": "file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client",
+    "@miden-sdk/react": "0.15.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -343,7 +345,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.15.0-alpha.7"
+    "**/@miden-sdk/miden-sdk": "file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

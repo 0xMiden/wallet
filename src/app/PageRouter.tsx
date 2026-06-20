@@ -9,6 +9,7 @@ import Faucet from 'app/pages/Faucet';
 import ImportAccount from 'app/pages/ImportAccount';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
+import Swap from 'app/pages/Swap';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { useMidenContext } from 'lib/miden/front';
@@ -217,7 +218,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     '/swap',
     onlyReady(() => (
       <TabLayout>
-        <></>
+        <Swap />
       </TabLayout>
     ))
   ],

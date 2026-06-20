@@ -1,4 +1,4 @@
-import { Account, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { Account, NoteArray, TransactionRequest, TransactionRequestBuilder } from '@miden-sdk/miden-sdk/lazy';
 import {
   Multisig,
   MultisigClient,
@@ -124,26 +124,8 @@ export class MultisigService {
    * Create a custom transaction proposal from a TransactionSummary.
    * This is used for 'execute' type transactions.
    */
-  async createCustomProposal(summaryBytes: Uint8Array): Promise<Proposal> {
-    const txSummaryBase64 = u8ToB64(summaryBytes);
-
-    // Sync state to ensure we have the latest nonce
-    await this.multisig.syncState();
-    const account = this.multisig.account;
-    if (!account) {
-      throw new Error('Account not found in MultisigService');
-    }
-    // +2 accounts for the current nonce plus the proposal execution incrementing nonce
-    const nonce = Number(account.nonce().asInt()) + 2;
-
-    // Create metadata for unknown/custom proposal type
-    const metadata: ProposalMetadata = {
-      proposalType: 'unknown',
-      description: 'Custom transaction'
-    };
-    const proposal = await this.multisig.createProposal(nonce, txSummaryBase64, metadata);
-
-    return proposal;
+  async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom transaction'): Promise<Proposal> {
+    return await this.multisig.createCustomProposal(requestBytes, proposalType);
   }
 
   /**
@@ -161,9 +143,16 @@ export class MultisigService {
     await this.multisig.executeProposal(id);
   }
 
-  async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
+  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
     const singedProposal = await this.multisig.signProposal(id);
-    console.log('Signed proposal, creating transaction request with id:', singedProposal.signatures);
+    if (singedProposal.metadata.proposalType === 'custom') {
+      if (!requestBytes) {
+        throw new Error('Request Bytes are required for custom execution');
+      }
+      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+      const request = TransactionRequest.deserialize(requestBytes);
+      return request.withNewAdviceMap(advice);
+    }
     return await this.multisig.createTransactionProposalRequest(id);
   }
 

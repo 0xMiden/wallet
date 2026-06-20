@@ -15,7 +15,7 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian' | 'replace-hot-key';
+export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian' | 'replace-hot-key' | 'swap';
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -196,6 +196,60 @@ export class ConsumeTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
+    this.delegateTransaction = delegateTransaction;
+  }
+}
+
+/**
+ * Swap one asset for another. The user offers `offeredAmount` of
+ * `offeredFaucetId` and requests `requestedAmount` of `requestedFaucetId`.
+ * The offered side maps onto the shared `faucetId`/`amount` fields; the
+ * requested side lives in `extraInputs`.
+ *
+ * TODO: actual swap generation/completion is not wired up yet — see the
+ * `case 'swap'` TODOs in the transaction dispatch (activity/transactions.ts).
+ */
+export class SwapTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: { requestedFaucetId: string; requestedAmount: bigint };
+  delegateTransaction?: boolean;
+  /**
+   * Serialized PSWAP-create `TransactionRequest`, populated lazily by the
+   * Guardian path (`generateGuardianTransaction`) the first time the swap is
+   * processed. Persisted so the custom proposal and the follow-up
+   * `signAndCreateTransactionRequest` reuse identical bytes (the PSWAP serial
+   * number is random — a rebuild would diverge).
+   */
+  requestBytes?: Uint8Array;
+
+  constructor(
+    accountId: string,
+    offeredFaucetId: string,
+    offeredAmount: bigint,
+    requestedFaucetId: string,
+    requestedAmount: bigint,
+    delegateTransaction?: boolean
+  ) {
+    this.id = uuid();
+    this.type = 'swap';
+    this.accountId = accountId;
+    this.faucetId = offeredFaucetId;
+    this.amount = offeredAmount;
+    this.extraInputs = { requestedFaucetId, requestedAmount };
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'SWAP';
+    this.displayMessage = 'Swapping';
     this.delegateTransaction = delegateTransaction;
   }
 }

@@ -1,4 +1,11 @@
-import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import {
+  InputNoteState,
+  Note,
+  NoteType,
+  TransactionProver,
+  TransactionResult,
+  WasmWebClient
+} from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
@@ -10,6 +17,7 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import * as Repo from 'lib/miden/repo';
+import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
 import { isExtension, isMobile } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -24,13 +32,14 @@ import {
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SendTransaction,
+  SwapTransaction,
   SwitchGuardianTransaction,
   Transaction,
   TransactionOutput
 } from '../db/types';
 import { putToStorage } from '../front';
 import { toNoteTypeString } from '../helpers';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
@@ -377,6 +386,52 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     amount,
     noteType: toNoteTypeString(note.metadata().noteType()),
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
+    resultBytes: result.serialize()
+  });
+};
+
+/**
+ * Queue a swap (PSWAP-create) transaction: the account offers `offeredAmount`
+ * of `offeredFaucetId` in exchange for `requestedAmount` of `requestedFaucetId`.
+ * The offered side maps onto `faucetId`/`amount`; the requested side lives in
+ * `extraInputs`. Dispatched via `MidenClientInterface.swapTransaction`.
+ */
+export const initiateSwapTransaction = async (
+  accountId: string,
+  offeredFaucetId: string,
+  offeredAmount: bigint,
+  requestedFaucetId: string,
+  requestedAmount: bigint,
+  delegateTransaction?: boolean
+): Promise<string> => {
+  const dbTransaction = new SwapTransaction(
+    accountId,
+    offeredFaucetId,
+    offeredAmount,
+    requestedFaucetId,
+    requestedAmount,
+    delegateTransaction
+  );
+  await Repo.transactions.add(dbTransaction);
+
+  return dbTransaction.id;
+};
+
+export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  const outputNoteIds = executedTx
+    .outputNotes()
+    .notes()
+    .map(note => note.id().toString());
+
+  // TODO: track the created PSWAP note + payback note for richer activity
+  // display (offered/requested asset breakdown). For now record the tx as
+  // Completed with the output note ids so the swap shows up in history.
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Swapped',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes: result.serialize()
   });
 };
@@ -939,6 +994,8 @@ export const generateTransaction = async (
         return await midenClient.sendTransaction(transaction as SendTransaction);
       case 'consume':
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
+      case 'swap':
+        return await midenClient.swapTransaction(transaction as SwapTransaction);
       case 'execute':
       default:
         return await midenClient.newTransaction(
@@ -956,6 +1013,9 @@ export const generateTransaction = async (
       break;
     case 'consume':
       await completeConsumeTransaction(transaction.id, result);
+      break;
+    case 'swap':
+      await completeSwapTransaction(transaction as SwapTransaction, result);
       break;
     case 'execute':
     default:
@@ -1044,21 +1104,43 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
-    // case 'execute':
-    // default: {
-    // // For custom transactions, get TransactionSummary and create a custom proposal
-    // const summaryBytes = await withWasmClientLock(async () => {
-    //   const midenClient = await getMidenClient();
-    //   const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
-    //   return (
-    //     await midenClient.client.transactions.preview(accountIdStringToSdk(transaction.accountId), txRequest)
-    //   ).serialize();
-    // });
-    // proposalResult = await multisigService.createCustomProposal(summaryBytes);
-    // break;
-    // }
+    case 'swap': {
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      const swapTx = transaction as SwapTransaction;
+      // PSWAP notes carry a randomly-generated serial number, so the request
+      // must be built ONCE and the exact same bytes reused for BOTH
+      // `createCustomProposal` and `signAndCreateTransactionRequest` below (the
+      // latter rebuilds the final tx from these bytes + the proposal's advice
+      // map, and throws if they're missing). Persist them so a retry after a
+      // process restart reuses the same request instead of registering a
+      // second, divergent proposal.
+      if (!transaction.requestBytes) {
+        const requestBytes = await withWasmClientLock(async () => {
+          const client = await WasmWebClient.createClient(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK)!);
+          const tr = await client.newPswapCreateTransactionRequest(
+            accountIdStringToSdk(swapTx.accountId),
+            accountIdStringToSdk(swapTx.faucetId),
+            swapTx.amount,
+            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+            swapTx.extraInputs.requestedAmount,
+            NoteType.Public,
+            NoteType.Public
+          );
+          return tr.serialize();
+        });
+        transaction.requestBytes = requestBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = requestBytes;
+        });
+      }
+      proposalResult = await service.createCustomProposal(transaction.requestBytes, 'swap');
+      break;
+    }
+    case 'execute':
     default: {
-      throw new Error(`Unsupported transaction type for Guardian account: ${transaction.type}`);
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await service.createCustomProposal(transaction.requestBytes!);
+      break;
     }
   }
 
@@ -1090,7 +1172,11 @@ const generateGuardianTransaction = async (
     await coldService.signProposal(proposalResult.id);
   }
 
-  const tr = await service.signAndCreateTransactionRequest(proposalResult.id);
+  // Custom proposals (swap, execute) rebuild the final tx from the original
+  // request bytes inside `signAndCreateTransactionRequest`; built-in proposal
+  // types ignore the arg. `transaction.requestBytes` is the exact serialized
+  // request the custom proposal was created from (persisted above for swap).
+  const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
   console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -1139,21 +1225,22 @@ const generateGuardianTransaction = async (
       await completeConsumeTransaction(transaction.id, transactionResult);
       break;
     case 'switch-guardian':
-      console.log('Completing switch guardian transaction');
       await completeSwitchGuardianTransaction(transaction as SwitchGuardianTransaction, transactionResult, service);
       break;
     case 'replace-hot-key':
-      console.log('Completing replace-hot-key transaction');
       await completeReplaceHotKeyTransaction(
         transaction as ReplaceHotKeyTransaction,
         transactionResult,
         guardianProvider
       );
       break;
-    // case 'execute':
-    // default:
-    //   await completeCustomTransaction(transaction, transactionResult);
-    //   break;
+    case 'swap':
+      await completeSwapTransaction(transaction as SwapTransaction, transactionResult);
+      break;
+    case 'execute':
+    default:
+      await completeCustomTransaction(transaction, transactionResult);
+      break;
   }
   // Sync the cached hot service so the next consumer sees post-tx state.
   // Skip for replace-hot-key: that path's service is a transient cold one,

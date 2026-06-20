@@ -31,9 +31,7 @@ export const zustandProvider: GuardianAccountProvider = {
  */
 export async function syncGuardianAccounts(): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
-  const guardianAccounts = accounts.filter(
-    acc => acc.type === WalletType.Guardian && !acc.requiresHotKeyRotation
-  );
+  const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && !acc.requiresHotKeyRotation);
 
   if (guardianAccounts.length === 0) return;
 

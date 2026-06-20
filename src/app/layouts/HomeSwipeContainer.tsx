@@ -4,6 +4,7 @@ import { animate, motion, PanInfo, useMotionValue } from 'framer-motion';
 
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
+import Swap from 'app/pages/Swap';
 import { springs } from 'lib/animation';
 import { navigate, useLocation } from 'lib/woozie';
 import { SendFlow } from 'screens/send-flow/SendManager';
@@ -40,13 +41,6 @@ const COMMIT_THRESHOLD = 0.3;
 // momentum to extrapolate when deciding whether to commit. Higher feels
 // flickier; lower feels stickier.
 const VELOCITY_PROJECTION_MS = 300;
-
-const SwapPlaceholder: FC = () => (
-  <div className="h-full flex flex-col items-center justify-center gap-2 bg-white">
-    <span className="text-2xl font-bold text-text-primary-token">Swap</span>
-    <span className="text-sm text-text-tertiary-token">Coming soon</span>
-  </div>
-);
 
 const HomeSwipeContainer: FC = () => {
   const { pathname } = useLocation();
@@ -140,7 +134,7 @@ const HomeSwipeContainer: FC = () => {
           <Receive />
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
-          <SwapPlaceholder />
+          <Swap />
         </div>
       </motion.div>
     </div>
