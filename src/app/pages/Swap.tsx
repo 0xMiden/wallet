@@ -1,16 +1,18 @@
-import React, { FC, useCallback, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from 'components/Button';
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { stringToBigInt, toFixedRoundedDown } from 'lib/i18n/numbers';
 import {
   initiateSwapTransaction,
   requestSWTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
+import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { useRetryableSWR } from 'lib/swr';
 
 /**
  * Swap currently supports only this fixed set of devnet test tokens.
@@ -47,18 +49,58 @@ const TOKEN_IUSDT: SwapToken = {
   decimals: SWAP_TOKEN_DECIMALS
 };
 
-const TOKEN_MTA: SwapToken = {
-  symbol: 'MTA',
-  faucetId: 'mdev1ap0eexjfl05j2yt83pmu88cfl5g8ehmm_qr7qqq9wr6w',
-  decimals: SWAP_TOKEN_DECIMALS
-};
-const TOKEN_MTB: SwapToken = {
-  symbol: 'MTB',
-  faucetId: 'mdev1arft5lvn248mz5t43j6v7uplsgy2tdmu_qr7qqq9wr6w',
-  decimals: SWAP_TOKEN_DECIMALS
-};
+interface PriceResponse {
+  /** USD price for 1 whole token (i.e. 1 * 10^decimals base units). */
+  price: number;
+}
 
-const SWAP_TOKENS: SwapToken[] = [TOKEN_MTA, TOKEN_MTB];
+/** Fetch the USD price of 1 whole `token` from the in-protocol DEX price feed. */
+async function getPrice(token: SwapToken): Promise<number> {
+  const faucetHexId = accountIdStringToSdk(token.faucetId).toString();
+  const res = await fetch(`https://35-175-40-181.sslip.io/v1/price/${faucetHexId}`);
+  if (!res.ok) {
+    throw new Error(`Price request failed for ${token.symbol}: ${res.status}`);
+  }
+  const json: PriceResponse = await res.json();
+  return json.price;
+}
+
+/**
+ * Fraction shaved off the fair USD-derived quote so a filler/solver that
+ * consumes the PSWAP note has margin to do so profitably. The user receives
+ * `1 - SOLVER_MARGIN` of the price-fair amount.
+ */
+const SOLVER_MARGIN = 0.05;
+
+/**
+ * Derive the requested-token amount from the offered amount via each token's
+ * USD price. Both prices are per 1 whole token, so the decimals cancel and we
+ * can work directly in display units: the fair quote is
+ * `offered * offerP / requestP`, then discounted by `SOLVER_MARGIN`.
+ * Rounded down to the requested token's precision; returns '' when the inputs
+ * aren't usable yet (no amount, prices not loaded, or a non-positive result).
+ */
+function deriveRequestAmount(
+  offerAmount: string,
+  offerPrice: number | undefined,
+  requestPrice: number | undefined,
+  decimals: number
+): string {
+  const offered = Number(offerAmount);
+  if (!offered || !offerPrice || !requestPrice) {
+    return '';
+  }
+  const quote = ((offered * offerPrice) / requestPrice) * (1 - SOLVER_MARGIN);
+  if (!Number.isFinite(quote) || quote <= 0) {
+    return '';
+  }
+  const formatted = toFixedRoundedDown(quote, decimals).replace(/\.?0+$/, '');
+  return formatted === '0' ? '' : formatted;
+}
+
+const SWAP_TOKENS: SwapToken[] = [TOKEN_IMIDEN, TOKEN_IETH, TOKEN_IUSDT, TOKEN_IBTC];
+
+const PRICE_SWR_CONFIG = { refreshInterval: 60_000, dedupingInterval: 30_000 };
 
 const selectClassName =
   'rounded-xl border border-rule-default bg-app-bg px-3 py-3 text-base font-semibold text-text-primary-token outline-none';
@@ -73,17 +115,64 @@ const Swap: FC = () => {
   const [offerAmount, setOfferAmount] = useState('');
   const [requestSymbol, setRequestSymbol] = useState(TOKEN_IETH.symbol);
   const [requestAmount, setRequestAmount] = useState('');
+  // True once the user manually edits the receive amount, which pauses the
+  // auto-quote until they change the pay amount or a token again.
+  const [requestEdited, setRequestEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const offerToken = useMemo(() => SWAP_TOKENS.find(token => token.symbol === offerSymbol) ?? TOKEN_MTA, [offerSymbol]);
+  const offerToken = useMemo(
+    () => SWAP_TOKENS.find(token => token.symbol === offerSymbol) ?? TOKEN_IMIDEN,
+    [offerSymbol]
+  );
   const requestToken = useMemo(
-    () => SWAP_TOKENS.find(token => token.symbol === requestSymbol) ?? TOKEN_MTB,
+    () => SWAP_TOKENS.find(token => token.symbol === requestSymbol) ?? TOKEN_IETH,
     [requestSymbol]
   );
 
+  // USD price per 1 whole token, keyed by faucet id and deduped across the two
+  // selectors (so picking the same token on both sides reuses one fetch).
+  const {
+    data: offerPrice,
+    isLoading: offerPriceLoading,
+    error: offerPriceError
+  } = useRetryableSWR<number, Error>(
+    ['swap-token-price', offerToken.faucetId],
+    () => getPrice(offerToken),
+    PRICE_SWR_CONFIG
+  );
+  const {
+    data: requestPrice,
+    isLoading: requestPriceLoading,
+    error: requestPriceError
+  } = useRetryableSWR<number, Error>(
+    ['swap-token-price', requestToken.faucetId],
+    () => getPrice(requestToken),
+    PRICE_SWR_CONFIG
+  );
+
+  // The price-fair quote for the receive amount. The field is auto-filled from
+  // this but stays editable, so `quote` and `requestAmount` can diverge once
+  // the user overrides it.
+  const quote = useMemo(
+    () => deriveRequestAmount(offerAmount, offerPrice, requestPrice, requestToken.decimals),
+    [offerAmount, offerPrice, requestPrice, requestToken.decimals]
+  );
+
+  // Mirror the quote into the editable receive field unless the user has taken
+  // it over. `requestEdited` is cleared whenever they change the pay amount or
+  // a token, so the quote resumes driving the field.
+  useEffect(() => {
+    if (!requestEdited) {
+      setRequestAmount(quote);
+    }
+  }, [quote, requestEdited]);
+
   const sameToken = offerToken.faucetId === requestToken.faucetId;
-  const canSwap = !submitting && !sameToken && Number(offerAmount) > 0 && Number(requestAmount) > 0;
+  const hasOfferAmount = Number(offerAmount) > 0;
+  const pricesLoading = offerPriceLoading || requestPriceLoading;
+  const priceUnavailable = Boolean(offerPriceError || requestPriceError);
+  const canSwap = !submitting && !sameToken && hasOfferAmount && Number(requestAmount) > 0;
 
   const onSwap = useCallback(async () => {
     if (!publicKey || !canSwap) {
@@ -113,6 +202,7 @@ const Swap: FC = () => {
         useWalletStore.getState().setLastCompletedTxHash(result.txHash);
         setOfferAmount('');
         setRequestAmount('');
+        setRequestEdited(false);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -137,13 +227,19 @@ const Swap: FC = () => {
                 inputMode="decimal"
                 placeholder="0.00"
                 value={offerAmount}
-                onChange={event => setOfferAmount(event.target.value)}
+                onChange={event => {
+                  setOfferAmount(event.target.value);
+                  setRequestEdited(false);
+                }}
                 className={inputClassName}
               />
               <select
                 aria-label="Token to pay"
                 value={offerSymbol}
-                onChange={event => setOfferSymbol(event.target.value)}
+                onChange={event => {
+                  setOfferSymbol(event.target.value);
+                  setRequestEdited(false);
+                }}
                 className={selectClassName}
               >
                 {SWAP_TOKENS.map(token => (
@@ -163,13 +259,19 @@ const Swap: FC = () => {
                 inputMode="decimal"
                 placeholder="0.00"
                 value={requestAmount}
-                onChange={event => setRequestAmount(event.target.value)}
+                onChange={event => {
+                  setRequestAmount(event.target.value);
+                  setRequestEdited(true);
+                }}
                 className={inputClassName}
               />
               <select
                 aria-label="Token to receive"
                 value={requestSymbol}
-                onChange={event => setRequestSymbol(event.target.value)}
+                onChange={event => {
+                  setRequestSymbol(event.target.value);
+                  setRequestEdited(false);
+                }}
                 className={selectClassName}
               >
                 {SWAP_TOKENS.map(token => (
@@ -182,6 +284,12 @@ const Swap: FC = () => {
           </div>
 
           {sameToken && <span className="text-xs font-medium text-red-500">Pick two different tokens to swap.</span>}
+          {!sameToken && hasOfferAmount && priceUnavailable && (
+            <span className="text-xs font-medium text-red-500">Price unavailable. Try again shortly.</span>
+          )}
+          {!sameToken && hasOfferAmount && !requestEdited && !priceUnavailable && pricesLoading && !requestAmount && (
+            <span className="text-xs font-medium text-text-tertiary-token">Fetching price…</span>
+          )}
           {error && <span className="select-text text-xs font-medium text-red-500">{error}</span>}
 
           <Button
