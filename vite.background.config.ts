@@ -1,7 +1,7 @@
 import { resolve } from 'path';
+import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
-import { defineConfig, type Plugin } from 'vite';
 
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
@@ -277,21 +277,33 @@ export default defineConfig({
     // installed in the wallet's node_modules, not in the SDK's. Keeping the
     // symlink path makes module resolution find the wallet's node_modules.
     preserveSymlinks: true,
-    alias: {
-      lib: resolve(__dirname, 'src/lib'),
-      app: resolve(__dirname, 'src/app'),
-      shared: resolve(__dirname, 'src/shared'),
-      components: resolve(__dirname, 'src/components'),
-      screens: resolve(__dirname, 'src/screens'),
-      utils: resolve(__dirname, 'src/utils'),
-      // Service worker context: Chrome extension manifest declares
-      // COOP=`same-origin` + COEP=`require-corp`, so SAB is available
-      // in the SW. Use the multi-threaded SDK build (paired with the
-      // chrome.offscreen prover document) for ~3-5× faster proving.
-      // Depends on `@miden-sdk/miden-sdk` ≥ 0.14.5 — see
-      // vite.extension.config.ts for full notes.
-      '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy'
-    }
+    alias: [
+      // Two concerns, one redirect target (`@miden-sdk/miden-sdk/mt/lazy`):
+      //
+      // 1. Transitive imports through @openzeppelin/miden-multisig-client hit
+      //    the EAGER @miden-sdk/miden-sdk entry, which has top-level
+      //    `await loadWasm()`. The sw-patches TLA stripper below only catches
+      //    `await` at column 0; the SDK's bundled factories emit indented
+      //    `await init_*()` inside __esmMin wrappers, so the stripped output is
+      //    a parse error. The eager entry must be redirected to a lazy (no-TLA)
+      //    subpath.
+      // 2. Service worker context: Chrome extension manifest declares
+      //    COOP=`same-origin` + COEP=`require-corp`, so SAB is available in the
+      //    SW. Use the multi-threaded SDK build (paired with the
+      //    chrome.offscreen prover document) for ~3-5× faster proving. Depends
+      //    on `@miden-sdk/miden-sdk` ≥ 0.14.5 — see vite.extension.config.ts.
+      //
+      // Regex form (anchored with `$`) so we redirect only the exact eager and
+      // single-threaded-lazy specifiers and don't double-rewrite `/mt/lazy`.
+      { find: /^@miden-sdk\/miden-sdk$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
+      { find: /^@miden-sdk\/miden-sdk\/lazy$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
+      { find: 'lib', replacement: resolve(__dirname, 'src/lib') },
+      { find: 'app', replacement: resolve(__dirname, 'src/app') },
+      { find: 'shared', replacement: resolve(__dirname, 'src/shared') },
+      { find: 'components', replacement: resolve(__dirname, 'src/components') },
+      { find: 'screens', replacement: resolve(__dirname, 'src/screens') },
+      { find: 'utils', replacement: resolve(__dirname, 'src/utils') }
+    ]
   },
 
   define: {

@@ -15,7 +15,7 @@ export interface CardItemProps extends React.ComponentProps<'div'> {
   iconRight?: React.ReactNode | IconName;
   title?: string;
   subtitle?: string;
-  titleRight?: string;
+  titleRight?: React.ReactNode;
   subtitleRight?: string;
   hoverable?: boolean;
   titleClassName?: string;

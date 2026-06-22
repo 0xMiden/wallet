@@ -15,6 +15,7 @@ import {
 } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
@@ -83,7 +84,7 @@ export const TransactionProgressModal: FC = () => {
       if (isExtension()) {
         requestSWTransactionProcessing();
       } else {
-        startBackgroundTransactionProcessing(signTransaction);
+        startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
       }
     };
 
@@ -175,7 +176,7 @@ export const TransactionProgressModal: FC = () => {
     }
 
     try {
-      const success = await dbTransactionsLoop(signTransaction);
+      const success = await dbTransactionsLoop(signTransaction, false, zustandProvider);
       if (success === false) {
         // A transaction failed, but check if there are more to process
         const hasMore = await hasQueuedTransactions();

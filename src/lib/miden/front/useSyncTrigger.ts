@@ -6,8 +6,28 @@ import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension, isMobile } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
+
+import { syncGuardianAccounts } from './guardian-sync';
 
 const SYNC_INTERVAL_MS = 3_000;
+
+function triggerSync(intercom: ReturnType<typeof getIntercom>) {
+  if (isInsideSendFlow()) return;
+  intercom
+    .request({ type: WalletMessageType.SyncRequest })
+    .then(() => {
+      // Guardian sync runs in the frontend where the wallet is unlocked and signWord is available
+      const guardianAccountKeys = useWalletStore
+        .getState()
+        .accounts.filter(acc => acc.type === WalletType.Guardian)
+        .map(acc => acc.publicKey);
+      if (guardianAccountKeys.length > 0) {
+        syncGuardianAccounts().catch(() => {});
+      }
+    })
+    .catch(() => {});
+}
 
 /**
  * Returns true when the wallet is inside the Send flow (any step of
@@ -43,6 +63,9 @@ function isInsideSendFlow(): boolean {
  *   when the zustand balance/sync state was handed off to the React SDK.
  *   Without this, nothing polls on mobile and the UI never sees new notes.
  *
+ * After each chain sync, Guardian accounts are synced in the frontend context
+ * (where the wallet is unlocked and signWord is available).
+ *
  * Sync is paused for the duration of the Send flow (see `isInsideSendFlow`).
  */
 export function useSyncTrigger() {
@@ -53,10 +76,7 @@ export function useSyncTrigger() {
 
     if (isExtension()) {
       const intercom = getIntercom();
-      const tick = () => {
-        if (isInsideSendFlow()) return;
-        intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
-      };
+      const tick = () => triggerSync(intercom);
       tick();
       const timer = setInterval(tick, SYNC_INTERVAL_MS);
       return () => clearInterval(timer);
@@ -89,6 +109,15 @@ export function useSyncTrigger() {
           // network/node/resolving categories. Mirrors the SW path in
           // sync-manager.doSync.
           clearReachabilityIssues();
+
+          // Guardian sync runs outside the WASM lock — HTTP calls only.
+          const guardianAccountKeys = useWalletStore
+            .getState()
+            .accounts.filter(acc => acc.type === WalletType.Guardian)
+            .map(acc => acc.publicKey);
+          if (guardianAccountKeys.length > 0) {
+            await syncGuardianAccounts().catch(() => {});
+          }
         } catch (error) {
           console.warn('[useSyncTrigger] sync error:', error);
           if (isLikelyNetworkError(error)) {

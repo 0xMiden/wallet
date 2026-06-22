@@ -57,7 +57,9 @@ export default {
     '^@miden-sdk/miden-sdk(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/wasmMock.js',
     // React SDK now also has /mt and /mt/lazy subpaths matching the
     // underlying SDK's MT variants. Tests mock all four identically.
-    '^@miden-sdk/react(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts'
+    '^@miden-sdk/react(/lazy|/mt|/mt/lazy)?$': '<rootDir>/__mocks__/@miden-sdk/react.ts',
+    '^@openzeppelin/miden-multisig-client$': '<rootDir>/__mocks__/@openzeppelin/miden-multisig-client.ts',
+    '^@openzeppelin/guardian-client$': '<rootDir>/__mocks__/@openzeppelin/guardian-client.ts'
   },
   testEnvironment: 'jsdom',
   transform: {

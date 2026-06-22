@@ -1,6 +1,7 @@
-import { WalletMessageType, WalletStatus, GetStateResponse } from 'lib/shared/types';
-import { request } from 'lib/miden/front/client';
 import { IntercomClient } from 'lib/intercom';
+import { request } from 'lib/miden/front/client';
+import { WalletMessageType, WalletStatus, GetStateResponse } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 export const PASSWORD = 'pw';
 export const MNEMONIC = 'test test test test test test test test test test test test';
@@ -50,7 +51,8 @@ export async function ensureWalletReady() {
           type: WalletMessageType.NewWalletRequest,
           password: PASSWORD,
           mnemonic: MNEMONIC,
-          ownMnemonic: true
+          ownMnemonic: true,
+          walletType: WalletType.OffChain
         })
       );
       return getState();

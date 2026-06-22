@@ -129,11 +129,19 @@ export async function isDAppEnabled() {
   return bools.every(Boolean);
 }
 
-export function registerNewWallet(password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+export function registerNewWallet(walletType: WalletType, password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+  console.log(
+    '[Actions.registerNewWallet] Called with walletType:',
+    walletType,
+    'mnemonic provided:',
+    Boolean(mnemonic),
+    'ownMnemonic flag:',
+    ownMnemonic
+  );
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
     try {
-      const vault = await Vault.spawn(password ?? '', mnemonic, ownMnemonic);
+      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic);
       console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
@@ -141,7 +149,7 @@ export function registerNewWallet(password?: string, mnemonic?: string, ownMnemo
       const ownMnemonicFlag = await vault.isOwnMnemonic();
       unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
       console.log('[Actions.registerNewWallet] Completed');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('[Actions.registerNewWallet] FAILED:', err);
       throw err;
     }
@@ -287,6 +295,18 @@ export function updateSettings(settings: Partial<WalletSettings>) {
 export function signTransaction(publicKey: string, signingInputs: string) {
   return withUnlocked(async ({ vault }) => {
     return await vault.signTransaction(publicKey, signingInputs);
+  });
+}
+
+export function signWord(publicKey: string, wordHex: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.signWord(publicKey, wordHex);
+  });
+}
+
+export function getPublicKeyForCommitment(commitment: string) {
+  return withUnlocked(async ({ vault }) => {
+    return await vault.getPublicKeyForCommitment(commitment);
   });
 }
 

@@ -1,8 +1,17 @@
-import { InputNoteState, Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
+import {
+  clearGuardianServiceFor,
+  getOrCreateMultisigService,
+  isGuardianAccount,
+  type GuardianAccountProvider
+} from 'lib/miden/front/guardian-manager';
+import { MultisigService } from 'lib/miden/guardian';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -14,9 +23,11 @@ import {
   ITransactionStage,
   ITransactionStatus,
   SendTransaction,
+  SwitchGuardianTransaction,
   Transaction,
   TransactionOutput
 } from '../db/types';
+import { putToStorage } from '../front';
 import { toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -374,6 +385,62 @@ export const initiateSendTransaction = async (
   return dbTransaction.id;
 };
 
+/**
+ * Queue a switch-guardian transaction for a Guardian account. The local
+ * `GUARDIAN_URL_STORAGE_KEY` is NOT updated here — it's written only after
+ * the on-chain proposal lands, in `completeSwitchGuardianTransaction`.
+ */
+export const initiateSwitchGuardianTransaction = async (
+  accountId: string,
+  newGuardianEndpoint: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!(await isGuardianAccount(accountId, guardianProvider))) {
+    throw new Error('Switch guardian is only supported for Guardian accounts');
+  }
+  const dbTransaction = new SwitchGuardianTransaction(accountId, newGuardianEndpoint, delegateTransaction);
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+export const completeSwitchGuardianTransaction = async (
+  tx: SwitchGuardianTransaction,
+  result: TransactionResult,
+  multisigService: MultisigService
+) => {
+  try {
+    const executedTx = result.executedTransaction();
+    const { newGuardianEndpoint } = tx.extraInputs;
+
+    // Mirror upstream `multisig.executeProposal`'s post-submit block for
+    // switch_guardian proposals: register on the new guardian with the
+    // updated account state before anything else touches the local cache
+    // or storage. If this throws, storage + status stay untouched so the
+    // user can retry.
+    await setTransactionStage(tx.id, 'registering-guardian');
+    await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
+
+    await putToStorage(GUARDIAN_URL_STORAGE_KEY, newGuardianEndpoint);
+    clearGuardianServiceFor(tx.accountId);
+
+    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      displayMessage: 'Guardian switched',
+      transactionId: executedTx.id().toHex(),
+      completedAt: Math.floor(Date.now() / 1000), // seconds
+      resultBytes: result.serialize()
+    });
+  } catch (error) {
+    console.error('Error completing switch guardian transaction:', error);
+    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
+      displayMessage: 'Failed to switch guardian',
+      completedAt: Math.floor(Date.now() / 1000), // seconds
+      resultBytes: result.serialize(),
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+};
+
 const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
     const outputNotes = result.executedTransaction().outputNotes().notes();
@@ -690,7 +757,9 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
 
 export const generateTransaction = async (
   transaction: Transaction,
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  _useWorker: boolean = true,
+  guardianProvider: GuardianAccountProvider
 ) => {
   // DIAGNOSTIC tracing for the iOS send-tx pre-sync hang. Mirrors the
   // recordProveTiming pattern in miden-client-interface.ts. Remove when
@@ -731,6 +800,20 @@ export const generateTransaction = async (
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending'
   });
+  console.log('Generating transaction', {
+    txId: transaction.id,
+    type: transaction.type,
+    accountId: transaction.accountId
+  });
+  // Route Guardian accounts through Guardian service
+  if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
+    try {
+      await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+    } catch (error) {
+      await cancelTransaction(transaction, error);
+    }
+    return;
+  }
 
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -784,6 +867,124 @@ export const generateTransaction = async (
   }
 };
 
+/**
+ * Generate a transaction for a Guardian account using the MultisigService.
+ * Routes the transaction through MultisigService proposal methods.
+ */
+const generateGuardianTransaction = async (
+  transaction: ITransaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider
+): Promise<void> => {
+  console.log('Generating Guardian transaction');
+  // Set the stage eagerly — `getOrCreateMultisigService` and the subsequent
+  // `createXxxProposal` call can both hit the guardian over the network,
+  // so surfacing "Creating proposal" immediately is more honest than
+  // leaving the label stuck on "Sending transaction".
+  await setTransactionStage(transaction.id, 'creating-proposal');
+  const multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+
+  let proposalResult: Proposal;
+
+  switch (transaction.type) {
+    case 'send': {
+      const sendTx = transaction as SendTransaction;
+      proposalResult = await multisigService.createSendProposal(
+        sendTx.secondaryAccountId,
+        sendTx.faucetId,
+        BigInt(sendTx.amount)
+      );
+      break;
+    }
+    case 'consume': {
+      const consumeTx = transaction as ConsumeTransaction;
+      proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
+      break;
+    }
+    case 'switch-guardian': {
+      const sgTx = transaction as SwitchGuardianTransaction;
+      const { proposal } = await multisigService.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
+      proposalResult = proposal;
+      break;
+    }
+    case 'execute':
+    default: {
+      // For custom transactions, get TransactionSummary and create a custom proposal
+      if (!transaction.requestBytes) {
+        throw new Error('Request Bytes not availalbe for custom transaction');
+      }
+      proposalResult = await multisigService.createCustomProposal(transaction.requestBytes);
+      break;
+    }
+  }
+
+  // Sign and execute the proposal
+  await setTransactionStage(transaction.id, 'signing-proposal');
+  const tr = await multisigService.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+  console.log('Created transaction request from proposal, submitting to Miden client');
+  const options: MidenClientCreateOptions = {
+    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+      const keyString = Buffer.from(publicKey).toString('hex');
+      const signingInputsString = Buffer.from(signingInputs).toString('hex');
+      return await signCallback(keyString, signingInputsString);
+    }
+  };
+
+  await setTransactionStage(transaction.id, 'submitting');
+  const transactionResult = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient(options);
+    console.log('Submitting transaction request to Miden client');
+    const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
+      prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+    });
+    console.log('Transaction request submitted, waiting for result');
+    return result;
+  });
+
+  // For switch-guardian, the new guardian must be seeded with the POST-switch
+  // account state. submit() returns after submission, not after inclusion, so
+  // without this wait finalizeGuardianSwitch would serialize the pre-switch
+  // account and register that stale state with the new guardian.
+  if (transaction.type === 'switch-guardian') {
+    await setTransactionStage(transaction.id, 'confirming');
+    await withWasmClientLock(async () => {
+      const midenClient = await getMidenClient();
+      await midenClient.waitForTransactionCommit(transactionResult.executedTransaction().id().toHex());
+    });
+  }
+
+  switch (transaction.type) {
+    case 'send':
+      await completeSendTransaction(transaction as SendTransaction, transactionResult);
+      break;
+    case 'consume':
+      await completeConsumeTransaction(transaction.id, transactionResult);
+      break;
+    case 'switch-guardian':
+      console.log('Completing switch guardian transaction');
+      await completeSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        transactionResult,
+        multisigService
+      );
+      break;
+    case 'execute':
+    default:
+      await completeCustomTransaction(transaction, transactionResult);
+      break;
+  }
+  // Post-completion bookkeeping only. The transaction is already marked
+  // Completed above, and the on-chain submit succeeded — a failure to refresh
+  // multisig state here (e.g. nonce-too-low retries exhausted, or a network
+  // blip) must NOT propagate, or `generateTransaction`'s catch would flip a
+  // genuinely-successful transaction to Failed. The next sync tick reconciles.
+  try {
+    await multisigService.sync();
+  } catch (error) {
+    console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
+  }
+};
+
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
   // Cancel the transaction
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
@@ -807,7 +1008,9 @@ export const getTransactionById = async (id: string) => {
 };
 
 export const generateTransactionsLoop = async (
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  useWorker: boolean = true,
+  guardianProvider: GuardianAccountProvider
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
@@ -834,7 +1037,7 @@ export const generateTransactionsLoop = async (
 
   // Call safely to cancel transaction and unlock records if something goes wrong
   try {
-    await generateTransaction(nextTransaction, signCallback);
+    await generateTransaction(nextTransaction, signCallback, useWorker, guardianProvider);
     return true;
   } catch (e) {
     logger.warning('Failed to generate transaction', e);
@@ -921,13 +1124,15 @@ export async function readLastAuthReason(): Promise<SignCallbackReason | undefin
 }
 
 export const safeGenerateTransactionsLoop = async (
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  useWorker: boolean = true,
+  guardianProvider: GuardianAccountProvider
 ) => {
   return navigator.locks
     .request(`generate-transactions-loop`, { ifAvailable: true }, async lock => {
       if (!lock) return;
 
-      const result = await generateTransactionsLoop(signCallback);
+      const result = await generateTransactionsLoop(signCallback, useWorker, guardianProvider);
       if (result === false) {
         return false;
       }
@@ -948,7 +1153,9 @@ export const safeGenerateTransactionsLoop = async (
  * Polls every 5 seconds until all queued transactions are processed.
  */
 export const startBackgroundTransactionProcessing = (
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  useWorker: boolean = false,
+  guardianProvider: GuardianAccountProvider
 ) => {
   // Process transactions in a loop until none are left
   const processLoop = async () => {
@@ -958,7 +1165,7 @@ export const startBackgroundTransactionProcessing = (
 
     while (hasMore && attempts < maxAttempts) {
       attempts++;
-      await safeGenerateTransactionsLoop(signCallback);
+      await safeGenerateTransactionsLoop(signCallback, useWorker, guardianProvider);
 
       // Check if there are more transactions to process
       const remaining = await getAllUncompletedTransactions();

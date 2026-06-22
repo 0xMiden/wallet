@@ -8,6 +8,7 @@ import {
   getAllUncompletedTransactions,
   safeGenerateTransactionsLoop
 } from 'lib/miden/activity/transactions';
+import { type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
@@ -58,6 +59,28 @@ async function swSignCallback(publicKey: string, signingInputs: string): Promise
 }
 
 /**
+ * Vault-backed Guardian account provider for service worker context.
+ * Uses the Vault directly instead of the Zustand store.
+ */
+const vaultGuardianProvider: GuardianAccountProvider = {
+  getAccounts: async () => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.fetchAccounts();
+    });
+  },
+  getPublicKeyForCommitment: async (commitment: string) => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.getPublicKeyForCommitment(commitment);
+    });
+  },
+  signWord: async (publicKey: string, wordHex: string) => {
+    return withUnlocked(async ({ vault }) => {
+      return await vault.signWord(publicKey, wordHex);
+    });
+  }
+};
+
+/**
  * Start processing queued transactions in the service worker.
  * Deduplicates via isProcessing flag + navigator.locks in safeGenerateTransactionsLoop.
  */
@@ -104,7 +127,7 @@ export async function startTransactionProcessing(): Promise<void> {
     while (attempts < maxAttempts) {
       attempts++;
       console.log('[TransactionProcessor] Loop attempt', attempts);
-      const result = await safeGenerateTransactionsLoop(swSignCallback);
+      const result = await safeGenerateTransactionsLoop(swSignCallback, false, vaultGuardianProvider);
       console.log('[TransactionProcessor] Loop result:', result);
 
       // Broadcast progress so popup UI can update
