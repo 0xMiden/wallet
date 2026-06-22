@@ -66,7 +66,7 @@ function parseOptions(): StressOptions {
   };
 }
 
-test.describe('Stress: random send/claim', () => {
+test.describe('Stress - random send/claim', () => {
   test.describe.configure({ mode: 'serial' });
 
   // No per-test timeout — the driver's `numNotes` is the stop condition.
