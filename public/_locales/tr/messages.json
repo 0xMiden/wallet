@@ -1648,6 +1648,10 @@
     "message": "Gardiyan",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Muhafız Korumalı",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Gözetmen Ayarları",
     "englishSource": "Guardian Settings"
@@ -1963,8 +1967,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Tavsiye edilen. Hesabınız için koruyucu tabanlı kurtarma ancak gaurdian operatörü durumunuzu görebilir.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Tavsiye edilen. Hesabınız için koruyucu tabanlı kurtarma, ancak koruyucu operatör durumunuzu görebilir.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Tamamen Özel",

@@ -1646,6 +1646,10 @@
     "message": "Guardião",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Guardião Protegido",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Configurações do Guardião",
     "englishSource": "Guardian Settings"
@@ -1961,8 +1965,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Recomendado. Recuperação baseada no guardião para sua conta, mas o operador gaurdiano pode ver seu estado.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Recomendado. Recuperação baseada no guardião para sua conta, mas o operador do guardião pode ver seu estado.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Totalmente privado",

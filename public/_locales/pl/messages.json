@@ -1590,6 +1590,10 @@
     "message": "Opiekun",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Opiekun chroniony",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Ustawienia strażnika",
     "englishSource": "Guardian Settings"
@@ -1900,8 +1904,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Zalecony. Odzyskiwanie konta na podstawie opiekuna, ale operator strażnika może zobaczyć Twój stan.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Zalecony. Odzyskiwanie konta na podstawie opiekuna, ale operator opiekuna może zobaczyć Twój stan.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Całkowicie prywatny",

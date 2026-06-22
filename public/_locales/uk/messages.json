@@ -1649,6 +1649,10 @@
     "message": "Опікун",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Захищений опікуном",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Налаштування опікуна",
     "englishSource": "Guardian Settings"
@@ -1964,8 +1968,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Рекомендовано. Відновлення вашого облікового запису на основі опікуна, але оператор-охоронець може бачити ваш стан.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Рекомендовано. Відновлення вашого облікового запису на основі опікуна, але опікун може бачити ваш стан.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Повністю приватний",

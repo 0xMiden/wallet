@@ -1648,6 +1648,10 @@
     "message": "Wächter",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Wächter geschützt",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Wächtereinstellungen",
     "englishSource": "Guardian Settings"
@@ -1963,8 +1967,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Empfohlen. Wächterbasierte Wiederherstellung für Ihr Konto, aber der Wächterbetreiber kann Ihren Status sehen.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Empfohlen. Wiederherstellung Ihres Kontos durch einen Vormund, aber der Vormund-Betreiber kann Ihren Status sehen.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Völlig privat",
