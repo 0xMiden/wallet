@@ -2,6 +2,7 @@ import React, { FC, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { animate, motion, PanInfo, useMotionValue } from 'framer-motion';
 
+import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
 import { springs } from 'lib/animation';
@@ -29,7 +30,8 @@ const PAGES: HomePage[] = [
   { id: 'overview', path: '/' },
   { id: 'send', path: '/send' },
   { id: 'receive', path: '/receive' },
-  { id: 'swap', path: '/swap' }
+  { id: 'swap', path: '/swap' },
+  { id: 'earn', path: '/earn' }
 ];
 
 // Commit threshold: how far (as a fraction of the page width) the user
@@ -141,6 +143,9 @@ const HomeSwipeContainer: FC = () => {
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
           <SwapPlaceholder />
+        </div>
+        <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
+          <Earn />
         </div>
       </motion.div>
     </div>

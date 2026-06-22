@@ -32,10 +32,11 @@ const ACTION_ROUTES: Record<string, string> = {
   overview: '/',
   send: '/send',
   receive: '/receive',
-  swap: '/swap'
+  swap: '/swap',
+  earn: '/earn'
 };
 
-const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/swap']);
+const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/swap', '/earn']);
 
 function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
@@ -48,6 +49,7 @@ function activeActionFromPath(pathname: string): string {
   if (pathname === '/send') return 'send';
   if (pathname === '/receive') return 'receive';
   if (pathname === '/swap') return 'swap';
+  if (pathname === '/earn') return 'earn';
   return 'overview';
 }
 
@@ -135,6 +137,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'swap',
       label: 'Swap',
       icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+    },
+    {
+      id: 'earn',
+      label: 'Earn',
+      icon: <Icon name={IconName.Coins} className="w-5 h-5" fill="currentColor" />
     }
   ];
 
