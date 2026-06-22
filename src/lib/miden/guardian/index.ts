@@ -141,8 +141,24 @@ export class MultisigService {
     await withWasmClientLock(() => this.multisig.executeProposal(id));
   }
 
-  async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
-    await this.multisig.signProposal(id);
+  /**
+   * Create a custom transaction proposal from a TransactionSummary.
+   * This is used for 'execute' type transactions.
+   */
+  async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom transaction'): Promise<Proposal> {
+    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+  }
+
+  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
+    const proposal = await this.multisig.signProposal(id);
+    if (proposal.metadata.proposalType === 'custom') {
+      if (!requestBytes) {
+        throw new Error('Request Bytes are required for custom execution');
+      }
+      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+      const request = TransactionRequest.deserialize(requestBytes);
+      return request.extendAdviceMap(advice);
+    }
     return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
   }
 

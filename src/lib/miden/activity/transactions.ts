@@ -1,4 +1,10 @@
-import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import {
+  InputNoteState,
+  Note,
+  TransactionProver,
+  TransactionRequest,
+  TransactionResult
+} from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 
@@ -907,27 +913,20 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
-    // case 'execute':
-    // default: {
-    // // For custom transactions, get TransactionSummary and create a custom proposal
-    // const summaryBytes = await withWasmClientLock(async () => {
-    //   const midenClient = await getMidenClient();
-    //   const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
-    //   return (
-    //     await midenClient.client.transactions.preview(accountIdStringToSdk(transaction.accountId), txRequest)
-    //   ).serialize();
-    // });
-    // proposalResult = await multisigService.createCustomProposal(summaryBytes);
-    // break;
-    // }
+    case 'execute':
     default: {
-      throw new Error(`Unsupported transaction type for Guardian account: ${transaction.type}`);
+      // For custom transactions, get TransactionSummary and create a custom proposal
+      if (!transaction.requestBytes) {
+        throw new Error('Request Bytes not availalbe for custom transaction');
+      }
+      proposalResult = await multisigService.createCustomProposal(transaction.requestBytes);
+      break;
     }
   }
 
   // Sign and execute the proposal
   await setTransactionStage(transaction.id, 'signing-proposal');
-  const tr = await multisigService.signAndCreateTransactionRequest(proposalResult.id);
+  const tr = await multisigService.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
   console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -975,10 +974,10 @@ const generateGuardianTransaction = async (
         multisigService
       );
       break;
-    // case 'execute':
-    // default:
-    //   await completeCustomTransaction(transaction, transactionResult);
-    //   break;
+    case 'execute':
+    default:
+      await completeCustomTransaction(transaction, transactionResult);
+      break;
   }
   // Post-completion bookkeeping only. The transaction is already marked
   // Completed above, and the on-chain submit succeeded — a failure to refresh
