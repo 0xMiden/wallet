@@ -125,14 +125,14 @@
     "@dicebear/avatars-jdenticon-sprites": "4.2.5",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.15.0-alpha.7",
-    "@miden-sdk/react": "0.15.0-alpha.7",
+    "@miden-sdk/miden-sdk": "0.15.1",
+    "@miden-sdk/react": "0.15.1",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
     "@noble/hashes": "^1.4.0",
-    "@openzeppelin/guardian-client": "^0.14.9",
-    "@openzeppelin/miden-multisig-client": "^0.14.9",
+    "@openzeppelin/guardian-client": "0.15.0-rc.0",
+    "@openzeppelin/miden-multisig-client": "0.15.0-rc.0",
     "@peculiar/webcrypto": "1.1.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@segment/analytics-node": "^2.3.0",
@@ -340,7 +340,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.15.0-alpha.7"
+    "**/@miden-sdk/miden-sdk": "0.15.1"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
