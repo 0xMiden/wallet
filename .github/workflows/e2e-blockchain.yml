@@ -205,19 +205,23 @@ jobs:
           echo "Chrome E2E: both networks failed or were skipped."
           exit 1
 
-  # --- Guardian (Chrome, devnet + locally-spawned guardian) -----------------
+  # --- Guardian (Chrome, devnet + testnet against OZ's hosted guardian) ------
+  # The published ghcr guardian image is 0.14.x and ABI-incompatible with the
+  # 0.15 multisig client the wallet ships, so these jobs run against OZ's hosted
+  # guardian endpoints instead of a locally-spawned container. Devnet
+  # (guardian-stg, the 0.15 server) is expected green; testnet
+  # (guardian.openzeppelin.com, still the 0.14 server) is expected red until
+  # testnet upgrades — mirroring the non-guardian devnet/testnet split. The gate
+  # below passes as long as at least one network succeeds.
 
   chrome-guardian-devnet:
     name: Chrome Guardian E2E (devnet)
-    # Guardian-backed flow against public devnet, with the guardian backend
-    # spawned locally (image pinned to match the @openzeppelin/* client deps).
-    # Devnet only — the guardian container runs GUARDIAN_NETWORK_TYPE=MidenDevnet.
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       E2E_NETWORK: devnet
-      GUARDIAN_URL: http://localhost:3000
+      GUARDIAN_URL: https://guardian-stg.openzeppelin.com
     steps:
       - uses: actions/checkout@v4
 
@@ -267,45 +271,8 @@ jobs:
       - name: Build Chrome extension (devnet)
         run: yarn test:e2e:blockchain:build
 
-      # Spawn a local guardian for the test. The published image is built with
-      # the `postgres` storage feature, so it needs a Postgres alongside it.
-      # Both run on a user-defined docker network; the guardian publishes :3000
-      # to the runner so the wallet (GUARDIAN_URL) can reach it.
-      - name: Start local guardian (devnet)
-        run: |
-          docker network create guardian-net
-          docker run -d --name guardian-pg --network guardian-net \
-            -e POSTGRES_USER=guardian -e POSTGRES_PASSWORD=guardian_dev_password -e POSTGRES_DB=guardian \
-            postgres:16-alpine
-          echo "Waiting for postgres..."
-          for i in $(seq 1 30); do
-            if docker exec guardian-pg pg_isready -U guardian -d guardian >/dev/null 2>&1; then echo "postgres ready"; break; fi
-            sleep 1
-          done
-          docker run -d --name guardian --network guardian-net -p 3000:3000 \
-            -e GUARDIAN_NETWORK_TYPE=MidenDevnet \
-            -e DATABASE_URL=postgres://guardian:guardian_dev_password@guardian-pg:5432/guardian \
-            -e RUST_LOG=info \
-            ghcr.io/openzeppelin/guardian:v0.14.9
-          echo "Waiting for guardian /pubkey..."
-          for i in $(seq 1 60); do
-            if curl -sf "http://localhost:3000/pubkey?scheme=ecdsa" >/dev/null; then
-              echo "guardian ready after ~$((i*2))s"
-              curl -s "http://localhost:3000/pubkey?scheme=ecdsa"; echo
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::guardian did not become ready"
-          docker logs guardian || true
-          exit 1
-
       - name: Run Guardian E2E (devnet)
         run: xvfb-run -a yarn test:e2e:guardian:run
-
-      - name: Guardian server logs
-        if: always()
-        run: docker logs guardian || true
 
       - name: Upload artifacts
         if: always()
@@ -315,6 +282,95 @@ jobs:
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  chrome-guardian-testnet:
+    name: Chrome Guardian E2E (testnet)
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: testnet
+      GUARDIAN_URL: https://guardian.openzeppelin.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
+          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
+            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
+            exit 1
+          fi
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          elif [[ -n "$GIT_URL" ]]; then
+            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
+            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Chrome extension (testnet)
+        run: yarn test:e2e:blockchain:build
+
+      - name: Run Guardian E2E (testnet)
+        run: xvfb-run -a yarn test:e2e:guardian:run
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-guardian-e2e-testnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  chrome-guardian-gate:
+    name: Chrome Guardian E2E Gate
+    needs: [chrome-guardian-devnet, chrome-guardian-testnet]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require at least one network to pass
+        shell: bash
+        env:
+          DEVNET_RESULT: ${{ needs.chrome-guardian-devnet.result }}
+          TESTNET_RESULT: ${{ needs.chrome-guardian-testnet.result }}
+        run: |
+          echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
+          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
+            echo "Chrome Guardian E2E: at least one network passed."
+            exit 0
+          fi
+          echo "Chrome Guardian E2E: both networks failed or were skipped."
+          exit 1
 
   # --- iOS Simulator --------------------------------------------------------
 
