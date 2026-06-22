@@ -17,7 +17,7 @@ import type {
 import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { CdpBridge, type CdpSession } from '../helpers/cdp-bridge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
-import { SimulatorControl } from '../helpers/simulator-control';
+import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-control';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -172,6 +172,54 @@ async function launchSimWalletInstance(
 }
 
 /**
+ * Launch both wallet instances, recovering from a wedged CoreSimulatorService.
+ * If a per-wallet `simctl` op blocks to its timeout (the macos-26 daemon-wedge
+ * signature), restart the sim subsystem and retry the whole pair once — the
+ * daemon restart drops both sims, so any partial state from this attempt is
+ * discarded and both wallets are re-launched fresh.
+ */
+async function setupBothWallets(
+  simA: SimulatorControl,
+  udidA: string,
+  simB: SimulatorControl,
+  udidB: string,
+  envConfig: EnvironmentConfig,
+  timeline: TimelineRecorder
+): Promise<{ instanceA: SimWalletInstance; instanceB: SimWalletInstance }> {
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let instanceA: SimWalletInstance | undefined;
+    let instanceB: SimWalletInstance | undefined;
+    try {
+      // Sequential within an attempt: parallel simctl install/launch across two
+      // sims can deadlock CoreSimulatorService on cold macos-26 runners.
+      instanceA = await launchSimWalletInstance(simA, udidA, envConfig, timeline, 'A');
+      instanceB = await launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B');
+      return { instanceA, instanceB };
+    } catch (err) {
+      // Drop any half-open CDP sockets from this attempt before recovering.
+      await instanceA?.cdp.close().catch(() => undefined);
+      await instanceB?.cdp.close().catch(() => undefined);
+      if (isSimctlTimeoutError(err) && attempt < MAX_ATTEMPTS) {
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'warn',
+          message:
+            `[sim-recovery] ${err.message} — CoreSimulatorService looks wedged; ` +
+            `restarting it + re-booting both devices, then retrying wallet setup ` +
+            `(attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
+        });
+        await SimulatorControl.recoverSimSubsystem([udidA, udidB]);
+        continue;
+      }
+      throw err;
+    }
+  }
+  // The loop body always returns or throws; this satisfies the type checker.
+  throw new Error('setupBothWallets: exhausted recovery attempts');
+}
+
+/**
  * Build platform-neutral SnapshotCaps for an iOS wallet. Mirrors
  * buildChromeSnapshotCaps in two-wallets.ts — the harness sees a uniform
  * surface.
@@ -274,11 +322,11 @@ export const test = base.extend<TwoSimulatorFixtures>({
     const simA = new SimulatorControl();
     const simB = new SimulatorControl();
 
-    // Sequential: parallel simctl install/launch across two sims can deadlock
-    // CoreSimulatorService on cold macos-26 runners (observed 14+ min silent
-    // hangs in CI). The shared `_simPair` fixture still consolidates teardown.
-    const instanceA = await launchSimWalletInstance(simA, udidA, envConfig, timeline, 'A');
-    const instanceB = await launchSimWalletInstance(simB, udidB, envConfig, timeline, 'B');
+    // Launch both wallets, recovering from a wedged CoreSimulatorService (the
+    // macos-26 daemon-wedge that hangs simctl mid-suite) by restarting the sim
+    // subsystem and retrying the pair. The shared `_simPair` fixture still
+    // consolidates teardown.
+    const { instanceA, instanceB } = await setupBothWallets(simA, udidA, simB, udidB, envConfig, timeline);
     steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));
     steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instanceB.walletPage, ''));
 
