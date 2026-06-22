@@ -32,9 +32,11 @@ import { logger } from 'shared/logger';
 import {
   BridgedSendTransaction,
   ConsumeTransaction,
+  EarnDepositTransaction,
   IBridgeClaimStatus,
   IBridgedSendExtraInputs,
   IBridgedSendNoteParams,
+  IEarnDepositExtraInputs,
   IBridgeInInfo,
   IBridgeProvider,
   ITransaction,
@@ -505,6 +507,35 @@ export const initiateBridgedSendTransaction = async (
 };
 
 /**
+ * Queue an Epoch lending deposit (`earn-deposit`). Send-style only: a recallable
+ * P2IDE note to the solver's allocator (`sendParams.recipientId`), proved + submitted
+ * by the normal send pipeline, then recorded by `completeEarnDepositTransaction`. The
+ * EVM lending leg is solver-fulfilled, so there is no manual claim.
+ */
+export const initiateEarnDepositTransaction = async (
+  accountId: string,
+  amount: bigint,
+  evmRecipient: string,
+  marketUid: string,
+  faucetId: string,
+  sendParams: IBridgedSendNoteParams,
+  delegateTransaction?: boolean
+): Promise<string> => {
+  const dbTransaction = new EarnDepositTransaction(
+    accountId,
+    amount,
+    evmRecipient,
+    marketUid,
+    faucetId,
+    sendParams,
+    delegateTransaction
+  );
+  await Repo.transactions.add(dbTransaction);
+
+  return dbTransaction.id;
+};
+
+/**
  * Queue a switch-guardian transaction for a Guardian account. The local
  * `GUARDIAN_URL_STORAGE_KEY` is NOT updated here — it's written only after
  * the on-chain proposal lands, in `completeSwitchGuardianTransaction`.
@@ -757,6 +788,26 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
 };
 
 /**
+ * Record a completed `earn-deposit`: the P2IDE collateral note has been proved +
+ * submitted on Miden. Mirrors `completeBridgedSendTransaction`; the EVM lending leg
+ * settles out-of-band, so this only finalizes the Miden-side row.
+ */
+export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  const note = extractFullNote(result);
+  const noteId = note?.id().toString();
+  const outputNoteIds = noteId ? [noteId] : [];
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Deposited to lending',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
+  });
+};
+
+/**
  * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
  * long after the Miden-side send has reached `Completed`, so this mutates ONLY
  * `extraInputs` and never touches `status` (which `updateTransactionStatus`
@@ -783,6 +834,23 @@ export const updateBridgeClaimStatus = async (
   await Repo.transactions.where({ id }).modify(tx => {
     const ei = (tx.extraInputs ?? {}) as IBridgedSendExtraInputs;
     tx.extraInputs = { ...ei, claimStatus, ...(extra ?? {}) };
+  });
+};
+
+/**
+ * Patch an `earn-deposit` row's lending-leg status. Like `updateBridgeClaimStatus`,
+ * the EVM fill settles long after the Miden collateral note reaches `Completed`, so
+ * this mutates ONLY `extraInputs` and never touches `status`. Driven by the Epoch
+ * intent-status poll (`pollEarnIntentStatus`).
+ */
+export const updateEarnDepositStatus = async (
+  id: string,
+  epochStatus: NonNullable<IEarnDepositExtraInputs['epochStatus']>,
+  extra?: Partial<Pick<IEarnDepositExtraInputs, 'intentNonce' | 'evmTxHash' | 'outputAmount' | 'outputSymbol'>>
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei = (tx.extraInputs ?? {}) as IEarnDepositExtraInputs;
+    tx.extraInputs = { ...ei, epochStatus, ...(extra ?? {}) };
   });
 };
 
@@ -1094,6 +1162,9 @@ export const generateTransaction = async (
           transaction.requestBytes,
           transaction.delegateTransaction
         );
+      case 'earn-deposit':
+        // Always send-style: a recallable P2IDE collateral note to the allocator.
+        return midenClient.sendTransaction(transaction as SendTransaction);
       case 'execute':
       default:
         return midenClient.newTransaction(
@@ -1113,6 +1184,9 @@ export const generateTransaction = async (
       break;
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
+      break;
+    case 'earn-deposit':
+      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
       break;
     case 'execute':
     default:
@@ -1217,6 +1291,19 @@ const generateGuardianTransaction = async (
           BigInt(bridgeTx.amount)
         );
       }
+      console.log('got the proposal result', proposalResult);
+      break;
+    }
+    case 'earn-deposit': {
+      // Send-style P2IDE collateral note to the allocator — propose it as a send,
+      // same as the Epoch `bridged-send` branch above.
+      const earnTx = transaction as EarnDepositTransaction;
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await service.createSendProposal(
+        earnTx.secondaryAccountId!,
+        earnTx.faucetId,
+        BigInt(earnTx.amount)
+      );
       console.log('got the proposal result', proposalResult);
       break;
     }
@@ -1328,6 +1415,9 @@ const generateGuardianTransaction = async (
       break;
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, transactionResult);
+      break;
+    case 'earn-deposit':
+      await completeEarnDepositTransaction(transaction as EarnDepositTransaction, transactionResult);
       break;
     // case 'execute':
     // default:

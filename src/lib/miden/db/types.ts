@@ -15,7 +15,14 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-export type ITransactionType = 'send' | 'consume' | 'execute' | 'bridged-send' | 'switch-guardian' | 'replace-hot-key';
+export type ITransactionType =
+  | 'send'
+  | 'consume'
+  | 'execute'
+  | 'bridged-send'
+  | 'earn-deposit'
+  | 'switch-guardian'
+  | 'replace-hot-key';
 
 /** Which cross-chain bridge route a `bridged-send` used. */
 export type IBridgeProvider = 'epoch' | 'agglayer';
@@ -63,6 +70,34 @@ export interface IBridgedSendExtraInputs {
   /** epoch: chain id the fill tx landed on (drives the destination explorer link). */
   fillChainId?: number;
   /** epoch: settlement status derived from polling `getIntentStatus`. */
+  epochStatus?: 'pending' | 'confirmed' | 'failed';
+}
+
+/**
+ * `extraInputs` shape for an `EarnDepositTransaction`. Opening an Epoch lending
+ * position spends Miden-held collateral by sending a recallable P2IDE note to the
+ * solver's allocator (same mechanics as an Epoch `bridged-send`), while the EVM
+ * lending leg is solver-fulfilled — so there is no manual claim. The typed EVM
+ * address is the position owner / intent sponsor.
+ */
+export interface IEarnDepositExtraInputs {
+  /** 0x EVM address that owns the resulting lending position (intent sponsor). */
+  evmRecipient: string;
+  /** Epoch market identifier (`PROTOCOL:chainId:token`) the deposit targets. */
+  marketUid: string;
+  /** Miden faucet the deposited collateral was sourced from. */
+  sourceFaucetId: string;
+  /** blocks-until-reclaim for the P2IDE note — its presence makes the note recallable. */
+  recallBlocks?: number;
+  /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
+  intentNonce?: string;
+  /** solver/intent hash (informational). */
+  evmTxHash?: string;
+  /** quoted destination deposit size (human-formatted) for the activity detail. */
+  outputAmount?: string;
+  /** destination token symbol (e.g. `USDC`). */
+  outputSymbol?: string;
+  /** settlement status derived from polling `getIntentStatus`. */
   epochStatus?: 'pending' | 'confirmed' | 'failed';
 }
 
@@ -365,6 +400,63 @@ export class BridgedSendTransaction implements ITransaction {
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
       recallBlocks: sendParams?.recallBlocks
+    };
+  }
+}
+
+/**
+ * Open an Epoch lending position. Always send-style: a recallable P2IDE note to the
+ * solver's allocator account, processed by the normal send pipeline
+ * (`sendTransaction`) like the Epoch `bridged-send`. The EVM lending deposit is
+ * solver-fulfilled, so there is no `requestBytes` and no manual claim.
+ */
+export class EarnDepositTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Allocator account the P2IDE note is sent to. */
+  secondaryAccountId?: string;
+  noteType?: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IEarnDepositExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    evmRecipient: string,
+    marketUid: string,
+    faucetId: string,
+    sendParams: IBridgedSendNoteParams,
+    delegateTransaction?: boolean
+  ) {
+    this.id = uuid();
+    this.type = 'earn-deposit';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.secondaryAccountId = sendParams.recipientId;
+    this.noteType = sendParams.noteType;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Depositing';
+    this.delegateTransaction = delegateTransaction;
+    this.extraInputs = {
+      evmRecipient,
+      marketUid,
+      sourceFaucetId: faucetId,
+      recallBlocks: sendParams.recallBlocks,
+      epochStatus: 'pending'
     };
   }
 }
