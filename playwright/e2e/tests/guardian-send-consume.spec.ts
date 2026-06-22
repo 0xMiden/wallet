@@ -12,7 +12,7 @@ const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
  * full ECDSA chain — wallet signs, guardian co-signs, multisig verifies on-chain
  * — which is the path unit tests can only mock.
  */
-test.describe('Guardian account: consume + send', () => {
+test.describe('Guardian account - consume + send', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('guardian wallet A funds, consumes notes, and sends to wallet B', async ({
