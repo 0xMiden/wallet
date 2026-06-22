@@ -185,7 +185,10 @@ describe('MultisigService', () => {
     });
 
     it('signAndCreateTransactionRequest signs then returns the request payload', async () => {
-      const multisig = makeMultisig();
+      // Non-custom proposal → the normal createTransactionProposalRequest path.
+      const multisig = makeMultisig({
+        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'send' } }))
+      });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
       const tx = await service.signAndCreateTransactionRequest('p-2');

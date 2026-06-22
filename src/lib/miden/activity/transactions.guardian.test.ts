@@ -245,7 +245,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
   });
 
