@@ -11,9 +11,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { expect, test } from '../fixtures/two-wallets';
-
 import { runStressDriver, type StressOptions } from './stress-driver';
+import { expect, test } from '../fixtures/two-wallets';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
 
@@ -77,16 +76,38 @@ test.describe('Stress: random send/claim', () => {
     const initialMintsPerWallet = intEnv('STRESS_INITIAL_MINTS', 3);
     const conservationStrict = (process.env.STRESS_CONSERVATION_STRICT ?? 'true') === 'true';
 
+    // When STRESS_GUARDIAN=true, BOTH wallets are guardian-backed: every send
+    // and claim co-signs through the external guardian at GUARDIAN_URL. This
+    // exercises the guardian send/consume-proposal paths under the full stress
+    // matrix (concurrency, reload, lock, idle) — not just the happy path.
+    const useGuardian = (process.env.STRESS_GUARDIAN ?? 'false') === 'true';
+    const guardianUrl = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
+    // Guardian co-signing adds HTTP round-trips, so syncs/claims need a wider
+    // window than standard accounts.
+    const guardianSyncMs = useGuardian ? 300_000 : 180_000;
+
     console.log('\n=== STRESS RUN PARAMETERS ===');
-    console.log(JSON.stringify({ ...opts, initialMintsPerWallet, conservationStrict }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ...opts,
+          initialMintsPerWallet,
+          conservationStrict,
+          useGuardian,
+          guardianUrl: useGuardian ? guardianUrl : null
+        },
+        null,
+        2
+      )
+    );
     console.log('');
 
     let addressA = '';
     let addressB = '';
 
     await steps.step('create_wallets', async () => {
-      const a = await walletA.createNewWallet();
-      const b = await walletB.createNewWallet();
+      const a = useGuardian ? await walletA.createGuardianWallet(guardianUrl) : await walletA.createNewWallet();
+      const b = useGuardian ? await walletB.createGuardianWallet(guardianUrl) : await walletB.createNewWallet();
       addressA = a.address;
       addressB = b.address;
     });
@@ -117,11 +138,11 @@ test.describe('Stress: random send/claim', () => {
 
     await steps.step('initial_claim', async () => {
       await Promise.all([
-        walletA.waitForBalanceAbove(0, 180_000, timeline),
-        walletB.waitForBalanceAbove(0, 180_000, timeline)
+        walletA.waitForBalanceAbove(0, guardianSyncMs, timeline),
+        walletB.waitForBalanceAbove(0, guardianSyncMs, timeline)
       ]);
-      await walletA.claimAllNotes(180_000);
-      await walletB.claimAllNotes(180_000);
+      await walletA.claimAllNotes(guardianSyncMs);
+      await walletB.claimAllNotes(guardianSyncMs);
     });
 
     const initialA = await walletA.getBalance();
