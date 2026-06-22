@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.15.0",
+  "version": "1.15.1",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -35,7 +35,7 @@
     "mobile:sync:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:sync",
     "mobile:ios": "yarn mobile:sync && npx cap open ios",
     "mobile:ios:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios",
-    "mobile:ios:build": "yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17' -configuration Debug -derivedDataPath ios/App/build build",
+    "mobile:ios:build": "yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath ios/App/build build",
     "mobile:ios:build:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios:build",
     "mobile:ios:run": "yarn mobile:ios:build && xcrun simctl install booted ios/App/build/Build/Products/Debug-iphonesimulator/App.app && yarn mobile:ios:faceid && xcrun simctl launch booted com.miden.wallet",
     "mobile:ios:run:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios:run",
@@ -75,7 +75,7 @@
     "test:e2e:stress:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:stress",
     "test:e2e:stress:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:stress",
     "test:e2e:stress:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:stress",
-    "test:e2e:mobile:build": "cross-env MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17' -configuration Debug -derivedDataPath ios/App/build build",
+    "test:e2e:mobile:build": "cross-env MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath ios/App/build build",
     "test:e2e:mobile": "yarn test:e2e:mobile:build && playwright test --config playwright.ios.config.ts",
     "test:e2e:mobile:run": "playwright test --config playwright.ios.config.ts",
     "test:e2e:mobile:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:mobile",

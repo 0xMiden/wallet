@@ -290,12 +290,19 @@ test.describe('Stress: random send/claim', () => {
       fs.writeFileSync(path.join(outDir, 'stress-summary.json'), JSON.stringify(summary, null, 2));
 
       // ── Forensic dumps ─────────────────────────────────────────────────
+      // Dumps run SEQUENTIALLY (A then B), never concurrently: an 800-loop run
+      // accumulates enough IndexedDB that serializing both wallets' full DBs at
+      // once tripped the OOM killer on the runner, which killed the Chromium
+      // targets mid-dump and left only a "page closed" placeholder. Sequential
+      // + store-at-a-time streaming keeps peak memory bounded.
+
       // Full chrome.storage.local from both wallets — includes miden_sync_data
       // (pending notes + vault assets), connectivity-issue flag, cached
       // metadata, and anything else the wallet persists. Snapshot of the
       // wallet's exact view-of-world at the moment the assertion runs.
       try {
-        const [storageA, storageB] = await Promise.all([walletA.dumpChromeStorage(), walletB.dumpChromeStorage()]);
+        const storageA = await walletA.dumpChromeStorage();
+        const storageB = await walletB.dumpChromeStorage();
         fs.writeFileSync(
           path.join(outDir, 'chrome-storage-final.json'),
           JSON.stringify({ A: storageA, B: storageB }, null, 2)
@@ -307,13 +314,33 @@ test.describe('Stress: random send/claim', () => {
       // IndexedDB — where the Miden SDK keeps its authoritative state
       // (transactions, notes, accounts, chain MMR). For "did this tx actually
       // commit?" forensics, the SDK's transactions table is the ground truth.
-      // Result is a JSON string (with binary→hex wrappers); wrap per-wallet
-      // keys so both fit in one readable file.
-      try {
-        const [idbA, idbB] = await Promise.all([walletA.dumpIndexedDB(), walletB.dumpIndexedDB()]);
-        fs.writeFileSync(path.join(outDir, 'indexeddb-final.json'), `{"A":${idbA},"B":${idbB}}`);
-      } catch (e) {
-        console.log(`[stress] indexeddb dump failed: ${e instanceof Error ? e.message : String(e)}`);
+      // Streamed one store at a time to a per-wallet file so a slow/large dump
+      // can't OOM the page, and so a failure on one wallet still leaves the
+      // other's file intact. Each call is independently guarded.
+      for (const [label, wallet] of [
+        ['A', walletA],
+        ['B', walletB]
+      ] as const) {
+        const idbPath = path.join(outDir, `indexeddb-final-${label}.json`);
+        try {
+          const res = await streamIndexedDBToFile(wallet, idbPath);
+          console.log(
+            `[stress] indexeddb dump ${label}: ${res.storesDumped} stores, ${res.entriesDumped} entries` +
+              (res.storesFailed ? `, ${res.storesFailed} stores FAILED` : '') +
+              (res.truncatedStores.length ? `, truncated: ${res.truncatedStores.join(',')}` : '')
+          );
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          console.log(`[stress] indexeddb dump ${label} failed: ${message}`);
+          // Leave a labeled marker so the artifact is never silently absent;
+          // the retained profile dir (see two-wallets fixture) is the real
+          // offline-recovery path when the page died mid-dump.
+          try {
+            fs.writeFileSync(idbPath, JSON.stringify({ __error: message }));
+          } catch {
+            // best-effort
+          }
+        }
       }
 
       // Extract pending-tx time series from existing GeneratingTransaction

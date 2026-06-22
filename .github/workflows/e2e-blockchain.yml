@@ -462,39 +462,17 @@ jobs:
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
-      # xcodebuild resolves destinations through Xcode's IDE-layer
-      # CoreSimulator session, which on these runners sometimes goes blind
-      # to devices that simctl sees and boots fine — it then stalls 60s and
-      # fails with "Unable to find a device matching ... iPhone 17" while
-      # listing zero simulator destinations. Verify visibility with a cheap
-      # -showdestinations BEFORE the ~15-minute build; if blind, restart
-      # CoreSimulatorService (which shuts down the sims) and re-boot the
-      # pair, then re-check. Hard-fail if it never clears: the build cannot
-      # succeed without it.
-      - name: Wait for xcodebuild to see the simulators
-        shell: bash
-        run: |
-          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
-          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
-          sees_sims() {
-            xcodebuild -project ios/App/App.xcodeproj -scheme App -showdestinations 2>/dev/null \
-              | grep -q "id:$UDID_A"
-          }
-          for attempt in 1 2 3 4 5; do
-            if sees_sims; then
-              echo "xcodebuild sees the pinned simulator (attempt $attempt)"
-              exit 0
-            fi
-            echo "xcodebuild does not see the simulators (attempt $attempt); restarting CoreSimulatorService"
-            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
-            sleep 20
-            xcrun simctl boot "$UDID_A" || true
-            xcrun simctl boot "$UDID_B" || true
-            sleep 10
-          done
-          echo "::error::xcodebuild never saw the pinned simulators; build cannot succeed on this runner"
-          xcrun simctl list devices || true
-          exit 1
+      # The iOS app is built for a GENERIC simulator destination
+      # (generic/platform=iOS Simulator) — see the test:e2e:mobile:build
+      # script. A build doesn't need a concrete booted device, and the
+      # generic destination resolves to the "Any iOS Simulator Device"
+      # placeholder even when Xcode's IDE-layer CoreSimulator goes blind to
+      # concrete sims on macos-26 runners (the failure mode that a
+      # name=iPhone 17 destination hit here — xcodebuild listed zero concrete
+      # destinations and failed with "Unable to find a device"). This is the
+      # same approach build-mobile.yml's release iOS build already uses. The
+      # pinned sims are still pre-booted above for the test-run phase, which
+      # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
@@ -651,39 +629,17 @@ jobs:
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
-      # xcodebuild resolves destinations through Xcode's IDE-layer
-      # CoreSimulator session, which on these runners sometimes goes blind
-      # to devices that simctl sees and boots fine — it then stalls 60s and
-      # fails with "Unable to find a device matching ... iPhone 17" while
-      # listing zero simulator destinations. Verify visibility with a cheap
-      # -showdestinations BEFORE the ~15-minute build; if blind, restart
-      # CoreSimulatorService (which shuts down the sims) and re-boot the
-      # pair, then re-check. Hard-fail if it never clears: the build cannot
-      # succeed without it.
-      - name: Wait for xcodebuild to see the simulators
-        shell: bash
-        run: |
-          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
-          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
-          sees_sims() {
-            xcodebuild -project ios/App/App.xcodeproj -scheme App -showdestinations 2>/dev/null \
-              | grep -q "id:$UDID_A"
-          }
-          for attempt in 1 2 3 4 5; do
-            if sees_sims; then
-              echo "xcodebuild sees the pinned simulator (attempt $attempt)"
-              exit 0
-            fi
-            echo "xcodebuild does not see the simulators (attempt $attempt); restarting CoreSimulatorService"
-            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
-            sleep 20
-            xcrun simctl boot "$UDID_A" || true
-            xcrun simctl boot "$UDID_B" || true
-            sleep 10
-          done
-          echo "::error::xcodebuild never saw the pinned simulators; build cannot succeed on this runner"
-          xcrun simctl list devices || true
-          exit 1
+      # The iOS app is built for a GENERIC simulator destination
+      # (generic/platform=iOS Simulator) — see the test:e2e:mobile:build
+      # script. A build doesn't need a concrete booted device, and the
+      # generic destination resolves to the "Any iOS Simulator Device"
+      # placeholder even when Xcode's IDE-layer CoreSimulator goes blind to
+      # concrete sims on macos-26 runners (the failure mode that a
+      # name=iPhone 17 destination hit here — xcodebuild listed zero concrete
+      # destinations and failed with "Unable to find a device"). This is the
+      # same approach build-mobile.yml's release iOS build already uses. The
+      # pinned sims are still pre-booted above for the test-run phase, which
+      # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
