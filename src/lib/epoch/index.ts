@@ -9,6 +9,19 @@ export type { EpochFlow, EpochStatus } from './store';
 export { bridgeEpochSend, quoteEpochSendOutput, pollEpochIntentFill } from './epoch-send';
 export type { EpochSendArgs, EpochQuoteOutput, EpochIntentFill } from './epoch-send';
 export {
+  openEarnPosition,
+  pollEarnIntentStatus,
+  buildEarnTaskDataParams,
+  getEarnQuote,
+  buildEarnIntent,
+  MIDEN_USDC_FAUCET,
+  MIDEN_USDC_DECIMALS,
+  EARN_MARKET_UID,
+  EARN_UNDERLYING,
+  EARN_DESTINATION_CHAIN_ID
+} from './earn';
+export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote } from './earn';
+export {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
