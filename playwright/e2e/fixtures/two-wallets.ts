@@ -444,7 +444,8 @@ export const test = base.extend<TwoWalletFixtures>({
     await use(instance.walletPage);
 
     const isAgentic = process.env.E2E_AGENTIC === 'true';
-    if (isAgentic && testInfo.status !== 'passed') {
+    const failed = testInfo.status !== 'passed';
+    if (isAgentic && failed) {
       // Don't close -- browser stays open for agent inspection
       const timer = setTimeout(async () => {
         try {
@@ -452,6 +453,18 @@ export const test = base.extend<TwoWalletFixtures>({
         } catch {}
       }, AGENTIC_TIMEOUT_MS);
       timer.unref();
+    } else if (failed) {
+      // Keep the on-disk profile (IndexedDB/LevelDB) so the SDK state can be
+      // recovered offline if the in-page forensic dump was incomplete (e.g. the
+      // page died mid-dump under memory pressure). Only the context is closed.
+      await instance.context.close();
+      timeline.emit({
+        category: 'test_lifecycle',
+        severity: 'warn',
+        wallet: 'A',
+        message: `Retained wallet A profile for offline recovery: ${instance.userDataDir}`,
+        data: { userDataDir: instance.userDataDir }
+      });
     } else {
       await instance.context.close();
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
@@ -501,7 +514,8 @@ export const test = base.extend<TwoWalletFixtures>({
 
     // Now handle context cleanup
     const isAgentic = process.env.E2E_AGENTIC === 'true';
-    if (isAgentic && testInfo.status !== 'passed') {
+    const failed = testInfo.status !== 'passed';
+    if (isAgentic && failed) {
       // Write debug session with both wallet details
       writeDebugSession(
         testInfo.title,
@@ -526,6 +540,17 @@ export const test = base.extend<TwoWalletFixtures>({
         }
       }, AGENTIC_TIMEOUT_MS);
       cleanupTimer.unref(); // Don't keep process alive just for this timer
+    } else if (failed) {
+      // Keep the on-disk profile (IndexedDB/LevelDB) for offline SDK-state
+      // recovery when the in-page forensic dump may be incomplete.
+      await instance.context.close();
+      timeline.emit({
+        category: 'test_lifecycle',
+        severity: 'warn',
+        wallet: 'B',
+        message: `Retained wallet B profile for offline recovery: ${instance.userDataDir}`,
+        data: { userDataDir: instance.userDataDir }
+      });
     } else {
       await instance.context.close();
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
