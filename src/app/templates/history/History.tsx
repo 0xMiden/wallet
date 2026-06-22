@@ -2,7 +2,13 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
-import { formatTransactionStatus, IBridgedSendExtraInputs, IBridgeInInfo, ITransactionStatus } from 'lib/miden/db/types';
+import {
+  formatTransactionStatus,
+  IBridgedSendExtraInputs,
+  IBridgeInInfo,
+  IEarnDepositExtraInputs,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -143,6 +149,7 @@ async function fetchTransactionsAsHistoryEntries(
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+    const earn = tx.type === 'earn-deposit' ? (tx.extraInputs as IEarnDepositExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
     const entry = {
       address: address,
@@ -153,8 +160,8 @@ async function fetchTransactionsAsHistoryEntries(
       transactionIcon: icon,
       amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: tokenMetadata ? tokenMetadata.symbol : undefined,
-      // Bridge rows have no Miden recipient — surface the EVM destination instead.
-      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      // Bridge / earn rows have no Miden recipient — surface the EVM destination instead.
+      secondaryAddress: earn?.evmRecipient ?? bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
@@ -172,7 +179,11 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInProvider: bridgeIn?.provider,
       bridgeInSourceAmount: bridgeIn?.sourceAmount,
       bridgeInSourceSymbol: bridgeIn?.sourceSymbol,
-      bridgeInEvmTxHash: bridgeIn?.evmTxHash
+      bridgeInEvmTxHash: bridgeIn?.evmTxHash,
+      earnMarketUid: earn?.marketUid,
+      earnEvmRecipient: earn?.evmRecipient,
+      earnEpochStatus: earn?.epochStatus,
+      earnEvmTxHash: earn?.evmTxHash
     } as IHistoryEntry;
 
     return entry;
@@ -191,6 +202,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
         : HistoryEntryType.PendingTransaction;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+    const earn = tx.type === 'earn-deposit' ? (tx.extraInputs as IEarnDepositExtraInputs | undefined) : undefined;
     return {
       key: `pending-${tx.id}`,
       address: address,
@@ -199,7 +211,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       message: tx.displayMessage || 'Generating transaction',
       amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: tokenMetadata ? tokenMetadata.symbol : undefined,
-      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      secondaryAddress: earn?.evmRecipient ?? bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
       type: entryType,
       noteType: tx.noteType,
@@ -214,7 +226,11 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeIntentNonce: bridge?.intentNonce,
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
-      bridgeEpochStatus: bridge?.epochStatus
+      bridgeEpochStatus: bridge?.epochStatus,
+      earnMarketUid: earn?.marketUid,
+      earnEvmRecipient: earn?.evmRecipient,
+      earnEpochStatus: earn?.epochStatus,
+      earnEvmTxHash: earn?.evmTxHash
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

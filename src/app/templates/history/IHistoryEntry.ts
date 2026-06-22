@@ -43,6 +43,14 @@ export interface IHistoryEntry {
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;
+
+  // `earn-deposit` (Epoch lending) metadata (from `extraInputs`) for the row +
+  // detail view. The EVM recipient is the lending-position owner the user typed.
+  earnMarketUid?: string;
+  earnEvmRecipient?: string;
+  earnEpochStatus?: 'pending' | 'confirmed' | 'failed';
+  // Sepolia tx hash of the settled lending leg, reported by intent-status polling.
+  earnEvmTxHash?: string;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

@@ -1,5 +1,6 @@
 import React, { FC } from 'react';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
@@ -44,6 +45,15 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
 
   if (isPending) {
     return <PendingIcon className={`${config.pending} animate-spin`} />;
+  }
+
+  // Lending deposit: a coins glyph on the earn (purple) square.
+  if (entry.txType === 'earn-deposit') {
+    return (
+      <div className={`${config.container} rounded-10 flex items-center justify-center bg-tx-earn`}>
+        <Icon name={IconName.Coins} className={config.icon} fill="white" />
+      </div>
+    );
   }
 
   if (isFaucetRequest(entry)) {

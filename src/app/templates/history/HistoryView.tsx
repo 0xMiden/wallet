@@ -13,7 +13,14 @@ import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { BRIDGE_STATUS_LABEL_KEY, bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
+import {
+  BRIDGE_STATUS_LABEL_KEY,
+  bridgeInRowDisplay,
+  bridgeRowDisplay,
+  earnStatusOf,
+  isBridgeInEntry,
+  isFaucetRequest
+} from './transactionUtils';
 
 type HistoryViewProps = {
   entries: IHistoryEntry[];
@@ -91,6 +98,10 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
   } else if (isFailed) {
     iconNode = <Icon name={IconName.Close} className="w-5 h-5" fill="currentColor" />;
     iconBg = 'bg-status-negative';
+  } else if (entry.txType === 'earn-deposit') {
+    iconNode = <Icon name={IconName.Coins} className="w-5 h-5" fill="currentColor" />;
+    iconBg = 'bg-tx-earn';
+    amountDirection = 'negative';
   } else if (icon === 'RECEIVE') {
     iconNode = <Icon name={IconName.Download} className="w-5 h-5" fill="currentColor" />;
     iconBg = 'bg-tx-received';
@@ -112,7 +123,11 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
     iconNode = <Icon name={IconName.More} className="w-5 h-5" fill="currentColor" />;
   }
 
-  const title = faucet ? t('faucetRequestTitle') : entry.message || '';
+  const title = faucet
+    ? t('faucetRequestTitle')
+    : entry.txType === 'earn-deposit'
+    ? t('earnRowTitle')
+    : entry.message || '';
   const subtitle = entry.secondaryAddress
     ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
     : undefined;
@@ -135,6 +150,14 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
   ) {
     statusTone = 'pending';
     statusLabel = t('pending');
+  }
+
+  // For a settled earn-deposit, the lending leg (epochStatus) — not Miden tx
+  // completion — decides the status pill, so the poll result is visible.
+  if (entry.txType === 'earn-deposit' && !isFailed && entry.type === HistoryEntryType.CompletedTransaction) {
+    const es = earnStatusOf(entry);
+    statusTone = es;
+    statusLabel = es === 'confirmed' ? t('confirmed') : es === 'failed' ? t('failed') : t('pending');
   }
 
   return {

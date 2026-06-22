@@ -15,7 +15,13 @@ export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
 };
 
 export const isCompletedTransaction = (message: string): boolean => {
-  return message === 'Sent' || message === 'Received' || message === 'Reclaimed' || message === 'Executed';
+  return (
+    message === 'Sent' ||
+    message === 'Received' ||
+    message === 'Reclaimed' ||
+    message === 'Executed' ||
+    message === 'Deposited to lending'
+  );
 };
 
 /**
@@ -44,6 +50,13 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   }
   return entry.bridgeEpochStatus ?? 'pending';
 };
+
+/**
+ * Lending-leg status for an `earn-deposit` row. The Miden collateral note reaches
+ * `Completed` immediately, but the EVM lending fill settles later — `epochStatus`
+ * (polled via `pollEarnIntentStatus`) is the source of truth, defaulting to pending.
+ */
+export const earnStatusOf = (entry: IHistoryEntry): BridgeStatus => entry.earnEpochStatus ?? 'pending';
 
 /** i18n key for each bridge status (shared by the summary row + full Activity row). */
 export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {

@@ -7,7 +7,7 @@ import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { getTransactionById } from 'lib/miden/activity';
-import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import { IBridgedSendExtraInputs, IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getTokenPrice } from 'lib/prices';
@@ -25,6 +25,7 @@ import TransactionIcon from './TransactionIcon';
 import {
   BridgeStatus,
   bridgeStatusOf,
+  earnStatusOf,
   fontColorForType,
   formatBridgeOutputAmount,
   formatDate
@@ -125,6 +126,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
       console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
       const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+      const earn = tx.type === 'earn-deposit' ? (tx.extraInputs as IEarnDepositExtraInputs | undefined) : undefined;
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
@@ -133,7 +135,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         transactionIcon: tx.displayIcon,
         amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
         token: tokenMetadata ? tokenMetadata.symbol : undefined,
-        secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+        secondaryAddress: earn?.evmRecipient ?? bridge?.destinationAddress ?? tx.secondaryAccountId,
         txId: tx.id,
         noteType: tx.noteType,
         noteId: tx.outputNoteIds?.[0],
@@ -150,7 +152,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         bridgeIntentNonce: bridge?.intentNonce,
         bridgeFillTxHash: bridge?.fillTxHash,
         bridgeFillChainId: bridge?.fillChainId,
-        bridgeEpochStatus: bridge?.epochStatus
+        bridgeEpochStatus: bridge?.epochStatus,
+        earnMarketUid: earn?.marketUid,
+        earnEvmRecipient: earn?.evmRecipient,
+        earnEpochStatus: earn?.epochStatus,
+        earnEvmTxHash: earn?.evmTxHash
       } as IHistoryEntry;
 
       setEntry(historyEntry);
@@ -165,11 +171,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   }, [loadTransaction, entry, loadError]);
 
   const isBridge = entry?.txType === 'bridged-send';
-  // For a bridge the sender is always the Miden account; the EVM destination is
-  // shown in the BridgeClaimSection (with the right explorer link), so the Miden
+  const isEarn = entry?.txType === 'earn-deposit';
+  // For a bridge/earn the sender is always the Miden account; the EVM destination
+  // (bridge recipient / lending-position owner) is shown separately, so the Miden
   // "to" row is omitted here.
-  const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
-  const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
+  const fromAddress =
+    isBridge || isEarn ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
+  const toAddress =
+    isBridge || isEarn ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
 
@@ -201,7 +210,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 {entry.amount?.toString()} {entry.token}
               </p>
               <div className="mt-1">
-                <StatusPill message={entry.message} />
+                {isEarn ? <BridgeStatusPill status={earnStatusOf(entry)} /> : <StatusPill message={entry.message} />}
               </div>
             </div>
           )}
@@ -246,6 +255,43 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
           {/* Bridge route + claim (bridged-send only) */}
           {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
+
+          {/* Lending position details (earn-deposit only) */}
+          {isEarn && (
+            <div className="mt-4">
+              <DetailCard title={t('earnDetailsTitle')}>
+                <DetailRow label={t('earnMarketLabel')}>
+                  <span className="text-sm text-heading-gray font-medium">{t('earnMarketName')}</span>
+                </DetailRow>
+                {entry.earnEvmRecipient && (
+                  <DetailRow label={t('earnEvmRecipientLabel')} isLast={!entry.earnEvmTxHash}>
+                    <AddressChip
+                      address={entry.earnEvmRecipient}
+                      fill="#9E9E9E"
+                      className="ml-2"
+                      copyIcon={false}
+                    />
+                  </DetailRow>
+                )}
+                {entry.earnEvmTxHash && (
+                  <DetailRow label={t('earnEvmTxLabel')} isLast>
+                    <ExternalLinkValue
+                      displayValue={
+                        <HashChip
+                          hash={entry.earnEvmTxHash}
+                          trimHash
+                          fill="#9E9E9E"
+                          className="ml-2"
+                          copyIcon={false}
+                        />
+                      }
+                      href={`https://sepolia.etherscan.io/tx/${entry.earnEvmTxHash}`}
+                    />
+                  </DetailRow>
+                )}
+              </DetailCard>
+            </div>
+          )}
 
           {/* Notes */}
           {hasNoteData && (

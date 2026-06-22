@@ -59,7 +59,11 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
-  const title = isFaucet ? t('faucetRequest') : entry.message;
+  const title = isFaucet
+    ? t('faucetRequest')
+    : entry.txType === 'earn-deposit'
+    ? t('earnRowTitle')
+    : entry.message;
   return (
     <div
       className={classNames(
