@@ -91,7 +91,7 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
 
 export const MIDEN_GUARDIAN_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
-  [MIDEN_NETWORK_NAME.DEVNET, 'https://stg-guardian.openzeppelin.com']
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com']
 ]);
 
 /**
