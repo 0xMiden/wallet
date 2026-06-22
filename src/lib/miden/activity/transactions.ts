@@ -1,10 +1,4 @@
-import {
-  InputNoteState,
-  Note,
-  TransactionProver,
-  TransactionRequest,
-  TransactionResult
-} from '@miden-sdk/miden-sdk/lazy';
+import { InputNoteState, Note, TransactionProver, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { liveQuery } from 'dexie';
 

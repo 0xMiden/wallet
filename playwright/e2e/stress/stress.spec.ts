@@ -13,6 +13,7 @@ import * as path from 'path';
 
 import { runStressDriver, type StressOptions } from './stress-driver';
 import { expect, test } from '../fixtures/two-wallets';
+import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
 
