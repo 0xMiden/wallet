@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.15.2 (2026-06-22)
+
+### Features
+
+* [FEATURE][all] **Custom-transaction support for Guardian accounts.** Guardian accounts can now co-sign arbitrary transaction requests, not just sends and note consumption: the multisig client builds a custom proposal from the request bytes, co-signs it through the Guardian, and reconstructs the executable `TransactionRequest` from the Guardian's advice. (#153)
+
+### Changes
+
+* [CHANGE][all] **Guardian now runs on the Miden 0.15 protocol line.** The OpenZeppelin Guardian client packages (`@openzeppelin/miden-multisig-client`, `@openzeppelin/guardian-client`) are pinned to `0.15.0-rc.0` (built against `@miden-sdk/miden-sdk ^0.15.0`), replacing the published `0.14.9` — which targets SDK `0.14.5` and trapped with `RuntimeError: memory access out of bounds` inside `MultisigClient.create()` when run on the wallet's 0.15 SDK (WASM ABI skew between the 0.14 client and the 0.15 SDK). Guardian account creation, note consumption, and sends now work end-to-end on 0.15. **Guardian currently requires devnet:** the hosted devnet Guardian runs the 0.15 server, while the testnet/production Guardian is still on the 0.14 server and is incompatible with the 0.15 client — until OpenZeppelin publishes a 0.15 Guardian server release. (#153)
+* [CHANGE][all] Bumped `@miden-sdk/miden-sdk` and `@miden-sdk/react` from `0.15.1` to `0.15.2` (and the matching `**/@miden-sdk/miden-sdk` resolution pin). `@miden-sdk/vite-plugin` stays at `0.14.11`. (#153)
+
+### Fixes
+
+* [FIX][all] Corrected the devnet Guardian endpoint host (`stg-guardian.openzeppelin.com` → `guardian-stg.openzeppelin.com`); the transposed hostname had no DNS record, so the default devnet Guardian URL never resolved. (#153)
+
 ## 1.15.1 (2026-06-19)
 
 ### Changes
