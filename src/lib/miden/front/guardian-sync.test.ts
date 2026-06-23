@@ -13,10 +13,14 @@ const storeState: {
   accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean }>;
   getPublicKeyForCommitment: jest.Mock;
   signWord: jest.Mock;
+  persistNewHotKey: jest.Mock;
+  swapHotKey: jest.Mock;
 } = {
   accounts: [],
   getPublicKeyForCommitment: jest.fn(),
-  signWord: jest.fn()
+  signWord: jest.fn(),
+  persistNewHotKey: jest.fn(),
+  swapHotKey: jest.fn()
 };
 
 jest.mock('lib/store', () => ({
@@ -36,6 +40,8 @@ describe('zustandProvider', () => {
     storeState.accounts = [];
     storeState.getPublicKeyForCommitment.mockResolvedValue('pk');
     storeState.signWord.mockResolvedValue('sig');
+    storeState.persistNewHotKey.mockResolvedValue(undefined);
+    storeState.swapHotKey.mockResolvedValue(undefined);
   });
 
   it('getAccounts returns the current store accounts', async () => {
@@ -54,6 +60,16 @@ describe('zustandProvider', () => {
   it('signWord delegates to the store', async () => {
     await zustandProvider.signWord('pub', '0xhex');
     expect(storeState.signWord).toHaveBeenCalledWith('pub', '0xhex');
+  });
+
+  it('persistNewHotKey delegates to the store', async () => {
+    await zustandProvider.persistNewHotKey('new-pub', 'new-ciphertext');
+    expect(storeState.persistNewHotKey).toHaveBeenCalledWith('new-pub', 'new-ciphertext');
+  });
+
+  it('swapHotKey delegates to the store', async () => {
+    await zustandProvider.swapHotKey('account-pub', 'new-hot-pub');
+    expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub');
   });
 });
 

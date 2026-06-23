@@ -84,8 +84,7 @@ export async function getOrCreateMultisigService(
     const cached = guardianServiceCache.get(accountPublicKey);
     if (cached) {
       try {
-        const currentEndpoint =
-          (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+        const currentEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
         if (cached.service.guardianEndpoint === currentEndpoint && cached.hotPublicKey === hotPublicKey) {
           return cached.service;
         }
