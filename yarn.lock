@@ -2350,9 +2350,12 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@miden-sdk/miden-sdk@file:../web-sdk/crates/web-client", "@miden-sdk/miden-sdk@file:../web-sdk/crates/web-client/":
-  version "0.14.10"
+"@miden-sdk/miden-sdk@0.14.4", "@miden-sdk/miden-sdk@0.14.5":
+  version "0.14.4"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.14.4.tgz#be7496e6d2622b7f478768972f9896536db154cb"
+  integrity sha512-Qt+3NfGRCyHP5zcD+m9bBqQz01zuAwZRUBkls09mi+tOPVT17sFWKLglQEtKdr3gPAFHLwz2Ja4Hp4adUKfLuA==
   dependencies:
+    "@rollup/plugin-typescript" "^12.3.0"
     dexie "^4.0.1"
     glob "^11.0.0"
 
@@ -2494,16 +2497,20 @@
   resolved "https://registry.yarnpkg.com/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz#3dc35ba0f1e66b403c00b39344f870298ebb1c8e"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@openzeppelin/guardian-client@^0.14.8", "@openzeppelin/guardian-client@file:../private-state-manager/packages/guardian-client":
-  version "0.14.8"
+"@openzeppelin/guardian-client@0.14.9", "@openzeppelin/guardian-client@^0.14.9":
+  version "0.14.9"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.14.9.tgz#2ce426c2e0ad2215c5b9b8bd37b99c0e4812ec55"
+  integrity sha512-6uSxWNG+eRjYrbWgu2myCpQXDkZufss2Ppyxzu0pCBax451k7GdRaFXu5IFBWNNtGxITPLA5l7yBJyglWpmNhQ==
 
-"@openzeppelin/miden-multisig-client@file:../private-state-manager/packages/miden-multisig-client":
-  version "0.14.8"
+"@openzeppelin/miden-multisig-client@0.14.9":
+  version "0.14.9"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.14.9.tgz#b2b04f38ef8ca2365bb5b3ff5b50d64d74d62001"
+  integrity sha512-WA7pbvpeRf8ykxnWQcpLkOXIrmGSbUbOli+/S4DmNtG/Tu/O3XepMXbErbbddf9Pxtnhf1SdXaBW1k6yFLb14g==
   dependencies:
-    "@miden-sdk/miden-sdk" "file:../web-sdk/crates/web-client"
+    "@miden-sdk/miden-sdk" "0.14.5"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.14.8"
+    "@openzeppelin/guardian-client" "^0.14.9"
 
 "@oxc-project/types@=0.124.0":
   version "0.124.0"
@@ -2951,10 +2958,27 @@
     estree-walker "^2.0.2"
     magic-string "^0.30.3"
 
+"@rollup/plugin-typescript@^12.3.0":
+  version "12.3.0"
+  resolved "https://registry.yarnpkg.com/@rollup/plugin-typescript/-/plugin-typescript-12.3.0.tgz#cc51b830973bc14c9456fe6532f322f2a40f5f12"
+  integrity sha512-7DP0/p7y3t67+NabT9f8oTBFE6gGkto4SA6Np2oudYmZE/m1dt8RB0SjL1msMxFpLo631qjRCcBlAbq1ml/Big==
+  dependencies:
+    "@rollup/pluginutils" "^5.1.0"
+    resolve "^1.22.1"
+
 "@rollup/pluginutils@^5.0.1", "@rollup/pluginutils@^5.3.0":
   version "5.3.0"
   resolved "https://registry.yarnpkg.com/@rollup/pluginutils/-/pluginutils-5.3.0.tgz#57ba1b0cbda8e7a3c597a4853c807b156e21a7b4"
   integrity sha512-5EdhGZtnu3V88ces7s53hhfK5KSASnJZv8Lulpc04cWO3REESroJXg73DFsOmgbU2BhwV0E20bu2IDZb3VKW4Q==
+  dependencies:
+    "@types/estree" "^1.0.0"
+    estree-walker "^2.0.2"
+    picomatch "^4.0.2"
+
+"@rollup/pluginutils@^5.1.0":
+  version "5.4.0"
+  resolved "https://registry.yarnpkg.com/@rollup/pluginutils/-/pluginutils-5.4.0.tgz#ac23a29ced0247060a210815fca39c17de4d2f26"
+  integrity sha512-MfPp06CjRLfXQ3wY0R8vJDYBy/MvVcc9OulEfR0B8Iv9ko+GCNaRZ+EpJYFl27LhKsZK0o420sYCRHCjfCgeUg==
   dependencies:
     "@types/estree" "^1.0.0"
     estree-walker "^2.0.2"
@@ -7787,10 +7811,10 @@ devlop@^1.0.0, devlop@^1.1.0:
   dependencies:
     dequal "^2.0.0"
 
-dexie@4.4.2, dexie@^4.0.1:
-  version "4.4.2"
-  resolved "https://registry.yarnpkg.com/dexie/-/dexie-4.4.2.tgz#447511328c982baaf6a88c736ddc08484916886c"
-  integrity sha512-zMtV8q79EFE5U8FKZvt0Y/77PCU/Hr/RDxv1EDeo228L+m/HTbeN2AjoQm674rhQCX8n3ljK87lajt7UQuZfvw==
+dexie@4.0.8, dexie@^4.0.1:
+  version "4.0.8"
+  resolved "https://registry.yarnpkg.com/dexie/-/dexie-4.0.8.tgz#21fca70686bdaa1d86fad45b6b19316f6a084a1d"
+  integrity sha512-1G6cJevS17KMDK847V3OHvK2zei899GwpDiqfEXHP1ASvme6eWJmAp9AU4s1son2TeGkWmC0g3y8ezOBPnalgQ==
 
 diff@^4.0.1:
   version "4.0.4"

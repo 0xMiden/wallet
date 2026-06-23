@@ -1,10 +1,10 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { parseUnits } from 'viem';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
+import { EarnPosition, fetchEarnPositions, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -14,12 +14,88 @@ type SubmitStatus = 'idle' | 'submitting' | 'success' | 'error';
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const AMOUNT_RE = /^\d+(\.\d+)?$/;
 
+/** Trim a high-precision decimal string (e.g. "1.983399999999999999") for display. */
+function formatDeposit(value: string): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: 4 }) : value;
+}
+
+/** Shorten a 0x EVM address for display. */
+function shortHex(addr: string): string {
+  return addr.length <= 12 ? addr : `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+/**
+ * Read-side of Earn: the open lending positions across every EVM owner address the
+ * wallet has deposited to (collected from `earn-deposit` activity). Fetched from
+ * Epoch's positions service via `fetchEarnPositions`. The lending leg settles
+ * out-of-band, so a freshly-opened position only appears here once it's on-chain.
+ */
+const EarnPositionsSection: FC<{
+  positions: EarnPosition[];
+  loading: boolean;
+  onRefresh: () => void;
+}> = ({ positions, loading, onRefresh }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-base font-semibold text-black">{t('earnPositionsTitle')}</span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="text-xs font-medium text-text-tertiary-token disabled:opacity-50"
+        >
+          {loading ? t('earnPositionsLoading') : t('earnPositionsRefresh')}
+        </button>
+      </div>
+
+      {positions.length === 0 ? (
+        <div className="rounded-2xl bg-gray-50 p-4">
+          <span className="text-xs text-text-tertiary-token">
+            {loading ? t('earnPositionsLoading') : t('earnPositionsEmpty')}
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {positions.map(p => (
+            <div key={`${p.owner}-${p.marketUid}`} className="rounded-2xl bg-gray-50 p-4 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-black">{`${p.symbol} · ${p.lenderName}`}</span>
+                <span className="text-xs font-medium text-status-positive">
+                  {t('earnPositionApr', { apr: p.depositApr })}
+                </span>
+              </div>
+              <div className="flex items-end justify-between">
+                <div className="flex flex-col">
+                  <span className="text-lg font-bold text-black">
+                    {formatDeposit(p.deposits)} {p.symbol}
+                  </span>
+                  <span className="text-xs text-text-tertiary-token">${p.depositsUSD.toFixed(2)}</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-[11px] text-text-tertiary-token">{t('earnEvmRecipientLabel')}</span>
+                  <span className="text-[11px] font-mono text-text-tertiary-token">{shortHex(p.owner)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 /**
  * Earn — open an Epoch lending position by depositing Miden-held USDC. One of the
  * home-group swipe pages (Overview / Send / Receive / Swap / Earn). The deposit
  * spends the wallet's USDC as collateral (a P2IDE note to the Epoch allocator) and
  * the EVM lending leg is solver-fulfilled, so the user only types the EVM address
  * that will own the position plus the amount — no EVM wallet connection needed.
+ *
+ * Below the form, the user's open positions (read back from Epoch's positions
+ * service, keyed by the EVM owner addresses from `earn-deposit` activity) are listed.
  */
 const Earn: FC = () => {
   const { t } = useTranslation();
@@ -30,6 +106,28 @@ const Earn: FC = () => {
   const [amount, setAmount] = useState('');
   const [status, setStatus] = useState<SubmitStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+
+  const [positions, setPositions] = useState<EarnPosition[]>([]);
+  const [positionsLoading, setPositionsLoading] = useState(false);
+
+  const loadPositions = useCallback(async () => {
+    if (!publicKey) return;
+    setPositionsLoading(true);
+    try {
+      // All EVM owner addresses the wallet has ever deposited to (across accounts) —
+      // positions are owned by the typed EVM address, not by a Miden account.
+      const result = await fetchEarnPositions();
+      setPositions(result.positions);
+    } catch (err) {
+      console.error('[earn] fetchEarnPositions failed', err);
+    } finally {
+      setPositionsLoading(false);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    void loadPositions();
+  }, [loadPositions]);
 
   const evmAddressValid = EVM_ADDRESS_RE.test(evmAddress.trim());
   const amountValid = AMOUNT_RE.test(amount.trim()) && Number(amount) > 0;
@@ -51,6 +149,10 @@ const Earn: FC = () => {
         deps: { signTransaction, guardianProvider: zustandProvider }
       });
       setStatus('success');
+      // Refresh positions — the EVM lending leg settles out-of-band, so the new
+      // position may not appear until a later refresh, but the owner address is
+      // now in activity so subsequent fetches will include it.
+      void loadPositions();
     } catch (err) {
       console.error('[earn] openEarnPosition failed', err);
       setError(err instanceof Error ? err.message : t('earnDepositFailed'));
@@ -127,6 +229,8 @@ const Earn: FC = () => {
           />
         </div>
       )}
+
+      <EarnPositionsSection positions={positions} loading={positionsLoading} onRefresh={() => void loadPositions()} />
     </div>
   );
 };

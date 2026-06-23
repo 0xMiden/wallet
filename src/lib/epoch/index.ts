@@ -21,6 +21,9 @@ export {
   EARN_DESTINATION_CHAIN_ID
 } from './earn';
 export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote } from './earn';
+export { EPOCH_POSITIONS_URL } from './config';
+export { fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
+export type { EarnPosition, EarnPositionsResult, FetchEarnPositionsArgs } from './positions';
 export {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
