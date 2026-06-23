@@ -59,10 +59,12 @@ export const InputAmount: React.FC<InputAmountProps> = ({
   return (
     <div {...props} className={classNames('flex flex-col items-center gap-y-1', className)}>
       <div className="flex cursor-pointer items-baseline" onClick={() => inputRef.current?.focus()}>
-        {displayFiat ? <label className={classNames('text-left leading-none text-black', textSize)}>$</label> : null}
+        {displayFiat ? (
+          <label className={classNames('font-heading text-left leading-none text-black', textSize)}>$</label>
+        ) : null}
         <CurrencyInput
           className={classNames(
-            'p-0 placeholder-black outline-none leading-0 font-medium w-full text-center',
+            'font-heading p-0 placeholder-black outline-none leading-0 font-medium w-full text-center',
             textSize,
             textColor
           )}
@@ -79,13 +81,13 @@ export const InputAmount: React.FC<InputAmountProps> = ({
           autoFocus={autoFocus}
         />
       </div>
-      {!displayFiat && <label className="text-heading-gray/60 text-sm font-medium">{currencyLabel}</label>}
+      {!displayFiat && <label className="font-heading text-heading-gray/60 text-sm font-medium">{currencyLabel}</label>}
       {displayToggleCurrency && (
         <button className="flex items-center gap-x-1 cursor-pointer" type="button" onClick={onToggleCurrency}>
           {!displayFiat ? (
-            <p className="text-sm">${Number(fiatValue || value || 0).toFixed(2)}</p>
+            <p className="font-heading text-sm">${Number(fiatValue || value || 0).toFixed(2)}</p>
           ) : (
-            <p className="text-sm">
+            <p className="font-heading text-sm">
               {fiatValue || value || 0} {currencyLabel}
             </p>
           )}

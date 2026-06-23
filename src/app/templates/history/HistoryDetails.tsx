@@ -115,7 +115,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <TransactionIcon entry={entry} size="lg" />
             <p className="text-sm text-heading-gray mt-3">{entry.message}</p>
             <p
-              className={clsx('text-5xl font-semibold leading-none text-heading-gray', fontColorForType(entry.txType))}
+              className={clsx(
+                'font-heading text-5xl font-semibold leading-none text-heading-gray',
+                fontColorForType(entry.txType)
+              )}
             >
               {entry.amount?.toString()} {entry.token}
             </p>

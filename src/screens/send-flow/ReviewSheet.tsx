@@ -41,7 +41,7 @@ export const ReviewSheet: React.FC<ReviewSheetProps> = ({
         <div className="px-6 pb-6">
           {/* Amount */}
           <div className="text-center mb-4">
-            <span className="text-3xl font-medium">
+            <span className="font-heading text-3xl font-medium">
               {amount} {tokenName}
             </span>
           </div>

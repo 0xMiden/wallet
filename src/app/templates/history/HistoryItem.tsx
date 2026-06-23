@@ -70,14 +70,16 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         <div className="flex flex-col items-end shrink-0">
           <span
             className={classNames(
-              'text-sm font-medium leading-none',
+              'font-heading text-sm font-medium leading-none',
               isReceive ? 'text-receive-green' : 'text-[#DC2626]'
             )}
           >
             {isReceive ? '+' : '-'}
             {entry.amount.toString()}
           </span>
-          {entry.token && <span className="text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>}
+          {entry.token && (
+            <span className="font-heading text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>
+          )}
         </div>
       )}
 

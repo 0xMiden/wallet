@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.3 (TBD)
+
+### Changes
+
+* [CHANGE][all] Typography refresh: [Nunito](https://fonts.google.com/specimen/Nunito) is now the heading font, used for page titles/headings plus token symbols and all monetary amounts (balances, prices, and amounts across send, receive, history, and dapp-confirmation screens), while body text stays on Inter. Removed the Bitter onboarding-heading font — onboarding headings now use Nunito too.
+
 ## 1.15.2 (2026-06-22)
 
 ### Features
