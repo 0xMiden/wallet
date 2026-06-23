@@ -1657,6 +1657,10 @@
     "message": "监护人",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "监护人保护",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "监护人设置",
     "englishSource": "Guardian Settings"
@@ -1973,7 +1977,7 @@
   },
   "guardianRecoveryDescription": {
     "message": "受到推崇的。基于监护人的帐户恢复，但监护人操作员可以看到您的状态。",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "完全私人",

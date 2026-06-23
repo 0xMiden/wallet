@@ -411,7 +411,7 @@ describe('generateTransactionsLoop error paths', () => {
   const dummySign = jest.fn(async () => new Uint8Array([1]));
 
   it('returns void when there are no queued transactions', async () => {
-    const result = await generateTransactionsLoop(dummySign);
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBeUndefined();
   });
 
@@ -434,7 +434,7 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'acc-1'
     });
 
-    const result = await generateTransactionsLoop(dummySign);
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
 
@@ -463,7 +463,7 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'acc-1'
     });
 
-    const result = await generateTransactionsLoop(dummySign);
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
     // The errorCode dispatch is exercised; the final status depends on
     // mock timing between updateTransactionStatus and cancelTransaction.
@@ -494,7 +494,7 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'acc-1'
     });
 
-    const result = await generateTransactionsLoop(dummySign);
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
 
@@ -521,7 +521,7 @@ describe('generateTransactionsLoop error paths', () => {
       accountId: 'acc-1'
     });
 
-    const result = await generateTransactionsLoop(dummySign);
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
     // Locked → the loop skips cancellation (NOT Failed), leaving the tx
     // mid-flight so the next auto-consume cycle retries it after unlock.
@@ -542,7 +542,7 @@ describe('generateTransactionsLoop error paths', () => {
     });
     const signOk = jest.fn(async () => new Uint8Array([7]));
 
-    await generateTransactionsLoop(signOk);
+    await generateTransactionsLoop(signOk, true, stubGuardianProvider);
 
     expect(signOk).toHaveBeenCalled();
   });
@@ -559,7 +559,7 @@ describe('generateTransactionsLoop error paths', () => {
       throw new Error('vault is not initialized');
     });
 
-    await generateTransactionsLoop(signThrows);
+    await generateTransactionsLoop(signThrows, true, stubGuardianProvider);
 
     expect(signThrows).toHaveBeenCalled();
   });

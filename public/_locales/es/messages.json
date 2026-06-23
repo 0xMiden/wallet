@@ -1590,6 +1590,10 @@
     "message": "Guardián",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Guardián protegido",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Configuración del guardián",
     "englishSource": "Guardian Settings"
@@ -1900,8 +1904,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Recomendado. Recuperación basada en Guardian para su cuenta, pero el operador Gaurdian puede ver su estado.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Recomendado. Recuperación basada en Guardian para su cuenta, pero el operador Guardian puede ver su estado.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Totalmente privado",

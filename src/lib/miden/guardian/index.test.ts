@@ -5,6 +5,7 @@
  *   - proposal builders (send, consume, custom)
  *   - signAndExecute / signAndCreateTransactionRequest
  *   - sync retry on "nonce too low", including exhaustion
+ *   - importAccountFromGuardian happy + error path
  *   - createSwitchGuardianProposal + finalizeGuardianSwitch
  *
  * All external collaborators are stubbed to keep tests hermetic.
@@ -26,7 +27,8 @@ jest.mock('lib/settings/constants', () => ({
 }));
 
 jest.mock('lib/shared/helpers', () => ({
-  u8ToB64: jest.fn(() => 'base64-bytes')
+  u8ToB64: jest.fn(() => 'base64-bytes'),
+  b64ToU8: jest.fn(() => new Uint8Array([1, 2, 3]))
 }));
 
 // Keep accountIdStringToSdk simple — we only assert it was called with the
@@ -197,29 +199,6 @@ describe('MultisigService', () => {
       expect(multisig.createConsumeNotesProposal).toHaveBeenCalledWith(['n1', 'n2']);
       expect(proposal).toEqual({ kind: 'consume' });
     });
-
-    it('createCustomProposal syncs state, reads the nonce+2, and tags metadata as unknown', async () => {
-      const multisig = makeMultisig();
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
-
-      await service.createCustomProposal(new Uint8Array([1, 2, 3]));
-
-      expect(multisig.syncState).toHaveBeenCalled();
-      // Nonce was 5; createCustomProposal passes nonce+2 = 7.
-      expect(multisig.createProposal).toHaveBeenCalledWith(7, 'base64-bytes', {
-        proposalType: 'unknown',
-        description: 'Custom transaction'
-      });
-    });
-
-    it('createCustomProposal throws when the wrapped Multisig has no account', async () => {
-      const multisig = makeMultisig({ account: null });
-      const service = new MultisigService(multisig as never, {} as never, 'https://x');
-
-      await expect(service.createCustomProposal(new Uint8Array())).rejects.toThrow(
-        'Account not found in MultisigService'
-      );
-    });
   });
 
   describe('signing helpers', () => {
@@ -234,7 +213,10 @@ describe('MultisigService', () => {
     });
 
     it('signAndCreateTransactionRequest signs then returns the request payload', async () => {
-      const multisig = makeMultisig();
+      // Non-custom proposal → the normal createTransactionProposalRequest path.
+      const multisig = makeMultisig({
+        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'send' } }))
+      });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
       const tx = await service.signAndCreateTransactionRequest('p-2');
@@ -317,10 +299,65 @@ describe('MultisigService', () => {
     });
   });
 
-  // importAccountFromGuardian was removed in Phase 8 — the recovery flow
-  // (lookup + adopt + cold-signed rotation) lives end-to-end in
-  // MidenClientInterface.recoverGuardianAccountsBySeed and no longer needs
-  // a separate guardian-state-fetch helper on MultisigService.
+  describe('importAccountFromGuardian', () => {
+    const signWordFn = jest.fn(async () => 'sig');
+
+    beforeEach(() => {
+      guardianConfig.setSigner.mockReset();
+      guardianConfig.getState.mockReset();
+    });
+
+    it('fetches state, base64-decodes into Account, and inserts into the webClient', async () => {
+      const webClient = {
+        accounts: { insert: jest.fn(async () => {}) }
+      };
+      const stateBase64 = Buffer.from('hello').toString('base64');
+      guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
+      const fakeAccount = { id: () => ({ toString: () => 'acc-id' }) };
+      mockAccountDeserialize.mockReturnValueOnce(fakeAccount);
+
+      await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
+
+      expect(guardianConfig.setSigner).toHaveBeenCalled();
+      expect(mockAccountDeserialize).toHaveBeenCalled();
+      expect(webClient.accounts.insert).toHaveBeenCalledWith({ account: fakeAccount, overwrite: true });
+    });
+
+    it('rejects (and does not insert) when the guardian returns a mismatched account id', async () => {
+      const webClient = { accounts: { insert: jest.fn(async () => {}) } };
+      const stateBase64 = Buffer.from('evil').toString('base64');
+      guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
+      mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'attacker-acc' }) });
+
+      await expect(
+        MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never)
+      ).rejects.toThrow('Guardian returned account attacker-acc but acc-id was requested');
+      expect(webClient.accounts.insert).not.toHaveBeenCalled();
+    });
+
+    it('re-throws when the guardian state fetch fails', async () => {
+      const webClient = { accounts: { insert: jest.fn() } };
+      guardianConfig.getState.mockRejectedValueOnce(new Error('404'));
+
+      await expect(
+        MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never)
+      ).rejects.toThrow('404');
+      expect(webClient.accounts.insert).not.toHaveBeenCalled();
+    });
+
+    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage has no URL', async () => {
+      // Exercises the `|| DEFAULT_GUARDIAN_ENDPOINT` branch on the endpoint lookup.
+      const webClient = { accounts: { insert: jest.fn(async () => {}) } };
+      mockFetchFromStorage.mockResolvedValueOnce(undefined);
+      const stateBase64 = Buffer.from('hi').toString('base64');
+      guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
+      mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
+
+      await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
+
+      expect(webClient.accounts.insert).toHaveBeenCalled();
+    });
+  });
 
   describe('init', () => {
     it('loads the Multisig for an existing account and returns a configured service', async () => {
@@ -364,11 +401,9 @@ describe('MultisigService', () => {
 
       expect(newEndpoint).toBe('https://new');
       expect(multisig.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new', 'new-commit');
-      expect(multisig.createProposal).toHaveBeenCalledWith(
-        7,
-        'txs-b64',
-        expect.objectContaining({ proposalType: 'switch-guardian' })
-      );
+      // `createSwitchGuardianProposal` already creates the proposal — it must NOT
+      // be re-created via the generic `createProposal` (that would duplicate it).
+      expect(multisig.createProposal).not.toHaveBeenCalled();
     });
 
     it('createSwitchGuardianProposal re-throws when the new guardian fetch fails', async () => {
@@ -403,6 +438,53 @@ describe('MultisigService', () => {
         `Updated account acc-id is missing from local client`
       );
       expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('finalizeGuardianSwitch retries a transient registration failure then succeeds', async () => {
+      const origSetTimeout = global.setTimeout;
+      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
+        fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+
+      const multisig = makeMultisig({
+        registerOnGuardian: jest.fn().mockRejectedValueOnce(new Error('guardian down')).mockResolvedValueOnce(undefined)
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+
+      try {
+        await service.finalizeGuardianSwitch('https://new');
+        expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
+      } finally {
+        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+      }
+    });
+
+    it('finalizeGuardianSwitch throws after exhausting registration retries', async () => {
+      const origSetTimeout = global.setTimeout;
+      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
+        fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+
+      const multisig = makeMultisig({
+        registerOnGuardian: jest.fn(async () => Promise.reject(new Error('guardian down')))
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+
+      try {
+        await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow(
+          'Failed to register account on the new guardian after switching'
+        );
+        // MAX_GUARDIAN_REGISTER_RETRIES attempts.
+        expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(5);
+      } finally {
+        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+      }
     });
   });
 
@@ -515,6 +597,35 @@ describe('MultisigService', () => {
         ['0xnewhotnoprefix', '0xcoldnoprefix'],
         { signatureScheme: 'ecdsa' }
       );
+    });
+  });
+
+  describe('sync de-duplication', () => {
+    it('coalesces overlapping sync() calls onto a single in-flight run', async () => {
+      let resolveSync: () => void = () => {};
+      const syncState = jest.fn(
+        () =>
+          new Promise<void>(resolve => {
+            resolveSync = resolve;
+          })
+      );
+      const multisig = makeMultisig({ syncState });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      const first = service.sync();
+      const second = service.sync();
+      expect(first).toBe(second); // second tick reuses the in-flight promise
+
+      resolveSync();
+      await first;
+      expect(syncState).toHaveBeenCalledTimes(1);
+
+      // After settling, a fresh call starts a new run.
+      const third = service.sync();
+      expect(third).not.toBe(first);
+      resolveSync();
+      await third;
+      expect(syncState).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -16,14 +16,12 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { isDelegateProofEnabled, isValidGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 
 type FormData = {
   guardianEndpoint: string;
 };
-
-const URL_PATTERN = /^https?:\/\/.+/i;
 
 type Props = {
   onClose?: () => void;
@@ -107,7 +105,7 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         <FormField
           {...register('guardianEndpoint', {
             required: t('required'),
-            pattern: { value: URL_PATTERN, message: t('invalidUrl') }
+            validate: value => isValidGuardianUrl(value) || t('invalidUrl')
           })}
           label={t('newGuardianEndpoint')}
           labelDescription={t('switchGuardianDescription')}

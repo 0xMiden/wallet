@@ -1649,6 +1649,10 @@
     "message": "Хранитель",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Страж защищен",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Настройки стража",
     "englishSource": "Guardian Settings"
@@ -1964,8 +1968,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Рекомендуется. Восстановление вашей учетной записи на основе Guardian, но оператор Guardian может видеть ваше состояние.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Рекомендуется. Восстановление вашей учетной записи на основе Guardian, но оператор-опекун может видеть ваше состояние.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Полностью приватный",

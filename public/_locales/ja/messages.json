@@ -1648,6 +1648,10 @@
     "message": "ガーディアン",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "ガーディアンが保護されています",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "ガーディアンの設定",
     "englishSource": "Guardian Settings"
@@ -1963,8 +1967,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "推奨。アカウントは Guardian ベースで回復されますが、Guurdian オペレーターはお客様の状態を確認できます。",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "推奨。アカウントのガーディアンベースの回復ですが、ガーディアンオペレーターはあなたの状態を確認できます。",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "完全プライベート",

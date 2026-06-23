@@ -1647,6 +1647,10 @@
     "message": "Tuteur",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Gardien protégé",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Paramètres du tuteur",
     "englishSource": "Guardian Settings"
@@ -1962,8 +1966,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Recommandé. Récupération basée sur le tuteur pour votre compte, mais l'opérateur gardien peut voir votre état.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Recommandé. Récupération basée sur le tuteur pour votre compte, mais l'opérateur tuteur peut voir votre état.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Entièrement privé",

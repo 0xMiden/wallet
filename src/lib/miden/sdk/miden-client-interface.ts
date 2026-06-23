@@ -236,6 +236,12 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
+    if (walletType === WalletType.Guardian) {
+      const { createGuardianAccount } = await import('../guardian/account');
+      const account = await createGuardianAccount(this.client, seed);
+      return getBech32AddressFromAccountId(account.id());
+    }
+
     const isPublic = walletType === WalletType.OnChain;
     const wallet: Account = await this.client.accounts.create({
       storage: isPublic ? 'public' : 'private',

@@ -11,9 +11,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { expect, test } from '../fixtures/two-wallets';
-
 import { runStressDriver, type StressOptions } from './stress-driver';
+import { expect, test } from '../fixtures/two-wallets';
+import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
 
@@ -66,7 +66,7 @@ function parseOptions(): StressOptions {
   };
 }
 
-test.describe('Stress: random send/claim', () => {
+test.describe('Stress - random send/claim', () => {
   test.describe.configure({ mode: 'serial' });
 
   // No per-test timeout — the driver's `numNotes` is the stop condition.
@@ -77,16 +77,38 @@ test.describe('Stress: random send/claim', () => {
     const initialMintsPerWallet = intEnv('STRESS_INITIAL_MINTS', 3);
     const conservationStrict = (process.env.STRESS_CONSERVATION_STRICT ?? 'true') === 'true';
 
+    // When STRESS_GUARDIAN=true, BOTH wallets are guardian-backed: every send
+    // and claim co-signs through the external guardian at GUARDIAN_URL. This
+    // exercises the guardian send/consume-proposal paths under the full stress
+    // matrix (concurrency, reload, lock, idle) — not just the happy path.
+    const useGuardian = (process.env.STRESS_GUARDIAN ?? 'false') === 'true';
+    const guardianUrl = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
+    // Guardian co-signing adds HTTP round-trips, so syncs/claims need a wider
+    // window than standard accounts.
+    const guardianSyncMs = useGuardian ? 300_000 : 180_000;
+
     console.log('\n=== STRESS RUN PARAMETERS ===');
-    console.log(JSON.stringify({ ...opts, initialMintsPerWallet, conservationStrict }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ...opts,
+          initialMintsPerWallet,
+          conservationStrict,
+          useGuardian,
+          guardianUrl: useGuardian ? guardianUrl : null
+        },
+        null,
+        2
+      )
+    );
     console.log('');
 
     let addressA = '';
     let addressB = '';
 
     await steps.step('create_wallets', async () => {
-      const a = await walletA.createNewWallet();
-      const b = await walletB.createNewWallet();
+      const a = useGuardian ? await walletA.createGuardianWallet(guardianUrl) : await walletA.createNewWallet();
+      const b = useGuardian ? await walletB.createGuardianWallet(guardianUrl) : await walletB.createNewWallet();
       addressA = a.address;
       addressB = b.address;
     });
@@ -117,11 +139,11 @@ test.describe('Stress: random send/claim', () => {
 
     await steps.step('initial_claim', async () => {
       await Promise.all([
-        walletA.waitForBalanceAbove(0, 180_000, timeline),
-        walletB.waitForBalanceAbove(0, 180_000, timeline)
+        walletA.waitForBalanceAbove(0, guardianSyncMs, timeline),
+        walletB.waitForBalanceAbove(0, guardianSyncMs, timeline)
       ]);
-      await walletA.claimAllNotes(180_000);
-      await walletB.claimAllNotes(180_000);
+      await walletA.claimAllNotes(guardianSyncMs);
+      await walletB.claimAllNotes(guardianSyncMs);
     });
 
     const initialA = await walletA.getBalance();
@@ -269,12 +291,19 @@ test.describe('Stress: random send/claim', () => {
       fs.writeFileSync(path.join(outDir, 'stress-summary.json'), JSON.stringify(summary, null, 2));
 
       // ── Forensic dumps ─────────────────────────────────────────────────
+      // Dumps run SEQUENTIALLY (A then B), never concurrently: an 800-loop run
+      // accumulates enough IndexedDB that serializing both wallets' full DBs at
+      // once tripped the OOM killer on the runner, which killed the Chromium
+      // targets mid-dump and left only a "page closed" placeholder. Sequential
+      // + store-at-a-time streaming keeps peak memory bounded.
+
       // Full chrome.storage.local from both wallets — includes miden_sync_data
       // (pending notes + vault assets), connectivity-issue flag, cached
       // metadata, and anything else the wallet persists. Snapshot of the
       // wallet's exact view-of-world at the moment the assertion runs.
       try {
-        const [storageA, storageB] = await Promise.all([walletA.dumpChromeStorage(), walletB.dumpChromeStorage()]);
+        const storageA = await walletA.dumpChromeStorage();
+        const storageB = await walletB.dumpChromeStorage();
         fs.writeFileSync(
           path.join(outDir, 'chrome-storage-final.json'),
           JSON.stringify({ A: storageA, B: storageB }, null, 2)
@@ -286,13 +315,33 @@ test.describe('Stress: random send/claim', () => {
       // IndexedDB — where the Miden SDK keeps its authoritative state
       // (transactions, notes, accounts, chain MMR). For "did this tx actually
       // commit?" forensics, the SDK's transactions table is the ground truth.
-      // Result is a JSON string (with binary→hex wrappers); wrap per-wallet
-      // keys so both fit in one readable file.
-      try {
-        const [idbA, idbB] = await Promise.all([walletA.dumpIndexedDB(), walletB.dumpIndexedDB()]);
-        fs.writeFileSync(path.join(outDir, 'indexeddb-final.json'), `{"A":${idbA},"B":${idbB}}`);
-      } catch (e) {
-        console.log(`[stress] indexeddb dump failed: ${e instanceof Error ? e.message : String(e)}`);
+      // Streamed one store at a time to a per-wallet file so a slow/large dump
+      // can't OOM the page, and so a failure on one wallet still leaves the
+      // other's file intact. Each call is independently guarded.
+      for (const [label, wallet] of [
+        ['A', walletA],
+        ['B', walletB]
+      ] as const) {
+        const idbPath = path.join(outDir, `indexeddb-final-${label}.json`);
+        try {
+          const res = await streamIndexedDBToFile(wallet, idbPath);
+          console.log(
+            `[stress] indexeddb dump ${label}: ${res.storesDumped} stores, ${res.entriesDumped} entries` +
+              (res.storesFailed ? `, ${res.storesFailed} stores FAILED` : '') +
+              (res.truncatedStores.length ? `, truncated: ${res.truncatedStores.join(',')}` : '')
+          );
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          console.log(`[stress] indexeddb dump ${label} failed: ${message}`);
+          // Leave a labeled marker so the artifact is never silently absent;
+          // the retained profile dir (see two-wallets fixture) is the real
+          // offline-recovery path when the page died mid-dump.
+          try {
+            fs.writeFileSync(idbPath, JSON.stringify({ __error: message }));
+          } catch {
+            // best-effort
+          }
+        }
       }
 
       // Extract pending-tx time series from existing GeneratingTransaction
