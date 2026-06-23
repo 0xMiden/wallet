@@ -58,7 +58,7 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
         <div className="flex-1 overflow-y-auto no-scrollbar">
           {/* Amount */}
           <div className="flex items-center justify-center py-4">
-            <span className="text-3xl font-medium text-heading-gray/53 leading-none">
+            <span className="font-heading text-3xl font-medium text-heading-gray/53 leading-none">
               {amount} {token}
             </span>
           </div>

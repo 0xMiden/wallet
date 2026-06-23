@@ -467,7 +467,7 @@ const Welcome: FC = () => {
   }, [step, isLoading, onAction]);
 
   return (
-    <AwaitFonts name="Bitter" weights={[500, 600, 700]}>
+    <AwaitFonts name="Nunito" weights={[500, 600, 700]}>
       <div data-onboarding-root="true" className="h-full w-full bg-app-bg">
         <OnboardingFlow
           wordslist={wordslist}

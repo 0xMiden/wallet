@@ -89,16 +89,16 @@ export const BalanceCard: FC<BalanceCardProps> = ({
             <div className={classNames(SKELETON_BLOCK, 'h-12 w-48')} />
           ) : (
             <div className="flex items-center gap-0.5">
-              <span className="text-[56px] font-extrabold leading-none ">
+              <span className="font-heading text-[56px] font-extrabold leading-none ">
                 {isHidden ? '••••••' : isZero ? '$0.00' : amount}
               </span>
-              <span className="text-base font-semibold text-surface-balance-fg-muted">{currency}</span>
+              <span className="font-heading text-base font-semibold text-surface-balance-fg-muted">{currency}</span>
             </div>
           )}
         </div>
 
         {delta && !isLoading && !isHidden && (
-          <div className={classNames('mt-1 text-base font-semibold leading-none', deltaColor)}>
+          <div className={classNames('font-heading mt-1 text-base font-semibold leading-none', deltaColor)}>
             {delta.absolute} ({delta.percentage})
           </div>
         )}
