@@ -14,6 +14,7 @@
 ### Fixes
 
 * [FIX][all] Corrected the devnet Guardian endpoint host (`stg-guardian.openzeppelin.com` → `guardian-stg.openzeppelin.com`); the transposed hostname had no DNS record, so the default devnet Guardian URL never resolved. (#153)
+* [FIX][extension] Chrome package no longer bundles a second (single-threaded) Miden SDK WASM. `@openzeppelin/miden-multisig-client` imports the eager `@miden-sdk/miden-sdk` entry; the service-worker config already redirected that to the multi-threaded build, but the extension/front config did not — so the front bundle pulled in an extra ~15 MB single-threaded WASM. The front config now applies the same eager→`mt/lazy` alias, restoring the Chrome package to ~18 MB (was ~29 MB).
 
 ## 1.15.1 (2026-06-19)
 
