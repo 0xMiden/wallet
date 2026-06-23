@@ -6,6 +6,10 @@ export type SignWordFunction = (publicKey: string, wordHex: string) => Promise<s
 export class WalletSigner implements Signer {
   readonly commitment: string;
   readonly publicKey: string;
+  // Must match the scheme of the secret key the vault signs with. Guardian
+  // accounts derive their signer key via `AuthSecretKey.ecdsaWithRNG`, so the
+  // guardian verifies these signatures as ECDSA. Configurable so cold/hot paths
+  // can opt into a different scheme if ever needed; defaults to ECDSA.
   readonly scheme: SignatureScheme;
   private signWordFn: (wordHex: string) => Promise<string>;
 
@@ -24,9 +28,7 @@ export class WalletSigner implements Signer {
 
   async signAccountIdWithTimestamp(accountId: string, timestamp: number): Promise<string> {
     const digest = AuthDigest.fromAccountIdWithTimestamp(accountId, timestamp);
-    const sig = await this.signWordFn(digest.toHex());
-    console.log('Signature for accountId and timestamp:', sig);
-    return sig;
+    return this.signWordFn(digest.toHex());
   }
 
   async signRequest(accountId: string, timestamp: number, requestPayload: RequestAuthPayload): Promise<string> {

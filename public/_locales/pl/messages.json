@@ -1450,6 +1450,10 @@
     "message": "Nie udostępniaj nikomu.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "Twój seed phrase to klucz odzyskiwania — używany do rotacji kluczy urządzenia, a nie do codziennych transakcji.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Wybierać",
     "englishSource": "Select"
@@ -1590,6 +1594,10 @@
     "message": "Opiekun",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Opiekun chroniony",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Ustawienia strażnika",
     "englishSource": "Guardian Settings"
@@ -1610,6 +1618,14 @@
     "message": "Skieruj swoje konto Guardiana na nowy punkt końcowy opiekuna. Przełącznik jest podpisany jako propozycja on-chain.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Jest to podpisane Twoim (zimnym) kluczem odzyskiwania i podpisane przez Twojego obecnego opiekuna. Twoje środki i konto pozostają takie same. Kontynuować?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Potwierdź przełącznik",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Zmiana opiekuna...",
     "englishSource": "Switching guardian..."
@@ -1621,6 +1637,78 @@
   "guardianEndpointUnchanged": {
     "message": "To już twój obecny opiekun.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Obróć klucz urządzenia",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Wygeneruj nowy (gorący) klucz urządzenia i zastąp bieżący w łańcuchu. Przydatne, jeśli podejrzewasz, że Twoje urządzenie zostało naruszone.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Jest to podpisane za pomocą klucza odzyskiwania (zimnego). Twój seed phrase nie jest wymagany, a Twoje środki i konto pozostają takie same. Kontynuować?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Potwierdź obrót",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "Klucz urządzenia został pomyślnie obrócony.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Aktywuj klucz urządzenia",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Wygeneruj klucz urządzenia dla tego odzyskanego konta. Wymagane przed wysłaniem.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "Aktywować",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "Nie udało się aktywować klucza urządzenia. Spróbuj ponownie.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Odkryj klucz urządzenia",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "Twój klucz urządzenia (gorący) można obracać, wybierając Ustawienia → Obróć klucz urządzenia, więc ujawnienie go jest obarczone niższą stawką niż klucz seed phrase — ale każdy, kto go trzyma, może podpisywać transakcje do czasu rotacji.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Klucz prywatny urządzenia",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Klucz publiczny urządzenia",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Odzyskiwanie (zimnego) klucza prywatnego",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Klucz publiczny odzyskiwania (zimny).",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Twoje konto Guardian jest chronione trzema kluczami: kluczem urządzenia (gorącym) do rutynowego podpisywania, kluczem odzyskiwania (zimnym) uzyskanym z Twojego seed phrase do operacji zarządzania kontem oraz współsygnatariuszem zewnętrznego opiekuna. Poniżej znajduje się Twój zimny klucz prywatny oraz oba klucze publiczne. Aby ujawnić klucz prywatny urządzenia, użyj opcji Ustawienia → Pokaż klucz urządzenia.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Zanim ujawnisz klucz swojego urządzenia",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Każda osoba posiadająca ten klucz może podpisywać transakcje, dopóki go nie obrócisz. Jeśli klucz wyciekł, obróć go, wybierając Ustawienia → Obróć klucz urządzenia.",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "Wprowadź prawidłowy adres URL zaczynający się od http:// lub https://",
@@ -1900,8 +1988,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Zalecony. Odzyskiwanie konta na podstawie opiekuna, ale operator strażnika może zobaczyć Twój stan.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Zalecony. Odzyskiwanie konta na podstawie opiekuna, ale operator opiekuna może zobaczyć Twój stan.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Całkowicie prywatny",

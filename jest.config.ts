@@ -70,7 +70,7 @@ export default {
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   modulePathIgnorePatterns: ['<rootDir>/sdk-debug/'],
-  testPathIgnorePatterns: ['<rootDir>/playwright/', '<rootDir>/mobile-e2e/'],
+  testPathIgnorePatterns: ['<rootDir>/playwright/', '<rootDir>/mobile-e2e/', '<rootDir>/ios/App/build/'],
   setupFiles: ['dotenv/config', '@serh11p/jest-webextension-mock', 'fake-indexeddb/auto'],
   setupFilesAfterEnv: ['./jest.setup.js']
 };

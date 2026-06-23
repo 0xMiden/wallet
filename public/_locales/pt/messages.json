@@ -1489,6 +1489,10 @@
     "message": "Não compartilhe com ninguém.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "Seu seed phrase é sua chave de recuperação — usada para alternar chaves de dispositivos, não para transações diárias.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Selecione",
     "note": "Onboarding",
@@ -1646,6 +1650,10 @@
     "message": "Guardião",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Guardião Protegido",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Configurações do Guardião",
     "englishSource": "Guardian Settings"
@@ -1666,6 +1674,14 @@
     "message": "Aponte sua conta do Guardian para um novo endpoint do Guardian. A mudança é assinada como uma proposta on-chain.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Este é assinado com sua chave de recuperação (fria) e co-assinado pelo seu responsável atual. Seus fundos e conta permanecem os mesmos. Continuar?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Confirmar mudança",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Trocando de guardião...",
     "englishSource": "Switching guardian..."
@@ -1677,6 +1693,78 @@
   "guardianEndpointUnchanged": {
     "message": "Esse já é seu guardião atual.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Girar tecla do dispositivo",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Gere uma nova chave de dispositivo (hot) e substitua a atual na cadeia. Útil se você suspeitar que seu dispositivo está comprometido.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Isto é assinado com sua chave de recuperação (fria). Seu seed phrase não é necessário e seus fundos e conta permanecem os mesmos. Continuar?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Confirmar rotação",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "Chave do dispositivo girada com sucesso.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Ativar chave do dispositivo",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Gere uma chave de dispositivo para esta conta recuperada. Obrigatório antes do envio.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "Ativar",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "Falha ao ativar a chave do dispositivo. Tente novamente.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Revelar chave do dispositivo",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "A tecla (de atalho) do seu dispositivo pode ser girada em Configurações → Girar chave do dispositivo, portanto, revelá-la tem riscos mais baixos do que seu seed phrase - mas qualquer pessoa que a possua pode assinar transações até que você gire.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Chave privada do dispositivo",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Chave pública do dispositivo",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Chave privada de recuperação (fria)",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Chave pública de recuperação (fria)",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Sua conta Guardian é protegida por três chaves: uma chave de dispositivo (quente) para assinatura de rotina, uma chave de recuperação (fria) derivada de seu seed phrase para operações de gerenciamento de conta e um fiador guardião externo. Abaixo estão sua chave privada fria e ambas as chaves públicas. Para revelar a chave privada do dispositivo, use Configurações → Revelar chave do dispositivo.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Antes de revelar a chave do seu dispositivo",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Qualquer pessoa com esta chave pode assinar transações até que você a gire. Se a chave vazar, gire-a em Configurações → Girar chave do dispositivo.",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "Insira um URL válido começando com http:// ou https://",
@@ -1961,8 +2049,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Recomendado. Recuperação baseada no guardião para sua conta, mas o operador gaurdiano pode ver seu estado.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Recomendado. Recuperação baseada no guardião para sua conta, mas o operador do guardião pode ver seu estado.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Totalmente privado",

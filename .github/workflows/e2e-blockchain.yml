@@ -205,6 +205,173 @@ jobs:
           echo "Chrome E2E: both networks failed or were skipped."
           exit 1
 
+  # --- Guardian (Chrome, devnet + testnet against OZ's hosted guardian) ------
+  # The published ghcr guardian image is 0.14.x and ABI-incompatible with the
+  # 0.15 multisig client the wallet ships, so these jobs run against OZ's hosted
+  # guardian endpoints instead of a locally-spawned container. Devnet
+  # (guardian-stg, the 0.15 server) is expected green; testnet
+  # (guardian.openzeppelin.com, still the 0.14 server) is expected red until
+  # testnet upgrades — mirroring the non-guardian devnet/testnet split. The gate
+  # below passes as long as at least one network succeeds.
+
+  chrome-guardian-devnet:
+    name: Chrome Guardian E2E (devnet)
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: devnet
+      GUARDIAN_URL: https://guardian-stg.openzeppelin.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
+          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
+            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
+            exit 1
+          fi
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          elif [[ -n "$GIT_URL" ]]; then
+            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
+            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Chrome extension (devnet)
+        run: yarn test:e2e:blockchain:build
+
+      - name: Run Guardian E2E (devnet)
+        run: xvfb-run -a yarn test:e2e:guardian:run
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-guardian-e2e-devnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  chrome-guardian-testnet:
+    name: Chrome Guardian E2E (testnet)
+    if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: testnet
+      GUARDIAN_URL: https://guardian.openzeppelin.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install miden-client-cli
+        shell: bash
+        run: |
+          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
+          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
+          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
+          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
+            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
+            exit 1
+          fi
+          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
+            echo "miden-client already present from cache:"
+            "$HOME/.cargo/bin/miden-client" --version || true
+          elif [[ -n "$GIT_URL" ]]; then
+            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
+            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
+          else
+            echo "Installing miden-client-cli@${VERSION}..."
+            cargo install miden-client-cli --version "$VERSION"
+          fi
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Chrome extension (testnet)
+        run: yarn test:e2e:blockchain:build
+
+      - name: Run Guardian E2E (testnet)
+        run: xvfb-run -a yarn test:e2e:guardian:run
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-guardian-e2e-testnet-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  chrome-guardian-gate:
+    name: Chrome Guardian E2E Gate
+    needs: [chrome-guardian-devnet, chrome-guardian-testnet]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require at least one network to pass
+        shell: bash
+        env:
+          DEVNET_RESULT: ${{ needs.chrome-guardian-devnet.result }}
+          TESTNET_RESULT: ${{ needs.chrome-guardian-testnet.result }}
+        run: |
+          echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
+          if [[ "$DEVNET_RESULT" == "success" || "$TESTNET_RESULT" == "success" ]]; then
+            echo "Chrome Guardian E2E: at least one network passed."
+            exit 0
+          fi
+          echo "Chrome Guardian E2E: both networks failed or were skipped."
+          exit 1
+
   # --- iOS Simulator --------------------------------------------------------
 
   mobile-devnet:
@@ -351,39 +518,17 @@ jobs:
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
-      # xcodebuild resolves destinations through Xcode's IDE-layer
-      # CoreSimulator session, which on these runners sometimes goes blind
-      # to devices that simctl sees and boots fine — it then stalls 60s and
-      # fails with "Unable to find a device matching ... iPhone 17" while
-      # listing zero simulator destinations. Verify visibility with a cheap
-      # -showdestinations BEFORE the ~15-minute build; if blind, restart
-      # CoreSimulatorService (which shuts down the sims) and re-boot the
-      # pair, then re-check. Hard-fail if it never clears: the build cannot
-      # succeed without it.
-      - name: Wait for xcodebuild to see the simulators
-        shell: bash
-        run: |
-          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
-          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
-          sees_sims() {
-            xcodebuild -project ios/App/App.xcodeproj -scheme App -showdestinations 2>/dev/null \
-              | grep -q "id:$UDID_A"
-          }
-          for attempt in 1 2 3 4 5; do
-            if sees_sims; then
-              echo "xcodebuild sees the pinned simulator (attempt $attempt)"
-              exit 0
-            fi
-            echo "xcodebuild does not see the simulators (attempt $attempt); restarting CoreSimulatorService"
-            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
-            sleep 20
-            xcrun simctl boot "$UDID_A" || true
-            xcrun simctl boot "$UDID_B" || true
-            sleep 10
-          done
-          echo "::error::xcodebuild never saw the pinned simulators; build cannot succeed on this runner"
-          xcrun simctl list devices || true
-          exit 1
+      # The iOS app is built for a GENERIC simulator destination
+      # (generic/platform=iOS Simulator) — see the test:e2e:mobile:build
+      # script. A build doesn't need a concrete booted device, and the
+      # generic destination resolves to the "Any iOS Simulator Device"
+      # placeholder even when Xcode's IDE-layer CoreSimulator goes blind to
+      # concrete sims on macos-26 runners (the failure mode that a
+      # name=iPhone 17 destination hit here — xcodebuild listed zero concrete
+      # destinations and failed with "Unable to find a device"). This is the
+      # same approach build-mobile.yml's release iOS build already uses. The
+      # pinned sims are still pre-booted above for the test-run phase, which
+      # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build
@@ -540,39 +685,17 @@ jobs:
           ensure_bootable "$UDID_B"
           xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
 
-      # xcodebuild resolves destinations through Xcode's IDE-layer
-      # CoreSimulator session, which on these runners sometimes goes blind
-      # to devices that simctl sees and boots fine — it then stalls 60s and
-      # fails with "Unable to find a device matching ... iPhone 17" while
-      # listing zero simulator destinations. Verify visibility with a cheap
-      # -showdestinations BEFORE the ~15-minute build; if blind, restart
-      # CoreSimulatorService (which shuts down the sims) and re-boot the
-      # pair, then re-check. Hard-fail if it never clears: the build cannot
-      # succeed without it.
-      - name: Wait for xcodebuild to see the simulators
-        shell: bash
-        run: |
-          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
-          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
-          sees_sims() {
-            xcodebuild -project ios/App/App.xcodeproj -scheme App -showdestinations 2>/dev/null \
-              | grep -q "id:$UDID_A"
-          }
-          for attempt in 1 2 3 4 5; do
-            if sees_sims; then
-              echo "xcodebuild sees the pinned simulator (attempt $attempt)"
-              exit 0
-            fi
-            echo "xcodebuild does not see the simulators (attempt $attempt); restarting CoreSimulatorService"
-            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
-            sleep 20
-            xcrun simctl boot "$UDID_A" || true
-            xcrun simctl boot "$UDID_B" || true
-            sleep 10
-          done
-          echo "::error::xcodebuild never saw the pinned simulators; build cannot succeed on this runner"
-          xcrun simctl list devices || true
-          exit 1
+      # The iOS app is built for a GENERIC simulator destination
+      # (generic/platform=iOS Simulator) — see the test:e2e:mobile:build
+      # script. A build doesn't need a concrete booted device, and the
+      # generic destination resolves to the "Any iOS Simulator Device"
+      # placeholder even when Xcode's IDE-layer CoreSimulator goes blind to
+      # concrete sims on macos-26 runners (the failure mode that a
+      # name=iPhone 17 destination hit here — xcodebuild listed zero concrete
+      # destinations and failed with "Unable to find a device"). This is the
+      # same approach build-mobile.yml's release iOS build already uses. The
+      # pinned sims are still pre-booted above for the test-run phase, which
+      # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
         run: yarn test:e2e:mobile:build

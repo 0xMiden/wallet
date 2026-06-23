@@ -1490,6 +1490,10 @@
     "message": "Teilen Sie es nicht mit anderen.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "Ihr seed phrase ist Ihr Wiederherstellungsschlüssel – er wird zum Rotieren von Geräteschlüsseln verwendet, nicht für alltägliche Transaktionen.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Auswählen",
     "note": "Onboarding",
@@ -1648,6 +1652,10 @@
     "message": "Wächter",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Wächter geschützt",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Wächtereinstellungen",
     "englishSource": "Guardian Settings"
@@ -1668,6 +1676,14 @@
     "message": "Richten Sie Ihr Guardian-Konto auf einen neuen Guardian-Endpunkt. Der Wechsel wird als On-Chain-Vorschlag signiert.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Kaltschlüssel) signiert und von Ihrem aktuellen Vormund mitunterzeichnet. Ihr Guthaben und Ihr Konto bleiben gleich. Weitermachen?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Wechsel bestätigen",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Vormund wechseln...",
     "englishSource": "Switching guardian..."
@@ -1679,6 +1695,78 @@
   "guardianEndpointUnchanged": {
     "message": "Das ist bereits Ihr aktueller Vormund.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Geräteschlüssel drehen",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Generieren Sie einen neuen Geräteschlüssel (Hotkey) und ersetzen Sie den aktuellen in der Kette. Nützlich, wenn Sie den Verdacht haben, dass Ihr Gerät kompromittiert ist.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Dies wird mit Ihrem Wiederherstellungsschlüssel (Kaltschlüssel) signiert. Ihr seed phrase ist nicht erforderlich und Ihr Guthaben und Ihr Konto bleiben gleich. Weitermachen?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Drehung bestätigen",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "Geräteschlüssel erfolgreich gedreht.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Geräteschlüssel aktivieren",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Generieren Sie einen Geräteschlüssel für dieses wiederhergestellte Konto. Vor dem Senden erforderlich.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "Aktivieren",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "Der Geräteschlüssel konnte nicht aktiviert werden. Versuchen Sie es erneut.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Geräteschlüssel anzeigen",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "Ihr Geräteschlüssel (Hotkey) kann unter „Einstellungen“ → „Geräteschlüssel drehen“ gedreht werden. Es ist also weniger riskant, ihn zu enthüllen als Ihren seed phrase – aber jeder, der ihn besitzt, kann Transaktionen signieren, bis Sie ihn drehen.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Privater Geräteschlüssel",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Öffentlicher Geräteschlüssel",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Privater Wiederherstellungsschlüssel (kalt).",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Öffentlicher Wiederherstellungsschlüssel (kalt).",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Ihr Guardian-Konto ist durch drei Schlüssel geschützt: einen Geräteschlüssel (Hotschlüssel) für routinemäßige Signaturen, einen von Ihrem seed phrase abgeleiteten Wiederherstellungsschlüssel (Kaltschlüssel) für Kontoverwaltungsvorgänge und einen externen Guardian-Mitunterzeichner. Nachfolgend finden Sie Ihren kalten privaten Schlüssel sowie beide öffentlichen Schlüssel. Um den privaten Schlüssel des Geräts anzuzeigen, verwenden Sie Einstellungen → Geräteschlüssel anzeigen.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Bevor Sie Ihren Geräteschlüssel preisgeben",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Jeder mit diesem Schlüssel kann Transaktionen signieren, bis Sie ihn rotieren. Wenn der Schlüssel durchgesickert ist, drehen Sie ihn über Einstellungen → Geräteschlüssel drehen.",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "Geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt.",
@@ -1963,8 +2051,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Empfohlen. Wächterbasierte Wiederherstellung für Ihr Konto, aber der Wächterbetreiber kann Ihren Status sehen.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Empfohlen. Wiederherstellung Ihres Kontos durch einen Vormund, aber der Vormund-Betreiber kann Ihren Status sehen.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Völlig privat",

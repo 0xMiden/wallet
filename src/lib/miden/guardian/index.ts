@@ -1,4 +1,4 @@
-import { Account, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { Account, MidenClient, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import {
   Multisig,
   MultisigClient,
@@ -13,7 +13,7 @@ import {
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { u8ToB64 } from 'lib/shared/helpers';
+import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { getSignerDetailsFromAccount } from './account';
@@ -23,6 +23,11 @@ import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const MAX_SYNC_RETRIES = 20;
+const SYNC_RETRY_DELAY_MS = 3000;
+const MAX_GUARDIAN_REGISTER_RETRIES = 5;
+const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * MultisigService wraps the MultisigClient and Multisig classes from
@@ -34,6 +39,10 @@ export class MultisigService {
   client: MultisigClient;
   guardianEndpoint: string;
   syncRetryCount: number = 0;
+  // Dedupe overlapping `sync()` calls. The guardian sync fires every ~3s without
+  // awaiting prior ticks, and the cached service instance is shared, so two ticks
+  // could otherwise drive `syncState()` concurrently and clobber `syncRetryCount`.
+  private syncInFlight: Promise<void> | null = null;
 
   constructor(multisig: Multisig, client: MultisigClient, guardianEndpoint: string) {
     this.multisig = multisig;
@@ -56,6 +65,8 @@ export class MultisigService {
     }
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
+      const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+
       // Reuse the shared singleton client instead of spinning up a fresh
       // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
       // that is never terminated). Reusing the singleton also lets the multisig
@@ -64,7 +75,9 @@ export class MultisigService {
       const webClient = (await getMidenClient()).client;
 
       const client = new MultisigClient(webClient, { guardianEndpoint });
-      const multisig = await client.load(account.id().toString(), signer);
+      // `load` drives the shared WASM web-client, so it must be serialized with
+      // every other client operation via the global mutex.
+      const multisig = await withWasmClientLock(() => client.load(account.id().toString(), signer));
 
       return new MultisigService(multisig, client, guardianEndpoint);
     } catch (error) {
@@ -95,6 +108,36 @@ export class MultisigService {
     return MultisigService.init(account, `0x${walletAccount.coldPublicKey}`, `0x${commitment}`, signWordFn);
   }
 
+  static async importAccountFromGuardian(
+    publicKey: string,
+    signerCommitment: string,
+    signWordFn: SignWordFunction,
+    accountId: string,
+    webClient: MidenClient
+  ) {
+    const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+    const guardian = new GuardianHttpClient(guardianEndpoint);
+    const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
+    guardian.setSigner(signer);
+    try {
+      const { stateJson } = await guardian.getState(accountId);
+      const account = Account.deserialize(b64ToU8(stateJson.data));
+
+      // The guardian is an untrusted remote: never overwrite local state with an
+      // account whose ID doesn't match the one we requested, or a malicious /
+      // misconfigured guardian could clobber a different local account.
+      const returnedId = account.id().toString();
+      if (returnedId !== accountId) {
+        throw new Error(`Guardian returned account ${returnedId} but ${accountId} was requested`);
+      }
+
+      await webClient.accounts.insert({ account, overwrite: true });
+    } catch (error) {
+      console.error('Error fetching account state from Guardian:', error);
+      throw error;
+    }
+  }
+
   /**
    * Get the account ID for this multisig.
    */
@@ -106,10 +149,12 @@ export class MultisigService {
    * Create a send (P2ID) transaction proposal.
    */
   async createSendProposal(recipientId: string, faucetId: string, amount: bigint): Promise<Proposal> {
-    return this.multisig.createP2idProposal(
-      accountIdStringToSdk(recipientId).toString(),
-      accountIdStringToSdk(faucetId).toString(),
-      amount
+    return withWasmClientLock(() =>
+      this.multisig.createP2idProposal(
+        accountIdStringToSdk(recipientId).toString(),
+        accountIdStringToSdk(faucetId).toString(),
+        amount
+      )
     );
   }
 
@@ -117,33 +162,22 @@ export class MultisigService {
    * Create a consume notes transaction proposal.
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
-    return this.multisig.createConsumeNotesProposal(noteIds);
+    return withWasmClientLock(() => this.multisig.createConsumeNotesProposal(noteIds));
+  }
+
+  async signAndExecuteProposal(id: string): Promise<void> {
+    // `signProposal` is signing + guardian HTTP (no shared-client access); only
+    // `executeProposal` touches the WASM client and needs the mutex.
+    await this.multisig.signProposal(id);
+    await withWasmClientLock(() => this.multisig.executeProposal(id));
   }
 
   /**
-   * Create a custom transaction proposal from a TransactionSummary.
+   * Create a custom transaction proposal from a serialized transaction request.
    * This is used for 'execute' type transactions.
    */
-  async createCustomProposal(summaryBytes: Uint8Array): Promise<Proposal> {
-    const txSummaryBase64 = u8ToB64(summaryBytes);
-
-    // Sync state to ensure we have the latest nonce
-    await this.multisig.syncState();
-    const account = this.multisig.account;
-    if (!account) {
-      throw new Error('Account not found in MultisigService');
-    }
-    // +2 accounts for the current nonce plus the proposal execution incrementing nonce
-    const nonce = Number(account.nonce().asInt()) + 2;
-
-    // Create metadata for unknown/custom proposal type
-    const metadata: ProposalMetadata = {
-      proposalType: 'unknown',
-      description: 'Custom transaction'
-    };
-    const proposal = await this.multisig.createProposal(nonce, txSummaryBase64, metadata);
-
-    return proposal;
+  async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom transaction'): Promise<Proposal> {
+    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
   }
 
   /**
@@ -156,44 +190,61 @@ export class MultisigService {
     await this.multisig.signProposal(id);
   }
 
-  async signAndExecuteProposal(id: string): Promise<void> {
-    await this.multisig.signProposal(id);
-    await this.multisig.executeProposal(id);
+  async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
+    const proposal = await this.multisig.signProposal(id);
+    if (proposal.metadata.proposalType === 'custom') {
+      if (!requestBytes) {
+        throw new Error('Request Bytes are required for custom execution');
+      }
+      const advice = await this.multisig.prepareCustomExecution(id, requestBytes);
+      const request = TransactionRequest.deserialize(requestBytes);
+      return request.extendAdviceMap(advice);
+    }
+    return withWasmClientLock(() => this.multisig.createTransactionProposalRequest(id));
   }
 
-  async signAndCreateTransactionRequest(id: string): Promise<TransactionRequest> {
-    const singedProposal = await this.multisig.signProposal(id);
-    console.log('Signed proposal, creating transaction request with id:', singedProposal.signatures);
-    return await this.multisig.createTransactionProposalRequest(id);
+  sync(): Promise<void> {
+    // Coalesce overlapping ticks onto a single in-flight run so the retry
+    // counter and `syncState` aren't driven concurrently. Not `async`: return
+    // the cached promise itself so concurrent callers share one identity.
+    if (this.syncInFlight) {
+      return this.syncInFlight;
+    }
+    this.syncInFlight = this.runSync().finally(() => {
+      this.syncInFlight = null;
+    });
+    return this.syncInFlight;
   }
 
-  async sync(): Promise<void> {
-    try {
-      await this.multisig.syncState();
-      this.syncRetryCount = 0; // Reset retry count on successful sync
-    } catch (error) {
-      console.log('[Guardian] sync error ', error);
-      const isNonceTooLow =
-        error instanceof Error && error.message.includes('nonce') && error.message.includes('too low');
-
-      if (isNonceTooLow) {
-        console.warn('Nonce is too low, local state is ahead of on chain state, retrying sync...', this.syncRetryCount);
-
-        if (this.syncRetryCount < MAX_SYNC_RETRIES) {
-          this.syncRetryCount++;
-          await new Promise(resolve => setTimeout(resolve, 3000)); // Wait before retrying
-          await this.sync();
-        } else {
+  private async runSync(): Promise<void> {
+    // Iterative retry (not recursion): the WASM mutex is non-reentrant, so a
+    // recursive `await this.sync()` while holding it would deadlock. We lock
+    // around each `syncState` attempt and release during the back-off wait so
+    // other client operations can proceed between retries.
+    this.syncRetryCount = 0;
+    for (;;) {
+      try {
+        await withWasmClientLock(() => this.multisig.syncState());
+        this.syncRetryCount = 0; // Reset retry count on successful sync
+        return;
+      } catch (error) {
+        const isNonceTooLow =
+          error instanceof Error && error.message.includes('nonce') && error.message.includes('too low');
+        if (!isNonceTooLow) {
+          throw error; // Rethrow if it's a different error
+        }
+        if (this.syncRetryCount >= MAX_SYNC_RETRIES) {
           throw new Error('Max sync retries reached: local state is ahead of on-chain state');
         }
-      } else {
-        throw error; // Rethrow if it's a different error
+        this.syncRetryCount++;
+        console.warn('Nonce is too low, local state is ahead of on-chain state, retrying sync...', this.syncRetryCount);
+        await delay(SYNC_RETRY_DELAY_MS);
       }
     }
   }
 
   async getConsumableNotes() {
-    return this.multisig.getConsumableNotes();
+    return withWasmClientLock(() => this.multisig.getConsumableNotes());
   }
 
   /**
@@ -207,13 +258,16 @@ export class MultisigService {
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
       const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
+      // Fetch the new guardian's ECDSA commitment to match the account's scheme.
       const { commitment } = await newGuardian.getPubkey('ecdsa');
-      const proposal = await this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment);
-      await this.multisig.createProposal(proposal.nonce, proposal.txSummary, proposal.metadata);
-      console.log('Created switch-guardian proposal with new endpoint:', newGuardianEndpoint);
+      // `createSwitchGuardianProposal` already creates and returns the proposal;
+      // calling `createProposal` again would duplicate it (nonce collision).
+      const proposal = await withWasmClientLock(() =>
+        this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+      );
       return { proposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
-      console.log('Error creating switch-guardian proposal:', error);
+      console.error('Error creating switch-guardian proposal:', error);
       throw error;
     }
   }
@@ -279,6 +333,12 @@ export class MultisigService {
    * a `switch_guardian` metadata type. Must be called AFTER the on-chain
    * switch lands — `client.load(...)` against the new guardian will fail
    * until `registerOnGuardian` succeeds.
+   *
+   * By the time this runs the on-chain guardian has already been switched, so
+   * the old guardian no longer has authority over the account. Registration on
+   * the new guardian is therefore retried with back-off: a transient blip must
+   * not be the difference between a usable account and one stranded between
+   * guardians.
    */
   async finalizeGuardianSwitch(newGuardianEndpoint: string): Promise<void> {
     try {
@@ -300,11 +360,28 @@ export class MultisigService {
       this.multisig.guardianPublicKey = commitment;
       this.guardianEndpoint = newGuardianEndpoint;
 
-      await this.multisig.registerOnGuardian(updatedStateBase64);
+      await this.registerOnGuardianWithRetry(updatedStateBase64);
     } catch (error) {
-      console.log('Error finalizing guardian switch:', error);
+      console.error('Error finalizing guardian switch:', error);
       throw error;
     }
+  }
+
+  private async registerOnGuardianWithRetry(stateBase64: string): Promise<void> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_GUARDIAN_REGISTER_RETRIES; attempt++) {
+      try {
+        await this.multisig.registerOnGuardian(stateBase64);
+        return;
+      } catch (error) {
+        lastError = error;
+        console.warn(`registerOnGuardian failed (attempt ${attempt}/${MAX_GUARDIAN_REGISTER_RETRIES})`, error);
+        if (attempt < MAX_GUARDIAN_REGISTER_RETRIES) {
+          await delay(GUARDIAN_REGISTER_RETRY_DELAY_MS);
+        }
+      }
+    }
+    throw new Error('Failed to register account on the new guardian after switching', { cause: lastError });
   }
 }
 

@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { isValidGuardianUrl } from 'lib/settings/helpers';
 import { Badge } from 'lib/ui/badge';
 
 import { WalletType } from '../types';
@@ -28,10 +29,9 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
   const trimmedEndpoint = endpointInput.trim();
   const canContinue =
-    selected === WalletType.OnChain || (selected === WalletType.Guardian && trimmedEndpoint.length > 0);
+    selected === WalletType.OnChain || (selected === WalletType.Guardian && isValidGuardianUrl(trimmedEndpoint));
 
   const handleContinue = () => {
-    console.log('Continue with selection:', { selected, trimmedEndpoint });
     if (selected === WalletType.OnChain) {
       onSubmit({ walletType: WalletType.OnChain });
       return;

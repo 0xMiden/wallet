@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
 import type { TimelineRecorder } from '../harness/timeline-recorder';
+import type { IdbDumpSource } from './idb-dump';
 
 const PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -54,10 +55,15 @@ export interface WalletPage {
  * reach into the Playwright Page directly (currently multi-account's
  * DOM probe) and for captureStateFrom entries that pass extensionId.
  */
-export interface ChromeWalletPageApi extends WalletPage {
+export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  /**
+   * Complete the create-wallet flow choosing the Guardian recovery method,
+   * pointing the account at `guardianUrl` (a locally-spawned guardian).
+   */
+  createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
   quickBalanceSnapshot(): Promise<{
     balance: number;
@@ -70,12 +76,10 @@ export interface ChromeWalletPageApi extends WalletPage {
   }>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
-  /**
-   * Full IndexedDB dump (all databases × all object stores). Returns a JSON
-   * string with binary/BigInt wrappers. This is where the Miden SDK keeps
-   * per-tx commit status — the ground truth for "did this tx land?".
-   */
-  dumpIndexedDB(): Promise<string>;
+  // IndexedDB forensics (listIndexedDBStores / dumpIndexedDBStore) come from
+  // IdbDumpSource — driven store-at-a-time by streamIndexedDBToFile so a long
+  // run's dump can't OOM the page. This is where the Miden SDK keeps per-tx
+  // commit status — the ground truth for "did this tx land?".
 }
 
 /**
@@ -120,10 +124,25 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   // ── Onboarding ────────────────────────────────────────────────────────────
 
   /**
+   * Create a Guardian-backed wallet pointed at a locally-spawned guardian.
+   * Seeds the guardian endpoint into storage (the create flow has no custom-URL
+   * field) and picks the Guardian recovery method.
+   */
+  async createGuardianWallet(
+    guardianUrl: string,
+    password: string = PASSWORD
+  ): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createNewWallet(password, { recovery: 'guardian', guardianUrl });
+  }
+
+  /**
    * Complete the "Create a new wallet" onboarding flow.
    * Returns the wallet address and seed phrase.
    */
-  async createNewWallet(password: string = PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+  async createNewWallet(
+    password: string = PASSWORD,
+    options: { recovery?: 'private' | 'guardian'; guardianUrl?: string } = {}
+  ): Promise<{ address: string; seedPhrase: string[] }> {
     // The fixture guarantees the welcome screen is visible by the time we get here.
     const welcome = this.page.getByTestId('onboarding-welcome');
     await welcome.waitFor({ timeout: 30_000 });
@@ -226,10 +245,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('input[placeholder="Enter password again"]').first().fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
-    // Recovery method step. The create flow now forks into "Guardian" (the
-    // default) and "Fully Private" (off-chain). Guardian needs a live backend
-    // we don't stand up in E2E, so pick Fully Private.
-    await this.selectCreateRecoveryMethod();
+    // Recovery method step. The create flow forks into "Guardian" (the default)
+    // and "Fully Private" (off-chain). Default to Fully Private; the guardian
+    // path is opt-in via `options.recovery` and requires a live guardian
+    // endpoint (spawned by the guardian E2E job).
+    await this.selectCreateRecoveryMethod(options);
 
     // Wait for "Your wallet is ready" confirmation screen.
     // Note: this text appears IMMEDIATELY when the confirmation page renders,
@@ -395,11 +415,34 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * click Continue. Guardian-backed accounts need a live guardian endpoint
    * which isn't part of the E2E harness.
    */
-  private async selectCreateRecoveryMethod(): Promise<void> {
+  private async selectCreateRecoveryMethod(
+    options: { recovery?: 'private' | 'guardian'; guardianUrl?: string } = {}
+  ): Promise<void> {
     const heading = this.page.getByRole('heading', { name: /set up account recovery/i });
     await heading.waitFor({ timeout: 15_000 });
-    // Click the "Fully Private" card to switch selection away from the Guardian default.
-    await this.page.getByText(/fully private/i).first().click();
+
+    if (options.recovery === 'guardian') {
+      if (!options.guardianUrl) {
+        throw new Error('selectCreateRecoveryMethod: guardianUrl is required for the guardian recovery method');
+      }
+      // The create-flow recovery screen has no custom-URL field, so seed the
+      // guardian endpoint directly. `createGuardianAccount` reads
+      // GUARDIAN_URL_STORAGE_KEY ('guardian_url_setting') from chrome.storage.local
+      // before falling back to the network default, and this runs before the
+      // account is created on "Get Started".
+      await this.page.evaluate(
+        ({ key, url }) => new Promise<void>(resolve => chrome.storage.local.set({ [key]: url }, () => resolve())),
+        { key: 'guardian_url_setting', url: options.guardianUrl }
+      );
+      // Guardian is the default selection; click it explicitly for robustness.
+      await this.page.getByText('Guardian', { exact: true }).first().click();
+    } else {
+      // Click the "Fully Private" card to switch selection away from the Guardian default.
+      await this.page
+        .getByText(/fully private/i)
+        .first()
+        .click();
+    }
     await this.page.getByRole('button', { name: /continue/i }).click();
   }
 
@@ -585,93 +628,115 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Dump every IndexedDB database on the extension origin. This is where the
-   * Miden SDK persists its authoritative state — accounts, transactions,
-   * notes, chain MMR, block headers. For "did this tx actually commit?"
-   * forensics, the SDK's `transactions` table is the ground truth.
-   *
-   * Output shape: `{ [dbName]: { version, stores: { [storeName]: entries[] } } }`.
-   * Binary fields (Uint8Array / ArrayBuffer / BigInt) are converted to
-   * `{ __type, hex | value, length }` wrappers so the result round-trips
-   * through JSON and through Playwright's postMessage serialization.
-   *
-   * Not exposed on WalletPage interface — Chrome-only (IndexedDB-per-origin).
+   * Enumerate every (db, store) on the extension origin — cheap, loads no row
+   * data. Pairs with `dumpIndexedDBStore` so `streamIndexedDBToFile` can pull
+   * one store at a time. Not on the shared WalletPage interface — Chrome-only
+   * (IndexedDB-per-origin).
    */
-  async dumpIndexedDB(): Promise<string> {
-    try {
-      return await this.page.evaluate(async () => {
+  async listIndexedDBStores(): Promise<Array<{ db: string; version: number; store: string }>> {
+    return this.page.evaluate(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const idb = (globalThis as any).indexedDB as IDBFactory;
+      const dbList = await idb.databases();
+      const out: Array<{ db: string; version: number; store: string }> = [];
+
+      const openDb = (name: string): Promise<IDBDatabase> =>
+        new Promise((resolve, reject) => {
+          const req = idb.open(name);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+          req.onblocked = () => reject(new Error('blocked'));
+        });
+
+      for (const info of dbList) {
+        if (!info.name) continue;
+        try {
+          const db = await openDb(info.name);
+          for (const store of Array.from(db.objectStoreNames)) {
+            out.push({ db: info.name, version: info.version ?? 0, store });
+          }
+          db.close();
+        } catch {
+          // Un-openable db — skip; the caller records nothing for it.
+        }
+      }
+      return out;
+    });
+  }
+
+  /**
+   * Read ONE object store as a JSON array string, capped at `maxRows`. The
+   * Miden SDK persists its authoritative state here (accounts, transactions,
+   * notes, chain MMR, block headers) — for "did this tx commit?" forensics the
+   * `transactions` table is the ground truth.
+   *
+   * Binary fields (Uint8Array / ArrayBuffer / BigInt) are wrapped as
+   * `{ __type, hex | value, length }` so the result round-trips through JSON
+   * and Playwright's postMessage serialization. Returning a string (vs the
+   * object) also avoids structuredClone choking on Uint8Array in some Chromium
+   * revisions. One store at a time keeps peak in-page memory bounded.
+   */
+  async dumpIndexedDBStore(
+    db: string,
+    store: string,
+    maxRows: number
+  ): Promise<{ json: string; count: number; truncated: boolean }> {
+    return this.page.evaluate(
+      async ({ db, store, maxRows }) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const idb = (globalThis as any).indexedDB as IDBFactory;
-        const dbList = await idb.databases();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result: Record<string, any> = {};
 
-        const openDb = (name: string): Promise<IDBDatabase> =>
-          new Promise((resolve, reject) => {
-            const req = idb.open(name);
+        const database: IDBDatabase = await new Promise((resolve, reject) => {
+          const req = idb.open(db);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+          req.onblocked = () => reject(new Error('blocked'));
+        });
+
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rows: any[] = await new Promise((resolve, reject) => {
+            const tx = database.transaction(store, 'readonly');
+            const os = tx.objectStore(store);
+            // getAll(query, count): count caps rows pulled in a single op,
+            // bounding peak memory without an O(n^2) offset cursor.
+            const req = os.getAll(null, maxRows);
             req.onsuccess = () => resolve(req.result);
             req.onerror = () => reject(req.error);
-            req.onblocked = () => reject(new Error('blocked'));
           });
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const getAll = (store: IDBObjectStore): Promise<any[]> =>
-          new Promise((resolve, reject) => {
-            const req = store.getAll();
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-          });
-
-        for (const info of dbList) {
-          if (!info.name) continue;
-          try {
-            const db = await openDb(info.name);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const stores: Record<string, any> = {};
-            for (const storeName of db.objectStoreNames) {
-              try {
-                const tx = db.transaction(storeName, 'readonly');
-                const store = tx.objectStore(storeName);
-                stores[storeName] = await getAll(store);
-              } catch (e) {
-                stores[storeName] = { __error: String(e) };
-              }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const replacer = (_k: string, v: any): unknown => {
+            if (v instanceof Uint8Array || v instanceof Uint8ClampedArray) {
+              const hex = Array.from(v)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+              return { __type: 'Uint8Array', hex, length: v.length };
             }
-            db.close();
-            result[info.name] = { version: info.version, stores };
-          } catch (e) {
-            result[info.name] = { __error: String(e) };
-          }
-        }
+            if (v instanceof ArrayBuffer) {
+              const arr = new Uint8Array(v);
+              const hex = Array.from(arr)
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+              return { __type: 'ArrayBuffer', hex, length: arr.length };
+            }
+            if (typeof v === 'bigint') {
+              return { __type: 'BigInt', value: v.toString() };
+            }
+            return v;
+          };
 
-        // JSON-serialize with binary/BigInt wrappers so the payload round-trips
-        // cleanly. Returning a string (vs the object) also avoids Playwright's
-        // structuredClone choking on Uint8Array in some Chromium revisions.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const replacer = (_k: string, v: any): unknown => {
-          if (v instanceof Uint8Array || v instanceof Uint8ClampedArray) {
-            const hex = Array.from(v)
-              .map(b => b.toString(16).padStart(2, '0'))
-              .join('');
-            return { __type: 'Uint8Array', hex, length: v.length };
-          }
-          if (v instanceof ArrayBuffer) {
-            const arr = new Uint8Array(v);
-            const hex = Array.from(arr)
-              .map(b => b.toString(16).padStart(2, '0'))
-              .join('');
-            return { __type: 'ArrayBuffer', hex, length: arr.length };
-          }
-          if (typeof v === 'bigint') {
-            return { __type: 'BigInt', value: v.toString() };
-          }
-          return v;
-        };
-        return JSON.stringify(result, replacer);
-      });
-    } catch (e) {
-      return JSON.stringify({ __error: e instanceof Error ? e.message : String(e) });
-    }
+          return {
+            json: JSON.stringify(rows, replacer),
+            count: rows.length,
+            truncated: rows.length >= maxRows
+          };
+        } finally {
+          database.close();
+        }
+      },
+      { db, store, maxRows }
+    );
   }
 
   /**

@@ -1490,6 +1490,10 @@
     "message": "誰とも共有しないでください。",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "seed phrase は回復キーです。日常のトランザクションではなく、デバイス キーをローテーションするために使用されます。",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "選択する",
     "note": "Onboarding",
@@ -1648,6 +1652,10 @@
     "message": "ガーディアン",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "ガーディアンが保護されています",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "ガーディアンの設定",
     "englishSource": "Guardian Settings"
@@ -1668,6 +1676,14 @@
     "message": "Guardian アカウントを新しいガーディアン エンドポイントに向けます。スイッチはオンチェーン プロポーザルとして署名されます。",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "これは回復 (コールド) キーで署名され、現在の保護者によって共同署名されています。資金とアカウントはそのまま残ります。続く？",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "スイッチの確認",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "守護者を切り替えます...",
     "englishSource": "Switching guardian..."
@@ -1679,6 +1695,78 @@
   "guardianEndpointUnchanged": {
     "message": "それはすでにあなたの現在の保護者です。",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "デバイスキーをローテーションする",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "新しいデバイス (ホット) キーを生成し、オンチェーン上の現在のキーを置き換えます。デバイスが侵害されている疑いがある場合に役立ちます。",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "これは回復 (コールド) キーで署名されています。 seed phrase は必要ありません。資金とアカウントは変わりません。続く？",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "回転確認",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "デバイスキーが正常にローテーションされました。",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "デバイスキーをアクティブ化する",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "この回復されたアカウントのデバイス キーを生成します。送信する前に必須です。",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "活性化",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "デバイスキーの有効化に失敗しました。もう一度やり直してください。",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "デバイスキーを明らかにする",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "デバイス (ホット) キーは [設定] → [デバイス キーの回転] で回転できるため、seed phrase よりも公開するリスクは低くなります。ただし、デバイス キーを保持している人は誰でも、あなたが回転するまでトランザクションに署名できます。",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "デバイスの秘密鍵",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "デバイスの公開鍵",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "リカバリ (コールド) 秘密キー",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "リカバリ (コールド) 公開キー",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Guardian アカウントは、日常的な署名用のデバイス (ホット) キー、アカウント管理操作用の seed phrase から派生した回復 (コールド) キー、および外部ガーディアン共同署名者の 3 つのキーによって保護されています。以下は、コールド秘密キーと両方の公開キーです。デバイスの秘密キーを公開するには、[設定] → [デバイス キーの公開] を使用します。",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "デバイスキーを公開する前に",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "このキーを持っている人は誰でも、キーをローテーションするまでトランザクションに署名できます。キーが漏洩した場合は、「設定」→「デバイス キーのローテーション」でキーをローテーションします。",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "http:// または https:// で始まる有効な URL を入力してください",
@@ -1963,8 +2051,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "推奨。アカウントは Guardian ベースで回復されますが、Guurdian オペレーターはお客様の状態を確認できます。",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "推奨。アカウントのガーディアンベースの回復ですが、ガーディアンオペレーターはあなたの状態を確認できます。",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "完全プライベート",

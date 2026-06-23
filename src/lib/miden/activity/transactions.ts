@@ -1044,21 +1044,15 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
-    // case 'execute':
-    // default: {
-    // // For custom transactions, get TransactionSummary and create a custom proposal
-    // const summaryBytes = await withWasmClientLock(async () => {
-    //   const midenClient = await getMidenClient();
-    //   const txRequest = TransactionRequest.deserialize(transaction.requestBytes!);
-    //   return (
-    //     await midenClient.client.transactions.preview(accountIdStringToSdk(transaction.accountId), txRequest)
-    //   ).serialize();
-    // });
-    // proposalResult = await multisigService.createCustomProposal(summaryBytes);
-    // break;
-    // }
+    case 'execute':
     default: {
-      throw new Error(`Unsupported transaction type for Guardian account: ${transaction.type}`);
+      // For custom transactions, build a custom proposal from the serialized request bytes.
+      if (!transaction.requestBytes) {
+        throw new Error('Request Bytes not available for custom transaction');
+      }
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await service.createCustomProposal(transaction.requestBytes);
+      break;
     }
   }
 
@@ -1090,7 +1084,7 @@ const generateGuardianTransaction = async (
     await coldService.signProposal(proposalResult.id);
   }
 
-  const tr = await service.signAndCreateTransactionRequest(proposalResult.id);
+  const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
   console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -1150,10 +1144,10 @@ const generateGuardianTransaction = async (
         guardianProvider
       );
       break;
-    // case 'execute':
-    // default:
-    //   await completeCustomTransaction(transaction, transactionResult);
-    //   break;
+    case 'execute':
+    default:
+      await completeCustomTransaction(transaction, transactionResult);
+      break;
   }
   // Sync the cached hot service so the next consumer sees post-tx state.
   // Skip for replace-hot-key: that path's service is a transient cold one,

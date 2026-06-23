@@ -1490,6 +1490,10 @@
     "message": "Ne partagez avec personne.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "Votre seed phrase est votre clé de récupération : elle est utilisée pour alterner les clés de l'appareil, et non pour les transactions quotidiennes.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Sélectionner",
     "note": "Onboarding",
@@ -1647,6 +1651,10 @@
     "message": "Tuteur",
     "englishSource": "Guardian"
   },
+  "guardianProtected": {
+    "message": "Gardien protégé",
+    "englishSource": "Guardian Protected"
+  },
   "guardianSettings": {
     "message": "Paramètres du tuteur",
     "englishSource": "Guardian Settings"
@@ -1667,6 +1675,14 @@
     "message": "Pointez votre compte Guardian vers un nouveau point de terminaison Guardian. Le changement est signé comme une proposition en chaîne.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Celui-ci est signé avec votre clé de récupération (à froid) et co-signé par votre tuteur actuel. Vos fonds et votre compte restent les mêmes. Continuer?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Confirmer le changement",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Changer de tuteur...",
     "englishSource": "Switching guardian..."
@@ -1678,6 +1694,78 @@
   "guardianEndpointUnchanged": {
     "message": "C'est déjà votre tuteur actuel.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Faire pivoter la clé de l'appareil",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Générez une nouvelle touche (hot) de périphérique et remplacez celle actuelle sur la chaîne. Utile si vous pensez que votre appareil est compromis.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Ceci est signé avec votre clé de récupération (à froid). Votre seed phrase n'est pas requis, et vos fonds et votre compte restent les mêmes. Continuer?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Confirmer la rotation",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "La clé de l'appareil a été pivotée avec succès.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Activer la clé de l'appareil",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Générez une clé de périphérique pour ce compte récupéré. Obligatoire avant l'envoi.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "Activer",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "Échec de l'activation de la clé de l'appareil. Essayer à nouveau.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Révéler la clé de l'appareil",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "La touche (raccourcie) de votre appareil peut être tournée depuis Paramètres → Rotation de la clé de l'appareil, ce qui révèle que ses enjeux sont inférieurs à ceux de votre seed phrase — mais toute personne qui la détient peut signer des transactions jusqu'à ce que vous effectuiez la rotation.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Clé privée de l'appareil",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Clé publique de l'appareil",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Clé privée de récupération (à froid)",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Clé publique de récupération (à froid)",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Votre compte Guardian est protégé par trois clés : une touche de périphérique (raccourcie) pour la signature de routine, une clé de récupération (à froid) dérivée de votre seed phrase pour les opérations de gestion de compte et un cosignataire tuteur externe. Vous trouverez ci-dessous votre clé privée froide ainsi que les deux clés publiques. Pour révéler la clé privée de l'appareil, utilisez Paramètres → Révéler la clé de l'appareil.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Avant de révéler la clé de votre appareil",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Toute personne possédant cette clé peut signer des transactions jusqu'à ce que vous la tourniez. Si la clé fuit, faites-la pivoter via Paramètres → Rotation de la clé de l'appareil.",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "Saisissez une URL valide commençant par http:// ou https://",
@@ -1962,8 +2050,8 @@
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Recommandé. Récupération basée sur le tuteur pour votre compte, mais l'opérateur gardien peut voir votre état.",
-    "englishSource": "Recommended. Guardian-based recovery for your account but gaurdian operator can see your state."
+    "message": "Recommandé. Récupération basée sur le tuteur pour votre compte, mais l'opérateur tuteur peut voir votre état.",
+    "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
     "message": "Entièrement privé",

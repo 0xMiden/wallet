@@ -12,7 +12,7 @@ import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { isDelegateProofEnabled, isValidGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
@@ -108,22 +108,14 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         onSubmit={handleSubmit}
         currentEndpoint={currentEndpoint}
         hideHeader
-        submitLabel={
-          submitting
-            ? t('loading')
-            : confirming
-            ? t('confirmSwitchGuardian')
-            : t('switchGuardian')
-        }
+        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
       />
 
       {confirming && !submitting && !submitSuccess && (
         <div className="text-xs text-heading-gray mt-3 select-text">{t('switchGuardianConfirmation')}</div>
       )}
 
-      {error && (
-        <div className="mt-3 text-red-500 text-xs select-text">{error}</div>
-      )}
+      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
 
       {submitSuccess && (
         <div className="mt-4 text-green-600 text-sm font-medium" onAnimationEnd={() => onClose?.()}>
