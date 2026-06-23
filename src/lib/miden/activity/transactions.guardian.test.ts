@@ -257,7 +257,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
   });
 
@@ -366,7 +366,7 @@ describe('generateTransaction — Guardian routing', () => {
     // After the multisigService/signingService consolidation, the hot service IS
     // the only service for non-replace-hot-key types — it drives the final
     // signAndCreateTransactionRequest.
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch', undefined);
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
   });
@@ -431,7 +431,7 @@ describe('generateTransaction — Guardian routing', () => {
     // Persist BEFORE submit so the new ciphertext is durable on crash.
     expect(persistNewHotKey).toHaveBeenCalledWith('new-hot-pub', 'new-cx');
     // Cold (signingService) drives signAndCreateTransactionRequest, NOT hot.
-    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace');
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace', undefined);
     // Persist newHotPublicKey on the transaction row so complete can find it.
     expect((submittedRow.extraInputs as { newHotPublicKey?: string }).newHotPublicKey).toBe('new-hot-pub');
     // Replace-hot-key shares the confirming wait with switch-guardian.

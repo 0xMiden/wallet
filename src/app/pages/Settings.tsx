@@ -268,11 +268,14 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
 
-  const tabIsVisible = (tab: Tab) => {
-    if (tab.guardianOnly && !isGuardianAccount) return false;
-    if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
-    return true;
-  };
+  const tabIsVisible = useCallback(
+    (tab: Tab) => {
+      if (tab.guardianOnly && !isGuardianAccount) return false;
+      if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
+      return true;
+    },
+    [hasActivatedHotKey, isGuardianAccount]
+  );
 
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
   // the Guardian Settings entry at all (menu, drawer, or routable page).
@@ -282,12 +285,12 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
         ...group,
         tabs: group.tabs.filter(tabIsVisible)
       })).filter(group => group.tabs.length > 0),
-    [isGuardianAccount, hasActivatedHotKey]
+    [tabIsVisible]
   );
 
   const allTabs = useMemo(
     () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tabIsVisible)],
-    [tabGroups, isGuardianAccount, hasActivatedHotKey]
+    [tabGroups, tabIsVisible]
   );
 
   const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);

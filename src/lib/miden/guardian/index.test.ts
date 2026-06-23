@@ -74,11 +74,11 @@ const multisigClientConfig: { load: jest.Mock } = {
   load: jest.fn()
 };
 
-const mockBuildUpdateSignersTransactionRequest = jest.fn(async () => ({
+const mockBuildUpdateSignersTransactionRequest = jest.fn(async (..._args: unknown[]) => ({
   request: { kind: 'request' },
   salt: { toHex: () => 'salt-hex' }
 }));
-const mockExecuteForSummary = jest.fn(async () => ({
+const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
   serialize: () => new Uint8Array([0xab])
 }));
 

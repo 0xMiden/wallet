@@ -167,8 +167,16 @@ Object.defineProperty(globalThis.navigator, 'locks', {
   configurable: true
 });
 
+const stubGuardianProvider = {
+  getAccounts: jest.fn(async () => []),
+  getPublicKeyForCommitment: jest.fn(async () => 'pk'),
+  signWord: jest.fn(async () => 'sig')
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockLastAuthError.mockReset();
+  mockLastAuthError.mockImplementation((): unknown => null);
   txStore.length = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });

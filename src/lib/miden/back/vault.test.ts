@@ -69,8 +69,7 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   // tests keep asserting on it.
   importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
   createGuardianMidenWallet: (...args: unknown[]) => mockCreateGuardianMidenWallet(...(args as [Uint8Array])),
-  recoverGuardianAccountsBySeed: (...args: unknown[]) =>
-    mockRecoverGuardianAccountsBySeed(...(args as [any, string])),
+  recoverGuardianAccountsBySeed: (...args: unknown[]) => mockRecoverGuardianAccountsBySeed(...(args as [any, string])),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
