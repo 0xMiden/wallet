@@ -126,23 +126,38 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
 
+  // Poll the swap order lineage every 3s until it reaches a terminal state
+  // (filled or reclaimed). The orderId is persisted on the swap tx; the live
+  // lineage is fetched via `trackOrderId`.
   useEffect(() => {
     if (orderId == null) return;
     let cancelled = false;
-    setTrackingLoading(true);
-    trackOrderId(orderId)
-      .then(result => {
-        console.log(result);
-        if (!cancelled) setSwapTracking(result);
-      })
-      .catch(error => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const POLL_INTERVAL_MS = 3000;
+
+    const poll = async () => {
+      try {
+        const result = await trackOrderId(orderId);
+        if (cancelled) return;
+        setSwapTracking(result);
+        // Keep polling while the order is still active (or not yet trackable).
+        if (result === null || result.state === 'active') {
+          timer = setTimeout(poll, POLL_INTERVAL_MS);
+        }
+      } catch (error) {
         console.error('[HistoryDetails] Failed to track swap order:', error);
-      })
-      .finally(() => {
+        if (!cancelled) timer = setTimeout(poll, POLL_INTERVAL_MS);
+      } finally {
         if (!cancelled) setTrackingLoading(false);
-      });
+      }
+    };
+
+    setTrackingLoading(true);
+    poll();
+
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [orderId]);
 
