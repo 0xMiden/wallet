@@ -63,12 +63,13 @@ describe('zustandProvider', () => {
   });
 
   it('persistNewHotKey delegates to the store', async () => {
-    await zustandProvider.persistNewHotKey('new-pub', 'new-ciphertext');
+    // Optional on the interface; the assertion below fails if it's missing.
+    await zustandProvider.persistNewHotKey?.('new-pub', 'new-ciphertext');
     expect(storeState.persistNewHotKey).toHaveBeenCalledWith('new-pub', 'new-ciphertext');
   });
 
   it('swapHotKey delegates to the store', async () => {
-    await zustandProvider.swapHotKey('account-pub', 'new-hot-pub');
+    await zustandProvider.swapHotKey?.('account-pub', 'new-hot-pub');
     expect(storeState.swapHotKey).toHaveBeenCalledWith('account-pub', 'new-hot-pub');
   });
 });
