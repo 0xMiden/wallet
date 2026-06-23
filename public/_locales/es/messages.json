@@ -1450,6 +1450,10 @@
     "message": "No compartir con nadie.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "Su seed phrase es su clave de recuperación: se utiliza para rotar las claves del dispositivo, no para las transacciones diarias.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Seleccionar",
     "englishSource": "Select"
@@ -1614,6 +1618,14 @@
     "message": "Apunte su cuenta de Guardian a un nuevo punto final de Guardian. El cambio está firmado como una propuesta en cadena.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Esto está firmado con su clave de recuperación (fría) y firmado conjuntamente por su tutor actual. Sus fondos y su cuenta permanecen igual. ¿Continuar?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Confirmar cambio",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Cambiando de guardián...",
     "englishSource": "Switching guardian..."
@@ -1625,6 +1637,78 @@
   "guardianEndpointUnchanged": {
     "message": "Ese ya es tu tutor actual.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Girar la tecla del dispositivo",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Genere una nueva clave (de acceso rápido) de dispositivo y reemplace la actual en la cadena. Útil si sospecha que su dispositivo está comprometido.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Esto está firmado con su clave de recuperación (fría). Su seed phrase no es obligatorio y sus fondos y su cuenta siguen siendo los mismos. ¿Continuar?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Confirmar rotación",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "La clave del dispositivo se giró correctamente.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Activar clave del dispositivo",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Genere una clave de dispositivo para esta cuenta recuperada. Requerido antes de enviar.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "Activar",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "No se pudo activar la clave del dispositivo. Intentar otra vez.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Revelar clave del dispositivo",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "La tecla de acceso rápido de su dispositivo se puede girar desde Configuración → Rotar clave de dispositivo, por lo que revelarla es menos arriesgado que su seed phrase, pero cualquiera que la tenga puede firmar transacciones hasta que la rote.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Clave privada del dispositivo",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Clave pública del dispositivo",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Clave privada de recuperación (en frío)",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Clave pública de recuperación (en frío)",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Su cuenta de Guardian está protegida por tres claves: una clave de dispositivo (activa) para la firma de rutina, una clave de recuperación (fría) derivada de su seed phrase para operaciones de administración de cuentas y un cofirmante externo de Guardian. A continuación se muestra su clave privada fría más ambas claves públicas. Para revelar la clave privada del dispositivo, use Configuración → Revelar clave del dispositivo.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Antes de revelar la clave de tu dispositivo",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Cualquier persona con esta clave puede firmar transacciones hasta que la rotes. Si se filtra la clave, gírela a través de Configuración → Girar clave del dispositivo.",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "Introduzca una URL válida que comience con http:// o https://",

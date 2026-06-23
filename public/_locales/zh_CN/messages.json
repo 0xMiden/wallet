@@ -1508,6 +1508,10 @@
     "message": "不要与任何人分享。",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "您的 seed phrase 是您的恢复密钥 — 用于轮换设备密钥，而不是用于日常交易。",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "选择",
     "note": "Onboarding",
@@ -1690,6 +1694,14 @@
     "message": "将您的监护人帐户指向新的监护人端点。该切换被签署为链上提案。",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "该密钥使用您的恢复（冷）密钥进行签名，并由您当前的监护人共同签署。您的资金和账户保持不变。继续？",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "确认切换",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "切换监护人...",
     "englishSource": "Switching guardian..."
@@ -1701,6 +1713,78 @@
   "guardianEndpointUnchanged": {
     "message": "那已经是你现在的监护人了。",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "旋转设备密钥",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "生成一个新的设备（热）密钥并替换链上当前的设备密钥。如果您怀疑您的设备受到威胁，这很有用。",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "这是用您的恢复（冷）密钥签名的。您的 seed phrase 不是必需的，您的资金和帐户保持不变。继续？",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "确认轮换",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "设备密钥轮换成功。",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "激活设备密钥",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "为该恢复的帐户生成设备密钥。发送前需要。",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "激活",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "无法激活设备密钥。再试一次。",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "显示设备密钥",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "您的设备（热）密钥可通过“设置”→“旋转设备密钥”进行旋转，因此暴露它的风险比您的 seed phrase 低 - 但持有它的任何人都可以签署交易，直到您旋转为止。",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "设备私钥",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "设备公钥",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "恢复（冷）私钥",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "恢复（冷）公钥",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "您的监护人帐户受到三个密钥的保护：用于例行签名的设备（热）密钥、从您的 seed phrase 派生的用于帐户管理操作的恢复（冷）密钥，以及外部监护人共同签名者。下面是您的冷私钥和两个公钥。要显示设备私钥，请使用“设置”→“显示设备密钥”。",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "在透露您的设备密钥之前",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "拥有此密钥的任何人都可以签署交易，直到您轮换它为止。如果密钥泄漏，请通过“设置”→“轮换设备密钥”进行轮换。",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "输入以 http:// 或 https:// 开头的有效 URL",
