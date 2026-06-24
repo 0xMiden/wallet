@@ -78,6 +78,7 @@
     "test:e2e:mobile:build": "cross-env MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath ios/App/build build",
     "test:e2e:mobile": "yarn test:e2e:mobile:build && playwright test --config playwright.ios.config.ts",
     "test:e2e:mobile:run": "playwright test --config playwright.ios.config.ts",
+    "test:e2e:mobile:guardian:run": "playwright test --config playwright.ios.guardian.config.ts",
     "test:e2e:mobile:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:mobile",
     "test:e2e:mobile:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:mobile",
     "test:e2e:mobile:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:mobile",
