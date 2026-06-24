@@ -10,6 +10,7 @@ import {
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
