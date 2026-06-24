@@ -38,7 +38,7 @@ const propsPerButtonVariant = {
     fontWeight: 'font-medium',
     disabledColor: 'text-heading-gray',
     disabledFontWeight: 'font-semibold',
-    backgroundColor: 'bg-surface-interactive',
+    backgroundColor: 'bg-gray-25',
     hoverBackgroundColor: 'hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f]',
     disabledBackgroundColor: 'bg-surface-inactive',
     iconColor: 'black',
@@ -105,9 +105,9 @@ export const Button: React.FC<ButtonProps> = ({
   return (
     <button
       className={cn(
-        'flex justify-center items-center gap-x-2',
+        'flex justify-center items-center gap-x-2 font-heading',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
-        'max-w-92.5 h-14 px-4 rounded-3xl w-full',
+        'h-14 px-4 rounded-3xl w-full',
         'transition duration-300 ease-in-out text-base',
         color,
         fontWeight,

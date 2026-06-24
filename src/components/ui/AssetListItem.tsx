@@ -48,27 +48,25 @@ export const AssetListItem: FC<AssetListItemProps> = ({
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
-        'w-full h-[72px] flex items-center gap-3',
+        'w-full h-18 flex items-center justify-between font-heading',
         onClick && 'cursor-pointer active:opacity-90 transition-opacity',
         className
       )}
     >
-      <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
+      <div className="flex items-center gap-2">
+        <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
-      <div className="flex flex-col min-w-0 shrink-0 max-w-[40%]">
-        <div className="text-base font-bold leading-tight text-text-primary-token truncate">{name}</div>
-        <div className="font-heading text-sm font-normal leading-tight text-text-tertiary-token truncate">{amount}</div>
+        <div className="flex flex-col min-w-0 shrink-0 font-bold">
+          <div className="text-base  leading-tight text-heading-gray truncate">{name}</div>
+          <div className="font-heading text-sm  leading-tight text-[#00000080]">{amount}</div>
+        </div>
       </div>
 
-      <div className="flex-1 min-w-0 flex items-center justify-center">{chart}</div>
+      <div className="flex items-center justify-center">{chart}</div>
 
-      <div className="flex flex-col items-end shrink-0">
-        {price && (
-          <div className="font-heading text-base font-semibold leading-tight text-text-primary-token">{price}</div>
-        )}
-        {delta && (
-          <div className={classNames('font-heading text-sm font-medium leading-tight', deltaColor)}>{delta.value}</div>
-        )}
+      <div className="flex flex-col items-end font-bold">
+        {price && <div className="text-base font-semibold leading-tight text-heading-gray">{price}</div>}
+        {delta && <div className={classNames('text-xs leading-tight', deltaColor)}>{delta.value}</div>}
       </div>
     </div>
   );
