@@ -1,126 +1,86 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
-import { Button, ButtonVariant } from 'components/Button';
-import { useNativeNavbarAction } from 'lib/dapp-browser';
-import { useAccount } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
-import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
+import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { truncateAddress } from 'utils/string';
 
-import { SendFlowAction } from './types';
+import { RecallCalendarDrawer } from './RecallCalendarDrawer';
+import { SendFlowAction, UIToken } from './types';
 
 export interface ReviewTransactionProps {
   amount: string;
-  token: string;
+  token?: UIToken;
+  recipientAddress?: string;
+  recallDate?: Date;
+  recallTime: string;
   onAction: (action: SendFlowAction) => void;
   onGoBack: () => void;
   onSubmit: () => void;
-  sharePrivately: boolean;
-  recipientAddress?: string;
-  recallBlocks?: string;
-  recallDate?: Date;
-  recallTime: string;
+  onRecallDateChange: (date: Date | undefined) => void;
+  onRecallTimeChange: (time: string) => void;
 }
 
 export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   amount,
   token,
   recipientAddress,
-  sharePrivately,
-  recallBlocks,
   recallDate,
   recallTime,
+  onAction,
   onGoBack,
-  onSubmit
+  onSubmit,
+  onRecallDateChange,
+  onRecallTimeChange
 }) => {
   const { t } = useTranslation();
-  const { publicKey } = useAccount();
+  const [showCalendar, setShowCalendar] = useState(false);
 
-  const displayRecalLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
+  const fiatValue = token ? parseFloat(amount || '0') * token.fiatPrice : 0;
+  const today = format(new Date(), 'dd.MM.yy');
 
-  const hasRecall = !!recallBlocks && parseInt(recallBlocks) > 0;
-
-  // On mobile, the Confirm CTA is hoisted into the always-on native navbar
-  // (compact mode morph). Cancel is dropped on mobile — the back arrow in
-  // NavigationHeader provides the same affordance, per design direction.
-  useNativeNavbarAction({
-    label: t('confirm'),
-    onTap: onSubmit,
-    enabled: true
-  });
+  const expirationLabel = recallDate
+    ? (() => {
+        const rel = formatDistanceToNow(recallDate, { addSuffix: true });
+        return rel.charAt(0).toUpperCase() + rel.slice(1);
+      })()
+    : t('none');
 
   return (
-    <div className="flex flex-col bg-app-bg h-full">
-      <div className="flex flex-col flex-1 min-h-0 px-4">
-        <div className="flex-1 overflow-y-auto no-scrollbar">
-          {/* Amount */}
-          <div className="flex items-center justify-center py-4">
-            <span className="font-heading text-3xl font-medium text-heading-gray/53 leading-none">
-              {amount} {token}
-            </span>
-          </div>
+    <>
+      <ReviewLayout
+        title={t('reviewDetails')}
+        date={today}
+        onBack={onGoBack}
+        backLabel={t('back')}
+        hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} fiat={fiatValue} />}
+        primary={{ label: t('sendPayment'), onPress: onSubmit, type: 'submit' }}
+        secondary={{ label: t('back'), onPress: onGoBack }}
+      >
+        <ReviewRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
 
-          {/* Transfer Details Card */}
-          <DetailCard>
-            <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
-            <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
-            <DetailRow label={t('network')} badge={t('testnet')} isLast={!hasRecall} />
-            {hasRecall && <DetailRow label={t('recallBy')} value={displayRecalLabel || recallBlocks!} isLast />}
-          </DetailCard>
+        <ReviewRow label={t('network')}>
+          <span className="flex items-center gap-2 text-base text-black font-medium">
+            <span className="w-2 h-2 rounded-full bg-primary-500" />
+            {t('miden')}
+          </span>
+        </ReviewRow>
 
-          {/* Options Card */}
-          <div className="mt-3">
-            <DetailCard>
-              <DetailRow label={t('privatePayment')} isLast={!hasRecall}>
-                <ToggleBadge enabled={sharePrivately} />
-              </DetailRow>
-              {hasRecall && (
-                <DetailRow label={t('recallEnabled')} isLast>
-                  <ToggleBadge enabled />
-                </DetailRow>
-              )}
-            </DetailCard>
-          </div>
-        </div>
+        <ReviewRow label={t('expirationDate')} onEdit={() => setShowCalendar(true)} editLabel={t('edit')}>
+          <span className="text-base text-black font-semibold">{expirationLabel}</span>
+        </ReviewRow>
+      </ReviewLayout>
 
-        {/* Buttons — hidden on mobile (Confirm is hoisted to the native
-            navbar; Cancel is dropped because back-arrow in the header
-            already provides the affordance). */}
-        {!isMobile() && (
-          <div className="shrink-0 pt-4 pb-4 flex flex-col gap-y-2">
-            <Button
-              type="submit"
-              title={t('confirm')}
-              variant={ButtonVariant.Primary}
-              onClick={onSubmit}
-              className="w-full rounded-5 text-base font-semibold"
-            />
-            <Button
-              type="button"
-              onClick={onGoBack}
-              variant={ButtonVariant.Secondary}
-              className="w-full rounded-5"
-              title={t('cancel')}
-            />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const ToggleBadge: React.FC<{ enabled: boolean }> = ({ enabled }) => {
-  const { t } = useTranslation();
-  return (
-    <span
-      className={`text-xs font-medium px-3 py-1 rounded-full ${
-        enabled ? 'text-[#CC5200] bg-[#FFF3EB]' : 'text-heading-gray/60 bg-input-bg'
-      }`}
-    >
-      {enabled ? t('on') : t('off')}
-    </span>
+      <RecallCalendarDrawer
+        open={showCalendar}
+        onOpenChange={setShowCalendar}
+        recallDate={recallDate}
+        recallTime={recallTime}
+        onAction={onAction}
+        onRecallDateChange={onRecallDateChange}
+        onRecallTimeChange={onRecallTimeChange}
+      />
+    </>
   );
 };

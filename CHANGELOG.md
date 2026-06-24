@@ -5,6 +5,11 @@
 ### Changes
 
 * [CHANGE][all] Typography refresh: [Nunito](https://fonts.google.com/specimen/Nunito) is now the heading font, used for page titles/headings plus token symbols and all monetary amounts (balances, prices, and amounts across send, receive, history, and dapp-confirmation screens), while body text stays on Inter. Removed the Bitter onboarding-heading font — onboarding headings now use Nunito too.
+* [CHANGE][all] Redesigned the send flow into a simpler multi-step wizard — Choose recipient → Select amount (with token-picker sub-screen) → Review details — replacing the combined details screen. Sends now default to a 7-day reclaim/expiration (editable on the Review screen), the per-send privacy toggle was dropped (sends stay private), and in-page CTA buttons replace the native-navbar action hoisting across the send flow. Adds reusable `AmountInput` and `ReviewLayout`/`ReviewRow`/`ReviewAmount` components (the latter so swap and other flows can share one review shell), and a leading-back-arrow variant on `ScreenHeader`.
+
+### Fixes
+
+* [FIX][mobile] iOS: the safe-area strip around the Dynamic Island / status bar no longer shows a fixed white band — the mobile `<body>` had an inline `background-color: #ffffff` overriding the themed `--color-app-bg`, so the inset region now matches the app background in both light and dark mode.
 
 ## 1.15.2 (2026-06-22)
 

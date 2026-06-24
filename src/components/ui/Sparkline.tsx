@@ -53,7 +53,14 @@ export const Sparkline: FC<SparklineProps> = ({
       preserveAspectRatio="none"
       className={className}
     >
-      <path d={path} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinejoin="round" strokeLinecap="round" />
+      <path
+        d={path}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
     </svg>
   );
 };

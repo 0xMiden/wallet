@@ -341,9 +341,9 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --surface-input: #f9f9f9;
     --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --status-positive: #38824a;
+    --status-positive: #1a9c52;
     --status-pending: #e85d2f;
-    --status-negative: #c51a0a;
+    --status-negative: #ff5500;
     --tx-received: #38824a;
     --tx-sent: #024073;
     --tx-swap: #6b7280;
