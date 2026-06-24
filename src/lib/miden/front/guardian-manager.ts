@@ -48,8 +48,17 @@ export async function getOrCreateMultisigService(
   accountPublicKey: string,
   provider: GuardianAccountProvider
 ): Promise<MultisigService> {
-  console.log(`[Guardian Manager] Getting/creating MultisigService for account: ${accountPublicKey}`);
-
+  // Return cached instance if its endpoint still matches storage. In the
+  // extension build, `clearGuardianServiceFor` from the SW realm doesn't reach
+  // the frontend's own copy of this Map, so a guardian switch would leave
+  // the popup syncing against the old guardian indefinitely. Re-check
+  // GUARDIAN_URL_STORAGE_KEY here and evict on drift.
+  const cached = guardianServiceCache.get(accountPublicKey);
+  if (cached) {
+    const currentEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+    if (cached.service.guardianEndpoint === currentEndpoint) return cached.service;
+    guardianServiceCache.delete(accountPublicKey);
+  }
   // Coalesce concurrent inits: the guardian sync runs every 3s and does not
   // await previous ticks, so without this an in-flight init can start again
   // before its resolved service reaches the cache.
@@ -59,8 +68,7 @@ export async function getOrCreateMultisigService(
   }
 
   const initPromise = (async () => {
-    // Resolve the WalletAccount upfront — needed for both the cache drift
-    // check (hotPublicKey can rotate) and the subsequent service init.
+    // Verify this is a Guardian account
     const accounts = await provider.getAccounts();
     const account = accounts.find(acc => acc.publicKey === accountPublicKey);
     if (!account || account.type !== WalletType.Guardian) {
@@ -92,8 +100,6 @@ export async function getOrCreateMultisigService(
       } catch (error) {}
     }
 
-    console.log('[Guardian Manager] No valid cached MultisigService found, creating new one...');
-
     // Get the Account object from the Miden client.
     const { sdkAccount } = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
@@ -108,6 +114,7 @@ export async function getOrCreateMultisigService(
     // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
     const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
     // Bind the service to the hot signer — the popup signs with the hot key.
+    console.log('creating guardian service', sdkAccount.id().toString());
     const service = await MultisigService.init(sdkAccount, `0x${hotPublicKey}`, `0x${commitment}`, provider.signWord);
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
@@ -131,9 +138,7 @@ export async function getOrCreateMultisigService(
  * Check if an account is a Guardian account.
  */
 export async function isGuardianAccount(accountPublicKey: string, provider: GuardianAccountProvider): Promise<boolean> {
-  console.log(`[Guardian Manager] Checking if account is Guardian: ${accountPublicKey}`);
   const accounts = await provider.getAccounts();
-  console.log('[Guardian Manager] Retrieved accounts from provider:', accounts);
   const account = accounts.find(acc => acc.publicKey === accountPublicKey);
   return account?.type === WalletType.Guardian;
 }
