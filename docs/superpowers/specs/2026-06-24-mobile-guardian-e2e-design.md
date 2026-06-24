@@ -25,35 +25,50 @@ attributable reason that tells us what's broken about guardian-on-mobile.
 
 ## Key facts grounding the design
 
-- The **create** flow's `select-recovery-method` screen only *picks* Guardian vs
-  private — there is **no guardian-URL input** there (URL entry exists only in
-  the import flow and Settings). So a created guardian wallet uses the **network
-  default** endpoint. On devnet that default is `guardian-stg.openzeppelin.com`,
-  which is verified working with the 0.15 client. → the helper does **not** need
-  to inject a URL (avoids the async Capacitor-Preferences-over-CDP problem).
-- The iOS fixture `two-simulators` already provides two wallets (A, B) + a
-  `midenCli`, mirroring chrome's `two-wallets` — the same spec shape ports over.
-- The iOS CDP bridge `eval` is synchronous (`execute_script`); the helper must
-  rely on UI-driven steps + selector polling, not async in-page promises.
+- **Mobile was already implicitly guardian.** iOS `createNewWallet` uses the
+  `__test_skip_onboarding` bypass in `Welcome.tsx`, which skips the
+  `select-recovery-method` screen and falls through to the component's default
+  `walletType` — which is **`WalletType.Guardian`**. So every bypass-created
+  iOS wallet was a guardian account (`vault.ts` branches on `WalletType.Guardian`).
+- `WalletType.OffChain` is "fully private"; `WalletType.Guardian` is the
+  guardian (co-signed) type. A created guardian wallet uses the **network
+  default** guardian endpoint (devnet → `guardian-stg.openzeppelin.com`,
+  verified working), so the helper needs **no URL injection**.
+- The iOS fixture `two-simulators` provides two wallets (A, B) + `midenCli`,
+  mirroring chrome's `two-wallets`. iOS divergence: `getBalance` doesn't count
+  pending notes, so wallets claim explicitly before balance checks, and
+  `claimAllNotes` takes the custom `faucetId` for synthetic-metadata injection.
+- The iOS CDP bridge `eval` is synchronous (`execute_script`); the helper drives
+  the bypass + polls conditions, not async in-page promises.
 
 ## Components
 
-1. **`IosWalletPage.createGuardianWallet(password?)`** — mirrors
-   `createNewWallet`, but after tapping "Create a new wallet" it selects the
-   **Guardian** option on the `select-recovery-method` screen, then proceeds
-   through seed-phrase → verify → password → Ready. Returns `{ address, seedPhrase }`.
-   Uses the devnet default guardian endpoint (no URL injection).
+1. **`src/app/pages/Welcome.tsx`** — the `__test_skip_onboarding` bypass now
+   reads a `walletType` query param and `setWalletType`: no param →
+   **`OffChain` (private)**, `walletType=guardian` → `Guardian`. Gated entirely
+   by the existing test bypass; production onboarding is unchanged. This flips
+   the bypass default to private (so `createNewWallet` matches chrome and the
+   non-guardian iOS specs no longer implicitly depend on a guardian backend) and
+   enables explicit guardian creation.
 
-2. **`playwright/e2e/ios/tests/guardian-send-consume.ios.spec.ts`** — ports the
-   chrome `guardian-send-consume` spec onto the `two-simulators` fixture:
-   wallet A guardian-backed, B standard; `midenCli` deploys faucet + funds A; A
-   consumes its notes; A sends to B; assert B balance > 0. Guardian-width waits
-   (≥180s) for the extra co-sign HTTP round-trips, matching the chrome spec.
+2. **`IosWalletPage`** — `createNewWallet` → private (default); new
+   **`createGuardianWallet(password?)`** → bypass with `walletType=guardian`.
+   Both delegate to a private `createWalletViaBypass(password, recovery)` (wider
+   Ready timeout for the guardian co-sign round-trips). Returns `{ address, seedPhrase }`.
 
-3. **`playwright.ios.guardian.config.ts`** — extends `playwright.ios.config.ts`,
-   `testMatch: '**/guardian-*.ios.spec.ts'`; the base ios config adds a
-   `testIgnore` for guardian specs so the standard run is unaffected. New
-   `test:e2e:mobile:guardian:run` script (mirrors `test:e2e:mobile:run`).
+3. **`playwright/e2e/ios/tests/guardian-send-consume.ios.spec.ts`** — ports the
+   chrome `guardian-send-consume` spec onto `two-simulators`: A guardian, B
+   private; `midenCli` deploys faucet + funds A; A consumes (claim); A sends to
+   B; B claims; assert B balance > 0. ≥180s waits for co-sign round-trips.
+
+4. **`playwright.ios.guardian.config.ts`** — extends `playwright.ios.config.ts`,
+   `testMatch: '**/guardian-*.ios.spec.ts'`; the base ios config adds
+   `testIgnore: '**/guardian-*.ios.spec.ts'` so the standard run is unaffected.
+   New `test:e2e:mobile:guardian:run` script.
+
+**Side effect (intended):** the existing iOS specs now exercise the **private**
+path instead of being implicitly guardian — aligning mobile with chrome and
+removing the basic tests' accidental guardian-backend dependency.
 
 ## Verification
 

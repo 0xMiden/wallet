@@ -103,9 +103,18 @@ const Welcome: FC = () => {
     const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;
     if (!skipViaParam && !skipViaGlobal) return;
 
-    console.log('[Welcome] Test bypass: setting up seed + password');
+    // Wallet type for the bypass: explicit `walletType=guardian` creates a
+    // Guardian (co-signed) account; anything else creates a fully-private
+    // (OffChain) account. The default is intentionally NOT the component's
+    // Guardian default — the bypass otherwise inherits it, which silently makes
+    // every bypass-created wallet guardian-backed. Defaulting to OffChain
+    // matches the Chrome E2E's private default and keeps non-guardian specs
+    // independent of a guardian backend.
+    const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
+    console.log(`[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}`);
     const testSeed = generateMnemonic(128).split(' ');
     const testPassword = params.get('password') || 'password1';
+    setWalletType(bypassWalletType);
     setSeedPhrase(testSeed);
     setPassword(testPassword);
     setOnboardingType(OnboardingType.Create);
