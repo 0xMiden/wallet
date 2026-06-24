@@ -88,3 +88,34 @@ iterate on any guardian-on-mobile bug it surfaces.
 
 - No `mobile-guardian` CI gate job; no testnet variant. Added only if the devnet
   verify passes.
+
+## Outcome (2026-06-24)
+
+Verify-first surfaced a **deterministic regression that broke the entire iOS E2E
+suite**, not just guardian:
+
+- **Symptom:** every iOS spec failed at `pollForSelector(onboarding-welcome)` —
+  the app launched but hung on the splash screen; React never mounted (CDP
+  showed `#root` empty, no `__TEST_STORE__`, zero testids).
+- **Root cause:** `@openzeppelin/miden-multisig-client` (the guardian client,
+  which entered the mobile bundle with #153) imports the **eager**
+  `@miden-sdk/miden-sdk` entry = `dist/st/eager.js`, whose line 35 is a top-level
+  `await getWasmOrThrow()`. The SDK's own comments warn this TLA hangs in
+  WKWebView/Capacitor. The hung await blocked module completion → React never
+  mounted → splash forever. Mobile last worked 2026-06-12, before #153.
+- **Why the first fix (`resolve.alias` eager→/lazy) failed:** `@miden-sdk/vite-plugin`
+  (`enforce: pre`) installs its own `^@miden-sdk/miden-sdk$` alias that rewrites
+  the bare specifier to the package directory (→ `exports['.']` → eager) and wins
+  the alias array. A diagnostic build proved the import still landed on `eager.js`.
+- **The fix (`vite.mobile.config.ts`):** a first-listed `enforce: pre` plugin
+  (`miden-sdk-eager-to-lazy`) with a `resolveId` hook that intercepts **both** the
+  bare specifier and the rewritten package-dir path, redirecting to `/lazy`
+  (`dist/st/index.js`, no TLA). ST not MT — WKWebView has no SharedArrayBuffer.
+- **Verified on devnet sims:** React mounts (`#root` populated, `__TEST_STORE__`
+  present); `guardian-send-consume.ios` passes end-to-end — A consumes 1000 via
+  the guardian consume-proposal, sends 500 to B via the guardian send-proposal,
+  B receives 500. **Guardian works on mobile.** The fix also un-breaks the
+  standard iOS specs (they shared the same hang).
+
+The TLA fix is logically a separate concern from the guardian test (it fixes the
+whole mobile suite + the shipped app) and is a candidate for its own PR.
