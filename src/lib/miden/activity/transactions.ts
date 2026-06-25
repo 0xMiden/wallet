@@ -9,6 +9,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -949,7 +950,13 @@ export const generateTransaction = async (
   // Route Guardian accounts through Guardian service
   if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
     try {
-      await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+      // Serialize guardian transactions per account: the guardian co-signs one
+      // delta per account at a time, and concurrent same-account txs make its
+      // expected commitment diverge from on-chain, stalling canonicalization
+      // for minutes (see guardian/serialize.ts and OpenZeppelin/guardian#303).
+      await withGuardianAccountLock(transaction.accountId, () =>
+        generateGuardianTransaction(transaction, signCallback, guardianProvider)
+      );
     } catch (error) {
       await cancelTransaction(transaction, error);
     }
@@ -1049,20 +1056,24 @@ const generateGuardianTransaction = async (
 
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
-  // signAndCreateTransactionRequest. Hot-bound for every type except
-  // replace-hot-key, which is cold-bound because the hot key being replaced
-  // cannot authorize its own rotation. The hot-bound path is also the only
-  // one cached by guardian-manager; the cold service here is transient.
+  // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
+  // structural ops (replace-hot-key / update-procedure-threshold) and for
+  // background auto-consume. The hot-bound path is the only one cached by
+  // guardian-manager; cold services here are transient.
+  //
+  // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta
+  // (a prior delta still canonicalizing) instead of failing the tx. It wraps
+  // only side-effect-free proposal creation — NOT replace-hot-key, whose
+  // createReplaceHotKeyProposal mints a fresh hardware hot key, so retrying it
+  // would orphan SE/StrongBox keys.
   let service: MultisigService;
 
   switch (transaction.type) {
     case 'send': {
       const sendTx = transaction as SendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createSendProposal(
-        sendTx.secondaryAccountId,
-        sendTx.faucetId,
-        BigInt(sendTx.amount)
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createSendProposal(sendTx.secondaryAccountId, sendTx.faucetId, BigInt(sendTx.amount))
       );
       break;
     }
@@ -1076,13 +1087,15 @@ const generateGuardianTransaction = async (
       service = consumeTx.background
         ? await buildColdServiceForAccount(transaction.accountId, guardianProvider)
         : await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createConsumeNotesProposal([consumeTx.noteId]);
+      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal([consumeTx.noteId]));
       break;
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      const { proposal } = await service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
+      const { proposal } = await withGuardianConflictRetry(() =>
+        service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint)
+      );
       proposalResult = proposal;
       break;
     }
@@ -1099,6 +1112,7 @@ const generateGuardianTransaction = async (
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
       service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      // NOT retry-wrapped — createReplaceHotKeyProposal mints a hot key.
       const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);
       if (!guardianProvider.persistNewHotKey) {
         throw new Error('persistNewHotKey not implemented in this provider');
@@ -1123,20 +1137,20 @@ const generateGuardianTransaction = async (
       // replace-hot-key): cold + guardian satisfies it on-chain.
       const uptTx = transaction as UpdateProcedureThresholdTransaction;
       service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
-      proposalResult = await service.createUpdateProcedureThresholdProposal(
-        uptTx.extraInputs.procedure,
-        uptTx.extraInputs.threshold
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
       );
       break;
     }
     case 'execute':
     default: {
       // For custom transactions, build a custom proposal from the serialized request bytes.
-      if (!transaction.requestBytes) {
+      const requestBytes = transaction.requestBytes;
+      if (!requestBytes) {
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createCustomProposal(transaction.requestBytes);
+      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
       break;
     }
   }

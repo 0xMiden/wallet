@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.3 (TBD)
+
+### Fixes
+
+* [FIX][all] **Guardian co-sign transactions are now serialized per account.** The Guardian co-signs one delta per account at a time, so concurrent same-account transactions (e.g. auto-consume racing a user claim, or rapid successive claims) made the Guardian's expected commitment diverge from on-chain — stalling its canonicalization for minutes and returning `409 ConflictPendingDelta` while a prior delta was still finalizing, which surfaced as a Guardian claim/send that never completes. Guardian transactions now take a per-account lock so at most one is ever in flight, and proposal creation waits out a transient `409` (a prior delta mid-canonicalization) instead of failing the transaction. (#297)
+
 ## 1.15.2 (2026-06-22)
 
 ### Features
@@ -14,6 +20,7 @@
 ### Fixes
 
 * [FIX][all] Corrected the devnet Guardian endpoint host (`stg-guardian.openzeppelin.com` → `guardian-stg.openzeppelin.com`); the transposed hostname had no DNS record, so the default devnet Guardian URL never resolved. (#153)
+* [FIX][extension] Chrome package no longer bundles a second (single-threaded) Miden SDK WASM. `@openzeppelin/miden-multisig-client` imports the eager `@miden-sdk/miden-sdk` entry; the service-worker config already redirected that to the multi-threaded build, but the extension/front config did not — so the front bundle pulled in an extra ~15 MB single-threaded WASM. The front config now applies the same eager→`mt/lazy` alias, restoring the Chrome package to ~18 MB (was ~29 MB).
 
 ## 1.15.1 (2026-06-19)
 

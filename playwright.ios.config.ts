@@ -9,6 +9,9 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './playwright/e2e/ios/tests',
+  // Guardian specs run via playwright.ios.guardian.config.ts (dedicated run);
+  // keep them out of the standard iOS suite.
+  testIgnore: '**/guardian-*.ios.spec.ts',
   timeout: 900_000, // 15 min per test — WASM prove on simulator is slow (~60-90s per consume)
   expect: {
     timeout: 60_000,

@@ -1,4 +1,5 @@
 import { MultisigService } from 'lib/miden/guardian';
+import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletAccount } from 'lib/shared/types';
@@ -149,6 +150,7 @@ export async function isGuardianAccount(accountPublicKey: string, provider: Guar
 export function clearGuardianCache(): void {
   guardianServiceCache.clear();
   guardianServiceInflight.clear();
+  clearGuardianAccountLocks();
 }
 
 /**
