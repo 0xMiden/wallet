@@ -9,6 +9,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -808,7 +809,13 @@ export const generateTransaction = async (
   // Route Guardian accounts through Guardian service
   if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
     try {
-      await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+      // Serialize guardian transactions per account: the guardian co-signs one
+      // delta per account at a time, and concurrent same-account txs make its
+      // expected commitment diverge from on-chain, stalling canonicalization
+      // for minutes (see guardian/serialize.ts and OpenZeppelin/guardian#303).
+      await withGuardianAccountLock(transaction.accountId, () =>
+        generateGuardianTransaction(transaction, signCallback, guardianProvider)
+      );
     } catch (error) {
       await cancelTransaction(transaction, error);
     }
@@ -884,39 +891,35 @@ const generateGuardianTransaction = async (
   await setTransactionStage(transaction.id, 'creating-proposal');
   const multisigService = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
 
-  let proposalResult: Proposal;
-
-  switch (transaction.type) {
-    case 'send': {
-      const sendTx = transaction as SendTransaction;
-      proposalResult = await multisigService.createSendProposal(
-        sendTx.secondaryAccountId,
-        sendTx.faucetId,
-        BigInt(sendTx.amount)
-      );
-      break;
-    }
-    case 'consume': {
-      const consumeTx = transaction as ConsumeTransaction;
-      proposalResult = await multisigService.createConsumeNotesProposal([consumeTx.noteId]);
-      break;
-    }
-    case 'switch-guardian': {
-      const sgTx = transaction as SwitchGuardianTransaction;
-      const { proposal } = await multisigService.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
-      proposalResult = proposal;
-      break;
-    }
-    case 'execute':
-    default: {
-      // For custom transactions, get TransactionSummary and create a custom proposal
-      if (!transaction.requestBytes) {
-        throw new Error('Request Bytes not availalbe for custom transaction');
+  // Creating a proposal POSTs to the guardian, which returns 409 while a prior
+  // delta for this account is still canonicalizing. Wait it out rather than
+  // failing the transaction — with per-account serialization above, a 409 means
+  // "the previous delta hasn't finalized yet", not a genuine conflict.
+  const proposalResult: Proposal = await withGuardianConflictRetry(async () => {
+    switch (transaction.type) {
+      case 'send': {
+        const sendTx = transaction as SendTransaction;
+        return multisigService.createSendProposal(sendTx.secondaryAccountId, sendTx.faucetId, BigInt(sendTx.amount));
       }
-      proposalResult = await multisigService.createCustomProposal(transaction.requestBytes);
-      break;
+      case 'consume': {
+        const consumeTx = transaction as ConsumeTransaction;
+        return multisigService.createConsumeNotesProposal([consumeTx.noteId]);
+      }
+      case 'switch-guardian': {
+        const sgTx = transaction as SwitchGuardianTransaction;
+        const { proposal } = await multisigService.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
+        return proposal;
+      }
+      case 'execute':
+      default: {
+        // For custom transactions, get TransactionSummary and create a custom proposal
+        if (!transaction.requestBytes) {
+          throw new Error('Request Bytes not availalbe for custom transaction');
+        }
+        return multisigService.createCustomProposal(transaction.requestBytes);
+      }
     }
-  }
+  });
 
   // Sign and execute the proposal
   await setTransactionStage(transaction.id, 'signing-proposal');
