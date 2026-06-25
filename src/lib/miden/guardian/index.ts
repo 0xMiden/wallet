@@ -162,6 +162,20 @@ export class MultisigService {
     return withWasmClientLock(() => this.multisig.createConsumeNotesProposal(noteIds));
   }
 
+  /** Current on-chain threshold for `procedure`, or undefined if none is set. */
+  getProcedureThreshold(procedure: string): number | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (this.multisig as any).procedureThresholds?.get(procedure);
+  }
+
+  /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
+  async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return withWasmClientLock(() =>
+      (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+    );
+  }
+
   async signAndExecuteProposal(id: string): Promise<void> {
     // `signProposal` is signing + guardian HTTP (no shared-client access); only
     // `executeProposal` touches the WASM client and needs the mutex.

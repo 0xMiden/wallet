@@ -26,7 +26,8 @@ import {
   SendTransaction,
   SwitchGuardianTransaction,
   Transaction,
-  TransactionOutput
+  TransactionOutput,
+  UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { putToStorage } from '../front';
 import { toNoteTypeString } from '../helpers';
@@ -456,6 +457,12 @@ export const completeReplaceHotKeyTransaction = async (
       completedAt: Math.floor(Date.now() / 1000),
       resultBytes: result.serialize()
     });
+
+    // The account now has both signers on-chain, so bring it up to the same
+    // hardening a freshly-created 3-key account has (update_guardian threshold
+    // 2 — which the update_signers rotation above can't carry). Best-effort and
+    // idempotent; never affects the rotation's success.
+    await ensureGuardianProcedureThresholds(tx.accountId, tx.delegateTransaction, guardianProvider);
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
@@ -465,6 +472,76 @@ export const completeReplaceHotKeyTransaction = async (
       error: error instanceof Error ? error.message : String(error)
     });
   }
+};
+
+// The on-chain hardening a freshly-created 3-key Guardian account gets (see
+// createGuardianAccount): changing the guardian requires both device keys.
+const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 2 } as const;
+
+/**
+ * Ensure a Guardian account carries the `update_guardian` threshold-2 hardening
+ * that fresh 3-key accounts have. Migrated legacy accounts lack it; recovered /
+ * fresh accounts already have it (so this no-ops). Enqueues a cold-signed
+ * `update_procedure_threshold` when missing. Best-effort — never throws.
+ */
+const ensureGuardianProcedureThresholds = async (
+  accountId: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<void> => {
+  try {
+    // Loading the service fetches the on-chain account config, including its
+    // procedure thresholds.
+    const service = await getOrCreateMultisigService(accountId, guardianProvider);
+    if (
+      service.getProcedureThreshold(GUARDIAN_PROCEDURE_HARDENING.procedure) === GUARDIAN_PROCEDURE_HARDENING.threshold
+    ) {
+      return;
+    }
+    await initiateUpdateProcedureThresholdTransaction(
+      accountId,
+      GUARDIAN_PROCEDURE_HARDENING.procedure,
+      GUARDIAN_PROCEDURE_HARDENING.threshold,
+      delegateTransaction,
+      guardianProvider
+    );
+    // Nudge the processor to pick up the freshly-queued tx. Dynamic import to
+    // avoid a static cycle with the activity barrel.
+    const { requestSWTransactionProcessing } = await import('lib/miden/activity');
+    requestSWTransactionProcessing();
+  } catch (e) {
+    console.warn('[guardian] procedure-threshold hardening skipped (non-fatal):', e);
+  }
+};
+
+export const initiateUpdateProcedureThresholdTransaction = async (
+  accountId: string,
+  procedure: string,
+  threshold: number,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!(await isGuardianAccount(accountId, guardianProvider))) {
+    throw new Error('update-procedure-threshold is only supported for Guardian accounts');
+  }
+  const dbTransaction = new UpdateProcedureThresholdTransaction(accountId, procedure, threshold, delegateTransaction);
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+export const completeUpdateProcedureThresholdTransaction = async (
+  tx: UpdateProcedureThresholdTransaction,
+  result: TransactionResult
+) => {
+  const executedTx = result.executedTransaction();
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Account secured',
+    transactionId: executedTx.id().toHex(),
+    completedAt: Math.floor(Date.now() / 1000),
+    resultBytes: result.serialize()
+  });
+  // The cached service's procedureThresholds are now stale — drop it.
+  clearGuardianServiceFor(tx.accountId);
 };
 
 export const completeSwitchGuardianTransaction = async (
@@ -1041,6 +1118,17 @@ const generateGuardianTransaction = async (
       proposalResult = proposal;
       break;
     }
+    case 'update-procedure-threshold': {
+      // Cold-routed structural change (same class as switch-guardian /
+      // replace-hot-key): cold + guardian satisfies it on-chain.
+      const uptTx = transaction as UpdateProcedureThresholdTransaction;
+      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
+      proposalResult = await service.createUpdateProcedureThresholdProposal(
+        uptTx.extraInputs.procedure,
+        uptTx.extraInputs.threshold
+      );
+      break;
+    }
     case 'execute':
     default: {
       // For custom transactions, build a custom proposal from the serialized request bytes.
@@ -1141,6 +1229,13 @@ const generateGuardianTransaction = async (
         guardianProvider
       );
       break;
+    case 'update-procedure-threshold':
+      console.log('Completing update-procedure-threshold transaction');
+      await completeUpdateProcedureThresholdTransaction(
+        transaction as UpdateProcedureThresholdTransaction,
+        transactionResult
+      );
+      break;
     case 'execute':
     default:
       await completeCustomTransaction(transaction, transactionResult);
@@ -1155,7 +1250,10 @@ const generateGuardianTransaction = async (
   // and the on-chain submit succeeded, so a sync failure here must NOT propagate
   // (it would flip a genuinely-successful transaction to Failed). The next sync
   // tick reconciles.
-  if (transaction.type !== 'replace-hot-key') {
+  // replace-hot-key and update-procedure-threshold both run on a transient cold
+  // service and invalidate the cached hot service in their completion handlers,
+  // so there's nothing useful to sync here.
+  if (transaction.type !== 'replace-hot-key' && transaction.type !== 'update-procedure-threshold') {
     try {
       console.log('Transaction generation complete, syncing multisig service');
       await service.sync();

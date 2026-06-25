@@ -500,6 +500,55 @@ describe('generateTransaction — Guardian routing', () => {
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
   });
 
+  it('Guardian update-procedure-threshold: cold-signs the threshold update', async () => {
+    const txId = 'upt-1';
+    const result = makeResult();
+    const coldService = {
+      createUpdateProcedureThresholdProposal: jest.fn(async () => ({ id: 'prop-upt' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      client: { transactions: { submit: jest.fn(async () => ({ result })) } }
+    });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig'
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    txStore.push({
+      id: txId,
+      type: 'update-procedure-threshold',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { procedure: 'update_guardian', threshold: 2 }
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'update-procedure-threshold',
+        accountId: 'guardian-acc',
+        extraInputs: { procedure: 'update_guardian', threshold: 2 },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(mockBuildColdMultisigService).toHaveBeenCalled();
+    expect(coldService.createUpdateProcedureThresholdProposal).toHaveBeenCalledWith('update_guardian', 2);
+  });
+
   it('Guardian: unsupported transaction type cancels the transaction', async () => {
     const txId = 'unsupported-guardian';
     txStore.push({
@@ -586,6 +635,53 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Device key rotated');
+  });
+
+  it('enqueues a procedure-threshold hardening tx after rotation when update_guardian is unhardened', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    mockIsGuardianAccount.mockResolvedValue(true);
+    // Post-rotation service reports no update_guardian threshold → needs hardening.
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      getProcedureThreshold: jest.fn(() => undefined),
+      sync: jest.fn(async () => {})
+    });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1', coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey: jest.fn(async () => {})
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    const upt = txStore.find(r => r.type === 'update-procedure-threshold') as Record<string, unknown>;
+    expect(upt).toBeDefined();
+    expect(upt.extraInputs).toEqual({ procedure: 'update_guardian', threshold: 2 });
+  });
+
+  it('does NOT enqueue hardening when update_guardian is already at threshold 2 (recovered/fresh account)', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      getProcedureThreshold: jest.fn(() => 2),
+      sync: jest.fn(async () => {})
+    });
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'acc-1', coldPublicKey: 'cold', hotPublicKey: 'old-hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      swapHotKey: jest.fn(async () => {})
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    expect(txStore.find(r => r.type === 'update-procedure-threshold')).toBeUndefined();
   });
 
   it('still calls swapHotKey even when the row already reflects new hot (vault handles idempotency)', async () => {
