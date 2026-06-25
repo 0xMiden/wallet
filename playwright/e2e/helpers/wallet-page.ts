@@ -777,19 +777,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    *      is the only way to guarantee the balance assertion is checking a
    *      real terminal state.
    */
-  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    const STABLE_ZERO_THRESHOLD = 2;
-
-    // Reload the page to get a fresh Dexie connection. During wallet creation,
-    // clearStorage() deletes the IndexedDB which closes the frontend's Dexie handle.
-    // Without a reload, transactions.add() throws DatabaseClosedError.
-    await this.page.reload({ waitUntil: 'domcontentloaded' });
-    await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
-    await this.page.waitForTimeout(3_000);
-
-    // Inject metadata for custom faucet tokens so they show up as claimable.
-    // The useExtensionClaimableNotes hook filters: n.metadata || assetsMetadata[n.faucetId]
+  /**
+   * Inject metadata for custom faucet tokens so they show up as claimable.
+   * The useExtensionClaimableNotes hook filters: n.metadata || assetsMetadata[n.faucetId]
+   */
+  private async injectClaimableMetadata(): Promise<void> {
     await this.page.evaluate(async () => {
       const storage = await new Promise<any>(resolve => {
         chrome.storage.local.get(['miden_cached_consumable_notes'], resolve);
@@ -819,9 +811,39 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         console.log('[claimAllNotes] Injected metadata for', notes.length, 'notes');
       }
     });
+  }
 
+  /**
+   * Full page reload, re-inject faucet metadata, then land on /receive.
+   *
+   * A full reload (not a client-side navigate) is load-bearing: it gives a
+   * fresh Dexie connection AND re-initializes the wallet's in-memory Zustand
+   * store — critically resetting `extensionClaimingNoteIds`. A note whose
+   * consume has stalled stays flagged "being claimed" (no Claim button) until
+   * its consume commits; on slow networks (testnet) that can outlast a whole
+   * claim cycle. Client-side navigation does NOT reset the store, so only a
+   * reload un-gates such notes. Used both at the start of a claim drain and as
+   * the recovery step when the loop gets stuck with pending notes but no
+   * visible buttons.
+   */
+  private async reloadAndPrepareReceive(): Promise<void> {
+    await this.page.reload({ waitUntil: 'domcontentloaded' });
+    await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
+    await this.page.waitForTimeout(3_000);
+    await this.injectClaimableMetadata();
     await this.navigateTo('/receive');
     await this.page.waitForTimeout(3_000);
+  }
+
+  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    const STABLE_ZERO_THRESHOLD = 2;
+
+    // Fresh reload + metadata injection + land on /receive. The reload (NOT a
+    // client-side navigate) gives a fresh Dexie connection AND resets the
+    // wallet's in-memory store — clearing the `extensionClaimingNoteIds` gate.
+    // See reloadAndPrepareReceive.
+    await this.reloadAndPrepareReceive();
 
     const readPendingCount = (): Promise<number> =>
       this.page.evaluate(async () => {
@@ -885,16 +907,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         continue;
       }
 
-      // Cache says notes are pending but the receive page hasn't rendered buttons.
-      // Usually resolves once React rehydrates from the updated store; navigate
-      // away/back to force a remount after a few stuck iterations.
+      // Cache says notes are pending but the receive page hasn't rendered
+      // buttons. Two causes: (a) React hasn't rehydrated from the updated store
+      // yet — resolves on its own; (b) the notes are gated by
+      // `extensionClaimingNoteIds` because a prior claim's consume stalled and
+      // never committed (common on slow networks like testnet). A client-side
+      // navigate clears (a) but NOT (b), since the store survives navigation —
+      // only a full reload resets the claiming gate. So after a few stuck
+      // iterations, reload to break out of both.
       console.log(
         `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
       if (stuckSameCountIters >= 3) {
-        await this.navigateTo('/');
-        await this.page.waitForTimeout(1_000);
-        await this.navigateTo('/receive');
+        await this.reloadAndPrepareReceive();
         stuckSameCountIters = 0;
       }
       await this.page.waitForTimeout(3_000);
