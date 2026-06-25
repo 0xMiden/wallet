@@ -177,6 +177,34 @@ describe('MultisigService', () => {
       expect(service.accountId).toBe('acc-id');
       expect(service.guardianEndpoint).toBe('https://x');
     });
+
+    it('getAuthInfo reports threshold, signer set, and procedure thresholds', () => {
+      const multisig = makeMultisig({
+        threshold: 1,
+        signerCommitments: ['0xhot', '0xcold'],
+        procedureThresholds: new Map<string, number>([['update_guardian', 2]])
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const auth = service.getAuthInfo();
+      expect(auth.threshold).toBe(1);
+      expect(auth.signerCommitments).toEqual(['0xhot', '0xcold']);
+      expect(auth.procedureThresholds).toEqual({ update_guardian: 2 });
+    });
+
+    it('getAuthInfo degrades gracefully when the multisig lacks fields', () => {
+      const multisig = makeMultisig(); // no signerCommitments / procedureThresholds
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const auth = service.getAuthInfo();
+      expect(auth.signerCommitments).toEqual([]);
+      expect(auth.procedureThresholds).toEqual({});
+    });
+
+    it('getProcedureThreshold reads the procedure map', () => {
+      const multisig = makeMultisig({ procedureThresholds: new Map<string, number>([['update_guardian', 2]]) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      expect(service.getProcedureThreshold('update_guardian')).toBe(2);
+      expect(service.getProcedureThreshold('nope')).toBeUndefined();
+    });
   });
 
   describe('proposal builders', () => {

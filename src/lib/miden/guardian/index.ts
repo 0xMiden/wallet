@@ -168,6 +168,28 @@ export class MultisigService {
     return (this.multisig as any).procedureThresholds?.get(procedure);
   }
 
+  /**
+   * The account's loaded on-chain auth structure: overall threshold, signer
+   * commitments, and per-procedure thresholds. Used by the E2E harness to
+   * assert the 3-key shape (e.g. that `update_guardian` is hardened to 2 and
+   * the signer set is `[hot, cold]`) — properties the balance-only checks miss.
+   */
+  getAuthInfo(): { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> } {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = this.multisig as any;
+    const procedureThresholds: Record<string, number> = {};
+    if (m.procedureThresholds instanceof Map) {
+      for (const [proc, threshold] of m.procedureThresholds.entries()) {
+        procedureThresholds[String(proc)] = threshold as number;
+      }
+    }
+    return {
+      threshold: typeof m.threshold === 'number' ? m.threshold : NaN,
+      signerCommitments: Array.isArray(m.signerCommitments) ? m.signerCommitments.map(String) : [],
+      procedureThresholds
+    };
+  }
+
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

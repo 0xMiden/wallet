@@ -720,4 +720,26 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
     }
   })();
+
+  // Guardian on-chain auth structure (overall threshold + signer set + procedure
+  // thresholds) for E2E assertions — the harness's balance checks can't see the
+  // 3-key shape. Reads the cached front-end MultisigService; dynamic imports
+  // avoid a static cycle (guardian-sync pulls in this store module).
+  (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
+    try {
+      const [{ getOrCreateMultisigService }, { zustandProvider }] = await Promise.all([
+        import('lib/miden/front/guardian-manager'),
+        import('lib/miden/front/guardian-sync')
+      ]);
+      const service = await getOrCreateMultisigService(accountPublicKey, zustandProvider);
+      try {
+        await service.sync(); // refresh on-chain state before reading
+      } catch {
+        // best-effort — fall back to last-synced state
+      }
+      return service.getAuthInfo();
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  };
 }
