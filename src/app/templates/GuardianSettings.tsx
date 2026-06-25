@@ -3,15 +3,17 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
-  guardianEndpointHost,
-  guardianOptionForEndpoint,
-  useCurrentGuardianEndpoint
-} from 'app/hooks/useCurrentGuardianEndpoint';
-import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
-import { Button } from 'components/Button';
-import { hapticLight } from 'lib/mobile/haptics';
-import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
-import { navigate } from 'lib/woozie';
+  initiateSwitchGuardianTransaction,
+  requestSWTransactionProcessing,
+  waitForTransactionCompletion
+} from 'lib/miden/activity';
+import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { isExtension } from 'lib/platform';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { isDelegateProofEnabled, isValidGuardianUrl } from 'lib/settings/helpers';
+import { useWalletStore } from 'lib/store';
+import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
 const GuardianSettings: FC = () => {
   const { t } = useTranslation();
@@ -34,23 +36,16 @@ const GuardianSettings: FC = () => {
         <h2 className="mt-3 text-xl font-bold font-heading text-heading-gray">{guardianName}</h2>
       </div>
 
-      <p className="mt-6 text-sm font-semibold text-text-tertiary-token">{t('about')}</p>
-      <p className="mt-2 text-base text-heading-gray leading-snug select-text">{t('guardianAboutDescription')}</p>
+      <ChooseGuardianScreen
+        onSubmit={handleSubmit}
+        currentEndpoint={currentEndpoint}
+        hideHeader
+        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
+      />
 
       <hr className="my-4" />
 
-      <p className="text-sm font-semibold text-text-tertiary-token">{t('details')}</p>
-      <div className="mt-2">
-        <DetailCard>
-          <DetailRow label={t('guardianProvider')} value={option?.operatedBy ?? t('customGuardian')} />
-          <DetailRow label={t('guardianEndpointLabel')} isLast={!option}>
-            <span className="text-sm font-medium text-heading-gray text-right break-all select-text">
-              {currentEndpoint ? guardianEndpointHost(currentEndpoint) : t('loading')}
-            </span>
-          </DetailRow>
-          {option && <DetailRow label={t('guardianRegion')} value={option.location} isLast />}
-        </DetailCard>
-      </div>
+      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
 
       <div className="mt-6">
         <Button title={t('rotateGuardian')} onClick={handleRotate} />

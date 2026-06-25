@@ -92,7 +92,7 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
 
 export const MIDEN_GUARDIAN_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
-  [MIDEN_NETWORK_NAME.DEVNET, 'https://stg-guardian.openzeppelin.com']
+  [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com']
 ]);
 
 export const GUARDIAN_OPTIONS: GuardianOption[] = [
@@ -118,6 +118,34 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     endpoint: 'https://miden-guardian.lambdaclass.com'
   }
 ];
+/**
+ * Default Guardian endpoint for the active network, or '' when the network has
+ * no configured Guardian (e.g. mainnet, localnet). Intentionally does NOT fall
+ * back to the staging endpoint: a mainnet build silently signing Guardian
+ * requests against staging would be a real security problem. Safe to use as a
+ * UI default/placeholder; Guardian *operations* should call
+ * `getDefaultGuardianEndpoint()` so an unsupported network fails loudly.
+ */
+export const DEFAULT_GUARDIAN_ENDPOINT = MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK) ?? '';
+
+/**
+ * Whether the active network has a configured Guardian endpoint.
+ */
+export const IS_GUARDIAN_SUPPORTED = MIDEN_GUARDIAN_ENDPOINTS.has(DEFAULT_NETWORK);
+
+/**
+ * Resolve the Guardian endpoint for the active network, throwing a descriptive
+ * error on networks without a configured Guardian. Use this at Guardian
+ * account create/import entry points so the feature refuses to operate (rather
+ * than silently targeting the wrong backend) on an unsupported network.
+ */
+export function getDefaultGuardianEndpoint(): string {
+  const endpoint = MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK);
+  if (!endpoint) {
+    throw new Error(`Guardian is not available on network "${DEFAULT_NETWORK}": no Guardian endpoint is configured.`);
+  }
+  return endpoint;
+}
 
 /**
  * Returns the SDK NetworkId for the current DEFAULT_NETWORK.

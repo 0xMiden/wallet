@@ -94,7 +94,10 @@ export const ActivityRow: FC<ActivityRowProps> = ({
       <div className="flex flex-col items-end gap-0.5">
         {amount && (
           <span
-            className={classNames('text-sm font-semibold leading-tight', AMOUNT_COLOR[amount.direction ?? 'neutral'])}
+            className={classNames(
+              'font-heading text-sm font-semibold leading-tight',
+              AMOUNT_COLOR[amount.direction ?? 'neutral']
+            )}
           >
             {amount.value}
           </span>

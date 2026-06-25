@@ -44,6 +44,25 @@ export default defineConfig({
         }
       },
       load(id) {
+        // framer-motion needs concrete named exports: the backend graph
+        // transitively imports it (lib/animation + screens), and Rolldown
+        // statically validates `import { motion, ... }`, so a bare
+        // `default {}` stub fails with "X is not exported". The SW never
+        // renders UI, so these are inert no-ops. Type-only imports
+        // (PanInfo, Transition) are erased and need no runtime export.
+        if (id === '\0stub:framer-motion' || id.startsWith('\0stub:framer-motion/')) {
+          return [
+            'const __noop = () => null;',
+            'export const motion = new Proxy(function () { return null; }, { get: () => __noop });',
+            'export const AnimatePresence = ({ children }) => children;',
+            'export const LayoutGroup = ({ children }) => children;',
+            'export const MotionConfig = ({ children }) => children;',
+            'export const useReducedMotion = () => false;',
+            'export const useMotionValue = (value) => ({ get: () => value, set: () => {}, on: () => () => {} });',
+            'export const animate = () => ({ stop: () => {}, then: (resolve) => Promise.resolve().then(resolve) });',
+            'export default {};'
+          ].join('\n');
+        }
         if (id.startsWith('\0stub:')) {
           // These modules are frontend-only but get dragged into the SW bundle
           // via the dapp → activity → store chain. None of them are ever rendered

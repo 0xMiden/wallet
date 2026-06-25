@@ -20,7 +20,7 @@ export const SearchInput: FC<SearchInputProps> = ({
   const hasValue = value.length > 0;
 
   return (
-    <div className={classNames('w-full bg-gray-25 rounded-md-token', className)}>
+    <div className={classNames('w-full bg-gray-25 rounded-3xl h-14', className)}>
       <input
         type="text"
         value={value}
@@ -28,9 +28,9 @@ export const SearchInput: FC<SearchInputProps> = ({
         placeholder={placeholder}
         autoFocus={autoFocus}
         className={classNames(
-          'w-full bg-transparent outline-none px-4 py-4 text-sm',
-          'placeholder:text-text-tertiary-token placeholder:font-normal',
-          hasValue ? 'text-accent-primary font-semibold' : 'text-text-tertiary-token font-normal'
+          'w-full bg-transparent outline-none px-4 py-4 text-base font-heading',
+          'placeholder:text-[#00000047] placeholder:font-bold',
+          hasValue ? 'text-primary font-semibold' : 'text-text-tertiary-token font-normal'
         )}
       />
     </div>

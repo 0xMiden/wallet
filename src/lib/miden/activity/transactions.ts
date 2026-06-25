@@ -1266,7 +1266,13 @@ const generateGuardianTransaction = async (
       break;
     }
     default: {
-      throw new Error(`Unsupported transaction type for Guardian account: ${transaction.type}`);
+      // For custom transactions, build a custom proposal from the serialized request bytes.
+      if (!transaction.requestBytes) {
+        throw new Error('Request Bytes not available for custom transaction');
+      }
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await service.createCustomProposal(transaction.requestBytes);
+      break;
     }
   }
 
@@ -1366,10 +1372,10 @@ const generateGuardianTransaction = async (
     case 'bridged-send':
       await completeBridgedSendTransaction(transaction as BridgedSendTransaction, transactionResult);
       break;
-    // case 'execute':
-    // default:
-    //   await completeCustomTransaction(transaction, transactionResult);
-    //   break;
+    case 'execute':
+    default:
+      await completeCustomTransaction(transaction, transactionResult);
+      break;
   }
   // Sync the cached hot service so the next consumer sees post-tx state.
   // Skip for replace-hot-key: that path's service is a transient cold one,

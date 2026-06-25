@@ -283,7 +283,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
-    [isGuardianAccount, hasActivatedHotKey]
+    [hasActivatedHotKey, isGuardianAccount]
   );
 
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see

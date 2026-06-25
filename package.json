@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.15.0",
+  "version": "1.15.2",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -35,13 +35,10 @@
     "mobile:sync:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:sync",
     "mobile:ios": "yarn mobile:sync && npx cap open ios",
     "mobile:ios:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios",
-    "mobile:ios:build": "yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17' -configuration Debug -derivedDataPath ios/App/build build",
+    "mobile:ios:build": "yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath ios/App/build build",
     "mobile:ios:build:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios:build",
     "mobile:ios:run": "yarn mobile:ios:build && xcrun simctl install booted ios/App/build/Build/Products/Debug-iphonesimulator/App.app && yarn mobile:ios:faceid && xcrun simctl launch booted com.miden.wallet",
     "mobile:ios:run:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios:run",
-    "mobile:ios:run:device": "yarn mobile:sync && bash ios/App/scripts/run-on-device.sh",
-    "mobile:ios:run:device:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios:run:device",
-    "mobile:ios:logs:device": "bash ios/App/scripts/logs-on-device.sh",
     "mobile:ios:faceid": "xcrun simctl spawn booted notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 && xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit.enrollmentChanged",
     "mobile:android": "yarn mobile:sync && npx cap open android",
     "mobile:android:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:android",
@@ -66,6 +63,7 @@
     "test:e2e:blockchain:build": "rimraf dist/chrome_unpacked && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:bg && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:cs && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
     "test:e2e:blockchain": "yarn test:e2e:blockchain:build && playwright test --config playwright.e2e.config.ts",
     "test:e2e:blockchain:run": "playwright test --config playwright.e2e.config.ts",
+    "test:e2e:guardian:run": "playwright test --config playwright.guardian.config.ts",
     "test:e2e:blockchain:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:blockchain",
     "test:e2e:blockchain:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:blockchain",
     "test:e2e:blockchain:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:blockchain",
@@ -77,7 +75,7 @@
     "test:e2e:stress:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:stress",
     "test:e2e:stress:devnet": "cross-env E2E_NETWORK=devnet yarn test:e2e:stress",
     "test:e2e:stress:localhost": "cross-env E2E_NETWORK=localhost yarn test:e2e:stress",
-    "test:e2e:mobile:build": "cross-env MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=iPhone 17' -configuration Debug -derivedDataPath ios/App/build build",
+    "test:e2e:mobile:build": "cross-env MIDEN_E2E_TEST=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath ios/App/build build",
     "test:e2e:mobile": "yarn test:e2e:mobile:build && playwright test --config playwright.ios.config.ts",
     "test:e2e:mobile:run": "playwright test --config playwright.ios.config.ts",
     "test:e2e:mobile:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:mobile",
@@ -128,14 +126,14 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.23",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "file:../web-sdk/crates/web-client/",
-    "@miden-sdk/react": "0.14.4",
+    "@miden-sdk/miden-sdk": "0.15.2",
+    "@miden-sdk/react": "0.15.2",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
     "@noble/hashes": "^1.4.0",
-    "@openzeppelin/guardian-client": "file:../private-state-manager/packages/guardian-client",
-    "@openzeppelin/miden-multisig-client": "file:../private-state-manager/packages/miden-multisig-client",
+    "@openzeppelin/guardian-client": "0.15.0-rc.0",
+    "@openzeppelin/miden-multisig-client": "0.15.0-rc.0",
     "@peculiar/webcrypto": "1.1.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@reown/appkit": "^1.8.20",
@@ -350,7 +348,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.15.0-alpha.7"
+    "**/@miden-sdk/miden-sdk": "0.15.2"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

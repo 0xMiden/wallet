@@ -13,12 +13,18 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Bread",
 
-  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "sidePanel", "offscreen"],
-  "host_permissions": [
-    "http://localhost/*",
-    "https://*.miden.fi/*",
-    "https://*.miden.io/*"
+  "permissions": [
+    "storage",
+    "clipboardWrite",
+    "unlimitedStorage",
+    "activeTab",
+    "tabs",
+    "notifications",
+    "alarms",
+    "sidePanel",
+    "offscreen"
   ],
+  "host_permissions": ["http://localhost/*", "https://*.miden.fi/*", "https://*.miden.io/*"],
 
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

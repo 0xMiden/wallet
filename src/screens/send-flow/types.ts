@@ -1,6 +1,10 @@
 export enum SendFlowStep {
-  SendForm = 'SendForm',
-  ReviewTransaction = 'ReviewTransaction'
+  SelectRecipient = 'SelectRecipient',
+  SelectAmount = 'SelectAmount',
+  SelectToken = 'SelectToken',
+  AccountsList = 'AccountsList',
+  ReviewTransaction = 'ReviewTransaction',
+  TransactionInitiated = 'TransactionInitiated'
 }
 
 export type SendFlowForm = {

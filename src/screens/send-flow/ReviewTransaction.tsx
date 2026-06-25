@@ -1,34 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
-import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
-import { useAccount } from 'lib/miden/front';
-import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
+import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { truncateAddress } from 'utils/string';
 
-import { BridgeRoute } from './BridgeOptions';
-import { SendFlowAction } from './types';
+import { RecallCalendarDrawer } from './RecallCalendarDrawer';
+import { SendFlowAction, UIToken } from './types';
 
 export interface ReviewTransactionProps {
   amount: string;
-  token: string;
-  fiatValue: number;
+  token?: UIToken;
+  recipientAddress?: string;
+  recallDate?: Date;
+  recallTime: string;
   onAction: (action: SendFlowAction) => void;
   onGoBack: () => void;
   onClose: () => void;
   onSubmit: () => void;
-  /** True while the tx is being initiated (e.g. an Epoch bridge quote/solve) — drives the confirm-button loader. */
-  isSubmitting?: boolean;
-  sharePrivately: boolean;
-  recipientAddress?: string;
-  recipientChain?: 'miden' | 'ethereum';
-  bridgeRoute?: BridgeRoute;
-  recallBlocks?: string;
-  recallDate?: Date;
-  recallTime: string;
+  onRecallDateChange: (date: Date | undefined) => void;
+  onRecallTimeChange: (time: string) => void;
 }
 
 export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
@@ -36,106 +28,61 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   token,
   fiatValue,
   recipientAddress,
-  recipientChain,
-  bridgeRoute,
-  sharePrivately,
-  recallBlocks,
   recallDate,
   recallTime,
+  onAction,
   onGoBack,
-  onClose,
   onSubmit,
-  isSubmitting = false
+  onRecallDateChange,
+  onRecallTimeChange
 }) => {
   const { t } = useTranslation();
-  const { publicKey } = useAccount();
+  const [showCalendar, setShowCalendar] = useState(false);
 
-  const isBridge = recipientChain === 'ethereum';
-  const route: BridgeRoute = bridgeRoute ?? 'epoch';
-  const displayRecallLabel = recallDate ? `${format(recallDate, 'MMM d, yyyy')} ${recallTime}` : t('selectRecallDate');
-  const hasRecall = !isBridge && !!recallBlocks && parseInt(recallBlocks) > 0;
+  const fiatValue = token ? parseFloat(amount || '0') * token.fiatPrice : 0;
+  const today = format(new Date(), 'dd.MM.yy');
+
+  const expirationLabel = recallDate
+    ? (() => {
+        const rel = formatDistanceToNow(recallDate, { addSuffix: true });
+        return rel.charAt(0).toUpperCase() + rel.slice(1);
+      })()
+    : t('none');
 
   return (
-    <div className="flex flex-col bg-app-bg h-full px-4">
-      <ScreenHeader title={t('reviewDetails')} closeLabel={t('close')} onClose={onClose} />
+    <>
+      <ReviewLayout
+        title={t('reviewDetails')}
+        date={today}
+        onBack={onGoBack}
+        backLabel={t('back')}
+        hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} fiat={fiatValue} />}
+        primary={{ label: t('sendPayment'), onPress: onSubmit, type: 'submit' }}
+        secondary={{ label: t('back'), onPress: onGoBack }}
+      >
+        <ReviewRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
 
-      <div className="flex flex-col flex-1 min-h-0 ">
-        <div className="flex-1 overflow-y-auto no-scrollbar">
-          {/* Amount */}
-          <div className="flex flex-col items-center gap-1 py-6 border-b border-border-faint">
-            <span className="text-5xl font-extrabold leading-none text-heading-gray">
-              {amount} {token}
-            </span>
-            <span className="text-sm  text-[#8E8E93]">
-              {t('approxFiatValue', { value: `$${fiatValue.toFixed(2)}` })}
-            </span>
-          </div>
+        <ReviewRow label={t('network')}>
+          <span className="flex items-center gap-2 text-base text-black font-medium">
+            <span className="w-2 h-2 rounded-full bg-primary-500" />
+            {t('miden')}
+          </span>
+        </ReviewRow>
 
-          {/* Transfer details */}
-          <h4 className="text-sm font-semibold text-heading-gray mt-6 mb-2">{t('transferDetails')}</h4>
-          <DetailCard>
-            <DetailRow label={t('from')} value={truncateAddress(publicKey)} />
-            <DetailRow label={t('to')} value={truncateAddress(recipientAddress || '')} isLast={!hasRecall} />
-            {hasRecall && <DetailRow label={t('recallBy')} value={displayRecallLabel} isLast />}
-          </DetailCard>
+        <ReviewRow label={t('expirationDate')} onEdit={() => setShowCalendar(true)} editLabel={t('edit')}>
+          <span className="text-base text-black font-semibold">{expirationLabel}</span>
+        </ReviewRow>
+      </ReviewLayout>
 
-          {isBridge ? (
-            <>
-              {/* Bridge details */}
-              <h4 className="text-sm font-semibold text-heading-gray mt-6 mb-2">{t('bridgeDetails')}</h4>
-              <DetailCard>
-                <DetailRow label={t('route')} value={route === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')} />
-                <DetailRow label={t('destinationNetwork')} value="Sepolia" isLast />
-              </DetailCard>
-            </>
-          ) : (
-            <>
-              {/* Advanced details */}
-              <h4 className="text-sm font-semibold text-heading-gray mt-6 mb-2">{t('advancedDetails')}</h4>
-              <DetailCard>
-                <DetailRow label={t('privatePayment')}>
-                  <StatusText enabled={sharePrivately} />
-                </DetailRow>
-                <DetailRow label={t('delegateProving')} isLast={!hasRecall}>
-                  <StatusText enabled={delegateTransaction} />
-                </DetailRow>
-                {hasRecall && (
-                  <DetailRow label={t('recallEnabled')} isLast>
-                    <StatusText enabled />
-                  </DetailRow>
-                )}
-              </DetailCard>
-            </>
-          )}
-        </div>
-
-        <div className="shrink-0 pt-6 pb-4 flex flex-col gap-y-2">
-          <Button
-            type="submit"
-            title={t('sendPayment')}
-            variant={ButtonVariant.Primary}
-            onClick={onSubmit}
-            isLoading={isSubmitting}
-            disabled={isSubmitting}
-          />
-          <Button
-            type="button"
-            onClick={onGoBack}
-            variant={ButtonVariant.Secondary}
-            title={t('back')}
-            disabled={isSubmitting}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const StatusText: React.FC<{ enabled: boolean }> = ({ enabled }) => {
-  const { t } = useTranslation();
-  return (
-    <span className={`text-sm font-medium ${enabled ? 'text-[#CC5200]' : 'text-heading-gray/60'}`}>
-      {enabled ? t('on') : t('off')}
-    </span>
+      <RecallCalendarDrawer
+        open={showCalendar}
+        onOpenChange={setShowCalendar}
+        recallDate={recallDate}
+        recallTime={recallTime}
+        onAction={onAction}
+        onRecallDateChange={onRecallDateChange}
+        onRecallTimeChange={onRecallTimeChange}
+      />
+    </>
   );
 };

@@ -963,7 +963,6 @@ export class Vault {
         accColdSecretKeyStrgKey(publicKey),
         this.vaultKey
       );
-      console.log('Sign word for cold key, got coldHex =', coldHex);
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
       const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
       console.log(

@@ -219,7 +219,10 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -254,7 +257,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
   });
 
@@ -263,7 +266,10 @@ describe('generateTransaction — Guardian routing', () => {
     const result = makeResult();
     const multisigService = {
       createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -311,7 +317,10 @@ describe('generateTransaction — Guardian routing', () => {
         proposal: { id: 'prop-switch' },
         newEndpoint: 'https://new.guardian'
       })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
       finalizeGuardianSwitch: jest.fn(async () => {}),
       sync: jest.fn(async () => {})
     };
@@ -357,7 +366,7 @@ describe('generateTransaction — Guardian routing', () => {
     // After the multisigService/signingService consolidation, the hot service IS
     // the only service for non-replace-hot-key types — it drives the final
     // signAndCreateTransactionRequest.
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch', undefined);
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
   });
@@ -384,7 +393,10 @@ describe('generateTransaction — Guardian routing', () => {
         proposal: { id: 'prop-replace' },
         newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
       })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([1]), authArg: () => undefined }))
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      }))
     };
     mockBuildColdMultisigService.mockResolvedValue(coldService);
 
@@ -419,7 +431,7 @@ describe('generateTransaction — Guardian routing', () => {
     // Persist BEFORE submit so the new ciphertext is durable on crash.
     expect(persistNewHotKey).toHaveBeenCalledWith('new-hot-pub', 'new-cx');
     // Cold (signingService) drives signAndCreateTransactionRequest, NOT hot.
-    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace');
+    expect(coldService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-replace', undefined);
     // Persist newHotPublicKey on the transaction row so complete can find it.
     expect((submittedRow.extraInputs as { newHotPublicKey?: string }).newHotPublicKey).toBe('new-hot-pub');
     // Replace-hot-key shares the confirming wait with switch-guardian.

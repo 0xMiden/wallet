@@ -49,6 +49,7 @@ const Money = memo<MoneyProps>(
     let indexOfDecimal = result.indexOf(decimal) === -1 ? result.indexOf('.') : result.indexOf(decimal);
 
     const tippyClassName = classNames(
+      'font-heading',
       'truncate',
       'px-px -mr-px rounded cursor-pointer',
       tooltip && 'hover:bg-gray-100',

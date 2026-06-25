@@ -121,8 +121,10 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = ({
           </h2>
 
           {amountText && (
-            <div className="mt-4 flex w-full flex-col items-center gap-2.5">
-              <div className="text-center text-[30px] font-bold leading-none text-black">{amountText}</div>
+            <div className="mt-10 flex w-full flex-col items-center">
+              <div className="font-heading text-center text-[32px] font-bold leading-none text-heading-gray">
+                {amountText}
+              </div>
 
               {bridgedInputs && (
                 <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-xs leading-none text-[#8E8E93]">

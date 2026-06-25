@@ -196,7 +196,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
         <div className="bg-surface-interactive rounded-10 px-4 py-4 flex items-center justify-between">
           <div className="flex flex-col">
             <span className="text-[10px] font-semibold text-accent-primary leading-none">{t('totalPending')}</span>
-            <span className="text-[32px] font-bold text-text-primary-token leading-none tracking-tight">
+            <span className="font-heading text-[32px] font-bold text-text-primary-token leading-none tracking-tight">
               {formatUsd(totals.totalUsd)}
             </span>
           </div>
@@ -268,7 +268,7 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, claimingNoteId
           <span className="text-base font-extrabold text-heading-gray dark:text-pure-white leading-tight truncate">
             {metadata?.name || symbol}
           </span>
-          <span className="text-xs text-black opacity-50 leading-tight mt-0.5 font-semibold">
+          <span className="font-heading text-xs text-black opacity-50 leading-tight mt-0.5 font-semibold">
             {formattedTotal} {symbol} <span className="italic">{t('pending')}</span>
           </span>
         </div>
@@ -335,13 +335,13 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
           </div>
 
           <div className="mt-4 flex items-end gap-2 leading-none">
-            <span className="text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
+            <span className="font-heading text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
               {formattedAmount}
             </span>
-            <span className="text-base font-bold text-heading-gray pb-1">{symbol}</span>
+            <span className="font-heading text-base font-bold text-heading-gray pb-1">{symbol}</span>
           </div>
 
-          <div className="mt-2 text-sm text-heading-gray">
+          <div className="font-heading mt-2 text-sm text-heading-gray">
             <span className="mr-1">≈</span>
             {formatUsd(usdValue)}
           </div>
@@ -473,7 +473,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
             <EyeClosedIcon style={{ width: 16, height: 16 }} />
           )}
         </div>
-        <span className="text-sm font-medium text-text-primary-token text-right">
+        <span className="font-heading text-sm font-medium text-text-primary-token text-right">
           {formattedAmount}
           {symbol}
         </span>

@@ -93,8 +93,9 @@ button:disabled,
     'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
     sans-serif;
   --font-heading:
-    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-onboarding-heading: 'Bitter', Georgia, 'Times New Roman', serif;
+    'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-onboarding-heading:
+    'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-inter: 'Inter', system-ui, sans-serif;
   --default-font-family: var(--font-sans);
 }
@@ -356,9 +357,9 @@ body[data-drawer-open] [data-tabbar-footer='true'] {
     --surface-input: #f9f9f9;
     --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --status-positive: #38824a;
+    --status-positive: #1a9c52;
     --status-pending: #e85d2f;
-    --status-negative: #c51a0a;
+    --status-negative: #ff5500;
     --tx-received: #38824a;
     --tx-sent: #024073;
     --tx-swap: #6b7280;

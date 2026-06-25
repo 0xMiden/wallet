@@ -51,54 +51,60 @@ export async function getOrCreateMultisigService(
   accountPublicKey: string,
   provider: GuardianAccountProvider
 ): Promise<MultisigService> {
-  // Resolve the WalletAccount upfront — needed for both the cache drift
-  // check (hotPublicKey can rotate) and the subsequent service init.
-  const accounts = await provider.getAccounts();
-  const account = accounts.find(acc => acc.publicKey === accountPublicKey);
-  if (!account || account.type !== WalletType.Guardian) {
-    throw new Error('Account is not a Guardian account');
-  }
-  // Hot pubkey lives on the WalletAccount record (set at create time). A
-  // Guardian account without it is either a legacy single-Falcon-key record
-  // (pre-migration) or an in-flight write that crashed mid-create — both are
-  // unsigned states that should fail loudly rather than silently fall back.
-  if (!account.hotPublicKey) {
-    throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
-  }
-  const hotPublicKey = account.hotPublicKey;
-
-  // Return cached instance if its endpoint AND bound hot pubkey still match.
-  // Two separate drift sources:
-  //   - guardian endpoint: switch_guardian rotates the URL; clearGuardianServiceFor
-  //     in the SW realm doesn't reach the popup's Map, so re-check storage here.
-  //   - hot pubkey: replace_hot_key rotates account.hotPublicKey; the cached
-  //     service is still bound to the previous WalletSigner.publicKey.
+  // Return cached instance if its endpoint still matches storage. In the
+  // extension build, `clearGuardianServiceFor` from the SW realm doesn't reach
+  // the frontend's own copy of this Map, so a guardian switch would leave
+  // the popup syncing against the old guardian indefinitely. Re-check
+  // GUARDIAN_URL_STORAGE_KEY here and evict on drift.
   const cached = guardianServiceCache.get(accountPublicKey);
   if (cached) {
-    try {
-      const currentEndpoint = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
-      if (
-        currentEndpoint &&
-        cached.service.guardianEndpoint === currentEndpoint &&
-        cached.hotPublicKey === account.hotPublicKey
-      ) {
-        return cached.service;
-      }
-      guardianServiceCache.delete(accountPublicKey);
-    } catch (error) {}
+    const currentEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+    if (cached.service.guardianEndpoint === currentEndpoint) return cached.service;
+    guardianServiceCache.delete(accountPublicKey);
   }
-  // Coalesce concurrent inits for the same account. The 3s guardian sync is
-  // fire-and-forget, so it re-enters here before the (slow) first init resolves
-  // and populates guardianServiceCache — without this guard every tick starts a
-  // fresh MultisigService.init and leaks its web-client worker.
+  // Coalesce concurrent inits: the guardian sync runs every 3s and does not
+  // await previous ticks, so without this an in-flight init can start again
+  // before its resolved service reaches the cache.
   const inflight = guardianServiceInflight.get(accountPublicKey);
   if (inflight) {
     return inflight;
   }
 
   const initPromise = (async () => {
-    // Get the Account object from Miden client
-    const sdkAccount = await withWasmClientLock(async () => {
+    // Verify this is a Guardian account
+    const accounts = await provider.getAccounts();
+    const account = accounts.find(acc => acc.publicKey === accountPublicKey);
+    if (!account || account.type !== WalletType.Guardian) {
+      throw new Error('Account is not a Guardian account');
+    }
+    // Hot pubkey lives on the WalletAccount record (set at create time). A
+    // Guardian account without it is either a legacy single-Falcon-key record
+    // (pre-migration) or an in-flight write that crashed mid-create — both are
+    // unsigned states that should fail loudly rather than silently fall back.
+    if (!account.hotPublicKey) {
+      throw new Error(`Guardian account ${accountPublicKey} is missing hotPublicKey — re-create the wallet`);
+    }
+    const hotPublicKey = account.hotPublicKey;
+
+    // Return cached instance if its endpoint AND bound hot pubkey still match.
+    // Two separate drift sources:
+    //   - guardian endpoint: switch_guardian rotates the URL; clearGuardianServiceFor
+    //     in the SW realm doesn't reach the popup's Map, so re-check storage here.
+    //   - hot pubkey: replace_hot_key rotates account.hotPublicKey; the cached
+    //     service is still bound to the previous WalletSigner.publicKey.
+    const cached = guardianServiceCache.get(accountPublicKey);
+    if (cached) {
+      try {
+        const currentEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+        if (cached.service.guardianEndpoint === currentEndpoint && cached.hotPublicKey === hotPublicKey) {
+          return cached.service;
+        }
+        guardianServiceCache.delete(accountPublicKey);
+      } catch (error) {}
+    }
+
+    // Get the Account object from the Miden client.
+    const { sdkAccount } = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
       return midenClient.getAccount(accountPublicKey);
     });
@@ -108,23 +114,9 @@ export async function getOrCreateMultisigService(
     }
 
     const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
-    console.log(
-      '[Guardian Manager] Retrieved signer details - commitment:',
-      commitment,
-      'publicKey:',
-      account.hotPublicKey
-    );
-    console.log(
-      '[Guardian Manager] Initializing MultisigService with account and signer details...',
-      provider.signWord
-    );
-    // Initialize MultisigService with the account, public key, commitment, and signWord function
-    const service = await MultisigService.init(
-      sdkAccount,
-      `0x${account.hotPublicKey}`,
-      `0x${commitment}`,
-      provider.signWord
-    );
+    // Bind the service to the hot signer — the popup signs with the hot key.
+    console.log('creating guardian service', sdkAccount.id().toString());
+    const service = await MultisigService.init(sdkAccount, `0x${hotPublicKey}`, `0x${commitment}`, provider.signWord);
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
     // next access can detect rotation and force a re-init.
@@ -147,9 +139,7 @@ export async function getOrCreateMultisigService(
  * Check if an account is a Guardian account.
  */
 export async function isGuardianAccount(accountPublicKey: string, provider: GuardianAccountProvider): Promise<boolean> {
-  console.log(`[Guardian Manager] Checking if account is Guardian: ${accountPublicKey}`);
   const accounts = await provider.getAccounts();
-  console.log('[Guardian Manager] Retrieved accounts from provider:', accounts);
   const account = accounts.find(acc => acc.publicKey === accountPublicKey);
   return account?.type === WalletType.Guardian;
 }

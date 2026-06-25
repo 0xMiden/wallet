@@ -376,41 +376,42 @@ export default defineConfig({
   },
 
   resolve: {
-    // The file-linked web-sdk (@miden-sdk/miden-sdk 0.14.10) and the multisig-client's
-    // nested @miden-sdk/miden-sdk (0.14.5) each INLINE their own dexie (4.4.2 vs 4.0.8)
-    // into their wasm-glue chunks. Two different dexie versions trip dexie's global guard
-    // ("Two different versions of Dexie loaded in the same app"). Dedupe @miden-sdk/miden-sdk
-    // so only the single root copy (0.14.10) is ever resolved — this also prevents two
-    // separate WebClient/WASM instances. Dedupe dexie too for any non-inlined imports
-    // (root dexie is pinned to 4.4.2 via package.json resolutions).
-    dedupe: ['dexie', '@miden-sdk/miden-sdk'],
-    alias: {
-      ...sharedAlias,
-      // Chrome extension pages get cross-origin isolation from the
-      // manifest's declared COOP=`same-origin` + COEP=`require-corp`,
-      // so we use the multi-threaded SDK build for ~3-5× faster proving.
-      // Aliases the wallet's own `@miden-sdk/miden-sdk/lazy` imports to
-      // `/mt/lazy`. The wallet's `@miden-sdk/react/lazy` imports are
-      // not aliased — instead, vite catches their transitive SDK imports
-      // through this same alias, so the React-SDK bundle ends up wired
-      // to the MT WASM via the same path. Mobile (vite.mobile.config.ts)
-      // deliberately omits the alias because Capacitor / WKWebView /
-      // Android WebView don't expose cross-origin isolation — mobile
-      // uses delegated proving and the ST WASM is what loads.
+    // See vite.background.config.ts comment — same reason: the mt-wasm SDK
+    // is symlinked, and we need module resolution to walk through the
+    // symlink path (where the wallet's node_modules is reachable) rather
+    // than the real path (where peer packages like vite-plugin-node-polyfills
+    // aren't installed).
+    preserveSymlinks: true,
+    // Array form (not object) so we can use anchored RegExp finds — a string
+    // alias for `@miden-sdk/miden-sdk` would prefix-match `/mt/lazy` and
+    // double-rewrite it. Mirrors vite.background.config.ts.
+    alias: [
+      // Path aliases (lib, app, …), spread from sharedAlias as array entries.
+      ...Object.entries(sharedAlias).map(([find, replacement]) => ({ find, replacement })),
+      // Chrome extension pages get cross-origin isolation from the manifest's
+      // declared COOP=`same-origin` + COEP=`require-corp`, so we use the
+      // multi-threaded SDK build for ~3-5× faster proving. The anchored regexes
+      // redirect the EXACT eager and single-threaded-lazy specifiers to
+      // `/mt/lazy` (without double-rewriting `/mt/lazy` itself).
       //
-      // Depends on `@miden-sdk/miden-sdk` ≥ 0.14.5 (web-sdk PR #134) for
-      // the `/mt/lazy` subpath. Wallet's pin is still 0.14.4 because
-      // 0.14.5 isn't published yet — bump after that PR ships and the
-      // build:chrome step turns green.
-      '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy',
+      // The EAGER `@miden-sdk/miden-sdk` redirect is load-bearing for bundle
+      // size: @openzeppelin/miden-multisig-client imports the eager entry
+      // transitively, and without this redirect the front bundle resolves it to
+      // the default single-threaded build — pulling in a SECOND ~15M WASM
+      // alongside the MT one (the SW config already redirects it, but the front
+      // bundle did not). Mobile (vite.mobile.config.ts) deliberately omits this
+      // — Capacitor / WKWebView / Android WebView don't expose cross-origin
+      // isolation, so mobile uses delegated proving and the ST WASM.
+      { find: /^@miden-sdk\/miden-sdk$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
+      { find: /^@miden-sdk\/miden-sdk\/lazy$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
       // Ensure consistent React instance across all imports
-      react: resolve(__dirname, 'node_modules/react'),
-      'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
+      { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
       // Node module polyfills for browser context
-      buffer: 'buffer',
-      stream: 'stream-browserify',
-      assert: 'assert'
-    }
+      { find: 'buffer', replacement: 'buffer' },
+      { find: 'stream', replacement: 'stream-browserify' },
+      { find: 'assert', replacement: 'assert' }
+    ]
   },
 
   define: {
