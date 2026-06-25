@@ -248,20 +248,57 @@ Output locations:
 
 ### iOS
 
+**Production App Store identity** (differs from the repo defaults, which are for
+e2e/dev):
+
+| | Repo default (e2e/dev) | App Store production |
+|---|---|---|
+| Bundle ID | `com.miden.wallet` | **`com.midenfi.wallet`** |
+| Team | `YQ9XQQJ5ZM` | **`QT9F8G4KW7`** (current publishing team) |
+| Provisioning profile | — | "midenwallet" (App Store, `com.midenfi.wallet`) |
+
+The production identity is applied as **local, uncommitted overrides** at build
+time — set `PRODUCT_BUNDLE_IDENTIFIER` + `DEVELOPMENT_TEAM` in
+`ios/App/App.xcodeproj/project.pbxproj` and `teamID` in
+`ios/App/ExportOptions.plist`, then **revert after building**. Don't commit them;
+the repo stays on the dev defaults so e2e keeps working.
+
+Prerequisites: Apple Developer membership for the publishing team, the Apple
+Distribution cert + the App Store provisioning profile in the keychain, and Xcode
+signed into that team (Settings → Accounts).
+
 ```bash
-# 1. Update ExportOptions.plist with your Team ID
-# Edit ios/App/ExportOptions.plist
-
-# 2. Build release archive
-yarn mobile:ios:release
-
-# 3. Export for App Store (requires valid signing)
-yarn mobile:ios:export
+# 1. Apply the production identity overrides (bundle id + team) — see table above.
+# 2. Build the signed Release archive (testnet; mainnet RPC is still a placeholder).
+#    NOTE: this project uses Swift Package Manager, not CocoaPods — the archive
+#    builds against App.xcodeproj (there is no App.xcworkspace).
+E2E_NETWORK= MIDEN_NETWORK=testnet yarn mobile:ios:release
 ```
+
+Upload (pick one):
+- **Xcode Organizer (GUI, recommended for account-based auth):** open
+  `ios/App/build/MidenWallet.xcarchive` → Distribute App → App Store Connect →
+  Upload (uses the signed-in Xcode account).
+- **Headless:** `yarn mobile:ios:export` (ExportOptions: `app-store-connect`,
+  `destination: upload`) — needs an App Store Connect API key configured, not
+  just the Xcode account.
+
+Export compliance: the app uses standard algorithms (AES-GCM, PBKDF2, SHA-256 via
+Web Crypto). `ITSAppUsesNonExemptEncryption` is set to `false` in
+`ios/App/App/Info.plist`, so the App Store upload does not re-prompt for the
+encryption/France questionnaire.
+
+Common upload errors:
+- *"PLA Update available" / "No profiles for com.midenfi.wallet were found"* — the
+  **Program License Agreement needs accepting** at developer.apple.com/account
+  (account holder). Both errors clear once it's accepted.
 
 Output locations:
 - Archive: `ios/App/build/MidenWallet.xcarchive`
 - Export: `ios/App/build/export/`
+
+> TODO: the "What's New" copy above is stale (last updated for 1.14.4) — refresh
+> per release before submitting.
 
 Alternatively, open Xcode and use Product > Archive for a GUI workflow.
 
