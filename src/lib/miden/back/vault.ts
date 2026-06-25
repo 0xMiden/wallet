@@ -894,6 +894,68 @@ export class Vault {
     });
   }
 
+  /**
+   * One-time, in-place migration of legacy single-signer Guardian accounts to
+   * the 3-key model. Called on every unlock; idempotent (a no-op once an
+   * account carries `coldPublicKey` or `requiresHotKeyRotation`).
+   *
+   * A pre-3-key Guardian account's on-chain signer is the HD key derived at its
+   * index — which is exactly what the 3-key model calls the *cold* key (both are
+   * `AuthSecretKey.ecdsaWithRNG(deriveClientSeed(Guardian, mnemonic, hdIndex))`).
+   * So migrating is purely local + offline: re-derive that key into the cold
+   * slot and flag the account `requiresHotKeyRotation`. The account then surfaces
+   * the Activate Device Key banner, and a single cold-signed `update_signers`
+   * installs the hardware-backed hot key — the same path a seed-recovered account
+   * takes. No funds move and nothing is destructive; routine use simply waits on
+   * that one activation.
+   *
+   * Best-effort by design: any failure is swallowed so a migration hiccup can
+   * never block unlock.
+   */
+  async migrateLegacyGuardianAccounts(): Promise<void> {
+    try {
+      const allAccounts = await this.fetchAccounts();
+      // Legacy = a Guardian record with neither the cold key nor the
+      // pending-rotation flag, i.e. created before the 3-key model.
+      const legacy = allAccounts.filter(
+        acc => acc.type === WalletType.Guardian && !acc.coldPublicKey && !acc.requiresHotKeyRotation
+      );
+      if (legacy.length === 0) return;
+
+      const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey);
+      if (!mnemonic) return; // can't derive the cold key without the seed — leave untouched
+
+      // accountId -> derived cold public key, for the records we successfully migrated.
+      const migrated = new Map<string, string>();
+      for (const acc of legacy) {
+        try {
+          const coldSeed = deriveClientSeed(WalletType.Guardian, mnemonic, acc.hdIndex);
+          const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
+          const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
+          const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
+          await persistRecoveredGuardianColdKey(this.vaultKey, coldPublicKey, coldSecretKeyHex);
+          migrated.set(acc.publicKey, coldPublicKey);
+        } catch (e) {
+          console.warn('[Vault.migrateLegacyGuardianAccounts] skipped one account (non-fatal):', acc.publicKey, e);
+        }
+      }
+      if (migrated.size === 0) return;
+
+      const nextAccounts = allAccounts.map(acc =>
+        migrated.has(acc.publicKey)
+          ? { ...acc, coldPublicKey: migrated.get(acc.publicKey)!, requiresHotKeyRotation: true }
+          : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, nextAccounts]], this.vaultKey);
+      console.log(
+        `[Vault.migrateLegacyGuardianAccounts] migrated ${migrated.size} legacy Guardian account(s) to 3-key (rotation pending)`
+      );
+    } catch (e) {
+      // Migration is best-effort — a failure must never block unlock.
+      console.warn('[Vault.migrateLegacyGuardianAccounts] failed (non-fatal):', e);
+    }
+  }
+
   async updateSettings(settings: Partial<WalletSettings>) {
     return withError('Failed to update settings', async () => {
       const current = await this.fetchSettings();

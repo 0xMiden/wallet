@@ -7,7 +7,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, savePlain } from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 const memoryStore: Record<string, any> = {};
@@ -1403,5 +1403,79 @@ describe('Vault hardware branches', () => {
       // May throw if the decrypted key doesn't match - that's ok, we exercised the branch
     }
     expect(true).toBe(true); // assert no-throw
+  });
+});
+
+describe('Vault.migrateLegacyGuardianAccounts', () => {
+  const sdk = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+
+  beforeEach(() => {
+    // Cold-key derivation is mocked to a fixed key; `deriveClientSeed` still runs
+    // real BIP-39 over VALID_MNEMONIC but the seed it produces is ignored here.
+    sdk.AuthSecretKey.ecdsaWithRNG.mockImplementation(() => ({
+      publicKey: () => ({ serialize: () => new Uint8Array([0x00, 0x02, 0x03, 0x04]) }),
+      serialize: () => new Uint8Array([0xab, 0xcd])
+    }));
+  });
+
+  const legacyGuardian = {
+    publicKey: 'guardian-legacy',
+    name: 'Guardian 1',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 0
+  };
+  const normalAcc = { publicKey: 'normal-1', name: 'Acc', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+  const already3Key = {
+    publicKey: 'guardian-3key',
+    name: 'Guardian 2',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 1,
+    coldPublicKey: 'existing-cold',
+    hotPublicKey: 'existing-hot'
+  };
+
+  it('migrates a legacy single-key Guardian account to the 3-key model in place', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc, already3Key] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const accounts = await vault.fetchAccounts();
+    const migrated = accounts.find(a => a.publicKey === 'guardian-legacy')!;
+    expect(migrated.coldPublicKey).toBe('020304'); // serialize().slice(1) of [00,02,03,04]
+    expect(migrated.requiresHotKeyRotation).toBe(true);
+    // The derived cold key is persisted into the cold slot.
+    const coldHex = await fetchAndDecryptOneWithLegacyFallBack(
+      keys.accColdSecretKey('020304'),
+      (vault as any).vaultKey
+    );
+    expect(coldHex).toBe('abcd');
+  });
+
+  it('leaves non-Guardian and already-3-key accounts untouched', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc, already3Key] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const accounts = await vault.fetchAccounts();
+    const normal = accounts.find(a => a.publicKey === 'normal-1')!;
+    const threeKey = accounts.find(a => a.publicKey === 'guardian-3key')!;
+    expect(normal.coldPublicKey).toBeUndefined();
+    expect(normal.requiresHotKeyRotation).toBeUndefined();
+    expect(threeKey.coldPublicKey).toBe('existing-cold');
+    expect(threeKey.requiresHotKeyRotation).toBeUndefined();
+  });
+
+  it('is idempotent — a second run derives nothing', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.migrateLegacyGuardianAccounts();
+    sdk.AuthSecretKey.ecdsaWithRNG.mockClear();
+    await vault.migrateLegacyGuardianAccounts();
+    expect(sdk.AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
+  });
+
+  it('never throws (best-effort) — a failure cannot block unlock', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
+    await expect(vault.migrateLegacyGuardianAccounts()).resolves.toBeUndefined();
   });
 });

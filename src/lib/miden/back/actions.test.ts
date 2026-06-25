@@ -234,6 +234,7 @@ describe('actions', () => {
     it('calls Vault.setup and unlocked with password', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -244,6 +245,7 @@ describe('actions', () => {
       await unlock('password123');
 
       expect(Vault.setup).toHaveBeenCalledWith('password123');
+      expect(mockVaultInstance.migrateLegacyGuardianAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();

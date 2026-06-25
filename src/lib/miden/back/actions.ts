@@ -187,6 +187,10 @@ export function unlock(password?: string) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       const vault = await Vault.setup(password);
+      // Bring any pre-3-key Guardian accounts into the 3-key model in place
+      // (best-effort, never throws) so they surface the Activate Device Key
+      // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
+      await vault.migrateLegacyGuardianAccounts();
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
       const currentAccount = await vault.getCurrentAccount();
