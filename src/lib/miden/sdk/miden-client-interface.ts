@@ -37,6 +37,11 @@ import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { ConsumeTransaction, SendTransaction } from '../db/types';
+// Guardian helpers are dynamic-imported inside the methods that use them to avoid
+// a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
+// miden-client-interface. Static imports here deadlock init_guardian_manager in the
+// SW bundle (both sides' __esmMin wrappers await each other).
+import type { SignWordFunction } from '../guardian/signer';
 
 // E2E-build only. The per-step prove-timing markers are useful for the
 // Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
@@ -204,6 +209,12 @@ export class MidenClientInterface {
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
+    if (walletType === WalletType.Guardian) {
+      const { createGuardianAccount } = await import('../guardian/account');
+      const account = await createGuardianAccount(this.client, seed);
+      return getBech32AddressFromAccountId(account.id());
+    }
+
     const isPublic = walletType === WalletType.OnChain;
     const wallet: Account = await this.client.accounts.create({
       storage: isPublic ? 'public' : 'private',
@@ -234,6 +245,48 @@ export class MidenClientInterface {
       ...(auth ? { auth } : {})
     });
     return getBech32AddressFromAccountId(account.id());
+  }
+
+  async importAccountBySeed(
+    walletType: WalletType,
+    seed: Uint8Array,
+    signWordFn: SignWordFunction,
+    getPublicKeyForCommitment: (commitment: string) => Promise<string>
+  ): Promise<string> {
+    if (walletType === WalletType.Guardian) {
+      try {
+        const [
+          { createGuardianAccount, getSignerDetailsFromAccount },
+          { MultisigService },
+          { getDefaultGuardianEndpoint }
+        ] = await Promise.all([
+          import('../guardian/account'),
+          import('../guardian/index'),
+          import('lib/miden-chain/constants')
+        ]);
+        // Derive the account ID against the default guardian so it matches the ID
+        // the account had at creation time. The user's custom guardian URL (persisted
+        // in GUARDIAN_URL_STORAGE_KEY) is picked up later by importAccountFromGuardian for the
+        // live state fetch.
+        const account = await createGuardianAccount(this.client, seed, true, getDefaultGuardianEndpoint());
+        console.log('[MidenClientInterface] Imported Guardian account from seed with ID:', account.id().toString());
+        const accountId = account.id().toString();
+        const { commitment, publicKey } = await getSignerDetailsFromAccount(account, getPublicKeyForCommitment);
+        await MultisigService.importAccountFromGuardian(
+          `0x${publicKey}`,
+          `0x${commitment}`,
+          signWordFn,
+          accountId,
+          this.client
+        );
+        return getBech32AddressFromAccountId(account.id());
+      } catch (error) {
+        console.error('Failed to import Guardian account from seed', error);
+        throw new Error('Failed to import Guardian account from seed', { cause: error });
+      }
+    }
+
+    return await this.importPublicMidenWalletFromSeed(seed);
   }
 
   /**

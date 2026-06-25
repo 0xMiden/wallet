@@ -55,6 +55,22 @@ export function isHapticFeedbackEnabled() {
   return getSetting(HAPTIC_FEEDBACK_STORAGE_KEY, DEFAULT_HAPTIC_FEEDBACK);
 }
 
+/**
+ * Validate a Guardian endpoint URL. Guardian auth signatures are sent to this
+ * endpoint, so require TLS; plain http:// is only tolerated for localhost
+ * development. Shared by the onboarding import flow and Guardian Settings.
+ */
+export function isValidGuardianUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return false;
+  }
+  const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  return url.protocol === 'https:' || (url.protocol === 'http:' && isLocalhost);
+}
+
 export function setThemeSetting(theme: ThemeSetting) {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);

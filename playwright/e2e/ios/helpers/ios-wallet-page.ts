@@ -105,23 +105,48 @@ export class IosWalletPage implements WalletPage {
   // ── Onboarding ────────────────────────────────────────────────────────────
 
   /**
-   * Bypass the seed-phrase flow via the wallet's official test hook, then
-   * tap "Get started" on the confirmation screen and wait for the store to
-   * reach Ready. Mirrors the Chrome `createNewWallet` contract.
+   * Create a fully-private (OffChain) wallet via the wallet's official test
+   * hook, then tap "Get started" on the confirmation screen and wait for the
+   * store to reach Ready. Mirrors the Chrome `createNewWallet` contract.
    */
   async createNewWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createWalletViaBypass(password, 'private');
+  }
+
+  /**
+   * Create a Guardian (co-signed) wallet via the same onboarding bypass,
+   * passing `walletType=guardian` so `registerWallet` builds a guardian
+   * account. Uses the network-default guardian endpoint (devnet →
+   * guardian-stg). Mirrors the Chrome `createGuardianWallet` contract.
+   */
+  async createGuardianWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createWalletViaBypass(password, 'guardian');
+  }
+
+  /**
+   * Bypass the seed-phrase flow via the wallet's official test hook
+   * (`__test_skip_onboarding`), selecting the wallet type via the
+   * `walletType` query param the bypass reads. After the navigation, the
+   * welcome screen auto-jumps to the confirmation step (random seed already
+   * generated, password set from the query param); tapping "Get started" then
+   * runs `registerWallet()`.
+   */
+  private async createWalletViaBypass(
+    password: string,
+    recovery: 'private' | 'guardian'
+  ): Promise<{ address: string; seedPhrase: string[] }> {
     // Welcome screen must be visible (fixture guarantees this on cold launch).
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
-    // Trigger Welcome.tsx's official test bypass via URL params. After the
-    // navigation, the welcome screen auto-jumps to the confirmation step
-    // (random seed already generated, password set from the query param);
-    // tapping "Get started" then runs registerWallet().
     const passwordEnc = encodeURIComponent(password);
+    // Guardian account creation does extra HTTP round-trips to co-sign with the
+    // guardian, so it needs a wider readiness window than a private wallet.
+    const readyTimeoutMs = recovery === 'guardian' ? 180_000 : 120_000;
     await this.cdp.eval(
       `var u = new URL(location.href); ` +
         `u.searchParams.set('__test_skip_onboarding', '1'); ` +
         `u.searchParams.set('password', '${passwordEnc}'); ` +
+        (recovery === 'guardian' ? `u.searchParams.set('walletType', 'guardian'); ` : '') +
         `location.href = u.toString(); ` +
         `return null;`
     );
@@ -148,13 +173,15 @@ export class IosWalletPage implements WalletPage {
         `if (!s) return false; ` +
         `var st = s.getState(); ` +
         `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      120_000
+      readyTimeoutMs
     );
 
     const address = await this.cdp.eval<string>(
       `var s = window.__TEST_STORE__.getState(); ` + `return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
-    if (!address) throw new Error('IosWalletPage.createNewWallet: no currentAccount.publicKey after Ready');
+    if (!address) {
+      throw new Error(`IosWalletPage.createWalletViaBypass(${recovery}): no currentAccount.publicKey after Ready`);
+    }
 
     // The bypass synthesizes the seed phrase internally — we don't read it
     // back. Specs that need a real seed should use importWallet().
@@ -182,6 +209,12 @@ export class IosWalletPage implements WalletPage {
     await this.pollForCondition(`return location.hash.indexOf('create-password') >= 0;`, 15_000);
     await this.fillInputByPlaceholder('Enter password', password);
     await this.fillInputByPlaceholder('Enter password again', password);
+    await this.clickByText('button', /continue/i);
+
+    // Import-recovery-method step: pick "Import public account" so we don't
+    // need a guardian backend.
+    await this.pollForSelector('[data-testid="import-recovery-method"]', 15_000);
+    await this.clickByText('*', /import public account/i);
     await this.clickByText('button', /continue/i);
 
     await this.pollForCondition(

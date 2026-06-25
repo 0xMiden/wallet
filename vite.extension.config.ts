@@ -6,14 +6,14 @@
  *
  * Replaces webpack.config.js entirely for the extension build.
  */
-import { resolve, join, sep } from 'path';
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react-swc';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, cpSync, readdirSync, statSync } from 'fs';
+import { resolve, join, sep } from 'path';
+import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 // vite-plugin-svgr doesn't work with Vite 8's Rolldown -- use custom plugin
 import wasm from 'vite-plugin-wasm';
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react-swc';
-import { defineConfig, type Plugin } from 'vite';
 
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
@@ -346,6 +346,12 @@ export default defineConfig({
           return '[name].js';
         },
         chunkFileNames: 'chunks/[name].[hash].js',
+        manualChunks(id) {
+          // Force the wasm-bindgen glue into a single shared chunk so static
+          // and dynamic imports resolve to the same `class Account` / `class WebClient` —
+          // otherwise Rolldown duplicates the module per chunk and `_assertClass` fails across them.
+          if (id.includes('@miden-sdk/miden-sdk/dist/Cargo-')) return 'miden-sdk-wasm';
+        },
         assetFileNames: assetInfo => {
           if (assetInfo.names?.[0]?.endsWith('.wasm')) {
             return 'static/wasm/[name].[hash][extname]';
@@ -370,33 +376,36 @@ export default defineConfig({
     // than the real path (where peer packages like vite-plugin-node-polyfills
     // aren't installed).
     preserveSymlinks: true,
-    alias: {
-      ...sharedAlias,
-      // Chrome extension pages get cross-origin isolation from the
-      // manifest's declared COOP=`same-origin` + COEP=`require-corp`,
-      // so we use the multi-threaded SDK build for ~3-5× faster proving.
-      // Aliases the wallet's own `@miden-sdk/miden-sdk/lazy` imports to
-      // `/mt/lazy`. The wallet's `@miden-sdk/react/lazy` imports are
-      // not aliased — instead, vite catches their transitive SDK imports
-      // through this same alias, so the React-SDK bundle ends up wired
-      // to the MT WASM via the same path. Mobile (vite.mobile.config.ts)
-      // deliberately omits the alias because Capacitor / WKWebView /
-      // Android WebView don't expose cross-origin isolation — mobile
-      // uses delegated proving and the ST WASM is what loads.
+    // Array form (not object) so we can use anchored RegExp finds — a string
+    // alias for `@miden-sdk/miden-sdk` would prefix-match `/mt/lazy` and
+    // double-rewrite it. Mirrors vite.background.config.ts.
+    alias: [
+      // Path aliases (lib, app, …), spread from sharedAlias as array entries.
+      ...Object.entries(sharedAlias).map(([find, replacement]) => ({ find, replacement })),
+      // Chrome extension pages get cross-origin isolation from the manifest's
+      // declared COOP=`same-origin` + COEP=`require-corp`, so we use the
+      // multi-threaded SDK build for ~3-5× faster proving. The anchored regexes
+      // redirect the EXACT eager and single-threaded-lazy specifiers to
+      // `/mt/lazy` (without double-rewriting `/mt/lazy` itself).
       //
-      // Depends on `@miden-sdk/miden-sdk` ≥ 0.14.5 (web-sdk PR #134) for
-      // the `/mt/lazy` subpath. Wallet's pin is still 0.14.4 because
-      // 0.14.5 isn't published yet — bump after that PR ships and the
-      // build:chrome step turns green.
-      '@miden-sdk/miden-sdk/lazy': '@miden-sdk/miden-sdk/mt/lazy',
+      // The EAGER `@miden-sdk/miden-sdk` redirect is load-bearing for bundle
+      // size: @openzeppelin/miden-multisig-client imports the eager entry
+      // transitively, and without this redirect the front bundle resolves it to
+      // the default single-threaded build — pulling in a SECOND ~15M WASM
+      // alongside the MT one (the SW config already redirects it, but the front
+      // bundle did not). Mobile (vite.mobile.config.ts) deliberately omits this
+      // — Capacitor / WKWebView / Android WebView don't expose cross-origin
+      // isolation, so mobile uses delegated proving and the ST WASM.
+      { find: /^@miden-sdk\/miden-sdk$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
+      { find: /^@miden-sdk\/miden-sdk\/lazy$/, replacement: '@miden-sdk/miden-sdk/mt/lazy' },
       // Ensure consistent React instance across all imports
-      react: resolve(__dirname, 'node_modules/react'),
-      'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
+      { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
       // Node module polyfills for browser context
-      buffer: 'buffer',
-      stream: 'stream-browserify',
-      assert: 'assert'
-    }
+      { find: 'buffer', replacement: 'buffer' },
+      { find: 'stream', replacement: 'stream-browserify' },
+      { find: 'assert', replacement: 'assert' }
+    ]
   },
 
   define: {

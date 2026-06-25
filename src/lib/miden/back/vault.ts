@@ -22,11 +22,13 @@ import {
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
 import { isDesktop, isMobile } from 'lib/platform';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { AuthScheme, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { compareAccountIds } from '../activity/utils';
+import { fetchFromStorage, putToStorage } from '../front/storage';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -262,7 +264,13 @@ export class Vault {
     return passKey;
   }
 
-  static async spawn(password: string, mnemonic?: string, ownMnemonic?: boolean): Promise<Vault> {
+  static async spawn(
+    walletType: WalletType,
+    password: string,
+    mnemonic?: string,
+    ownMnemonic?: boolean
+  ): Promise<Vault> {
+    console.log('Spawning new vault with wallet type', walletType);
     return withError('Failed to create wallet', async (): Promise<Vault> => {
       console.log('[Vault.spawn] Step 1: generating vault key...');
       // Generate random vault key (256-bit)
@@ -274,9 +282,19 @@ export class Vault {
         mnemonic = Bip39.generateMnemonic(128);
       }
 
-      // Clear storage before any inserts to avoid wiping newly inserted keys later
+      // Clear storage before any inserts to avoid wiping newly inserted keys later.
+      // clearStorage wipes the entire platform key-value store, which would also
+      // erase the guardian URL that the onboarding flow just wrote for a Guardian import.
+      // Snapshot it and restore after the wipe so downstream reads
+      // (createGuardianAccount / importAccountFromGuardian) see the caller's choice.
+      // TODO: thread guardianEndpoint as an explicit arg through registerWallet → spawn
+      // instead of round-tripping through storage.
       console.log('[Vault.spawn] Step 3: clearing storage...');
+      const preservedGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
       await clearStorage();
+      if (preservedGuardianUrl) {
+        await putToStorage(GUARDIAN_URL_STORAGE_KEY, preservedGuardianUrl);
+      }
       console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
@@ -303,7 +321,24 @@ export class Vault {
         insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
       };
       const hdAccIndex = 0;
-      const walletSeed = deriveClientSeed(WalletType.OnChain, mnemonic, 0);
+      const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
+
+      // Helper to sign words using the vault key (needed for Guardian import)
+      const signWordFn = async (pk: string, wordHex: string) => {
+        const word = Word.fromHex(wordHex);
+        const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pk), vaultKey);
+        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKey, 'hex')));
+        const signature = wasmSecretKey.sign(word);
+        return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+      };
+
+      // Helper to get public key from commitment (needed for Guardian import)
+      const getPublicKeyForCommitment = async (pkc: string) => {
+        const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), vaultKey);
+        const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(sk, 'hex')));
+        return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
+      };
+
       // Wrap WASM client operations in a lock to prevent concurrent access
       console.log('[Vault.spawn] Step 5: acquiring WASM client lock...');
       const { accPublicKey, accAuthScheme } = await withWasmClientLock(async () => {
@@ -311,14 +346,30 @@ export class Vault {
         const midenClient = await getMidenClient(options);
         console.log('[Vault.spawn] Step 7: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
         if (ownMnemonic && midenClient.network !== 'mock') {
-          // Mnemonic restore. Probe each known auth scheme — the user's
-          // real on-chain account at hdIndex=0 was created under exactly
-          // one of them, but we have no metadata to tell us which. Falcon
-          // first because every wallet shipped before this migration used
-          // Falcon as the default; ECDSA second so post-migration
-          // restorers work too. If neither probe finds an on-chain match
-          // the user's mnemonic is "fresh" — fall through to a brand-new
-          // create with the new ECDSA default.
+          if (walletType === WalletType.Guardian) {
+            // Guardian restore goes through the multisig import path and must
+            // NOT silently fall back: a failure means the guardian lookup
+            // failed, and creating a fresh local account would leave the user
+            // with the wrong balance under their seed. Propagate (importAccountBySeed
+            // rethrows) so the UI can let them fix the URL or switch to
+            // public-account import.
+            console.log('[Vault.spawn] Step 8a: importing Guardian wallet from seed...');
+            const id = await midenClient.importAccountBySeed(
+              walletType,
+              walletSeed,
+              signWordFn,
+              getPublicKeyForCommitment
+            );
+            return { accPublicKey: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
+          }
+          // Non-guardian mnemonic restore. Probe each known auth scheme — the
+          // user's real on-chain account at hdIndex=0 was created under exactly
+          // one of them, but we have no metadata to tell us which. Falcon first
+          // because every wallet shipped before this migration used Falcon as
+          // the default; ECDSA second so post-migration restorers work too. If
+          // neither probe finds an on-chain match the user's mnemonic is
+          // "fresh" — fall through to a brand-new create with the new ECDSA
+          // default.
           for (const scheme of RESTORE_PROBE_SCHEMES) {
             try {
               console.log(`[Vault.spawn] Step 8a: probing ${scheme} import...`);
@@ -329,14 +380,21 @@ export class Vault {
             }
           }
           console.warn('[Vault.spawn] no on-chain account at hdIndex=0 under any scheme; creating fresh');
-          const id = await midenClient.createMidenWallet(WalletType.OnChain, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
+          const id = await midenClient.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
           return { accPublicKey: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
         } else {
           // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
           console.log('[Vault.spawn] Step 8b: syncing state...');
           await midenClient.syncState();
           console.log('[Vault.spawn] Step 9: creating miden wallet...');
-          const id = await midenClient.createMidenWallet(WalletType.OnChain, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
+          if (walletType === WalletType.Guardian) {
+            // Fresh Guardian create — createMidenWallet routes to the guardian
+            // path internally. Stamp the new default scheme like every other
+            // new account.
+            const id = await midenClient.createMidenWallet(walletType, walletSeed);
+            return { accPublicKey: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
+          }
+          const id = await midenClient.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
           return { accPublicKey: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
         }
       });
@@ -344,8 +402,8 @@ export class Vault {
       const initialAccount: WalletAccount = {
         publicKey: accPublicKey,
         name: 'Miden Account 1',
-        isPublic: true,
-        type: WalletType.OnChain,
+        isPublic: walletType === WalletType.OnChain,
+        type: walletType,
         hdIndex: hdAccIndex,
         authScheme: accAuthScheme
       };
@@ -483,12 +541,15 @@ export class Vault {
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
     return withError('Failed to create account', async () => {
+      console.log('[Vault.createHDAccount] Step 1: start, walletType =', walletType);
       const [mnemonic, allAccounts] = await Promise.all([
         fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey),
         this.fetchAccounts()
       ]);
+      console.log('[Vault.createHDAccount] Step 2: mnemonic + accounts loaded, count =', allAccounts.length);
 
       const isOwnMnemonic = await this.isOwnMnemonic();
+      console.log('[Vault.createHDAccount] Step 3: isOwnMnemonic =', isOwnMnemonic);
 
       let hdAccIndex;
       let accounts;
@@ -498,11 +559,13 @@ export class Vault {
         accounts = allAccounts.filter(acc => !acc.isPublic);
       }
       hdAccIndex = accounts.length;
+      console.log('[Vault.createHDAccount] Step 4: hdAccIndex =', hdAccIndex);
 
       const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
       const options: MidenClientCreateOptions = {
         insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
+      console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 
       // Wrap WASM client operations in a lock to prevent concurrent access.
       // We create the new account under NEW_ACCOUNT_AUTH_SCHEME (ECDSA
@@ -516,18 +579,25 @@ export class Vault {
       // creating NEW accounts in an already-restored wallet.
       const newScheme: AuthScheme = NEW_ACCOUNT_AUTH_SCHEME;
       const walletId = await withWasmClientLock(async () => {
+        console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
         const midenClient = await getMidenClient(options);
+        console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
         if (isOwnMnemonic && walletType === WalletType.OnChain) {
           try {
+            console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
             return await midenClient.importPublicMidenWalletFromSeed(walletSeed, newScheme);
           } catch (e) {
             console.warn('Failed to import wallet from seed, creating new wallet instead', e);
             return await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
           }
         } else {
-          return await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
+          console.log('[Vault.createHDAccount] Step 8b: createMidenWallet');
+          const id = await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
+          console.log('[Vault.createHDAccount] Step 9: createMidenWallet returned', id);
+          return id;
         }
       });
+      console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
 
       const accName = name || getNewAccountName(allAccounts);
 
@@ -726,6 +796,31 @@ export class Vault {
     return Buffer.from(signature.serialize()).toString('hex');
   }
 
+  async signWord(publicKey: string, wordHex: string): Promise<string> {
+    const word = Word.fromHex(wordHex);
+    const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
+      accAuthSecretKeyStrgKey(publicKey),
+      this.vaultKey
+    );
+    let secretKeyBytes = new Uint8Array(Buffer.from(secretKey, 'hex'));
+    const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+    const signature = wasmSecretKey.sign(word);
+    return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+  }
+
+  async getPublicKeyForCommitment(pkc: string): Promise<string> {
+    try {
+      const sk = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(pkc), this.vaultKey);
+      let secretKeyBytes = new Uint8Array(Buffer.from(sk, 'hex'));
+      const wasmSecretKey = AuthSecretKey.deserialize(secretKeyBytes);
+      // Skip first byte (type prefix) from serialized public key
+      return Buffer.from(wasmSecretKey.publicKey().serialize().slice(1)).toString('hex');
+    } catch (e) {
+      console.error('Error in getPublicKeyForCommitment', e);
+      throw new PublicError('Failed to get public key for commitment');
+    }
+  }
+
   async getAuthSecretKey(key: string) {
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(accAuthSecretKeyStrgKey(key), this.vaultKey);
     return secretKey;
@@ -887,6 +982,8 @@ function getMainDerivationPath(walletType: WalletType, accIndex: number) {
     walletTypeIndex = 0;
   } else if (walletType === WalletType.OffChain) {
     walletTypeIndex = 1;
+  } else if (walletType === WalletType.Guardian) {
+    walletTypeIndex = 2;
   } else {
     throw new Error('Invalid wallet type');
   }
@@ -918,8 +1015,8 @@ async function withError<T>(errMessage: string, factory: (doThrow: () => void) =
     return await factory(() => {
       throw new Error('<stub>');
     });
-  } catch (err: any) {
-    console.error(`[Vault.withError] ${errMessage} - original error:`, err?.message, err?.stack?.slice(0, 500));
+  } catch (err: unknown) {
+    console.error(`[Vault.withError] ${errMessage} - original error:`, err);
     throw err instanceof PublicError ? err : new PublicError(errMessage);
   }
 }

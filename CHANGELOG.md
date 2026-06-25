@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.15.2 (2026-06-22)
+
+### Features
+
+* [FEATURE][all] **Custom-transaction support for Guardian accounts.** Guardian accounts can now co-sign arbitrary transaction requests, not just sends and note consumption: the multisig client builds a custom proposal from the request bytes, co-signs it through the Guardian, and reconstructs the executable `TransactionRequest` from the Guardian's advice. (#153)
+
+### Changes
+
+* [CHANGE][all] **Guardian now runs on the Miden 0.15 protocol line.** The OpenZeppelin Guardian client packages (`@openzeppelin/miden-multisig-client`, `@openzeppelin/guardian-client`) are pinned to `0.15.0-rc.0` (built against `@miden-sdk/miden-sdk ^0.15.0`), replacing the published `0.14.9` — which targets SDK `0.14.5` and trapped with `RuntimeError: memory access out of bounds` inside `MultisigClient.create()` when run on the wallet's 0.15 SDK (WASM ABI skew between the 0.14 client and the 0.15 SDK). Guardian account creation, note consumption, and sends now work end-to-end on 0.15. **Guardian currently requires devnet:** the hosted devnet Guardian runs the 0.15 server, while the testnet/production Guardian is still on the 0.14 server and is incompatible with the 0.15 client — until OpenZeppelin publishes a 0.15 Guardian server release. (#153)
+* [CHANGE][all] Bumped `@miden-sdk/miden-sdk` and `@miden-sdk/react` from `0.15.1` to `0.15.2` (and the matching `**/@miden-sdk/miden-sdk` resolution pin). `@miden-sdk/vite-plugin` stays at `0.14.11`. (#153)
+
+### Fixes
+
+* [FIX][all] Corrected the devnet Guardian endpoint host (`stg-guardian.openzeppelin.com` → `guardian-stg.openzeppelin.com`); the transposed hostname had no DNS record, so the default devnet Guardian URL never resolved. (#153)
+* [FIX][extension] Chrome package no longer bundles a second (single-threaded) Miden SDK WASM. `@openzeppelin/miden-multisig-client` imports the eager `@miden-sdk/miden-sdk` entry; the service-worker config already redirected that to the multi-threaded build, but the extension/front config did not — so the front bundle pulled in an extra ~15 MB single-threaded WASM. The front config now applies the same eager→`mt/lazy` alias, restoring the Chrome package to ~18 MB (was ~29 MB).
+
 ## 1.15.1 (2026-06-19)
 
 ### Changes
@@ -11,6 +27,7 @@
 
 ### Features
 
+* [FEATURE][all] Guardian integration. Adds Guardian-backed accounts (1-of-1 multisig with on-chain Guardian signature verification), onboarding create/import flows with a dedicated recovery-method screen that accepts a custom guardian URL, Settings → Guardian Settings with an on-chain switch-guardian proposal that re-registers post-switch state with the new endpoint, service-worker routing for Guardian transaction signing via `MultisigService`, frontend Guardian sync outside the WASM lock, and per-stage progress labels (`creating-proposal`, `signing-proposal`, `submitting`, `registering-guardian`) in the transaction modal.
 * [FEATURE][all] **Default auth scheme for new accounts switched from Falcon to ECDSA.** Existing accounts are unaffected — Miden seals the auth component at on-chain creation and can never rotate it, so any account previously created stays Falcon and continues signing with its existing keystore secret. Restore paths handle both schemes: mnemonic-only restore (`Vault.spawn`) probes the chain under each scheme to find the user's actual hdIndex=0 account; encrypted-file restore reads the new optional `authScheme` field on `WalletAccount` (legacy entries with no field default to Falcon, matching the historical default 1:1). Private-key import detects the scheme from the deserialized `AuthSecretKey` via the SDK's per-scheme accessor. New accounts created post-upgrade get ECDSA stamped into their `WalletAccount` record. Encrypted-file format change is purely additive — old files round-trip through restore as Falcon. (#229)
 
 ### Changes
@@ -25,6 +42,7 @@
 
 ### Fixes
 
+* [FIX][all] Guardian sync no longer leaks per-init web-client workers. `MultisigService.init` now reuses the shared `getMidenClient()` singleton instead of a throwaway `MidenClientInterface.create({})` client, and `getOrCreateMultisigService` coalesces concurrent init calls with an in-flight promise map so 3s sync ticks cannot stampede slow or failed initialization.
 * [FIX][mobile] Wallet creation no longer panics the WASM client on iOS/Android (`RefCell already borrowed` → poisoned instance → claims and balances silently dead). On mobile the front-end and wallet back-end share one direct-path (`useWorker: false`) SDK client, and the front-end's balance polling overlapped the wallet-creation syncs; `@miden-sdk/miden-sdk@0.15.0-alpha.7` restores the SDK-side call serialization that makes those overlaps queue instead of panic ([web-sdk#184](https://github.com/0xMiden/web-sdk/pull/184)).
 * [FIX][extension] The offscreen prover document now constructs the SDK's raw wasm-bindgen `WebClient` (prover-only — `createClient()` is never called) instead of the worker-shim wrapper. The wrapper forwarded every prove to its own method worker — a WASM instance whose rayon pool the offscreen document never initialized — and its implicit worker INIT performed a network round-trip against the SDK's default RPC endpoint, making local proving silently dependent on that endpoint being reachable and version-compatible. Proves now run on the offscreen document's own thread pool with no implicit network access (so local proving works offline), completing in ~5–6 s on a 10-core machine. Requires `@miden-sdk/miden-sdk` ≥ `0.15.0-alpha.6` (the explicit-prover fix in [web-sdk#182](https://github.com/0xMiden/web-sdk/pull/182)). Root-cause analysis in [web-sdk#180](https://github.com/0xMiden/web-sdk/issues/180#issuecomment-4686218893).
 

@@ -18,12 +18,36 @@ import {
   setHapticFeedbackSetting,
   isHapticFeedbackEnabled,
   setThemeSetting,
-  getThemeSetting
+  getThemeSetting,
+  isValidGuardianUrl
 } from './helpers';
 
 describe('settings helpers', () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  describe('isValidGuardianUrl', () => {
+    it('accepts https URLs', () => {
+      expect(isValidGuardianUrl('https://guardian.example.com')).toBe(true);
+      expect(isValidGuardianUrl('  https://guardian.example.com/path  ')).toBe(true);
+    });
+
+    it('accepts http only for localhost / 127.0.0.1', () => {
+      expect(isValidGuardianUrl('http://localhost:8080')).toBe(true);
+      expect(isValidGuardianUrl('http://127.0.0.1:3000')).toBe(true);
+    });
+
+    it('rejects plain http on non-localhost hosts (signatures must use TLS)', () => {
+      expect(isValidGuardianUrl('http://guardian.example.com')).toBe(false);
+    });
+
+    it('rejects malformed / non-http(s) input', () => {
+      expect(isValidGuardianUrl('')).toBe(false);
+      expect(isValidGuardianUrl('not-a-url')).toBe(false);
+      expect(isValidGuardianUrl('ftp://guardian.example.com')).toBe(false);
+      expect(isValidGuardianUrl('guardian.example.com')).toBe(false);
+    });
   });
 
   describe('delegate proof setting', () => {
