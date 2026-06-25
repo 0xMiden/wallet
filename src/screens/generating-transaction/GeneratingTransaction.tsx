@@ -29,6 +29,7 @@ import { navigate } from 'lib/woozie';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { TransactionSuccess } from './TransactionSuccess';
+import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
 
 /**
  * Picks the transaction whose stage the modal should display. Prefers the
@@ -266,6 +267,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           keepOpen={keepOpen}
           activeStage={activeStage}
           activeType={activeType}
+          activeTransaction={active ?? receiptTransaction}
           completedTransaction={receiptTransaction}
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
@@ -284,6 +286,8 @@ export interface GeneratingTransactionProps {
   activeStage?: ITransactionStage;
   /** Type of the tx currently being processed (for type-specific labels). */
   activeType?: ITransactionType;
+  /** The in-flight tx, used by the summary badge under the title. */
+  activeTransaction?: ITransaction;
   /** Last transaction shown before the queue completed, used by the success receipt. */
   completedTransaction?: ITransaction;
   /** On-chain hash for the completed transaction receipt. */
@@ -305,13 +309,13 @@ const STEP_ADVANCE_DELAY_MS = 1_250;
 const TRANSACTION_STEPS = [
   {
     id: 'guardian-approving',
-    labelKey: 'transactionStepGuardianApproving',
-    defaultLabel: 'Guardian approving'
+    labelKey: 'transactionStepGuardianApproved',
+    defaultLabel: 'Guardian approved'
   },
   {
     id: 'generating-proof',
-    labelKey: 'transactionStepGeneratingProof',
-    defaultLabel: 'Generating proof'
+    labelKey: 'transactionStepProofGenerated',
+    defaultLabel: 'Proof generated'
   },
   {
     id: 'submitting',
@@ -338,14 +342,6 @@ const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
   return 3;
 };
 
-const getTransactionProgress = (activeStepIndex: number, transactionComplete: boolean): number => {
-  if (transactionComplete) {
-    return 100;
-  }
-
-  return Math.min(92, Math.round(((activeStepIndex + 0.6) / TRANSACTION_STEPS.length) * 100));
-};
-
 const getTransactionStepState = (
   index: number,
   activeStepIndex: number,
@@ -370,7 +366,7 @@ const TransactionHeroIcon: React.FC<{ state: 'processing' | 'complete' | 'failed
 
   return (
     <motion.div
-      className="flex size-32 items-center justify-center"
+      className="flex size-[120px] items-center justify-center"
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={entranceTransition}
@@ -394,12 +390,12 @@ const TransactionHeroIcon: React.FC<{ state: 'processing' | 'complete' | 'failed
           <path d="M53 72L65 84L90 59" stroke="white" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ) : (
-        <svg viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <rect width="128" height="128" rx="30" fill={PROCESSING_ORANGE} />
-          <circle cx="64" cy="64" r="27" stroke="rgba(255,255,255,0.22)" strokeWidth="16" />
+        <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="60" cy="60" r="60" fill={PROCESSING_ORANGE} />
+          <circle cx="60" cy="60" r="27" stroke="rgba(255,255,255,0.22)" strokeWidth="16" />
           <motion.circle
-            cx="64"
-            cy="64"
+            cx="60"
+            cy="60"
             r="27"
             stroke="white"
             strokeWidth="16"
@@ -407,9 +403,9 @@ const TransactionHeroIcon: React.FC<{ state: 'processing' | 'complete' | 'failed
             strokeDasharray="56 170"
             animate={reduceMotion ? undefined : { rotate: 360 }}
             transition={reduceMotion ? undefined : { duration: 1.4, ease: 'linear', repeat: Infinity }}
-            style={{ transformOrigin: '64px 64px' }}
+            style={{ transformOrigin: '60px 60px' }}
           />
-          <circle cx="64" cy="64" r="19" fill={PROCESSING_ORANGE} />
+          <circle cx="60" cy="60" r="19" fill={PROCESSING_ORANGE} />
         </svg>
       )}
     </motion.div>
@@ -503,13 +499,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   keepOpen,
   activeStage,
   activeType,
+  activeTransaction,
   completedTransaction,
   completedTxHash,
   onViewExplorer
 }) => {
   const { t } = useTranslation();
-  const progressTransition = useMotion({ duration: 0.45, ease: easings.easeOutCubic });
   const rowTransition = useMotion(springs.snappy);
+  const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
 
   /**
    * Stage label picks up the tx type so a claim flow reads "Claiming
@@ -576,8 +573,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     return t('doNotCloseWindowAutoClose');
   }, [keepOpen, t]);
 
+  // During processing the title is type-based ("Sending Payment") rather than
+  // stage-based, matching the redesign. Only `send` has a bespoke title today;
+  // other types fall back to the generic label.
+  const processingTitleKey = activeType === 'send' ? 'transactionTitleSend' : 'generatingTransaction';
+  const visibleTitle = transactionComplete ? headerText() : t(processingTitleKey);
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
-  const visibleTitle = transactionComplete ? headerText() : t('generatingTransaction');
   const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');
   const targetStepIndex = transactionComplete ? TRANSACTION_STEPS.length : getActiveTransactionStepIndex(activeStage);
   const targetVisibleStepIndex = transactionComplete
@@ -585,7 +586,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     : Math.min(targetStepIndex, TRANSACTION_STEPS.length - 1);
   const [visibleStepIndex, setVisibleStepIndex] = useState(transactionComplete ? TRANSACTION_STEPS.length : 0);
   const activeStepIndex = transactionComplete ? TRANSACTION_STEPS.length : visibleStepIndex;
-  const currentProgress = getTransactionProgress(activeStepIndex, transactionComplete);
   const heroState = transactionComplete ? (hasErrors ? 'failed' : 'complete') : 'processing';
   const actionTitle = transactionComplete ? t('done') : t('hide');
 
@@ -629,31 +629,24 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         <section className="flex w-full flex-1 flex-col items-center justify-center pt-11">
           <TransactionHeroIcon state={heroState} />
 
-          <h2 className="mt-4 w-full px-1 text-center text-[32px] font-semibold leading-[1.16] text-heading-gray">
+          <h2 className="mt-6 w-full px-1 text-center font-heading text-[32px] font-bold leading-[1.16] text-heading-gray">
             {visibleTitle}
           </h2>
 
-          <div className="mt-4 h-1 w-65 overflow-hidden rounded-xs bg-[#EEEEF0]">
-            <motion.div
-              role="progressbar"
-              aria-label={processingTitle}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={currentProgress}
-              className="h-full rounded-xs bg-primary-500"
-              initial={false}
-              animate={{ width: `${currentProgress}%` }}
-              transition={progressTransition}
-            />
-          </div>
+          {transactionSummaryBadgeContent && (
+            <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-6" />
+          )}
 
-          <div className="mt-5 flex flex-col gap-4">
+          <div className="mt-6 w-full overflow-hidden rounded-2xl border border-border-faint bg-surface-solid">
             {TRANSACTION_STEPS.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
                 <motion.div
                   key={step.id}
-                  className="flex items-center gap-2.5"
+                  className={classNames(
+                    'flex items-center gap-3 px-4 py-3.5',
+                    index < TRANSACTION_STEPS.length - 1 && 'border-b border-border-faint'
+                  )}
                   data-transaction-step={step.id}
                   data-state={state}
                   layout
@@ -662,12 +655,17 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                   <StatusIndicator state={state} />
                   <span
                     className={classNames(
-                      'min-w-0 text-base leading-none font-medium',
-                      state === 'pending' ? 'text-[#C7C7CC]' : ''
+                      'min-w-0 flex-1 text-base font-semibold leading-none',
+                      state === 'pending' ? 'text-[#C7C7CC]' : 'text-heading-gray'
                     )}
                   >
                     {t(step.labelKey, { defaultValue: step.defaultLabel })}
                   </span>
+                  {/*
+                    Right-side meta slot (measured per-step duration / bridge
+                    provider — e.g. "2 sec" / "via Epoch") is intentionally
+                    deferred. See CLAUDE.md → "Transaction summary badge".
+                  */}
                 </motion.div>
               );
             })}
