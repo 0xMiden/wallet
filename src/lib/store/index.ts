@@ -733,7 +733,13 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       ]);
       const service = await getOrCreateMultisigService(accountPublicKey, zustandProvider);
       try {
-        await service.sync(); // refresh on-chain state before reading
+        // Best-effort refresh of on-chain state before reading. service.sync()
+        // takes the global WASM lock; on mobile the background sync can hold it
+        // for tens of seconds, which would blow the 30s execute_async_script
+        // budget the iOS bridge runs this under. Cap the wait — the auth
+        // structure (signers + procedure thresholds) is immutable during this
+        // assertion, so a slightly stale local read is still correct.
+        await Promise.race([service.sync(), new Promise<void>(resolve => setTimeout(resolve, 8_000))]);
       } catch {
         // best-effort — fall back to last-synced state
       }

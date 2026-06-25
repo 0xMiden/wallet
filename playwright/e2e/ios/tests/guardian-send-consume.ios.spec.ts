@@ -69,6 +69,21 @@ test.describe('Guardian account - consume + send', () => {
       }
     );
 
+    await steps.step('verify_guardian_auth_structure_a', async () => {
+      // First on-chain AUTH assertion in the iOS harness (mirrors the Chrome
+      // spec): a 3-key Guardian account must carry two signers ([hot, cold])
+      // and the `update_guardian` procedure hardened to threshold 2 — both set
+      // at creation. Runs after the consume has committed the account so the
+      // cached MultisigService read reflects the on-chain shape. The read goes
+      // through the async CDP atom (the hook awaits a time-bounded sync), which
+      // CDP can see — unlike the native navbar, which is why this is a WebView
+      // read rather than a UI check.
+      const auth = await walletA.getGuardianAuthInfo(addressA!);
+      expect(auth.error, `guardian auth read failed: ${auth.error}`).toBeUndefined();
+      expect(auth.signerCommitments.length, 'fresh 3-key account should have 2 signers (hot, cold)').toBe(2);
+      expect(auth.procedureThresholds.update_guardian, 'update_guardian must be hardened to threshold 2').toBe(2);
+    });
+
     await steps.step(
       'send_guardian_a_to_b',
       async () => {
