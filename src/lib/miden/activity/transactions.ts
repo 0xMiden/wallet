@@ -189,9 +189,12 @@ export const initiateConsumeTransactionFromId = async (
 export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  // Background/auto-consume: routed through the cold key on Guardian accounts so
+  // a silent claim doesn't trigger a biometric prompt (see generateGuardianTransaction).
+  background?: boolean
 ): Promise<string> => {
-  const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
+  const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction, background);
   // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
   // Reason: getConsumableNotes() can still return a note for a short window after a local
   // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
@@ -929,6 +932,29 @@ export const generateTransaction = async (
 };
 
 /**
+ * Build a transient cold-bound MultisigService for `accountId`. Cold signing
+ * goes through the SDK keystore (not the SE/StrongBox-wrapped hot key), so it
+ * never triggers a biometric prompt — used for background/auto-consume.
+ */
+const buildColdServiceForAccount = async (
+  accountId: string,
+  guardianProvider: GuardianAccountProvider
+): Promise<MultisigService> => {
+  const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === accountId);
+  if (!walletAccount) {
+    throw new Error(`Guardian account ${accountId} not found in provider`);
+  }
+  const sdkAccount = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    return midenClient.getAccount(accountId);
+  });
+  if (!sdkAccount) {
+    throw new Error(`Guardian account ${accountId} not found in local client`);
+  }
+  return MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+};
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -965,7 +991,14 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      // Background/auto-consume signs with the COLD key so it doesn't pop a
+      // biometric prompt: consuming a note is value-in (claims an incoming note
+      // into your own vault — it can't move funds out), so it needs no user
+      // presence, and threshold-1 means cold + guardian satisfies it on-chain.
+      // User-initiated claims stay hot-bound (tap-to-confirm biometric on mobile).
+      service = consumeTx.background
+        ? await buildColdServiceForAccount(transaction.accountId, guardianProvider)
+        : await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       proposalResult = await service.createConsumeNotesProposal([consumeTx.noteId]);
       break;
     }

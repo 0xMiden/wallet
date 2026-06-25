@@ -183,8 +183,12 @@ export class ConsumeTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  // Background/auto-consume (vs. a user-initiated claim). Guardian accounts use
+  // this to route the signature through the cold key, avoiding a biometric
+  // prompt for a silent background claim — see generateGuardianTransaction.
+  background?: boolean;
 
-  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean) {
+  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean, background?: boolean) {
     this.id = uuid();
     this.type = 'consume';
     this.accountId = accountId;
@@ -197,6 +201,7 @@ export class ConsumeTransaction implements ITransaction {
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
+    this.background = background;
   }
 }
 
