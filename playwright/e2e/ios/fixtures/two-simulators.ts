@@ -15,7 +15,7 @@ import type {
   SnapshotCaps,
 } from '../../harness/types';
 import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
-import { CdpBridge, type CdpSession } from '../helpers/cdp-bridge';
+import { CdpBridge, type CdpSession, isCdpNoPagesError } from '../helpers/cdp-bridge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
 import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-control';
 
@@ -186,7 +186,11 @@ async function setupBothWallets(
   envConfig: EnvironmentConfig,
   timeline: TimelineRecorder
 ): Promise<{ instanceA: SimWalletInstance; instanceB: SimWalletInstance }> {
-  const MAX_ATTEMPTS = 2;
+  // 3 attempts = up to 2 daemon-restart recoveries. The macos-26 wedge has been
+  // observed to survive a single recovery, so give it one more shot before
+  // failing the test (each wedged attempt fails fast at its simctl/CDP timeout,
+  // not the 15-min test timeout, so the extra attempt is cheap).
+  const MAX_ATTEMPTS = 3;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let instanceA: SimWalletInstance | undefined;
     let instanceB: SimWalletInstance | undefined;
@@ -200,14 +204,19 @@ async function setupBothWallets(
       // Drop any half-open CDP sockets from this attempt before recovering.
       await instanceA?.cdp.close().catch(() => undefined);
       await instanceB?.cdp.close().catch(() => undefined);
-      if (isSimctlTimeoutError(err) && attempt < MAX_ATTEMPTS) {
+      // Both signatures point at the same wedged macos-26 sim subsystem: a
+      // hung `simctl` call, or webinspectord exposing no WebViews (CDP blind).
+      // recoverSimSubsystem fixes both (restart CoreSimulatorService + relaunch
+      // Simulator.app so webinspectord re-exposes WebViews + re-boot devices).
+      if ((isSimctlTimeoutError(err) || isCdpNoPagesError(err)) && attempt < MAX_ATTEMPTS) {
         timeline.emit({
           category: 'test_lifecycle',
           severity: 'warn',
           message:
-            `[sim-recovery] ${err.message} — CoreSimulatorService looks wedged; ` +
-            `restarting it + re-booting both devices, then retrying wallet setup ` +
-            `(attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
+            `[sim-recovery] ${err.message} — sim subsystem looks wedged ` +
+            `(simctl hang or no inspectable WebViews); restarting ` +
+            `CoreSimulatorService + re-booting both devices, then retrying wallet ` +
+            `setup (attempt ${attempt + 1}/${MAX_ATTEMPTS})`,
         });
         await SimulatorControl.recoverSimSubsystem([udidA, udidB]);
         continue;
