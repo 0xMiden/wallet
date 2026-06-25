@@ -1,9 +1,4 @@
-import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
-
-import classNames from 'clsx';
-import { createPortal } from 'react-dom';
-import { useTranslation } from 'react-i18next';
-import Modal from 'react-modal';
+import { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   hasQueuedTransactions,
@@ -13,28 +8,28 @@ import {
   getFailedTransactions,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { getExplorerTxUrl } from 'lib/miden-chain/constants';
-import { openExternalUrl } from 'lib/mobile/external-browser';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, type WalletNotification } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { useLocation } from 'lib/woozie';
-import { GeneratingTransaction } from 'screens/generating-transaction/GeneratingTransaction';
 
+/**
+ * Headless transaction-queue driver. Despite the legacy name, this renders
+ * NOTHING — the progress modal was removed by request. It stays mounted for
+ * the app's lifetime (see `provider.tsx`) and drives the transaction loop on
+ * platforms without a service worker, recovering orphaned txs and processing
+ * the queue while `isProcessing` is set. Send/claim/guardian flows still call
+ * `openTransactionModal()`; that only flips `isOpen`, which kicks the loop.
+ */
 export const TransactionProgressModal: FC = () => {
-  const { t } = useTranslation();
   // Use Zustand store for modal state
   const isOpen = useWalletStore(state => state.isTransactionModalOpen);
   const openModal = useWalletStore(state => state.openTransactionModal);
   const closeModal = useWalletStore(state => state.closeTransactionModal);
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
-
-  useHideNavbarWhileOpen(isOpen);
 
   const { signTransaction } = useMidenContext();
   const [error, setError] = useState(false);
@@ -300,7 +295,6 @@ export const TransactionProgressModal: FC = () => {
     return () => clearTimeout(timer);
   }, [isOpen]);
 
-  const progress = transactions.length > 0 ? (1 / transactions.length) * 80 : 0;
   // Only show complete if we've loaded AND there are no transactions
   const transactionComplete = hasLoadedOnce && transactions.length === 0;
   // hasErrors must reflect both the local error state (raised on the
@@ -346,81 +340,12 @@ export const TransactionProgressModal: FC = () => {
     }
   }, [isOpen, graceElapsed, pathname, handleClose, transactionComplete, hasErrors, lastCompletedTxHash]);
 
-  const explorerUrl = lastCompletedTxHash ? getExplorerTxUrl(lastCompletedTxHash) : undefined;
-  const onViewExplorer = useCallback(() => {
-    if (!explorerUrl) return;
-    openExternalUrl({ url: explorerUrl, title: 'Midenscan' });
-  }, [explorerUrl]);
-
-  // Active-stage pickup: prefer the tx currently executing, else head of
-  // queue so "Syncing" shows up instantly when the SW hasn't started on
-  // the new tx yet. Matches the picker used by GeneratingTransactionPage.
-  const activeTx = transactions.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? transactions[0];
-  const activeStage = activeTx?.stage;
-  const activeType = activeTx?.type;
-  const remainingCount = transactions.length;
-
-  if (!isOpen) {
-    return null;
-  }
-
-  // Get or create a dedicated container for this modal
-  let modalRoot = document.getElementById('transaction-modal-root');
-  if (!modalRoot) {
-    modalRoot = document.createElement('div');
-    modalRoot.id = 'transaction-modal-root';
-    document.body.appendChild(modalRoot);
-  }
-
-  // Use portal to render modal in dedicated container, avoiding conflicts with other modals.
-  //
-  // The overlay is rendered click-through (`pointer-events-none`); the
-  // content opts back in (`pointer-events-auto`). The backdrop is a
-  // visual cue, not a click trap — the underlying UI keeps receiving
-  // clicks while a transaction is in flight, so the user (or a test
-  // harness) can navigate, start another send, etc. without waiting for
-  // this modal to dismiss. Processing already runs independently of
-  // `isOpen` (see the `isProcessing` flag above), so the modal has no
-  // reason to freeze the rest of the wallet.
-  //
-  // `shouldCloseOnOverlayClick` is `false` because clicks no longer
-  // reach the overlay — dismissal is via the explicit Hide/Done button
-  // or the ESC key.
-  return createPortal(
-    <Modal
-      isOpen={isOpen}
-      onRequestClose={handleClose}
-      shouldCloseOnOverlayClick={false}
-      className={classNames('w-full max-w-lg outline-none flex flex-col items-stretch gap-6 pointer-events-auto')}
-      overlayClassName="fixed inset-0 bg-pure-white/10 dark:bg-pure-black/50 backdrop-blur-xl backdrop-saturate-150 flex items-center justify-center px-4 pointer-events-none"
-      style={{
-        overlay: { zIndex: 9999 },
-        content: { position: 'relative', inset: 'unset', zIndex: 9999 }
-      }}
-      appElement={modalRoot}
-      parentSelector={() => modalRoot!}
-      ariaHideApp={false}
-    >
-      <div className="bg-surface-solid rounded-3xl overflow-hidden">
-        <GeneratingTransaction
-          progress={progress}
-          onDoneClick={handleClose}
-          transactionComplete={transactionComplete}
-          hasErrors={hasErrors}
-          failedCount={sessionFailedCount}
-          activeStage={activeStage}
-          activeType={activeType}
-          remainingCount={remainingCount}
-          onViewExplorer={explorerUrl ? onViewExplorer : undefined}
-        />
-      </div>
-      <button
-        className="w-full rounded-2xl bg-primary-500 text-pure-white font-semibold text-base h-12"
-        onClick={handleClose}
-      >
-        {transactionComplete ? t('done') : t('hide')}
-      </button>
-    </Modal>,
-    modalRoot
-  );
+  // This component renders no UI on any platform. It stays mounted purely as
+  // the headless driver of the transaction queue — the `resumeIfNeeded`
+  // recovery and the `isProcessing` loop above keep send/claim/guardian txs
+  // processing to completion. The progress modal was removed by request;
+  // `openTransactionModal()` is still called by those flows only to start the
+  // processing loop (it sets `isOpen`, which gates `isProcessing`). Progress
+  // is surfaced elsewhere (inline states / the `/generating-transaction` page).
+  return null;
 };
