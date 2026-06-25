@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.3 (TBD)
+
+### Fixes
+
+* [FIX][all] **Guardian co-sign transactions are now serialized per account.** The Guardian co-signs one delta per account at a time, so concurrent same-account transactions (e.g. auto-consume racing a user claim, or rapid successive claims) made the Guardian's expected commitment diverge from on-chain — stalling its canonicalization for minutes and returning `409 ConflictPendingDelta` while a prior delta was still finalizing, which surfaced as a Guardian claim/send that never completes. Guardian transactions now take a per-account lock so at most one is ever in flight, and proposal creation waits out a transient `409` (a prior delta mid-canonicalization) instead of failing the transaction. (#297)
+
 ## 1.15.2 (2026-06-22)
 
 ### Features
