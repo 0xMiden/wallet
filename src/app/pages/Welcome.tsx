@@ -5,7 +5,7 @@ import wordslist from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
-import { canHandoffToSidePanel, closeOnboardingTab, openSidePanelToWallet } from 'lib/extension/side-panel-handoff';
+import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { putToStorage } from 'lib/miden/front/storage';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -92,7 +92,7 @@ const Welcome: FC = () => {
   // ready wallet (sidePanel.open() needs that click's live gesture). Disabled
   // under E2E and on non-Chrome — those keep the classic click-to-create flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
-  const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'ready' | 'failed'>('idle');
+  const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
 
   // Check hardware security availability on mount
   useEffect(() => {
@@ -182,8 +182,12 @@ const Welcome: FC = () => {
     (async () => {
       try {
         await register();
-        await waitForReadyState(syncFromBackend);
-        setConfirmPhase('ready');
+        trackEvent('confirmation', AnalyticsEventCategory.FormSubmit, {});
+        // Move to the dedicated handoff route, which survives the Ready
+        // transition and shows the "Open wallet" button. Crucially we do NOT
+        // waitForReadyState here — pushing Ready into the store first would
+        // route this tab to the wallet home before we navigate.
+        navigate('/finish-side-panel');
       } catch (error) {
         // Fall back to the classic click-to-create flow: the confirmation
         // button reverts to running register() in-tab on the next tap.
@@ -291,27 +295,11 @@ const Welcome: FC = () => {
         setGuardianLookupError(false);
         navigate('/#confirmation');
         break;
-      case 'confirmation': {
-        // Side panel handoff (Chrome): the wallet was already created by the
-        // auto-create effect, so this "Open wallet" click just opens the side
-        // panel onto the ready wallet and closes the onboarding tab — within
-        // the click's live gesture, which sidePanel.open() requires.
-        if (sidePanelHandoff && confirmPhase === 'ready') {
-          eventCategory = AnalyticsEventCategory.FormSubmit;
-          trackEvent(action.id, eventCategory, eventProperties);
-          const opened = await openSidePanelToWallet();
-          if (opened) {
-            // tabs.remove() destroys this page; the event already fired above.
-            const closed = await closeOnboardingTab();
-            if (!closed) navigate('/');
-          } else {
-            navigate('/'); // open failed → fall back to the in-tab wallet
-          }
-          return;
-        }
-
-        // Classic flow: non-Chrome, hardware/biometric, or a handoff retry
-        // after auto-create failed. This click runs creation, then enters in-tab.
+      case 'confirmation':
+        // Side panel handoff (Chrome) creates the wallet in the auto-create
+        // effect above and navigates to /finish-side-panel, so this click only
+        // runs in the classic flow: non-Chrome, hardware/biometric, or a retry
+        // after a failed auto-create. It creates the wallet then enters in-tab.
         try {
           setIsLoading(true);
           setBiometricError(null);
@@ -336,7 +324,6 @@ const Welcome: FC = () => {
           }
         }
         break;
-      }
       case 'switch-to-password':
         // User chose to use password after biometric failures
         setUseBiometric(false);
@@ -463,7 +450,6 @@ const Welcome: FC = () => {
       biometricError={biometricError}
       guardianLookupError={guardianLookupError}
       confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
-      isSidePanelHandoff={sidePanelHandoff && confirmPhase === 'ready'}
       onBiometricChange={setUseBiometric}
       onAction={onAction}
     />

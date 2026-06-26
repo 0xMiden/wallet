@@ -19,8 +19,6 @@ export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTML
    * ready-state success message + button.
    */
   creating?: boolean;
-  /** Side panel handoff: the primary button opens the panel ("Open wallet"). */
-  isHandoff?: boolean;
   onSubmit?: () => void;
   onSwitchToPassword?: () => void;
 }
@@ -31,7 +29,6 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   biometricAttempts = 0,
   biometricError,
   creating = false,
-  isHandoff = false,
   onSubmit,
   onSwitchToPassword,
   ...props
@@ -52,7 +49,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
     );
   }
 
-  const primaryButtonTitle = hasError ? t('retry') : isHandoff ? t('openWallet') : t('getStarted');
+  const primaryButtonTitle = hasError ? t('retry') : t('getStarted');
 
   return (
     <div className="w-full h-full pt-11.5">
