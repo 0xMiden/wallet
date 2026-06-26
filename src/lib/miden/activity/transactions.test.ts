@@ -14,6 +14,7 @@ import {
   initiateSendTransaction,
   initiateConsumeTransaction,
   initiateConsumeTransactionFromId,
+  initiateUpdateProcedureThresholdTransaction,
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
   generateTransaction,
@@ -606,6 +607,22 @@ describe('transactions utilities', () => {
 
       expect(mockTransactionsAdd).toHaveBeenCalled();
       expect(typeof result).toBe('string');
+    });
+  });
+
+  describe('initiateUpdateProcedureThresholdTransaction', () => {
+    it('rejects when the account is not a Guardian account', async () => {
+      // Empty getAccounts() → isGuardianAccount short-circuits to false, so the
+      // procedure-threshold hardening tx is rejected up front.
+      const guardianProvider = {
+        getAccounts: async () => [],
+        getPublicKeyForCommitment: async () => '',
+        signWord: async () => ''
+      } as never;
+
+      await expect(
+        initiateUpdateProcedureThresholdTransaction('acc-x', 'update_guardian', 2, false, guardianProvider)
+      ).rejects.toThrow('only supported for Guardian accounts');
     });
   });
 

@@ -227,6 +227,29 @@ describe('MultisigService', () => {
       expect(multisig.createConsumeNotesProposal).toHaveBeenCalledWith(['n1', 'n2']);
       expect(proposal).toEqual({ kind: 'consume' });
     });
+
+    it('createUpdateProcedureThresholdProposal forwards the procedure and threshold', async () => {
+      const createUpdateFn = jest.fn(async () => ({ kind: 'update-threshold' }));
+      const multisig = makeMultisig({ createUpdateProcedureThresholdProposal: createUpdateFn });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      const proposal = await service.createUpdateProcedureThresholdProposal('update_guardian', 2);
+
+      expect(createUpdateFn).toHaveBeenCalledWith('update_guardian', 2);
+      expect(proposal).toEqual({ kind: 'update-threshold' });
+    });
+
+    it('createCustomProposal forwards request bytes and proposal type', async () => {
+      const createCustomFn = jest.fn(async () => ({ kind: 'custom' }));
+      const multisig = makeMultisig({ createCustomProposal: createCustomFn });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const bytes = new Uint8Array([1, 2, 3]);
+
+      const proposal = await service.createCustomProposal(bytes, 'my-type');
+
+      expect(createCustomFn).toHaveBeenCalledWith(bytes, 'my-type');
+      expect(proposal).toEqual({ kind: 'custom' });
+    });
   });
 
   describe('signing helpers', () => {
@@ -252,6 +275,17 @@ describe('MultisigService', () => {
       expect(multisig.signProposal).toHaveBeenCalledWith('p-2');
       expect(multisig.createTransactionProposalRequest).toHaveBeenCalledWith('p-2');
       expect(tx).toBe('tx-req');
+    });
+
+    it('signAndCreateTransactionRequest rejects a custom proposal with no request bytes', async () => {
+      const multisig = makeMultisig({
+        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'custom' } }))
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.signAndCreateTransactionRequest('p-custom')).rejects.toThrow(
+        'Request Bytes are required for custom execution'
+      );
     });
 
     it('getConsumableNotes forwards to the wrapped Multisig', async () => {
