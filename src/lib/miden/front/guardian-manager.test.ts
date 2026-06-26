@@ -21,7 +21,11 @@ jest.mock('./storage', () => ({
 
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args)
+  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args),
+  // Mirror the real resolver: prefer the per-account endpoint, else the stored
+  // global key (driven by mockFetchFromStorage), else the default.
+  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+    acc.guardianEndpoint ?? (await mockFetchFromStorage('guardian_url_setting')) ?? 'https://default.guardian.test'
 }));
 
 const mockGetAccount = jest.fn();
@@ -91,7 +95,9 @@ describe('guardian-manager', () => {
         expect.anything(),
         `0x${HOT_PK}`,
         '0xabc',
-        provider.signWord
+        provider.signWord,
+        // The resolved per-account endpoint is now passed through to init.
+        'https://default.guardian.test'
       );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
@@ -134,6 +140,27 @@ describe('guardian-manager', () => {
 
       expect(result).toBe(secondService);
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses the per-account guardianEndpoint over the global key (multi-account isolation)', async () => {
+      // Two Guardian accounts on different operators must not collide: the one
+      // carrying its own endpoint binds to it regardless of the global key.
+      const service = { guardianEndpoint: 'https://per-account.guardian', tag: 'isolated' };
+      mockMultisigServiceInit.mockResolvedValueOnce(service);
+      const provider = makeProvider([{ ...guardianAccount, guardianEndpoint: 'https://per-account.guardian' }]);
+
+      const result = await getOrCreateMultisigService(GUARDIAN_PK, provider);
+
+      expect(result).toBe(service);
+      expect(mockMultisigServiceInit).toHaveBeenCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        'https://per-account.guardian'
+      );
+      // The per-account field short-circuits the global-key lookup.
+      expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });
 
     it('coalesces concurrent service initialization for the same account', async () => {

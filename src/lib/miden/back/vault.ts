@@ -376,6 +376,7 @@ export class Vault {
         hdIndex: number;
         authScheme: AuthScheme;
         guardianKeys?: CreatedGuardianKeys;
+        guardianEndpoint?: string;
         recoveredCold?: { coldPublicKey: string; coldSecretKeyHex: string };
       };
 
@@ -394,18 +395,31 @@ export class Vault {
           hdIndex: r.hdIndex,
           // Guardian accounts are always ECDSA under the 3-key model.
           authScheme: NEW_ACCOUNT_AUTH_SCHEME,
+          // Recovery is scoped to a single operator endpoint, so every adopted
+          // account is registered with the same `guardianEndpoint` we looked up against.
+          guardianEndpoint,
           recoveredCold: { coldPublicKey: r.coldPublicKey, coldSecretKeyHex: r.coldSecretKeyHex }
         }));
       } else {
         console.log('[Vault.spawn] Step 7b: acquiring WASM client lock for create/import path...');
         const created = await withWasmClientLock(
-          async (): Promise<{ accountId: string; accAuthScheme: AuthScheme; guardianKeys?: CreatedGuardianKeys }> => {
+          async (): Promise<{
+            accountId: string;
+            accAuthScheme: AuthScheme;
+            guardianKeys?: CreatedGuardianKeys;
+            guardianEndpoint?: string;
+          }> => {
             if (walletType === WalletType.Guardian) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await midenClient.syncState();
               const result = await midenClient.createGuardianMidenWallet(walletSeed);
               // Guardian accounts are always ECDSA under the 3-key model.
-              return { accountId: result.accountId, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME, guardianKeys: result.keys };
+              return {
+                accountId: result.accountId,
+                accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME,
+                guardianKeys: result.keys,
+                guardianEndpoint: result.guardianEndpoint
+              };
             }
 
             if (ownMnemonic && midenClient.network !== 'mock') {
@@ -439,7 +453,8 @@ export class Vault {
             accountId: created.accountId,
             hdIndex: hdAccIndex,
             authScheme: created.accAuthScheme,
-            guardianKeys: created.guardianKeys
+            guardianKeys: created.guardianKeys,
+            guardianEndpoint: created.guardianEndpoint
           }
         ];
       }
@@ -451,6 +466,7 @@ export class Vault {
         type: walletType,
         hdIndex: c.hdIndex,
         authScheme: c.authScheme,
+        ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
         ...(c.guardianKeys && {
           hotPublicKey: c.guardianKeys.hotPublicKey,
           coldPublicKey: c.guardianKeys.coldPublicKey
@@ -645,6 +661,7 @@ export class Vault {
         async (): Promise<{
           accountId: string;
           guardianKeys?: CreatedGuardianKeys;
+          guardianEndpoint?: string;
         }> => {
           console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
           const midenClient = await getMidenClient(options);
@@ -653,7 +670,11 @@ export class Vault {
           if (walletType === WalletType.Guardian) {
             console.log('[Vault.createHDAccount] Step 8: createGuardianMidenWallet');
             const result = await midenClient.createGuardianMidenWallet(walletSeed);
-            return { accountId: result.accountId, guardianKeys: result.keys };
+            return {
+              accountId: result.accountId,
+              guardianKeys: result.keys,
+              guardianEndpoint: result.guardianEndpoint
+            };
           }
 
           if (isOwnMnemonic && walletType === WalletType.OnChain) {
@@ -683,6 +704,7 @@ export class Vault {
         isPublic: walletType === WalletType.OnChain,
         hdIndex: hdAccIndex,
         authScheme: newScheme,
+        ...(created.guardianEndpoint && { guardianEndpoint: created.guardianEndpoint }),
         ...(created.guardianKeys && {
           hotPublicKey: created.guardianKeys.hotPublicKey,
           coldPublicKey: created.guardianKeys.coldPublicKey
@@ -895,6 +917,29 @@ export class Vault {
         await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)]);
       }
 
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
+   * Persist a per-account guardian endpoint after a switch-guardian lands, so
+   * runtime endpoint resolution (and the next service init) point at the new
+   * operator. Returns the updated accounts so the caller can broadcast
+   * `accountsUpdated` — without that the Effector snapshot keeps the stale
+   * endpoint and the popup rebuilds a service against the old guardian.
+   */
+  async setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
+    return withError('Failed to set guardian endpoint', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, guardianEndpoint } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
       const currentAccount = await this.getCurrentAccount();
       return { accounts: newAllAccounts, currentAccount };
     });

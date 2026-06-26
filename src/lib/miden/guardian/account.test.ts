@@ -7,7 +7,12 @@
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
 
-import { createGuardianAccount, getSignerDetailsFromAccount, MULTISIG_SLOT_NAMES } from './account';
+import {
+  createGuardianAccount,
+  getSignerDetailsFromAccount,
+  MULTISIG_SLOT_NAMES,
+  resolveGuardianEndpoint
+} from './account';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -245,6 +250,9 @@ describe('createGuardianAccount', () => {
       hotCiphertext: 'hot-ciphertext-hex',
       coldSecretKeyHex: expect.any(String)
     });
+    // Endpoint is returned so vault can persist it per-account. No stored URL
+    // here (beforeEach stubs undefined), so it falls back to the default.
+    expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
   it('generates a random seed when none is provided', async () => {
@@ -275,12 +283,14 @@ describe('createGuardianAccount', () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
-    await createGuardianAccount(webClient as never, new Uint8Array(32));
+    const result = await createGuardianAccount(webClient as never, new Uint8Array(32));
 
     // When storage yields a URL, create still succeeds — the URL propagation
     // goes through MultisigClient's constructor which we stubbed, so the
     // useful signal is that fetchFromStorage was consulted.
     expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+    // And the stored URL is returned for per-account persistence.
+    expect(result.guardianEndpoint).toBe('https://stored.guardian');
   });
 
   it('prefers the explicit override over storage and default', async () => {
@@ -288,10 +298,16 @@ describe('createGuardianAccount', () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
-    await createGuardianAccount(webClient as never, new Uint8Array(32), false, 'https://override.guardian');
+    const result = await createGuardianAccount(
+      webClient as never,
+      new Uint8Array(32),
+      false,
+      'https://override.guardian'
+    );
 
     // Override short-circuits the storage lookup entirely.
     expect(mockFetchFromStorage).not.toHaveBeenCalled();
+    expect(result.guardianEndpoint).toBe('https://override.guardian');
   });
 
   it('wraps underlying errors in a readable message', async () => {
@@ -301,5 +317,31 @@ describe('createGuardianAccount', () => {
     await expect(createGuardianAccount(webClient as never, new Uint8Array(32))).rejects.toThrow(
       'Failed to create Guardian account'
     );
+  });
+});
+
+describe('resolveGuardianEndpoint', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('prefers the per-account guardianEndpoint when present', async () => {
+    const endpoint = await resolveGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' } as never);
+    expect(endpoint).toBe('https://per-account.guardian');
+    // The per-account field short-circuits the global-key lookup.
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the legacy global key when the account has no endpoint', async () => {
+    mockFetchFromStorage.mockResolvedValueOnce('https://global.guardian');
+    const endpoint = await resolveGuardianEndpoint({} as never);
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+    expect(endpoint).toBe('https://global.guardian');
+  });
+
+  it('falls back to DEFAULT_GUARDIAN_ENDPOINT when neither field nor global key is set', async () => {
+    mockFetchFromStorage.mockResolvedValueOnce(undefined);
+    const endpoint = await resolveGuardianEndpoint({} as never);
+    expect(endpoint).toBe('https://default.guardian.test');
   });
 });

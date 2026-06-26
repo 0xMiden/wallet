@@ -17,7 +17,7 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { getSignerDetailsFromAccount } from './account';
+import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
@@ -53,16 +53,19 @@ export class MultisigService {
 
   /**
    * Initialize a MultisigService for an existing Guardian account.
+   *
+   * `guardianEndpoint` is resolved per-account by the caller (see
+   * `resolveGuardianEndpoint`) so accounts on different operators don't collide.
    */
   static async init(
     account: Account,
     publicKey: string,
     signerCommitment: string,
-    signWordFn: SignWordFunction
+    signWordFn: SignWordFunction,
+    guardianEndpoint: string
   ): Promise<MultisigService> {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-      const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
 
       // Reuse the shared singleton client instead of spinning up a fresh
       // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
@@ -102,7 +105,14 @@ export class MultisigService {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
     }
     const { commitment } = await getSignerDetailsFromAccount(account, true);
-    return MultisigService.init(account, `0x${walletAccount.coldPublicKey}`, `0x${commitment}`, signWordFn);
+    const guardianEndpoint = await resolveGuardianEndpoint(walletAccount);
+    return MultisigService.init(
+      account,
+      `0x${walletAccount.coldPublicKey}`,
+      `0x${commitment}`,
+      signWordFn,
+      guardianEndpoint
+    );
   }
 
   static async importAccountFromGuardian(

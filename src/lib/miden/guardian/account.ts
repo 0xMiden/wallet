@@ -5,8 +5,22 @@ import { Buffer } from 'buffer';
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { WalletAccount } from 'lib/shared/types';
 
 import { fetchFromStorage } from '../front/storage';
+
+/**
+ * Resolve the guardian operator endpoint for a Guardian account.
+ *
+ * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
+ * on switch-guardian) so accounts on different operators don't collide. Falls
+ * back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records created
+ * before the field existed, then to `DEFAULT_GUARDIAN_ENDPOINT`.
+ */
+export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
+  if (account.guardianEndpoint) return account.guardianEndpoint;
+  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+}
 
 // Re-export the slot names from the package for reading account state
 export const MULTISIG_SLOT_NAMES = {
@@ -32,6 +46,9 @@ export interface CreatedGuardianKeys {
 export interface CreatedGuardianAccount {
   account: Account;
   keys: CreatedGuardianKeys;
+  // The guardian operator endpoint this account was registered with — persisted
+  // onto the WalletAccount so runtime reads resolve per-account, not globally.
+  guardianEndpoint: string;
 }
 
 /**
@@ -172,7 +189,8 @@ export async function createGuardianAccount(
         coldPublicKey,
         hotCiphertext: hot.ciphertext,
         coldSecretKeyHex
-      }
+      },
+      guardianEndpoint
     };
   } catch (e) {
     console.error('Error creating Guardian account:', e);

@@ -99,6 +99,15 @@ const vaultGuardianProvider: GuardianAccountProvider = {
       const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
       accountsUpdated(updated);
     });
+  },
+  setGuardianEndpoint: async (accountPublicKey: string, guardianEndpoint: string) => {
+    // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
+    // (and every popup pulling from it) reflects the new per-account endpoint.
+    // Otherwise the popup keeps resolving the old guardian for this account.
+    return withUnlocked(async ({ vault }) => {
+      const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
+      accountsUpdated(updated);
+    });
   }
 };
 

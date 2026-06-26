@@ -12,7 +12,6 @@ import { MultisigService } from 'lib/miden/guardian';
 import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
 import * as Repo from 'lib/miden/repo';
 import { isExtension, isMobile } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -30,7 +29,6 @@ import {
   TransactionOutput,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { putToStorage } from '../front';
 import { toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -392,9 +390,9 @@ export const initiateSendTransaction = async (
 };
 
 /**
- * Queue a switch-guardian transaction for a Guardian account. The local
- * `GUARDIAN_URL_STORAGE_KEY` is NOT updated here — it's written only after
- * the on-chain proposal lands, in `completeSwitchGuardianTransaction`.
+ * Queue a switch-guardian transaction for a Guardian account. The per-account
+ * `guardianEndpoint` is NOT updated here — it's persisted only after the
+ * on-chain proposal lands, in `completeSwitchGuardianTransaction`.
  */
 export const initiateSwitchGuardianTransaction = async (
   accountId: string,
@@ -432,11 +430,10 @@ export const initiateReplaceHotKeyTransaction = async (
 
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
-  result: TransactionResult,
+  result: TransactionResult | undefined,
   guardianProvider: GuardianAccountProvider
 ) => {
   try {
-    const executedTx = result.executedTransaction();
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
     if (!newHotPublicKey) {
       throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
@@ -454,9 +451,13 @@ export const completeReplaceHotKeyTransaction = async (
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Device key rotated',
-      transactionId: executedTx.id().toHex(),
       completedAt: Math.floor(Date.now() / 1000),
-      resultBytes: result.serialize()
+      // `result` is absent on the apply-after-submit-failed reconcile path: the
+      // rotation is already on chain, we just lack the local TransactionResult.
+      ...(result && {
+        transactionId: result.executedTransaction().id().toHex(),
+        resultBytes: result.serialize()
+      })
     });
 
     // The account now has both signers on-chain, so bring it up to the same
@@ -469,7 +470,7 @@ export const completeReplaceHotKeyTransaction = async (
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Failed to rotate device key',
       completedAt: Math.floor(Date.now() / 1000),
-      resultBytes: result.serialize(),
+      ...(result && { resultBytes: result.serialize() }),
       error: error instanceof Error ? error.message : String(error)
     });
   }
@@ -552,11 +553,11 @@ export const completeUpdateProcedureThresholdTransaction = async (
 
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
-  result: TransactionResult,
-  multisigService: MultisigService
+  result: TransactionResult | undefined,
+  multisigService: MultisigService,
+  guardianProvider: GuardianAccountProvider
 ) => {
   try {
-    const executedTx = result.executedTransaction();
     const { newGuardianEndpoint } = tx.extraInputs;
 
     // Mirror upstream `multisig.executeProposal`'s post-submit block for
@@ -567,25 +568,56 @@ export const completeSwitchGuardianTransaction = async (
     await setTransactionStage(tx.id, 'registering-guardian');
     await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
 
-    await putToStorage(GUARDIAN_URL_STORAGE_KEY, newGuardianEndpoint);
+    // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
+    // Guardian accounts on different operators aren't clobbered. Backend
+    // providers implement setGuardianEndpoint; the optional-call guard keeps a
+    // frontend provider without it from throwing.
+    await guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint);
     clearGuardianServiceFor(tx.accountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Guardian switched',
-      transactionId: executedTx.id().toHex(),
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      resultBytes: result.serialize()
+      // `result` is absent on the apply-after-submit-failed reconcile path: the
+      // switch is already on chain, we just lack the local TransactionResult.
+      ...(result && {
+        transactionId: result.executedTransaction().id().toHex(),
+        resultBytes: result.serialize()
+      })
     });
   } catch (error) {
     console.error('Error completing switch guardian transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Failed to switch guardian',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      resultBytes: result.serialize(),
+      ...(result && { resultBytes: result.serialize() }),
       error: error instanceof Error ? error.message : String(error)
     });
   }
 };
+
+/**
+ * Run the structural side effects a structural Guardian op needs after its
+ * submit landed on chain but the LOCAL apply failed (`ApplyTransactionAfterSubmitFailed`).
+ * Without this the generic apply-failure handler would mark the tx Completed and
+ * skip reconciliation, stranding the account.
+ *
+ * replace-hot-key → swap the vault hot pointer (idempotent).
+ * switch-guardian → rebuild a service to drive `finalizeGuardianSwitch` (which
+ *   re-syncs the post-switch account state itself) + persist the per-account
+ *   endpoint. Both completion handlers tolerate a missing TransactionResult.
+ */
+async function reconcileStructuralApplyFailure(
+  tx: ITransaction,
+  guardianProvider: GuardianAccountProvider
+): Promise<void> {
+  if (tx.type === 'replace-hot-key') {
+    await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider);
+    return;
+  }
+  const service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
+  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
+}
 
 const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
@@ -963,6 +995,24 @@ export const generateTransaction = async (
         generateGuardianTransaction(transaction, signCallback, guardianProvider)
       );
     } catch (error) {
+      // Submit-succeeded-but-local-apply-failed on a structural op (replace-hot-key
+      // / switch-guardian) is special: the change IS on chain, but the failure
+      // happened before generateGuardianTransaction's completion handler ran, so
+      // the vault hot pointer / guardian re-registration are un-reconciled. Cancelling
+      // would strand the account (signing with a rotated-out key, or talking to the
+      // old guardian). Run the same finalization the happy path would; only cancel if
+      // that reconcile itself fails.
+      if (
+        extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
+        (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian')
+      ) {
+        try {
+          await reconcileStructuralApplyFailure(transaction, guardianProvider);
+          return;
+        } catch (reconcileError) {
+          console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
+        }
+      }
       await cancelTransaction(transaction, error);
     }
     return;
@@ -1253,7 +1303,12 @@ const generateGuardianTransaction = async (
       break;
     case 'switch-guardian':
       console.log('Completing switch guardian transaction');
-      await completeSwitchGuardianTransaction(transaction as SwitchGuardianTransaction, transactionResult, service);
+      await completeSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        transactionResult,
+        service,
+        guardianProvider
+      );
       break;
     case 'replace-hot-key':
       console.log('Completing replace-hot-key transaction');
@@ -1379,6 +1434,11 @@ export const generateTransactionsLoop = async (
       logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
       if (tx && tx.status !== ITransactionStatus.Completed) {
+        // Structural Guardian ops never reach here — they're routed through the
+        // guardian branch of `generateTransaction`, whose own catch handles the
+        // apply-after-submit-failed reconcile (see `reconcileStructuralApplyFailure`).
+        // This generic path covers send/consume, whose note states the next sync
+        // reconciles via ConsumedExternal.
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Completed',
           completedAt: Math.floor(Date.now() / 1000)

@@ -23,11 +23,18 @@ export const zustandProvider: GuardianAccountProvider = {
  * Sync Guardian state for all Guardian accounts. Called from AutoSync after chain
  * state sync (frontend context only — uses the Zustand-backed provider).
  *
- * Accounts flagged `requiresHotKeyRotation` (adopted via recovery, hot key not
- * yet activated) are skipped — `getOrCreateMultisigService` binds against the
- * hot signer and throws on missing `hotPublicKey`. The Activate Device Key
- * banner is the user's path to flip that flag; once swapped, the next sync
- * cycle picks the account up normally.
+ * Accounts flagged `requiresHotKeyRotation` (adopted via recovery or migrated
+ * from a legacy single-signer record, hot key not yet activated) are skipped —
+ * `getOrCreateMultisigService` binds against the hot signer and throws on
+ * missing `hotPublicKey`. The Activate Device Key banner is the user's path to
+ * flip that flag; once swapped, the next sync cycle picks the account up normally.
+ *
+ * This also means the `update_guardian` threshold-2 hardening is intentionally
+ * NOT applied to these accounts here, and that's correct: a pre-activation
+ * account has a single on-chain signer (cold), so a 2-of-N procedure threshold
+ * is unsatisfiable and would brick guardian changes. The hardening is applied
+ * at activation (`completeReplaceHotKeyTransaction`), once the hot signer makes
+ * the account 2-of-N. Don't "fix" this filter to harden pre-activation accounts.
  */
 // Accounts whose update_guardian hardening we've already verified this session,
 // so the self-heal check below runs at most once per account per session.

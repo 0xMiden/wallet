@@ -154,18 +154,22 @@ describe('completeSwitchGuardianTransaction', () => {
     txStore.length = 0;
   });
 
-  it('registers state with the new guardian, persists the URL, and marks the row Completed', async () => {
+  it('registers state with the new guardian, persists the per-account endpoint, and marks the row Completed', async () => {
     const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
     const multisigService = {
       finalizeGuardianSwitch: jest.fn(async () => {})
     };
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint };
 
-    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never);
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
 
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
-    expect(putToStorage).toHaveBeenCalledWith('guardian_url_setting', 'https://new.guardian');
+    // Per-account endpoint write, NOT the legacy global key.
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1', 'https://new.guardian');
+    expect(putToStorage).not.toHaveBeenCalled();
     expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
 
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
@@ -173,7 +177,7 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.displayMessage).toBe('Guardian switched');
   });
 
-  it('marks the row Failed and skips the storage flip when registration throws', async () => {
+  it('marks the row Failed and skips the endpoint write when registration throws', async () => {
     const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
@@ -182,11 +186,13 @@ describe('completeSwitchGuardianTransaction', () => {
         throw new Error('register failed');
       })
     };
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint };
 
-    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never);
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
 
-    // The URL was NOT persisted because the guardian rejected the new state.
-    expect(putToStorage).not.toHaveBeenCalled();
+    // The endpoint was NOT persisted because the guardian rejected the new state.
+    expect(setGuardianEndpoint).not.toHaveBeenCalled();
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.displayMessage).toBe('Failed to switch guardian');
@@ -572,6 +578,203 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('replace-hot-key apply-after-submit-failure reconciles the hot pointer instead of cancelling', async () => {
+    const txId = 'replace-apply-fail';
+    const coldService = {
+      createReplaceHotKeyProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-replace' },
+        newHot: { ciphertext: 'new-cx', publicKeyHex: 'new-hot-pub', commitmentHex: '0xnewcommit' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      }))
+    };
+    mockBuildColdMultisigService.mockResolvedValue(coldService);
+    // ensureGuardianProcedureThresholds (run inside completeReplaceHotKeyTransaction)
+    // re-reads via getOrCreateMultisigService; stub it already-hardened so it no-ops.
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'old-hot' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      persistNewHotKey: jest.fn(async () => {}),
+      swapHotKey
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    // The submit lands on chain but the LOCAL apply throws — the rotation is real.
+    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: {
+        transactions: {
+          submit: jest.fn(async () => {
+            throw applyErr;
+          })
+        }
+      }
+    });
+
+    txStore.push({ id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', status: ITransactionStatus.Queued });
+
+    await generateTransaction(
+      { id: txId, type: 'replace-hot-key', accountId: 'guardian-acc', delegateTransaction: false } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // The reconcile swapped the hot pointer; the tx is Completed, not cancelled/Failed.
+    expect(swapHotKey).toHaveBeenCalledWith('guardian-acc', 'new-hot-pub');
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('switch-guardian apply-after-submit-failure re-registers + persists the endpoint instead of cancelling', async () => {
+    const txId = 'switch-apply-fail';
+    const finalizeGuardianSwitch = jest.fn(async () => {});
+    const service = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-switch' },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      finalizeGuardianSwitch,
+      sync: jest.fn(async () => {})
+    };
+    // Used for both the main proposal AND rebuilt in the reconcile for completion.
+    mockGetOrCreateMultisigService.mockResolvedValue(service);
+    // switch-guardian's cold co-sign uses a transient cold service.
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: {
+        transactions: {
+          submit: jest.fn(async () => {
+            throw applyErr;
+          })
+        }
+      }
+    });
+
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // The reconcile re-registered on the new guardian and persisted the per-account endpoint.
+    expect(finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('cancels the tx when the structural apply-failure reconcile itself throws', async () => {
+    const txId = 'switch-reconcile-throws';
+    const service = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-switch' },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    // First call serves the main proposal; the reconcile's rebuild rejects.
+    mockGetOrCreateMultisigService.mockResolvedValueOnce(service).mockRejectedValueOnce(new Error('rebuild failed'));
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: async () => 'sig',
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const applyErr: Error & { errorCode?: string } = new Error('apply failed');
+    applyErr.errorCode = 'ApplyTransactionAfterSubmitFailed';
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: {
+        transactions: {
+          submit: jest.fn(async () => {
+            throw applyErr;
+          })
+        }
+      }
+    });
+
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // Reconcile failed → fall through to cancelTransaction → row Failed.
+    expect(provider.setGuardianEndpoint).not.toHaveBeenCalled();
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);
   });

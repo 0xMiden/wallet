@@ -48,6 +48,9 @@ import type { CreatedGuardianKeys } from '../guardian/account';
 export interface GuardianAccountCreationResult {
   accountId: string;
   keys: CreatedGuardianKeys;
+  // Guardian operator endpoint the account was registered with — persisted onto
+  // the WalletAccount so runtime endpoint resolution is per-account.
+  guardianEndpoint: string;
 }
 
 /**
@@ -265,8 +268,8 @@ export class MidenClientInterface {
    */
   async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
-    const { account, keys } = await createGuardianAccount(this.client, coldSeed);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys };
+    const { account, keys, guardianEndpoint } = await createGuardianAccount(this.client, coldSeed);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {

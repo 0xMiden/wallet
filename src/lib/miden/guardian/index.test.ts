@@ -106,7 +106,11 @@ jest.mock('lib/secure-hot-key', () => ({
 
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('./account', () => ({
-  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a)
+  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  // Resolve to the per-account endpoint, falling back to the stored value the
+  // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
+  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+    acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
 
 // atob is globally available on Node 16+ but jsdom stubs can vary — provide
@@ -422,34 +426,26 @@ describe('MultisigService', () => {
   });
 
   describe('init', () => {
-    it('loads the Multisig for an existing account and returns a configured service', async () => {
+    it('loads the Multisig for an existing account and binds the passed endpoint', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const loaded = makeMultisig();
       multisigClientConfig.load.mockResolvedValueOnce(loaded);
 
-      const svc = await MultisigService.init(account, 'pub', 'commit', async () => 'sig');
+      const svc = await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian');
 
       expect(svc).toBeInstanceOf(MultisigService);
       expect(svc.multisig).toBe(loaded);
+      // Endpoint is supplied by the caller (per-account), not read from storage.
+      expect(svc.guardianEndpoint).toBe('https://acct.guardian');
     });
 
     it('re-throws when MultisigClient.load rejects', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       multisigClientConfig.load.mockRejectedValueOnce(new Error('load failed'));
 
-      await expect(MultisigService.init(account, 'pub', 'commit', async () => 'sig')).rejects.toThrow('load failed');
-    });
-
-    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage has no URL', async () => {
-      // Hits the `|| DEFAULT_GUARDIAN_ENDPOINT` branch on the endpoint lookup.
-      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-      const loaded = makeMultisig();
-      multisigClientConfig.load.mockResolvedValueOnce(loaded);
-      mockFetchFromStorage.mockResolvedValueOnce(undefined);
-
-      const svc = await MultisigService.init(account, 'pub', 'commit', async () => 'sig');
-
-      expect(svc.guardianEndpoint).toBe('https://default.guardian.test');
+      await expect(
+        MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian')
+      ).rejects.toThrow('load failed');
     });
   });
 
@@ -580,6 +576,8 @@ describe('MultisigService', () => {
       // (each prefixed with 0x) to the WalletSigner. We can't introspect that
       // directly here, so we assert load was called — proving init proceeded.
       expect(multisigClientConfig.load).toHaveBeenCalledWith('acc-id', expect.anything());
+      // Endpoint is resolved per-account (here falling back to the stored value).
+      expect(svc.guardianEndpoint).toBe('https://stored.guardian.test');
     });
 
     it('throws when the WalletAccount has no coldPublicKey', async () => {
