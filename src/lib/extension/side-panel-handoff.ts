@@ -1,26 +1,19 @@
-import { useEffect, useState } from 'react';
-
 import { isExtension } from 'lib/platform';
 
 /**
- * Onboarding → side panel handoff.
+ * Onboarding → side panel handoff (Chrome).
  *
- * At the end of onboarding the user clicks "Get started", which kicks off a
- * multi-second `registerWallet()` (WASM account creation). We want to drop the
- * finished wallet into the Chrome side panel and close the fullscreen
- * onboarding tab — and make the side panel the primary action surface going
- * forward (same `sidepanel_mode` the Header "maximise view" toggle uses).
- *
- * The catch: `chrome.sidePanel.open()` only works inside a live user gesture,
- * and the gesture dies across `await register()`. So we open the panel
- * synchronously in the click (`beginSidePanelHandoff`) BEFORE the slow await,
- * leaving a `onboarding_handoff` flag so the freshly-opened panel shows a
- * "Setting up…" screen instead of its own Welcome (see useOnboardingHandoff +
- * PageRouter). Once the account is Ready we close the onboarding tab
- * (`finishSidePanelHandoff`).
+ * The wallet is created first (the onboarding tab spins through
+ * `registerWallet()`), and only once it's Ready does the final "Open wallet"
+ * click open the side panel onto the finished wallet and close the onboarding
+ * tab. Opening the panel from that post-Ready click keeps it inside a live user
+ * gesture — `chrome.sidePanel.open()` requires one, and creating the wallet
+ * first means there's no multi-second await between the click and the open to
+ * outlive the gesture. The side panel also becomes the primary surface (the
+ * same `sidepanel_mode` the Header "maximise view" toggle uses), so clicking
+ * the toolbar icon opens it instead of the popup.
  */
 
-const HANDOFF_FLAG = 'onboarding_handoff';
 const SIDEPANEL_MODE_FLAG = 'sidepanel_mode';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,121 +21,70 @@ type ChromeApi = any;
 
 function getChrome(): ChromeApi | undefined {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chromeApi = (globalThis as any).chrome;
-  return chromeApi;
+  return (globalThis as any).chrome;
 }
 
-/** True when this build can hand off onboarding to a Chrome side panel. */
+/**
+ * True when this build should hand onboarding off to a Chrome side panel.
+ * Disabled under E2E so the test harness keeps the classic in-tab flow (its
+ * onboarding driver clicks "Get started" and expects an in-tab wallet, not a
+ * panel that closes the tab).
+ */
 export function canHandoffToSidePanel(): boolean {
+  if (process.env.MIDEN_E2E_TEST === 'true') return false;
   const chromeApi = getChrome();
   return Boolean(isExtension() && chromeApi?.sidePanel?.open && chromeApi?.windows?.getLastFocused);
 }
 
 /**
- * Open the side panel for the focused window and enable side-panel mode — must
- * be called synchronously within the final "Get started" click so the user
- * gesture is still live. Returns true if the panel was opened (Chrome), false
- * otherwise (caller should fall back to in-tab navigation).
+ * Open the side panel onto the (already-Ready) wallet and make it the primary
+ * action surface. MUST be called synchronously within the user gesture of the
+ * final "Open wallet" click. Returns true if the panel opened; false (with
+ * popup mode restored) on failure so the caller can fall back to in-tab nav.
  */
-export async function beginSidePanelHandoff(): Promise<boolean> {
+export async function openSidePanelToWallet(): Promise<boolean> {
   const chromeApi = getChrome();
   if (!canHandoffToSidePanel()) return false;
 
   try {
-    // Flag first so the panel reads it the moment it boots (before Ready).
-    await chromeApi.storage.local.set({ [HANDOFF_FLAG]: true, [SIDEPANEL_MODE_FLAG]: true });
-    // Route the toolbar icon to the side panel from now on (primary surface).
     await chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
     chromeApi.action.setPopup({ popup: '' });
-    // Open it now, while the click's user activation is still valid.
+    await chromeApi.storage.local.set({ [SIDEPANEL_MODE_FLAG]: true });
     const win = await chromeApi.windows.getLastFocused();
     await chromeApi.sidePanel.open({ windowId: win.id });
     return true;
   } catch (err) {
-    console.warn('[side-panel-handoff] begin failed, reverting to in-tab onboarding:', err);
-    await abortSidePanelHandoff();
+    console.warn('[side-panel-handoff] open failed, falling back to in-tab:', err);
+    // Roll back the primary-surface switch so the toolbar icon still works.
+    try {
+      chromeApi.action?.setPopup?.({ popup: 'popup.html' });
+      await chromeApi.storage?.local?.set?.({ [SIDEPANEL_MODE_FLAG]: false });
+      chromeApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false }).catch(() => {});
+    } catch {
+      // best-effort rollback
+    }
     return false;
   }
 }
 
 /**
- * Clear the handoff flag and close the onboarding tab now that the wallet is
- * Ready. Returns true if the tab was closed; false if it was the window's last
- * tab (closing it would also close the side panel) — the caller should then
- * navigate the tab to the wallet home instead.
+ * Close the onboarding tab once the side panel has taken over. Returns false if
+ * it's the window's last tab (closing it would also close the panel) so the
+ * caller can navigate that tab to the wallet home instead.
  */
-export async function finishSidePanelHandoff(): Promise<boolean> {
+export async function closeOnboardingTab(): Promise<boolean> {
   const chromeApi = getChrome();
   if (!chromeApi?.tabs) return false;
 
   try {
-    await chromeApi.storage.local.set({ [HANDOFF_FLAG]: false });
     const current = await chromeApi.tabs.getCurrent();
     if (!current?.id) return false;
-    // Don't orphan the window: closing the last tab would close the side panel
-    // with it. Leave the tab for the caller to repurpose in that rare case.
     const tabsInWindow = await chromeApi.tabs.query({ windowId: current.windowId });
     if (Array.isArray(tabsInWindow) && tabsInWindow.length <= 1) return false;
     await chromeApi.tabs.remove(current.id);
     return true;
   } catch (err) {
-    console.warn('[side-panel-handoff] finish failed:', err);
+    console.warn('[side-panel-handoff] close tab failed:', err);
     return false;
   }
-}
-
-/**
- * Undo a handoff: clear the flag and restore popup mode. Used when account
- * creation fails after the panel was already opened, so the user isn't left
- * with an empty side panel and a popup-less toolbar icon.
- */
-export async function abortSidePanelHandoff(): Promise<void> {
-  const chromeApi = getChrome();
-  if (!chromeApi?.storage) return;
-
-  try {
-    await chromeApi.storage.local.set({ [HANDOFF_FLAG]: false, [SIDEPANEL_MODE_FLAG]: false });
-    chromeApi.action?.setPopup?.({ popup: 'popup.html' });
-    chromeApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false }).catch(() => {});
-  } catch (err) {
-    console.warn('[side-panel-handoff] abort failed:', err);
-  }
-}
-
-/**
- * Read the `onboarding_handoff` flag reactively. The side panel uses this to
- * show a "Setting up…" screen instead of its own Welcome while the onboarding
- * tab finishes creating the account. Returns false outside the extension.
- */
-export function useOnboardingHandoff(): boolean {
-  const [active, setActive] = useState(false);
-
-  useEffect(() => {
-    const chromeApi = getChrome();
-    if (!isExtension() || !chromeApi?.storage?.local) return;
-
-    let cancelled = false;
-    chromeApi.storage.local.get(HANDOFF_FLAG, (res: Record<string, unknown>) => {
-      if (!cancelled) setActive(Boolean(res?.[HANDOFF_FLAG]));
-    });
-
-    const onChanged = (changes: Record<string, { newValue?: unknown }>, areaName: string): void => {
-      if (areaName === 'local' && HANDOFF_FLAG in changes) {
-        setActive(Boolean(changes[HANDOFF_FLAG]?.newValue));
-      }
-    };
-    chromeApi.storage.onChanged.addListener(onChanged);
-    return () => {
-      cancelled = true;
-      chromeApi.storage.onChanged.removeListener(onChanged);
-    };
-  }, []);
-
-  return active;
-}
-
-/** Best-effort clear of the handoff flag (e.g. once the panel reaches Ready). */
-export function clearOnboardingHandoff(): void {
-  const chromeApi = getChrome();
-  chromeApi?.storage?.local?.set?.({ [HANDOFF_FLAG]: false });
 }

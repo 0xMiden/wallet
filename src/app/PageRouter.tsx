@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useLayoutEffect, useMemo } from 'react';
+import React, { FC, useLayoutEffect, useMemo } from 'react';
 
 import { OpenInFullPage, useAppEnv } from 'app/env';
 import FullScreenPage from 'app/layouts/FullScreenPage';
@@ -9,10 +9,8 @@ import Faucet from 'app/pages/Faucet';
 import ImportAccount from 'app/pages/ImportAccount';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
-import SettingUpWallet from 'app/pages/SettingUpWallet';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
-import { clearOnboardingHandoff, useOnboardingHandoff } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import { ConsumingNotePage } from 'screens/consuming-note/ConsumingNote';
@@ -290,15 +288,6 @@ const PageRouter: FC = () => {
 
   const appEnv = useAppEnv();
   const miden = useMidenContext();
-  const handoffActive = useOnboardingHandoff();
-
-  // Once the new wallet is Ready the handoff is complete — drop the flag so a
-  // future cold open of the side panel doesn't show "Setting up…".
-  useEffect(() => {
-    if (handoffActive && miden.ready) {
-      clearOnboardingHandoff();
-    }
-  }, [handoffActive, miden.ready]);
 
   const ctx = useMemo<RouteContext>(
     () => ({
@@ -310,16 +299,7 @@ const PageRouter: FC = () => {
     [appEnv.popup, appEnv.fullPage, miden]
   );
 
-  const resolved = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
-
-  // Onboarding → side panel handoff: the panel is opened (within the click's
-  // user gesture) before registerWallet() finishes, so there's no account yet.
-  // Show a placeholder instead of the catch-all <Welcome/> until Ready.
-  if (appEnv.sidePanel && handoffActive && !miden.ready) {
-    return <SettingUpWallet />;
-  }
-
-  return resolved;
+  return useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 };
 
 export default PageRouter;

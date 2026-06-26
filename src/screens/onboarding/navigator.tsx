@@ -34,6 +34,10 @@ export interface OnboardingFlowProps {
   biometricAttempts?: number;
   biometricError?: string | null;
   guardianLookupError?: boolean;
+  /** Side panel handoff (Chrome): wallet is being created before it's opened. */
+  confirmCreating?: boolean;
+  /** Side panel handoff (Chrome): confirmation CTA opens the panel. */
+  isSidePanelHandoff?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
 }
@@ -83,6 +87,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupError = false,
+  confirmCreating = false,
+  isSidePanelHandoff = false,
   onBiometricChange,
   onAction
 }) => {
@@ -203,6 +209,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             isLoading={isLoading}
             biometricAttempts={biometricAttempts}
             biometricError={biometricError}
+            creating={confirmCreating}
+            isHandoff={isSidePanelHandoff}
             onSubmit={onConfirmSubmit}
             onSwitchToPassword={onSwitchToPassword}
           />
@@ -222,7 +230,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onBiometricChange,
     biometricAttempts,
     biometricError,
-    guardianLookupError
+    guardianLookupError,
+    confirmCreating,
+    isSidePanelHandoff
   ]);
 
   const onBack = () => {

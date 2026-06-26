@@ -1,11 +1,11 @@
-import React, { FC, useCallback, useEffect, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
-import { abortSidePanelHandoff, beginSidePanelHandoff, finishSidePanelHandoff } from 'lib/extension/side-panel-handoff';
+import { canHandoffToSidePanel, closeOnboardingTab, openSidePanelToWallet } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { putToStorage } from 'lib/miden/front/storage';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -87,6 +87,13 @@ const Welcome: FC = () => {
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
+  // Chrome side panel handoff: create the wallet while the confirmation screen
+  // spins, then the final "Open wallet" click opens the side panel onto the
+  // ready wallet (sidePanel.open() needs that click's live gesture). Disabled
+  // under E2E and on non-Chrome — those keep the classic click-to-create flow.
+  const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
+  const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'ready' | 'failed'>('idle');
+
   // Check hardware security availability on mount
   useEffect(() => {
     checkHardwareSecurityAvailable().then(available => {
@@ -160,6 +167,32 @@ const Welcome: FC = () => {
     walletType,
     importedWalletAccounts
   ]);
+
+  // Side panel handoff: kick off wallet creation as soon as the confirmation
+  // screen is reached (the screen shows a spinner), so the wallet is Ready by
+  // the time the user clicks "Open wallet". The hardware/biometric path is
+  // excluded — it must prompt biometrics on an explicit tap, not on arrival.
+  useEffect(() => {
+    if (!sidePanelHandoff) return;
+    if (step !== OnboardingStep.Confirmation) return;
+    if (confirmPhase !== 'idle') return;
+    if (!password || !seedPhrase || password === '__HARDWARE_ONLY__') return;
+
+    setConfirmPhase('creating');
+    (async () => {
+      try {
+        await register();
+        await waitForReadyState(syncFromBackend);
+        setConfirmPhase('ready');
+      } catch (error) {
+        // Fall back to the classic click-to-create flow: the confirmation
+        // button reverts to running register() in-tab on the next tap.
+        console.error('[Welcome] Side panel handoff auto-create failed:', error);
+        setConfirmPhase('failed');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidePanelHandoff, step, confirmPhase, password, seedPhrase]);
 
   const onAction = async (action: OnboardingAction) => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;
@@ -259,42 +292,39 @@ const Welcome: FC = () => {
         navigate('/#confirmation');
         break;
       case 'confirmation': {
-        // Chrome only: open the side panel NOW, while the click's user gesture
-        // is still live, so it survives the multi-second registerWallet() that
-        // follows (sidePanel.open() can't be called after the await). The panel
-        // shows a "Setting up…" placeholder until the account is Ready. No-op
-        // (returns false) outside Chrome → falls back to in-tab navigate('/').
-        let didHandoff = false;
+        // Side panel handoff (Chrome): the wallet was already created by the
+        // auto-create effect, so this "Open wallet" click just opens the side
+        // panel onto the ready wallet and closes the onboarding tab — within
+        // the click's live gesture, which sidePanel.open() requires.
+        if (sidePanelHandoff && confirmPhase === 'ready') {
+          eventCategory = AnalyticsEventCategory.FormSubmit;
+          trackEvent(action.id, eventCategory, eventProperties);
+          const opened = await openSidePanelToWallet();
+          if (opened) {
+            // tabs.remove() destroys this page; the event already fired above.
+            const closed = await closeOnboardingTab();
+            if (!closed) navigate('/');
+          } else {
+            navigate('/'); // open failed → fall back to the in-tab wallet
+          }
+          return;
+        }
+
+        // Classic flow: non-Chrome, hardware/biometric, or a handoff retry
+        // after auto-create failed. This click runs creation, then enters in-tab.
         try {
           setIsLoading(true);
           setBiometricError(null);
-          didHandoff = await beginSidePanelHandoff();
           await register();
           // Wait for state to be synced before navigating
           // This fixes a race condition where navigation happens before state is Ready
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
           eventCategory = AnalyticsEventCategory.FormSubmit;
-          if (didHandoff) {
-            // The account is Ready in the side panel — close this onboarding tab.
-            // finishSidePanelHandoff returns false only if this is the window's
-            // last tab (closing it would also close the panel), in which case we
-            // navigate it to the wallet home instead. tabs.remove() destroys this
-            // page's context, so fire the completion event BEFORE it and return
-            // so the trackEvent at the end of onAction doesn't double-fire (or
-            // run in a torn-down page).
-            trackEvent(action.id, eventCategory, eventProperties);
-            const closed = await finishSidePanelHandoff();
-            if (!closed) navigate('/');
-            return;
-          }
           navigate('/');
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
-          // Undo the handoff so the user isn't left with an empty side panel
-          // and a popup-less toolbar icon after a failed account creation.
-          if (didHandoff) await abortSidePanelHandoff();
           if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
@@ -432,6 +462,8 @@ const Welcome: FC = () => {
       biometricAttempts={biometricAttempts}
       biometricError={biometricError}
       guardianLookupError={guardianLookupError}
+      confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
+      isSidePanelHandoff={sidePanelHandoff && confirmPhase === 'ready'}
       onBiometricChange={setUseBiometric}
       onAction={onAction}
     />

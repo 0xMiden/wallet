@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import Spinner from 'app/atoms/Spinner/Spinner';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Message } from 'components/Message';
@@ -12,6 +13,14 @@ export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTML
   isLoading?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
+  /**
+   * Side panel handoff (Chrome): the wallet is being created in the background
+   * before the user opens it. While true, show a spinner instead of the
+   * ready-state success message + button.
+   */
+  creating?: boolean;
+  /** Side panel handoff: the primary button opens the panel ("Open wallet"). */
+  isHandoff?: boolean;
   onSubmit?: () => void;
   onSwitchToPassword?: () => void;
 }
@@ -21,6 +30,8 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   isLoading,
   biometricAttempts = 0,
   biometricError,
+  creating = false,
+  isHandoff = false,
   onSubmit,
   onSwitchToPassword,
   ...props
@@ -29,6 +40,19 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
 
   const showPasswordFallback = biometricAttempts >= MAX_BIOMETRIC_ATTEMPTS;
   const hasError = biometricError && biometricAttempts > 0;
+
+  if (creating) {
+    return (
+      <div className="w-full h-full pt-11.5">
+        <div {...props} className="flex flex-col items-center justify-center h-full gap-y-4 bg-app-bg w-full px-6">
+          <Spinner />
+          <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const primaryButtonTitle = hasError ? t('retry') : isHandoff ? t('openWallet') : t('getStarted');
 
   return (
     <div className="w-full h-full pt-11.5">
@@ -73,7 +97,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
           ) : (
             <Button
               tabIndex={0}
-              title={hasError ? t('retry') : t('getStarted')}
+              title={primaryButtonTitle}
               className="self-center w-full text-base"
               onClick={onSubmit}
               isLoading={isLoading}
