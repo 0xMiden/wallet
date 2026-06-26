@@ -363,6 +363,60 @@ describe('MultisigService', () => {
         (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
       }
     });
+
+    it('self-heals a lagging guardian: re-registers current state, then the retried sync succeeds', async () => {
+      // The OZ lib refuses to overwrite local state when the guardian's blob lags
+      // on-chain; once we push the current state to the guardian, the retry passes.
+      const syncState = jest
+        .fn()
+        .mockRejectedValueOnce(
+          new Error('Refusing to overwrite local state: incoming commitment does not match on-chain commitment')
+        )
+        .mockResolvedValueOnce(undefined);
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ syncState, registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+
+      await service.sync();
+
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(syncState).toHaveBeenCalledTimes(2);
+    });
+
+    it('attempts the guardian realign only once per run, then propagates a persistent failure', async () => {
+      const syncState = jest.fn(async () => Promise.reject(new Error('Refusing to overwrite local state')));
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ syncState, registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+
+      await expect(service.sync()).rejects.toThrow('Refusing to overwrite local state');
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1); // not looped
+      expect(syncState).toHaveBeenCalledTimes(2); // initial + one retry after realign
+    });
+  });
+
+  describe('reRegisterCurrentStateOnGuardian', () => {
+    it('syncs, serializes the current account, and re-registers it on the guardian', async () => {
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+
+      await service.reRegisterCurrentStateOnGuardian();
+
+      expect(mockSyncState).toHaveBeenCalled();
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when the account is missing from the local client', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue(null);
+
+      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
+    });
   });
 
   describe('importAccountFromGuardian', () => {

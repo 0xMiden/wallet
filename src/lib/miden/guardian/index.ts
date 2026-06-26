@@ -265,23 +265,54 @@ export class MultisigService {
     // around each `syncState` attempt and release during the back-off wait so
     // other client operations can proceed between retries.
     this.syncRetryCount = 0;
+    // The guardian-realign self-heal below runs at most once per sync run so a
+    // genuinely stuck guardian doesn't loop re-registering every tick.
+    let realignAttempted = false;
     for (;;) {
       try {
         await withWasmClientLock(() => this.multisig.syncState());
         this.syncRetryCount = 0; // Reset retry count on successful sync
         return;
       } catch (error) {
-        const isNonceTooLow =
-          error instanceof Error && error.message.includes('nonce') && error.message.includes('too low');
-        if (!isNonceTooLow) {
-          throw error; // Rethrow if it's a different error
+        const message = error instanceof Error ? error.message : String(error);
+        const isNonceTooLow = message.includes('nonce') && message.includes('too low');
+        if (isNonceTooLow) {
+          if (this.syncRetryCount >= MAX_SYNC_RETRIES) {
+            throw new Error('Max sync retries reached: local state is ahead of on-chain state');
+          }
+          this.syncRetryCount++;
+          console.warn(
+            'Nonce is too low, local state is ahead of on-chain state, retrying sync...',
+            this.syncRetryCount
+          );
+          await delay(SYNC_RETRY_DELAY_MS);
+          continue;
         }
-        if (this.syncRetryCount >= MAX_SYNC_RETRIES) {
-          throw new Error('Max sync retries reached: local state is ahead of on-chain state');
+
+        // `multisig.syncState` refuses to overwrite local state when the guardian's
+        // stored blob lags the on-chain account ("Refusing to overwrite local
+        // state ..." / commitment-mismatch). The OZ lib only re-registers
+        // structural rotations on the guardian for `switch_guardian`; after a
+        // replace-hot-key (`update_signers`) or `update_procedure_threshold` the
+        // guardian's blob is never updated, so it diverges from on-chain and this
+        // throws every ~3s AutoSync tick — forever, until a full reinstall. Self-heal
+        // once per run: push our current on-chain state up to the guardian (see
+        // `reRegisterCurrentStateOnGuardian`) so it realigns, then retry the sync.
+        // Best-effort: if the realign itself fails, fall through to the original error.
+        if (!realignAttempted) {
+          realignAttempted = true;
+          try {
+            console.warn(
+              'Guardian sync failed; realigning guardian to current on-chain state, then retrying:',
+              message
+            );
+            await this.reRegisterCurrentStateOnGuardian();
+            continue;
+          } catch (realignError) {
+            console.warn('Guardian re-registration during sync failed (non-fatal):', realignError);
+          }
         }
-        this.syncRetryCount++;
-        console.warn('Nonce is too low, local state is ahead of on-chain state, retrying sync...', this.syncRetryCount);
-        await delay(SYNC_RETRY_DELAY_MS);
+        throw error; // Rethrow if it's a different error (caller logs per-account)
       }
     }
   }
@@ -426,6 +457,34 @@ export class MultisigService {
       }
     }
     throw new Error('Failed to register account on the new guardian after switching', { cause: lastError });
+  }
+
+  /**
+   * Push this account's CURRENT on-chain state to its (unchanged) guardian, so the
+   * guardian's stored blob tracks structural rotations.
+   *
+   * Upstream `multisig.executeProposal` only re-registers the post-execution state
+   * on the guardian for `switch_guardian` proposals; for `update_signers`
+   * (replace-hot-key) and `update_procedure_threshold` it submits the tx on-chain
+   * but never updates the guardian. Without this push, the guardian's `getState`
+   * keeps serving the pre-rotation blob, so the next `multisig.syncState` sees
+   * guardian-commitment != on-chain-commitment and throws on
+   * `ensureSafeToOverwriteLocalState` every ~3s tick — permanently, until a full
+   * reinstall re-registers the account. Mirrors `finalizeGuardianSwitch`'s
+   * registration step but keeps the same guardian endpoint. Idempotent: if the
+   * guardian already has this state, re-registering is a no-op.
+   */
+  async reRegisterCurrentStateOnGuardian(): Promise<void> {
+    const updatedStateBase64 = await withWasmClientLock(async () => {
+      const client = await getMidenClient();
+      await client.syncState();
+      const account = await client.getAccount(this.accountId);
+      if (!account) {
+        throw new Error(`Account ${this.accountId} is missing from local client`);
+      }
+      return u8ToB64(account.serialize());
+    });
+    await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }
 

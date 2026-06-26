@@ -97,6 +97,14 @@ jest.mock('lib/secure-hot-key', () => ({
   signHotDigest: jest.fn()
 }));
 
+// migrateLegacyGuardianAccounts verifies the derived cold key against the
+// on-chain index-0 signer via getSignerDetailsFromAccount. Mock it so tests can
+// drive the match / mismatch branches.
+const mockGetSignerDetailsFromAccount = jest.fn();
+jest.mock('../guardian/account', () => ({
+  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a)
+}));
+
 // Unified handle used by tests — matches the old mockMidenClient API.
 const mockMidenClient = {
   createMidenWallet: mockCreateMidenWallet,
@@ -1412,10 +1420,20 @@ describe('Vault.migrateLegacyGuardianAccounts', () => {
   beforeEach(() => {
     // Cold-key derivation is mocked to a fixed key; `deriveClientSeed` still runs
     // real BIP-39 over VALID_MNEMONIC but the seed it produces is ignored here.
+    // The derived key's commitment is `0x020304` (the verification compares this
+    // against the on-chain index-0 signer below).
     sdk.AuthSecretKey.ecdsaWithRNG.mockImplementation(() => ({
-      publicKey: () => ({ serialize: () => new Uint8Array([0x00, 0x02, 0x03, 0x04]) }),
+      publicKey: () => ({
+        serialize: () => new Uint8Array([0x00, 0x02, 0x03, 0x04]),
+        toCommitment: () => ({ toHex: () => '0x020304' })
+      }),
       serialize: () => new Uint8Array([0xab, 0xcd])
     }));
+    // By default the on-chain account is present and its index-0 signer matches
+    // the derived cold commitment, so the legacy account migrates (verified).
+    mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'guardian-legacy' }) });
+    mockGetSignerDetailsFromAccount.mockReset();
+    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: '020304' });
   });
 
   const legacyGuardian = {
@@ -1491,6 +1509,32 @@ describe('Vault.migrateLegacyGuardianAccounts', () => {
     sdk.AuthSecretKey.ecdsaWithRNG.mockClear();
     await vault.migrateLegacyGuardianAccounts();
     expect(sdk.AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
+  });
+
+  it('skips a legacy account whose derived cold key does NOT match the on-chain signer', async () => {
+    // The on-chain index-0 signer is some other commitment — installing the
+    // re-derived key + flagging rotation would arm an activation that can never
+    // authorize on-chain, so the account is left untouched.
+    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'deadbeef' });
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.coldPublicKey).toBeUndefined();
+    expect(acc.requiresHotKeyRotation).toBeUndefined();
+  });
+
+  it('migrates unverified when the on-chain account is unavailable to verify against', async () => {
+    // Can't load the account (e.g. not synced yet) → can't confirm a mismatch →
+    // fall back to migrating so the account isn't permanently stuck. No regression.
+    mockGetAccount.mockResolvedValue(null);
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.coldPublicKey).toBe('020304');
+    expect(acc.requiresHotKeyRotation).toBe(true);
+    expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
   });
 
   it('never throws (best-effort) — a failure cannot block unlock', async () => {

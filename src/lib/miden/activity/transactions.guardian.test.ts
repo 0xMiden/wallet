@@ -14,11 +14,17 @@
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
+  completeUpdateProcedureThresholdTransaction,
   generateTransaction,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction
 } from './transactions';
-import { ITransactionStatus, ReplaceHotKeyTransaction, SwitchGuardianTransaction } from '../db/types';
+import {
+  ITransactionStatus,
+  ReplaceHotKeyTransaction,
+  SwitchGuardianTransaction,
+  UpdateProcedureThresholdTransaction
+} from '../db/types';
 
 const txStore: Array<Record<string, unknown>> = [];
 const putToStorage = jest.fn(async (..._args: unknown[]) => {});
@@ -840,6 +846,71 @@ describe('completeReplaceHotKeyTransaction', () => {
     expect(row.displayMessage).toBe('Device key rotated');
   });
 
+  it('re-registers the rotated state on the guardian BEFORE swapping the hot pointer', async () => {
+    // The OZ lib doesn't push update_signers state to the guardian; we must, and
+    // before swapHotKey arms the 3s hot-sync — otherwise the guardian's stale blob
+    // makes every subsequent sync diverge.
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const order: string[] = [];
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {
+      order.push('reregister');
+    });
+    const swapHotKey = jest.fn(async () => {
+      order.push('swap');
+    });
+    const provider = { ...makeGuardianProvider(true), swapHotKey };
+
+    await completeReplaceHotKeyTransaction(
+      tx,
+      makeResult() as never,
+      provider as never,
+      { reRegisterCurrentStateOnGuardian } as never
+    );
+
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    expect(order).toEqual(['reregister', 'swap']);
+  });
+
+  it('still completes the rotation (best-effort) when the guardian re-registration fails', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = { ...makeGuardianProvider(true), swapHotKey };
+    const service = {
+      reRegisterCurrentStateOnGuardian: jest.fn(async () => {
+        throw new Error('guardian down');
+      })
+    };
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never, service as never);
+
+    expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('marks the row Failed when the provider does not implement swapHotKey', async () => {
+    const tx = new ReplaceHotKeyTransaction('acc-1', false);
+    tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    // A provider without swapHotKey (e.g. the frontend zustand provider) cannot
+    // finalize a rotation — it must fail loudly rather than half-complete.
+    const provider = makeGuardianProvider(true);
+
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.error).toContain('swapHotKey not implemented');
+  });
+
   it('enqueues a procedure-threshold hardening tx after rotation when update_guardian is unhardened', async () => {
     const tx = new ReplaceHotKeyTransaction('acc-1', false);
     tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
@@ -926,5 +997,51 @@ describe('completeReplaceHotKeyTransaction', () => {
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.displayMessage).toBe('Failed to rotate device key');
+  });
+});
+
+describe('completeUpdateProcedureThresholdTransaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    txStore.length = 0;
+  });
+
+  it('marks Completed, drops the cached service, and re-registers the new state on the guardian', async () => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const reRegisterCurrentStateOnGuardian = jest.fn(async () => {});
+
+    await completeUpdateProcedureThresholdTransaction(
+      tx,
+      makeResult() as never,
+      {
+        reRegisterCurrentStateOnGuardian
+      } as never
+    );
+
+    expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
+    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('acc-1');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Account secured');
+  });
+
+  it('still completes (best-effort) when the guardian re-registration fails', async () => {
+    const tx = new UpdateProcedureThresholdTransaction('acc-1', 'update_guardian', 2, false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    await completeUpdateProcedureThresholdTransaction(
+      tx,
+      makeResult() as never,
+      {
+        reRegisterCurrentStateOnGuardian: jest.fn(async () => {
+          throw new Error('guardian down');
+        })
+      } as never
+    );
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
   });
 });

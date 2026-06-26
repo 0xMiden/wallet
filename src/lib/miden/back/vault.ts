@@ -33,6 +33,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
+import { getSignerDetailsFromAccount } from '../guardian/account';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -980,6 +981,10 @@ export class Vault {
       if (!mnemonic) return; // can't derive the cold key without the seed — leave untouched
 
       // accountId -> derived cold public key, for the records we successfully migrated.
+      // Strip an optional `0x` and lower-case so commitments compare regardless
+      // of how each side formats its hex.
+      const normalizeCommitmentHex = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex).toLowerCase();
+
       const migrated = new Map<string, string>();
       for (const acc of legacy) {
         try {
@@ -987,6 +992,38 @@ export class Vault {
           const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
           const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
           const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
+
+          // Verify the derived cold key actually matches the account's on-chain
+          // signer BEFORE installing it. The derivation assumes the legacy signer
+          // was `ecdsaWithRNG(deriveClientSeed(Guardian, mnemonic, hdIndex))`; if
+          // that assumption is wrong for this account (a differently-derived or
+          // Falcon signer), installing the derived key + flagging rotation would
+          // let the user start an activation that can never authorize on-chain.
+          // Best-effort: only BLOCK on a confirmed mismatch; if the on-chain
+          // account can't be loaded/read, migrate unverified (no regression).
+          const coldCommitment = normalizeCommitmentHex(coldSk.publicKey().toCommitment().toHex());
+          try {
+            const sdkAccount = await withWasmClientLock(async () => (await getMidenClient()).getAccount(acc.publicKey));
+            if (sdkAccount) {
+              const { commitment: onChainSigner } = await getSignerDetailsFromAccount(sdkAccount, false);
+              if (normalizeCommitmentHex(onChainSigner) !== coldCommitment) {
+                console.warn(
+                  `[Vault.migrateLegacyGuardianAccounts] derived cold key does not match on-chain signer for ${acc.publicKey}; skipping (needs manual recovery)`
+                );
+                continue;
+              }
+            } else {
+              console.warn(
+                `[Vault.migrateLegacyGuardianAccounts] on-chain account unavailable to verify cold key for ${acc.publicKey}; migrating unverified`
+              );
+            }
+          } catch (verifyErr) {
+            console.warn(
+              `[Vault.migrateLegacyGuardianAccounts] cold-key verification failed for ${acc.publicKey} (migrating unverified):`,
+              verifyErr
+            );
+          }
+
           await persistRecoveredGuardianColdKey(this.vaultKey, coldPublicKey, coldSecretKeyHex);
           migrated.set(acc.publicKey, coldPublicKey);
         } catch (e) {

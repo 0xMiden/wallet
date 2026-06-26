@@ -431,7 +431,11 @@ export const initiateReplaceHotKeyTransaction = async (
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  // The cold MultisigService used to drive the rotation. Supplied on the normal
+  // path so we can push the rotated state to the guardian below; absent on the
+  // apply-after-submit-failed reconcile path (runSync self-heals that case).
+  service?: MultisigService
 ) => {
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
@@ -442,6 +446,22 @@ export const completeReplaceHotKeyTransaction = async (
     if (!guardianProvider.swapHotKey) {
       throw new Error('swapHotKey not implemented in this provider');
     }
+
+    // The OZ lib submitted `update_signers` on-chain but did NOT re-register the
+    // rotated state on the guardian (it only does that for switch_guardian). Push
+    // it now — BEFORE `swapHotKey`, which sets `hotPublicKey` and thereby arms the
+    // ~3s guardian hot-sync. If we let the hot-sync start with the guardian's blob
+    // still pre-rotation, every tick throws on the guardian-vs-on-chain mismatch
+    // until a reinstall. Best-effort: an on-chain-successful rotation must not be
+    // failed by a guardian blip — runSync re-registers on a later tick if this slips.
+    if (service) {
+      try {
+        await service.reRegisterCurrentStateOnGuardian();
+      } catch (e) {
+        console.warn('Failed to re-register rotated state on guardian post-replace-hot-key (non-fatal):', e);
+      }
+    }
+
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
@@ -538,7 +558,10 @@ export const initiateUpdateProcedureThresholdTransaction = async (
 
 export const completeUpdateProcedureThresholdTransaction = async (
   tx: UpdateProcedureThresholdTransaction,
-  result: TransactionResult
+  result: TransactionResult,
+  // The cold MultisigService used to drive the threshold change, so we can push
+  // the new state to the guardian (the OZ lib doesn't re-register it).
+  service?: MultisigService
 ) => {
   const executedTx = result.executedTransaction();
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
@@ -549,6 +572,18 @@ export const completeUpdateProcedureThresholdTransaction = async (
   });
   // The cached service's procedureThresholds are now stale — drop it.
   clearGuardianServiceFor(tx.accountId);
+
+  // Same gap as replace-hot-key: the OZ lib submitted `update_procedure_threshold`
+  // on-chain but never re-registered the new state on the guardian. Push it so the
+  // guardian's blob tracks the new threshold and the next sync doesn't diverge.
+  // Best-effort; runSync self-heals if this slips.
+  if (service) {
+    try {
+      await service.reRegisterCurrentStateOnGuardian();
+    } catch (e) {
+      console.warn('Failed to re-register state on guardian post-update-procedure-threshold (non-fatal):', e);
+    }
+  }
 };
 
 export const completeSwitchGuardianTransaction = async (
@@ -1286,7 +1321,14 @@ const generateGuardianTransaction = async (
   // complete only happens once the on-chain rotation is final — otherwise a
   // resync could race with stale on-chain state and pick the wrong canonical
   // hot pubkey.
-  if (transaction.type === 'switch-guardian' || transaction.type === 'replace-hot-key') {
+  // For update-procedure-threshold, we wait so the post-completion guardian
+  // re-registration serializes the COMMITTED post-threshold state — otherwise it
+  // could push a pre-threshold blob and leave the guardian diverged again.
+  if (
+    transaction.type === 'switch-guardian' ||
+    transaction.type === 'replace-hot-key' ||
+    transaction.type === 'update-procedure-threshold'
+  ) {
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
@@ -1315,14 +1357,16 @@ const generateGuardianTransaction = async (
       await completeReplaceHotKeyTransaction(
         transaction as ReplaceHotKeyTransaction,
         transactionResult,
-        guardianProvider
+        guardianProvider,
+        service
       );
       break;
     case 'update-procedure-threshold':
       console.log('Completing update-procedure-threshold transaction');
       await completeUpdateProcedureThresholdTransaction(
         transaction as UpdateProcedureThresholdTransaction,
-        transactionResult
+        transactionResult,
+        service
       );
       break;
     case 'execute':
