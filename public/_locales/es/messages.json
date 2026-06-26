@@ -1394,6 +1394,14 @@
     "message": "empezar",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "Creando tu billetera...",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "billetera abierta",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "Introduce la contraseña",
     "englishSource": "Enter password"

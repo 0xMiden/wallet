@@ -1394,6 +1394,14 @@
     "message": "Zacznij",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "Tworzenie portfela…",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "Otwórz portfel",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "Wprowadź hasło",
     "englishSource": "Enter password"

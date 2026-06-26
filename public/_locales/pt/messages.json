@@ -1423,6 +1423,14 @@
     "note": "Onboarding",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "Criando sua carteira…",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "Carteira aberta",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "Digite a senha",
     "note": "Onboarding",

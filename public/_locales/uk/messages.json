@@ -1424,6 +1424,14 @@
     "note": "Onboarding",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "Створення гаманця…",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "Відкритий гаманець",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "Введіть пароль",
     "note": "Onboarding",
