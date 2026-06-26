@@ -253,6 +253,12 @@ export function revealGuardianKeys(accountPublicKey: string, password?: string) 
 
 export function revealPublicKey(_accPublicKey: string) {}
 
+// NOTE: account removal is not implemented (no-op since the aleo port). The
+// "Remove Account" UI therefore currently does nothing. When this is wired up,
+// it MUST, for Guardian accounts, release the hardware-backed hot key via
+// `secureHotKey.deleteHotKey(<hot ciphertext>)` and remove the cold-key blob
+// (`accColdSecretKeyStrgKey`) in addition to the account record/keys — otherwise
+// the SE/Keystore entry and cold key material outlive the deleted account.
 export function removeAccount(_accPublicKey: string, _password: string) {}
 
 export function editAccount(accPublicKey: string, name: string) {

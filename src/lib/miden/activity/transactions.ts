@@ -484,8 +484,13 @@ const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 
  * that fresh 3-key accounts have. Migrated legacy accounts lack it; recovered /
  * fresh accounts already have it (so this no-ops). Enqueues a cold-signed
  * `update_procedure_threshold` when missing. Best-effort — never throws.
+ *
+ * Idempotent (gated on the on-chain threshold already being 2), so besides the
+ * post-rotation call it's also invoked self-healingly from the guardian sync —
+ * closing the window where a migrated account is 3-key but `update_guardian` is
+ * still threshold-1 because the original hardening tx was dropped.
  */
-const ensureGuardianProcedureThresholds = async (
+export const ensureGuardianProcedureThresholds = async (
   accountId: string,
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
@@ -1121,6 +1126,13 @@ const generateGuardianTransaction = async (
       // until the on-chain rotation lands so this is idempotent. If the app
       // dies between submit and complete, the new ciphertext is on disk and
       // complete reconciles against the on-chain state.
+      // KNOWN LEAK: if this rotation terminally fails (submit error → tx
+      // cancelled, never reconciled) and the user re-initiates, a fresh hardware
+      // key is minted while this one's SE/Keystore entry + ciphertext blob are
+      // left orphaned (inert). A blind delete-on-failure here is unsafe — the
+      // persist-before-submit design relies on this blob surviving for the
+      // reconcile path — so reaping orphaned pending keys belongs in a dedicated
+      // cleanup, not this hot path.
       await guardianProvider.persistNewHotKey(newHot.publicKeyHex, newHot.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
@@ -1144,7 +1156,12 @@ const generateGuardianTransaction = async (
     }
     case 'execute':
     default: {
-      // For custom transactions, build a custom proposal from the serialized request bytes.
+      // For custom transactions, build a custom proposal from the serialized
+      // request bytes. Hot-routed (threshold-1). A custom proposal that embeds a
+      // structural op (e.g. update_guardian / add_signer) cannot bypass the
+      // hardening: the on-chain `procedureThresholds` map enforces per-procedure
+      // thresholds (update_guardian = 2 → needs cold + guardian) during proof
+      // verification regardless of which key signed the proposal here.
       const requestBytes = transaction.requestBytes;
       if (!requestBytes) {
         throw new Error('Request Bytes not available for custom transaction');

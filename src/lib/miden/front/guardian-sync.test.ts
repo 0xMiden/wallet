@@ -34,6 +34,13 @@ jest.mock('./guardian-manager', () => ({
   getOrCreateMultisigService: (...args: unknown[]) => mockGetOrCreateMultisigService(...args)
 }));
 
+// The self-heal hook dynamic-imports this; stub it so the sync test stays focused
+// on sync behavior (the hardening itself is covered in the transactions suite).
+const mockEnsureGuardianProcedureThresholds = jest.fn();
+jest.mock('lib/miden/activity/transactions', () => ({
+  ensureGuardianProcedureThresholds: (...args: unknown[]) => mockEnsureGuardianProcedureThresholds(...args)
+}));
+
 describe('zustandProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -103,6 +110,17 @@ describe('syncGuardianAccounts', () => {
     expect(mockGetOrCreateMultisigService).toHaveBeenNthCalledWith(1, 'guardian-1', zustandProvider);
     expect(mockGetOrCreateMultisigService).toHaveBeenNthCalledWith(2, 'guardian-2', zustandProvider);
     expect(sync).toHaveBeenCalledTimes(2);
+  });
+
+  it('self-heals the update_guardian hardening once per account per session', async () => {
+    storeState.accounts = [{ publicKey: 'guardian-heal', type: WalletType.Guardian }];
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => {}) });
+
+    await syncGuardianAccounts();
+    await syncGuardianAccounts(); // second pass — the session guard suppresses a re-check
+
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledWith('guardian-heal', undefined, zustandProvider);
   });
 
   it('continues syncing remaining accounts when one throws', async () => {

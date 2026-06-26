@@ -69,6 +69,10 @@ export interface RecoveredGuardianAccount {
 }
 
 const MAX_RECOVERY_HD_INDEX = 20;
+// Tolerate a few consecutive empty HD indices before concluding there are no
+// more accounts — handles a non-contiguous index set or a transient empty
+// guardian response, matching BIP-44 wallet gap-limit conventions.
+const RECOVERY_GAP_LIMIT = 3;
 
 // E2E-build only. The per-step prove-timing markers are useful for the
 // Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
@@ -292,8 +296,8 @@ export class MidenClientInterface {
   /**
    * Discover and adopt all Guardian accounts authorized by the cold keys
    * derived from `mnemonic` against `guardianEndpoint`. Iterates HD indices
-   * 0..MAX-1 and stops at the first miss (no accounts returned for that
-   * cold commitment).
+   * 0..MAX-1 and stops after RECOVERY_GAP_LIMIT consecutive empty indices (so a
+   * small gap doesn't silently drop later accounts).
    *
    * Each match is adopted locally only: the on-chain Account state is
    * decoded and inserted into the WASM client + the cold key registered in
@@ -324,6 +328,7 @@ export class MidenClientInterface {
     ]);
 
     const recovered: RecoveredGuardianAccount[] = [];
+    let consecutiveMisses = 0;
 
     for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
       const coldSeed = deriveColdSeed(hdIndex);
@@ -336,9 +341,13 @@ export class MidenClientInterface {
       const matches = await lookupClient.recoverByKey(lookupSigner);
 
       if (matches.length === 0) {
-        // First miss — assume no further accounts under this seed at this endpoint.
-        break;
+        // Tolerate a small gap before giving up, so a non-contiguous index or a
+        // transient empty guardian response doesn't silently drop later accounts.
+        consecutiveMisses++;
+        if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
+        continue;
       }
+      consecutiveMisses = 0;
 
       for (const { state } of matches) {
         // Decode the on-chain account state and adopt it locally so subsequent

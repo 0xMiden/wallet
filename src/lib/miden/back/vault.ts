@@ -870,6 +870,18 @@ export class Vault {
       }
 
       const oldHotPubKey = account.hotPublicKey;
+
+      // Update the account pointer FIRST, so the new hot key is durable before we
+      // release the old one. The inverse order has a lockout window: if removing
+      // the old blobs succeeded but this write then threw, `hotPublicKey` would
+      // point at a deleted key and the account could never sign again.
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+
+      // Now best-effort release the old hot key. A crash here only orphans the
+      // old blobs (inert) — never a broken pointer.
       if (oldHotPubKey && oldHotPubKey !== newHotPubKey) {
         try {
           const oldCiphertext = await fetchAndDecryptOneWithLegacyFallBack<string>(
@@ -882,11 +894,6 @@ export class Vault {
         }
         await removeMany([accAuthPubKeyStrgKey(oldHotPubKey), accAuthSecretKeyStrgKey(oldHotPubKey)]);
       }
-
-      const newAllAccounts = allAccounts.map(acc =>
-        acc.publicKey === accountPublicKey ? { ...acc, hotPublicKey: newHotPubKey, requiresHotKeyRotation: false } : acc
-      );
-      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
 
       const currentAccount = await this.getCurrentAccount();
       return { accounts: newAllAccounts, currentAccount };

@@ -1,4 +1,4 @@
-import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
+import { Account, AuthSecretKey, MidenClient, Word } from '@miden-sdk/miden-sdk/lazy';
 import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
@@ -35,33 +35,43 @@ export interface CreatedGuardianAccount {
 }
 
 /**
- * Extract the hot signer's commitment from a Guardian account's storage and
- * pair it with the supplied hot public key.
+ * Signers live in the SIGNER_PUBLIC_KEYS storage map keyed by their index word
+ * (matching @openzeppelin/miden-multisig-client's `signerMapKey`). The hot
+ * signer is at index 0, the cold signer at index 1.
+ */
+const signerMapKey = (index: number): Word => new Word(new BigUint64Array([BigInt(index), 0n, 0n, 0n]));
+
+/**
+ * Read a signer's commitment from a Guardian account's storage.
  *
- * Convention: `signerCommitments: [hot, cold]` per createGuardianAccount —
- * so `mapEntries[0]` is the hot signer's commitment.
+ * 3-key accounts store `[hot@0, cold@1]`; legacy single-key Guardian accounts
+ * (feature #153) keep the cold/HD key alone at index 0. So for the cold lookup
+ * we read index 1 and fall back to index 0 — otherwise activating a migrated
+ * legacy account would read a non-existent index 1 and brick it.
+ *
+ * Commitments MUST be read BY KEY (`getMapItem(signerMapKey(i))`), not by
+ * `getMapEntries()[i]` array position: getMapEntries returns the storage SMT's
+ * iteration order (key-hash order), which is NOT the signer-index order, so a
+ * positional read binds the wrong signer for roughly half of all accounts. The
+ * SDK's own reader (multisig-client `AccountInspector.fromAccount`) reads by key
+ * for the same reason.
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
-  const mapEntries = account.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
-  if (!mapEntries) {
-    throw new Error('No signer public keys found in account storage');
-  }
+  const storage = account.storage();
 
-  // New 3-key accounts store [hot, cold] (hot at index 0, cold at index 1).
-  // Legacy single-key Guardian accounts (feature #153) have only one on-chain
-  // signer — the cold/HD key — at index 0. So when reading the cold commitment,
-  // fall back to index 0 if there's a single signer; otherwise activating a
-  // migrated legacy account would read a non-existent index 1 and throw,
-  // bricking the account (it can neither activate nor cold-sign).
-  const index = getCold ? (mapEntries.length <= 1 ? 0 : 1) : 0;
+  const readSigner = (index: number): string | undefined => {
+    const value = storage.getMapItem(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS, signerMapKey(index));
+    if (!value) return undefined;
+    const hex = value.toHex();
+    const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
+    // An absent map entry reads back as the empty word (all zeros) in some SDK
+    // builds — treat that as "no signer at this index".
+    return /^0*$/.test(unprefixed) ? undefined : unprefixed;
+  };
 
-  if (!mapEntries[index]) {
-    throw new Error('No signer commitments found in account storage');
-  }
-
-  const commitment = mapEntries[index].value.slice(2);
+  const commitment = getCold ? (readSigner(1) ?? readSigner(0)) : readSigner(0);
   if (!commitment) {
-    throw new Error('Commitment not found in account storage');
+    throw new Error('No signer commitment found in account storage');
   }
 
   return { commitment };

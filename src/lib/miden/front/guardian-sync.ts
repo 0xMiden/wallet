@@ -29,6 +29,10 @@ export const zustandProvider: GuardianAccountProvider = {
  * banner is the user's path to flip that flag; once swapped, the next sync
  * cycle picks the account up normally.
  */
+// Accounts whose update_guardian hardening we've already verified this session,
+// so the self-heal check below runs at most once per account per session.
+const hardeningChecked = new Set<string>();
+
 export async function syncGuardianAccounts(): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
   const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && !acc.requiresHotKeyRotation);
@@ -39,6 +43,15 @@ export async function syncGuardianAccounts(): Promise<void> {
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
+
+      // Self-heal the update_guardian threshold-2 hardening: if a migrated
+      // account's original hardening tx was dropped, it would otherwise sit at
+      // threshold-1 indefinitely. Idempotent + best-effort; once per session.
+      if (!hardeningChecked.has(account.publicKey)) {
+        hardeningChecked.add(account.publicKey);
+        const { ensureGuardianProcedureThresholds } = await import('lib/miden/activity/transactions');
+        await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);
+      }
     } catch (error) {
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }

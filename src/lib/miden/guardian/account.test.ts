@@ -49,6 +49,14 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     ...actual,
     AuthSecretKey: {
       ecdsaWithRNG: jest.fn((seed: Uint8Array) => buildStubKey(`s${Array.from(seed).join('-')}`))
+    },
+    // getSignerDetailsFromAccount builds `new Word(new BigUint64Array([i,0,0,0]))`
+    // as the signer map key; expose the index so the getMapItem mock can resolve it.
+    Word: class {
+      idx: number;
+      constructor(arr: BigUint64Array) {
+        this.idx = Number(arr?.[0] ?? 0n);
+      }
     }
   };
 });
@@ -58,6 +66,14 @@ jest.mock('@miden-sdk/miden-sdk', () => {
     ...actual,
     AuthSecretKey: {
       ecdsaWithRNG: jest.fn((seed: Uint8Array) => buildStubKey(`s${Array.from(seed).join('-')}`))
+    },
+    // getSignerDetailsFromAccount builds `new Word(new BigUint64Array([i,0,0,0]))`
+    // as the signer map key; expose the index so the getMapItem mock can resolve it.
+    Word: class {
+      idx: number;
+      constructor(arr: BigUint64Array) {
+        this.idx = Number(arr?.[0] ?? 0n);
+      }
     }
   };
 });
@@ -96,62 +112,70 @@ describe('getSignerDetailsFromAccount', () => {
     jest.clearAllMocks();
   });
 
-  const makeAccount = (entries: unknown) => ({
-    storage: () => ({ getMapEntries: jest.fn(() => entries) })
+  // Mock account whose storage().getMapItem resolves a signer commitment by the
+  // index encoded in the key word (the Word mock above sets `{ idx }`). This
+  // mirrors the real by-key read; positional order is irrelevant.
+  const makeAccount = (signersByIndex: Record<number, string>) => ({
+    storage: () => ({
+      getMapItem: jest.fn((_slot: string, key: { idx: number }) => {
+        const hex = signersByIndex[key.idx];
+        return hex === undefined ? undefined : { toHex: () => hex };
+      })
+    })
   });
 
-  it("reads the first signer commitment from storage (the hot signer's slot)", async () => {
-    const account = makeAccount([{ value: '0xcommit-first' }, { value: '0xcommit-second' }]);
+  it('reads the hot signer commitment from index 0', async () => {
+    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
 
-    const result = await getSignerDetailsFromAccount(account as never);
-
-    expect(result).toEqual({ commitment: 'commit-first' });
+    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'commit-hot' });
   });
 
   it('reads the cold signer commitment from index 1 on a 3-key account', async () => {
-    const account = makeAccount([{ value: '0xcommit-hot' }, { value: '0xcommit-cold' }]);
+    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
 
-    const result = await getSignerDetailsFromAccount(account as never, true);
-
-    expect(result).toEqual({ commitment: 'commit-cold' });
+    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-cold' });
   });
 
   it('reads the cold signer commitment from index 0 on a legacy single-signer account', async () => {
     // Legacy Guardian accounts (feature #153) have a single on-chain signer —
-    // the cold/HD key — at index 0. The cold lookup must fall back to it rather
-    // than reading a non-existent index 1 (which would brick activation of a
-    // migrated account).
-    const account = makeAccount([{ value: '0xcommit-legacy-cold' }]);
+    // the cold/HD key — at index 0. The cold lookup falls back to it (index 1 is
+    // absent) rather than throwing, which would brick activation of a migrated
+    // account.
+    const account = makeAccount({ 0: '0xcommit-legacy-cold' });
 
-    const result = await getSignerDetailsFromAccount(account as never, true);
-
-    expect(result).toEqual({ commitment: 'commit-legacy-cold' });
+    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
   });
 
-  it('throws when the signer-public-keys slot is missing', async () => {
-    const account = makeAccount(undefined);
+  it('reads commitments by signer-index key, independent of storage iteration order', async () => {
+    // Regression guard for the SMT-order bug: getMapItem(signerMapKey(i)) resolves
+    // hot=0 / cold=1 correctly regardless of getMapEntries iteration order. A
+    // positional read would bind the wrong signer for ~half of accounts.
+    const account = makeAccount({ 0: '0xhotC', 1: '0xcoldC' });
+
+    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'hotC' });
+    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'coldC' });
+  });
+
+  it('throws when there is no signer at index 0', async () => {
+    const account = makeAccount({});
 
     await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
-      'No signer public keys found in account storage'
+      'No signer commitment found in account storage'
     );
   });
 
-  it('throws when the slot is present but empty', async () => {
-    const account = makeAccount([]);
+  it('treats an empty-word entry (0x / all-zeros) as no signer', async () => {
+    const account = makeAccount({ 0: '0x' });
 
     await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
-      'No signer commitments found in account storage'
+      'No signer commitment found in account storage'
     );
   });
 
-  it('throws when the stored value has no bytes after the 0x prefix', async () => {
-    // `.slice(2)` on '0x' yields an empty string — the `if (!commitment)` guard
-    // rejects instead of returning a malformed entry.
-    const account = makeAccount([{ value: '0x' }]);
+  it('accepts a commitment hex without a 0x prefix', async () => {
+    const account = makeAccount({ 0: 'beefcafe' });
 
-    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
-      'Commitment not found in account storage'
-    );
+    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'beefcafe' });
   });
 
   it('exposes the multisig storage slot names', () => {
