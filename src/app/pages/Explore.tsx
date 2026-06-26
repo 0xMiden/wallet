@@ -4,6 +4,7 @@ import classNames from 'clsx';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import Header from 'app/layouts/PageLayout/Header';
+import { ActivateHotKeyBanner } from 'app/templates/ActivateHotKeyBanner';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { ActionButtons } from 'components/explore/ActionButtons';
 import { PriceChangeBadge } from 'components/explore/PriceChangeBadge';
@@ -64,7 +65,9 @@ const Explore: FC = () => {
     }
 
     const promises = notesToClaim.map(async note => {
-      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+      // `background: true` — this is a silent auto-consume, so on Guardian
+      // accounts it's cold-signed (no biometric prompt). See initiateConsumeTransaction.
+      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
     });
     await Promise.all(promises);
     mutateClaimableNotes();
@@ -138,6 +141,7 @@ const Explore: FC = () => {
     <div className="flex flex-col h-full overflow-hidden text-heading-gray font-geist">
       <div className="flex-shrink-0">
         <ConnectivityIssueBanner />
+        <ActivateHotKeyBanner />
         <Header />
         <div className={classNames('flex flex-col justify-start', 'pt-4 px-4')}>
           <div className="flex flex-col justify-center items-center pb-4">

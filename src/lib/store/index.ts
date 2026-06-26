@@ -241,6 +241,30 @@ export const useWalletStore = create<WalletStore>()(
       return res.privateKey;
     },
 
+    revealHotKey: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealHotKeyRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
+      return res.hotPrivateKey;
+    },
+
+    revealGuardianKeys: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.RevealGuardianKeysRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.RevealGuardianKeysResponse);
+      return {
+        coldPrivateKey: res.coldPrivateKey,
+        coldPublicKey: res.coldPublicKey,
+        hotPublicKey: res.hotPublicKey
+      };
+    },
+
     importAccount: async (privateKey, name) => {
       const res = await request({
         type: WalletMessageType.ImportAccountRequest,
@@ -304,6 +328,24 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.SignWordResponse);
       return res.signature;
+    },
+
+    persistNewHotKey: async (newHotPubKey, newHotCiphertext) => {
+      const res = await request({
+        type: WalletMessageType.PersistNewHotKeyRequest,
+        newHotPubKey,
+        newHotCiphertext
+      });
+      assertResponse(res.type === WalletMessageType.PersistNewHotKeyResponse);
+    },
+
+    swapHotKey: async (accountPublicKey, newHotPubKey) => {
+      const res = await request({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey,
+        newHotPubKey
+      });
+      assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
 
     getPublicKeyForCommitment: async commitment => {
@@ -678,4 +720,32 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
     }
   })();
+
+  // Guardian on-chain auth structure (overall threshold + signer set + procedure
+  // thresholds) for E2E assertions — the harness's balance checks can't see the
+  // 3-key shape. Reads the cached front-end MultisigService; dynamic imports
+  // avoid a static cycle (guardian-sync pulls in this store module).
+  (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
+    try {
+      const [{ getOrCreateMultisigService }, { zustandProvider }] = await Promise.all([
+        import('lib/miden/front/guardian-manager'),
+        import('lib/miden/front/guardian-sync')
+      ]);
+      const service = await getOrCreateMultisigService(accountPublicKey, zustandProvider);
+      try {
+        // Best-effort refresh of on-chain state before reading. service.sync()
+        // takes the global WASM lock; on mobile the background sync can hold it
+        // for tens of seconds, which would blow the 30s execute_async_script
+        // budget the iOS bridge runs this under. Cap the wait — the auth
+        // structure (signers + procedure thresholds) is immutable during this
+        // assertion, so a slightly stale local read is still correct.
+        await Promise.race([service.sync(), new Promise<void>(resolve => setTimeout(resolve, 8_000))]);
+      } catch {
+        // best-effort — fall back to last-synced state
+      }
+      return service.getAuthInfo();
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  };
 }

@@ -3,15 +3,21 @@ import {
   Multisig,
   MultisigClient,
   GuardianHttpClient,
+  buildUpdateSignersTransactionRequest,
+  executeForSummary,
   type ProposalMetadata,
   type TransactionProposal,
   type Proposal
 } from '@openzeppelin/miden-multisig-client';
 
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
+import * as secureHotKey from 'lib/secure-hot-key';
+import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
+import type { WalletAccount } from 'lib/shared/types';
 
+import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
@@ -47,16 +53,19 @@ export class MultisigService {
 
   /**
    * Initialize a MultisigService for an existing Guardian account.
+   *
+   * `guardianEndpoint` is resolved per-account by the caller (see
+   * `resolveGuardianEndpoint`) so accounts on different operators don't collide.
    */
   static async init(
     account: Account,
     publicKey: string,
     signerCommitment: string,
-    signWordFn: SignWordFunction
+    signWordFn: SignWordFunction,
+    guardianEndpoint: string
   ): Promise<MultisigService> {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-      const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
 
       // Reuse the shared singleton client instead of spinning up a fresh
       // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
@@ -75,6 +84,35 @@ export class MultisigService {
       console.log('Error initializing MultisigService:', error);
       throw error;
     }
+  }
+
+  /**
+   * Build a transient cold-bound MultisigService for ops that must be cold-signed
+   * (switch_guardian co-sign and replace_hot_key). The cold commitment is read
+   * from on-chain storage via getSignerDetailsFromAccount(_, true) — order
+   * convention `[hot, cold]` is preserved across rotations because
+   * createReplaceHotKeyProposal uses an in-place swap target list.
+   *
+   * Caller is expected to drop the returned service immediately after use so
+   * cold key material doesn't outlive the operation.
+   */
+  static async buildColdMultisigService(
+    account: Account,
+    walletAccount: WalletAccount,
+    signWordFn: SignWordFunction
+  ): Promise<MultisigService> {
+    if (!walletAccount.coldPublicKey) {
+      throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
+    }
+    const { commitment } = await getSignerDetailsFromAccount(account, true);
+    const guardianEndpoint = await resolveGuardianEndpoint(walletAccount);
+    return MultisigService.init(
+      account,
+      `0x${walletAccount.coldPublicKey}`,
+      `0x${commitment}`,
+      signWordFn,
+      guardianEndpoint
+    );
   }
 
   static async importAccountFromGuardian(
@@ -134,6 +172,42 @@ export class MultisigService {
     return withWasmClientLock(() => this.multisig.createConsumeNotesProposal(noteIds));
   }
 
+  /** Current on-chain threshold for `procedure`, or undefined if none is set. */
+  getProcedureThreshold(procedure: string): number | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (this.multisig as any).procedureThresholds?.get(procedure);
+  }
+
+  /**
+   * The account's loaded on-chain auth structure: overall threshold, signer
+   * commitments, and per-procedure thresholds. Used by the E2E harness to
+   * assert the 3-key shape (e.g. that `update_guardian` is hardened to 2 and
+   * the signer set is `[hot, cold]`) — properties the balance-only checks miss.
+   */
+  getAuthInfo(): { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> } {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = this.multisig as any;
+    const procedureThresholds: Record<string, number> = {};
+    if (m.procedureThresholds instanceof Map) {
+      for (const [proc, threshold] of m.procedureThresholds.entries()) {
+        procedureThresholds[String(proc)] = threshold as number;
+      }
+    }
+    return {
+      threshold: typeof m.threshold === 'number' ? m.threshold : NaN,
+      signerCommitments: Array.isArray(m.signerCommitments) ? m.signerCommitments.map(String) : [],
+      procedureThresholds
+    };
+  }
+
+  /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
+  async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return withWasmClientLock(() =>
+      (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+    );
+  }
+
   async signAndExecuteProposal(id: string): Promise<void> {
     // `signProposal` is signing + guardian HTTP (no shared-client access); only
     // `executeProposal` touches the WASM client and needs the mutex.
@@ -142,11 +216,21 @@ export class MultisigService {
   }
 
   /**
-   * Create a custom transaction proposal from a TransactionSummary.
+   * Create a custom transaction proposal from a serialized transaction request.
    * This is used for 'execute' type transactions.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom transaction'): Promise<Proposal> {
     return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+  }
+
+  /**
+   * Sign a proposal with this service's bound signer. Used by switch_guardian's
+   * cold co-sign path where cold contributes a signature without driving the
+   * follow-up createTransactionProposalRequest call (hot does that).
+   * Sigs accumulate on the Guardian server keyed by proposal id.
+   */
+  async signProposal(id: string): Promise<void> {
+    await this.multisig.signProposal(id);
   }
 
   async signAndCreateTransactionRequest(id: string, requestBytes?: Uint8Array): Promise<TransactionRequest> {
@@ -181,23 +265,54 @@ export class MultisigService {
     // around each `syncState` attempt and release during the back-off wait so
     // other client operations can proceed between retries.
     this.syncRetryCount = 0;
+    // The guardian-realign self-heal below runs at most once per sync run so a
+    // genuinely stuck guardian doesn't loop re-registering every tick.
+    let realignAttempted = false;
     for (;;) {
       try {
         await withWasmClientLock(() => this.multisig.syncState());
         this.syncRetryCount = 0; // Reset retry count on successful sync
         return;
       } catch (error) {
-        const isNonceTooLow =
-          error instanceof Error && error.message.includes('nonce') && error.message.includes('too low');
-        if (!isNonceTooLow) {
-          throw error; // Rethrow if it's a different error
+        const message = error instanceof Error ? error.message : String(error);
+        const isNonceTooLow = message.includes('nonce') && message.includes('too low');
+        if (isNonceTooLow) {
+          if (this.syncRetryCount >= MAX_SYNC_RETRIES) {
+            throw new Error('Max sync retries reached: local state is ahead of on-chain state');
+          }
+          this.syncRetryCount++;
+          console.warn(
+            'Nonce is too low, local state is ahead of on-chain state, retrying sync...',
+            this.syncRetryCount
+          );
+          await delay(SYNC_RETRY_DELAY_MS);
+          continue;
         }
-        if (this.syncRetryCount >= MAX_SYNC_RETRIES) {
-          throw new Error('Max sync retries reached: local state is ahead of on-chain state');
+
+        // `multisig.syncState` refuses to overwrite local state when the guardian's
+        // stored blob lags the on-chain account ("Refusing to overwrite local
+        // state ..." / commitment-mismatch). The OZ lib only re-registers
+        // structural rotations on the guardian for `switch_guardian`; after a
+        // replace-hot-key (`update_signers`) or `update_procedure_threshold` the
+        // guardian's blob is never updated, so it diverges from on-chain and this
+        // throws every ~3s AutoSync tick — forever, until a full reinstall. Self-heal
+        // once per run: push our current on-chain state up to the guardian (see
+        // `reRegisterCurrentStateOnGuardian`) so it realigns, then retry the sync.
+        // Best-effort: if the realign itself fails, fall through to the original error.
+        if (!realignAttempted) {
+          realignAttempted = true;
+          try {
+            console.warn(
+              'Guardian sync failed; realigning guardian to current on-chain state, then retrying:',
+              message
+            );
+            await this.reRegisterCurrentStateOnGuardian();
+            continue;
+          } catch (realignError) {
+            console.warn('Guardian re-registration during sync failed (non-fatal):', realignError);
+          }
         }
-        this.syncRetryCount++;
-        console.warn('Nonce is too low, local state is ahead of on-chain state, retrying sync...', this.syncRetryCount);
-        await delay(SYNC_RETRY_DELAY_MS);
+        throw error; // Rethrow if it's a different error (caller logs per-account)
       }
     }
   }
@@ -229,6 +344,62 @@ export class MultisigService {
       console.error('Error creating switch-guardian proposal:', error);
       throw error;
     }
+  }
+
+  /**
+   * Build a proposal that replaces this account's hot signer in-place. Mints a
+   * fresh hot key via the secureHotKey facade and constructs an `update_signers`
+   * proposal whose target list is `[newHotCommit, coldCommit]` (preserving the
+   * `[hot, cold]` ordering convention so getSignerDetailsFromAccount keeps
+   * working post-rotation).
+   *
+   * Bypasses the SDK's createAddSignerProposal/createRemoveSignerProposal
+   * convenience wrappers (those compute different target lists). At execution
+   * time, multisig.ts's buildTransactionRequestFromMetadata treats all three
+   * `update_signers` variants identically and uses metadata.targetSignerCommitments
+   * directly — so labeling this as 'add_signer' is cosmetic.
+   *
+   * Sign + submit this proposal with a cold-bound MultisigService — replacing
+   * the hot key cannot itself require the hot key (recovery-friendly). Default
+   * threshold for update_signers is 1, so cold alone satisfies it.
+   *
+   * Caller is responsible for persisting `newHot.ciphertext` BEFORE submitting
+   * the resulting tx (see initiateReplaceHotKeyTransaction).
+   */
+  async createReplaceHotKeyProposal(account: Account): Promise<{ proposal: Proposal; newHot: GeneratedHotKey }> {
+    const newHot = await secureHotKey.generateHotKey();
+    const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
+    const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
+    const targetSignerCommitments = [ensure0x(newHot.commitmentHex), ensure0x(coldCommitRaw)];
+    const targetThreshold = this.multisig.threshold;
+
+    // Keep getMidenClient() and both WASM ops inside a single lock scope — the
+    // WASM client is single-threaded, so resolving the client outside the lock
+    // (or splitting the build/execute into two lock windows) leaves a gap where
+    // another holder can run and trigger "recursive use ... unsafe aliasing".
+    const { summaryBase64, saltHex } = await withWasmClientLock(async () => {
+      const webClient = (await getMidenClient()).client;
+      const { request, salt } = await buildUpdateSignersTransactionRequest(
+        webClient,
+        targetThreshold,
+        targetSignerCommitments,
+        { signatureScheme: 'ecdsa' }
+      );
+      const summary = await executeForSummary(webClient, this.accountId, request);
+      return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
+    });
+    const metadata: ProposalMetadata = {
+      proposalType: 'add_signer',
+      targetThreshold,
+      targetSignerCommitments,
+      saltHex,
+      requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
+      description: 'Replace device (hot) signer'
+    };
+
+    const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
+    console.log('Created replace-hot-key proposal:', proposal.id);
+    return { proposal, newHot };
   }
 
   /**
@@ -286,6 +457,34 @@ export class MultisigService {
       }
     }
     throw new Error('Failed to register account on the new guardian after switching', { cause: lastError });
+  }
+
+  /**
+   * Push this account's CURRENT on-chain state to its (unchanged) guardian, so the
+   * guardian's stored blob tracks structural rotations.
+   *
+   * Upstream `multisig.executeProposal` only re-registers the post-execution state
+   * on the guardian for `switch_guardian` proposals; for `update_signers`
+   * (replace-hot-key) and `update_procedure_threshold` it submits the tx on-chain
+   * but never updates the guardian. Without this push, the guardian's `getState`
+   * keeps serving the pre-rotation blob, so the next `multisig.syncState` sees
+   * guardian-commitment != on-chain-commitment and throws on
+   * `ensureSafeToOverwriteLocalState` every ~3s tick — permanently, until a full
+   * reinstall re-registers the account. Mirrors `finalizeGuardianSwitch`'s
+   * registration step but keeps the same guardian endpoint. Idempotent: if the
+   * guardian already has this state, re-registering is a no-op.
+   */
+  async reRegisterCurrentStateOnGuardian(): Promise<void> {
+    const updatedStateBase64 = await withWasmClientLock(async () => {
+      const client = await getMidenClient();
+      await client.syncState();
+      const account = await client.getAccount(this.accountId);
+      if (!account) {
+        throw new Error(`Account ${this.accountId} is missing from local client`);
+      }
+      return u8ToB64(account.serialize());
+    });
+    await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }
 

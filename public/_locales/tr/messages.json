@@ -1498,6 +1498,10 @@
     "message": "Kimseyle paylaşmayın.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "seed phrase kurtarma anahtarınızdır; günlük işlemler için değil, cihaz anahtarlarını döndürmek için kullanılır.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Seç",
     "noteeee": "Onboarding",
@@ -1680,6 +1684,14 @@
     "message": "Guardian hesabınızı yeni bir koruyucu uç noktasına yönlendirin. Anahtar, zincir içi bir teklif olarak imzalandı.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Bu, kurtarma (soğuk) anahtarınızla imzalanır ve mevcut vasiniz tarafından da imzalanır. Paranız ve hesabınız aynı kalır. Devam etmek?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Anahtarı onayla",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Vasi değiştiriliyor...",
     "englishSource": "Switching guardian..."
@@ -1691,6 +1703,78 @@
   "guardianEndpointUnchanged": {
     "message": "Bu zaten sizin şu anki vasiniz.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Cihaz anahtarını döndür",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Yeni bir cihaz (geçiş) anahtarı oluşturun ve zincirdeki mevcut olanı değiştirin. Cihazınızın güvenliğinin ihlal edildiğinden şüpheleniyorsanız kullanışlıdır.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Bu, kurtarma (soğuk) anahtarınızla imzalanır. seed phrase kodunuz gerekli değildir ve paranız ve hesabınız aynı kalır. Devam etmek?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Döndürmeyi onayla",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "Cihaz anahtarı başarıyla döndürüldü.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Cihaz anahtarını etkinleştir",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Kurtarılan bu hesap için bir cihaz anahtarı oluşturun. Göndermeden önce gereklidir.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "Etkinleştir",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "Cihaz anahtarı etkinleştirilemedi. Tekrar deneyin.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Cihaz anahtarını göster",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "Cihaz (geçiş) anahtarınız, Ayarlar → Cihaz Anahtarını Döndür seçeneğinden döndürülebilir; bu nedenle, bunun açığa çıkarılması seed phrase anahtarınızdan daha düşük risklidir; ancak onu tutan herkes, siz rotasyon yapana kadar işlemleri imzalayabilir.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Cihaz Özel Anahtarı",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Cihaz Genel Anahtarı",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Kurtarma (Soğuk) Özel Anahtar",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Kurtarma (Soğuk) Genel Anahtar",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Guardian hesabınız üç anahtarla korunur: rutin imzalama için bir cihaz (geçici) anahtar, hesap yönetimi işlemleri için seed phrase hesabınızdan türetilen bir kurtarma (soğuk) anahtar ve harici bir veli ortak imzalayan. Aşağıda soğuk özel anahtarınız ve her iki genel anahtarınız bulunmaktadır. Cihazın özel anahtarını ortaya çıkarmak için Ayarlar → Cihaz Anahtarını Göster seçeneğini kullanın.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Cihaz anahtarınızı açıklamadan önce",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Bu anahtara sahip olan herkes, siz onu değiştirene kadar işlemleri imzalayabilir. Anahtar sızdırılmışsa, Ayarlar → Cihaz Anahtarını Döndür seçeneğini kullanarak onu döndürün.",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "http:// veya https:// ile başlayan geçerli bir URL girin",

@@ -3,10 +3,11 @@
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
 import * as Passworder from 'lib/miden/passworder';
+import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, savePlain } from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 const memoryStore: Record<string, any> = {};
@@ -34,6 +35,24 @@ jest.mock('lib/platform/storage-adapter', () => ({
 // ---------------------------------------------------------------------------
 const mockCreateMidenWallet = jest.fn(async (_type: any, _seed: Uint8Array) => 'acc-pub-key-1');
 const mockImportPublicMidenWalletFromSeed = jest.fn(async (_seed: Uint8Array) => 'acc-pub-key-imported');
+const GUARDIAN_KEYS_FIXTURE = {
+  hotPublicKey: 'hot-pub',
+  coldPublicKey: 'cold-pub',
+  hotCiphertext: 'hot-ct',
+  coldSecretKeyHex: 'cold-sk'
+};
+const mockCreateGuardianMidenWallet = jest.fn(async (_seed: Uint8Array) => ({
+  accountId: 'guardian-acc-1',
+  keys: GUARDIAN_KEYS_FIXTURE
+}));
+const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _endpoint: string) => [
+  {
+    accountId: 'guardian-acc-imported',
+    hdIndex: 0,
+    coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
+    coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
+  }
+]);
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
@@ -46,9 +65,11 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   createMidenWallet: (...args: unknown[]) => mockCreateMidenWallet(...(args as [any, Uint8Array])),
   importPublicMidenWalletFromSeed: (...args: unknown[]) =>
     mockImportPublicMidenWalletFromSeed(...(args as [Uint8Array])),
-  // Mirror the production dispatch: for non-Guardian types, delegate to
-  // importPublicMidenWalletFromSeed so existing tests keep asserting on it.
+  // Non-Guardian: delegate to importPublicMidenWalletFromSeed so existing
+  // tests keep asserting on it.
   importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
+  createGuardianMidenWallet: (...args: unknown[]) => mockCreateGuardianMidenWallet(...(args as [Uint8Array])),
+  recoverGuardianAccountsBySeed: (...args: unknown[]) => mockRecoverGuardianAccountsBySeed(...(args as [any, string])),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
@@ -64,10 +85,32 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
+// Mock the secure-hot-key facade so reveal/swap paths don't try to deserialize
+// real AuthSecretKey blobs out of fake ciphertexts. Tests set the resolved
+// value per case via the captured mock fns.
+const mockRevealHotKey = jest.fn(async (_ciphertext: string) => 'reveal-stub');
+const mockDeleteHotKey = jest.fn(async (_ciphertext: string) => {});
+jest.mock('lib/secure-hot-key', () => ({
+  revealHotKey: (...a: unknown[]) => mockRevealHotKey(...(a as [string])),
+  deleteHotKey: (...a: unknown[]) => mockDeleteHotKey(...(a as [string])),
+  generateHotKey: jest.fn(),
+  signHotDigest: jest.fn()
+}));
+
+// migrateLegacyGuardianAccounts verifies the derived cold key against the
+// on-chain index-0 signer via getSignerDetailsFromAccount. Mock it so tests can
+// drive the match / mismatch branches.
+const mockGetSignerDetailsFromAccount = jest.fn();
+jest.mock('../guardian/account', () => ({
+  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a)
+}));
+
 // Unified handle used by tests — matches the old mockMidenClient API.
 const mockMidenClient = {
   createMidenWallet: mockCreateMidenWallet,
   importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
+  createGuardianMidenWallet: mockCreateGuardianMidenWallet,
+  recoverGuardianAccountsBySeed: mockRecoverGuardianAccountsBySeed,
   getAccounts: mockGetAccounts,
   getAccount: mockGetAccount,
   syncState: mockSyncState,
@@ -184,6 +227,9 @@ const keys = {
   accPubKey: (pk: string) => `${ck('accpubkey')}_${pk}`,
   accAuthSecretKey: (pk: string) => `${ck('accauthsecretkey')}_${pk}`,
   accAuthPubKey: (pk: string) => `${ck('accauthpubkey')}_${pk}`,
+  // NOTE: the vault's StorageEntity.AccColdSecretKey value is 'accouldsecretkey'
+  // (typo preserved for storage compatibility with existing wallets).
+  accColdSecretKey: (pk: string) => `${ck('accouldsecretkey')}_${pk}`,
   currentAccPubKey: ck('curraccpubkey'),
   accounts: ck('accounts'),
   ownMnemonic: ck('ownmnemonic'),
@@ -242,6 +288,18 @@ beforeEach(() => {
   (isDesktop as jest.Mock).mockReturnValue(false);
   (isMobile as jest.Mock).mockReturnValue(false);
   mockMidenClient.createMidenWallet.mockResolvedValue('acc-pub-key-1');
+  mockMidenClient.createGuardianMidenWallet.mockResolvedValue({
+    accountId: 'guardian-acc-1',
+    keys: GUARDIAN_KEYS_FIXTURE
+  });
+  mockMidenClient.recoverGuardianAccountsBySeed.mockResolvedValue([
+    {
+      accountId: 'guardian-acc-imported',
+      hdIndex: 0,
+      coldPublicKey: GUARDIAN_KEYS_FIXTURE.coldPublicKey,
+      coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
+    }
+  ]);
   mockMidenClient.getAccounts.mockResolvedValue([]);
   mockMidenClient.getAccount.mockResolvedValue(null);
   mockMidenClient.syncState.mockResolvedValue(undefined);
@@ -558,6 +616,142 @@ describe('Vault.revealPrivateKey', () => {
   it('rejects with PublicError when no secret key is stored for the account', async () => {
     await seedVault('pw');
     await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.revealHotKey', () => {
+  it('unwraps the hot ciphertext via the secure-hot-key facade and returns plaintext hex', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    // Persist a Guardian WalletAccount with hotPublicKey + the wrapped ciphertext
+    // exactly the way Vault.spawn's createGuardianMidenWallet path would.
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex'
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [account]],
+        [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT']
+      ],
+      vaultKey
+    );
+    mockRevealHotKey.mockResolvedValueOnce('deadbeef');
+
+    const secret = await Vault.revealHotKey('guardian-acc-1', 'pw');
+
+    expect(mockRevealHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+    expect(secret).toBe('deadbeef');
+  });
+
+  it('rejects when the account is not a Guardian account', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'acc-1',
+      name: 'OnChain 1',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0
+    };
+    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
+
+    await expect(Vault.revealHotKey('acc-1', 'pw')).rejects.toThrow(PublicError);
+  });
+
+  it('rejects when the Guardian account has no activated hot key (post-recovery, pre-banner)', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-recovered',
+      name: 'Guardian Recovered',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      coldPublicKey: 'cold-pub-hex',
+      requiresHotKeyRotation: true
+    };
+    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
+
+    await expect(Vault.revealHotKey('guardian-recovered', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.revealGuardianKeys', () => {
+  it('returns coldPrivateKey + coldPublicKey + hotPublicKey for an activated Guardian account', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-acc-1',
+      name: 'Guardian 1',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      hotPublicKey: 'hot-pub-hex',
+      coldPublicKey: 'cold-pub-hex'
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [account]],
+        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX']
+      ],
+      vaultKey
+    );
+
+    const result = await Vault.revealGuardianKeys('guardian-acc-1', 'pw');
+
+    expect(result).toEqual({
+      coldPrivateKey: 'COLD_SECRET_HEX',
+      coldPublicKey: 'cold-pub-hex',
+      hotPublicKey: 'hot-pub-hex'
+    });
+  });
+
+  it('returns hotPublicKey undefined for a recovered Guardian account whose hot key is not yet activated', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'guardian-recovered',
+      name: 'Guardian Recovered',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      coldPublicKey: 'cold-pub-hex',
+      requiresHotKeyRotation: true
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [account]],
+        [keys.accColdSecretKey('cold-pub-hex'), 'COLD_SECRET_HEX']
+      ],
+      vaultKey
+    );
+
+    const result = await Vault.revealGuardianKeys('guardian-recovered', 'pw');
+
+    expect(result.coldPrivateKey).toBe('COLD_SECRET_HEX');
+    expect(result.coldPublicKey).toBe('cold-pub-hex');
+    expect(result.hotPublicKey).toBeUndefined();
+  });
+
+  it('rejects when called on a non-Guardian account', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const account: WalletAccount = {
+      publicKey: 'acc-1',
+      name: 'OnChain 1',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0
+    };
+    await encryptAndSaveMany([[keys.accounts, [account]]], vaultKey);
+
+    await expect(Vault.revealGuardianKeys('acc-1', 'pw')).rejects.toThrow(PublicError);
   });
 });
 
@@ -1146,20 +1340,21 @@ describe('Vault hardware branches', () => {
     await expect(vlt.createHDAccount('invalid' as any)).rejects.toThrow();
   });
 
-  it('Vault.spawn propagates importAccountBySeed failures for Guardian imports (no silent fallback)', async () => {
-    // The Guardian import path must NOT fall back to createMidenWallet — otherwise
-    // a silently-recreated account would leave the user with an empty balance
-    // under their seed. The branch rethrows, wrapped as a PublicError by withError.
+  it('Vault.spawn propagates recoverGuardianAccountsBySeed failures (no silent fallback)', async () => {
+    // The Guardian recovery path must NOT fall back to createGuardianMidenWallet —
+    // otherwise a silently-recreated account would leave the user with an empty
+    // balance under their seed. The branch rethrows, wrapped as a PublicError by
+    // withError.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
+    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
 
     await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true)).rejects.toThrow(
       PublicError
     );
 
-    // createMidenWallet must NOT be called as a fallback — Guardian rethrows.
-    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalledWith(WalletType.Guardian, expect.anything());
+    // createGuardianMidenWallet must NOT be called as a fallback — Guardian rethrows.
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
   it('createHDAccount supports WalletType.Guardian (derivation index 2)', async () => {
@@ -1167,8 +1362,11 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     const vlt = await Vault.spawn(WalletType.OnChain, 'pw-guardian-test');
     // Guardian resolves to the third branch inside getMainDerivationPath (walletTypeIndex=2);
-    // createMidenWallet is stubbed to return a predictable account id.
-    mockMidenClient.createMidenWallet.mockResolvedValueOnce('guardian-acc-1');
+    // createGuardianMidenWallet is stubbed to return a predictable account id + keys.
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-1',
+      keys: GUARDIAN_KEYS_FIXTURE
+    });
     await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).resolves.toBeTruthy();
   });
 
@@ -1213,5 +1411,135 @@ describe('Vault hardware branches', () => {
       // May throw if the decrypted key doesn't match - that's ok, we exercised the branch
     }
     expect(true).toBe(true); // assert no-throw
+  });
+});
+
+describe('Vault.migrateLegacyGuardianAccounts', () => {
+  const sdk = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+
+  beforeEach(() => {
+    // Cold-key derivation is mocked to a fixed key; `deriveClientSeed` still runs
+    // real BIP-39 over VALID_MNEMONIC but the seed it produces is ignored here.
+    // The derived key's commitment is `0x020304` (the verification compares this
+    // against the on-chain index-0 signer below).
+    sdk.AuthSecretKey.ecdsaWithRNG.mockImplementation(() => ({
+      publicKey: () => ({
+        serialize: () => new Uint8Array([0x00, 0x02, 0x03, 0x04]),
+        toCommitment: () => ({ toHex: () => '0x020304' })
+      }),
+      serialize: () => new Uint8Array([0xab, 0xcd])
+    }));
+    // By default the on-chain account is present and its index-0 signer matches
+    // the derived cold commitment, so the legacy account migrates (verified).
+    mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'guardian-legacy' }) });
+    mockGetSignerDetailsFromAccount.mockReset();
+    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: '020304' });
+  });
+
+  const legacyGuardian = {
+    publicKey: 'guardian-legacy',
+    name: 'Guardian 1',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 0
+  };
+  const normalAcc = { publicKey: 'normal-1', name: 'Acc', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+  const already3Key = {
+    publicKey: 'guardian-3key',
+    name: 'Guardian 2',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 1,
+    coldPublicKey: 'existing-cold',
+    hotPublicKey: 'existing-hot'
+  };
+
+  it('migrates a legacy single-key Guardian account to the 3-key model in place', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc, already3Key] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const accounts = await vault.fetchAccounts();
+    const migrated = accounts.find(a => a.publicKey === 'guardian-legacy')!;
+    expect(migrated.coldPublicKey).toBe('020304'); // serialize().slice(1) of [00,02,03,04]
+    expect(migrated.requiresHotKeyRotation).toBe(true);
+    // The derived cold key is persisted into the cold slot.
+    const coldHex = await fetchAndDecryptOneWithLegacyFallBack(
+      keys.accColdSecretKey('020304'),
+      (vault as any).vaultKey
+    );
+    expect(coldHex).toBe('abcd');
+  });
+
+  it('leaves non-Guardian and already-3-key accounts untouched', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc, already3Key] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const accounts = await vault.fetchAccounts();
+    const normal = accounts.find(a => a.publicKey === 'normal-1')!;
+    const threeKey = accounts.find(a => a.publicKey === 'guardian-3key')!;
+    expect(normal.coldPublicKey).toBeUndefined();
+    expect(normal.requiresHotKeyRotation).toBeUndefined();
+    expect(threeKey.coldPublicKey).toBe('existing-cold');
+    expect(threeKey.requiresHotKeyRotation).toBeUndefined();
+  });
+
+  it('skips imported Guardian accounts (hdIndex < 0) — they cannot be re-derived', async () => {
+    // Imported Guardian accounts are tagged hdIndex = -1; deriving a cold key
+    // from the mnemonic at a negative index would be wrong, so they're excluded.
+    const importedGuardian = {
+      publicKey: 'guardian-imported',
+      name: 'Guardian Imported',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: -1
+    };
+    const vault = await seedVault('pw', { accounts: [importedGuardian] as any });
+    sdk.AuthSecretKey.ecdsaWithRNG.mockClear();
+    await vault.migrateLegacyGuardianAccounts();
+
+    expect(sdk.AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
+    const imported = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-imported')!;
+    expect(imported.coldPublicKey).toBeUndefined();
+    expect(imported.requiresHotKeyRotation).toBeUndefined();
+  });
+
+  it('is idempotent — a second run derives nothing', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.migrateLegacyGuardianAccounts();
+    sdk.AuthSecretKey.ecdsaWithRNG.mockClear();
+    await vault.migrateLegacyGuardianAccounts();
+    expect(sdk.AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
+  });
+
+  it('skips a legacy account whose derived cold key does NOT match the on-chain signer', async () => {
+    // The on-chain index-0 signer is some other commitment — installing the
+    // re-derived key + flagging rotation would arm an activation that can never
+    // authorize on-chain, so the account is left untouched.
+    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'deadbeef' });
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.coldPublicKey).toBeUndefined();
+    expect(acc.requiresHotKeyRotation).toBeUndefined();
+  });
+
+  it('migrates unverified when the on-chain account is unavailable to verify against', async () => {
+    // Can't load the account (e.g. not synced yet) → can't confirm a mismatch →
+    // fall back to migrating so the account isn't permanently stuck. No regression.
+    mockGetAccount.mockResolvedValue(null);
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.migrateLegacyGuardianAccounts();
+
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.coldPublicKey).toBe('020304');
+    expect(acc.requiresHotKeyRotation).toBe(true);
+    expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
+  });
+
+  it('never throws (best-effort) — a failure cannot block unlock', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
+    await expect(vault.migrateLegacyGuardianAccounts()).resolves.toBeUndefined();
   });
 });

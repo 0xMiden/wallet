@@ -1498,6 +1498,10 @@
     "message": "Не делитесь ни с кем.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "Ваш seed phrase — это ваш ключ восстановления, который используется для смены ключей устройства, а не для повседневных транзакций.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Выбрать",
     "note": "Onboarding",
@@ -1681,6 +1685,14 @@
     "message": "Направьте свою учетную запись Guardian на новую конечную точку Guardian. Переключатель подписывается как предложение в цепочке.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Он подписан вашим ключом восстановления (холодным) и подписан вашим нынешним опекуном. Ваши средства и счет останутся прежними. Продолжать?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Подтвердить переключение",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Смена опекуна...",
     "englishSource": "Switching guardian..."
@@ -1692,6 +1704,78 @@
   "guardianEndpointUnchanged": {
     "message": "Это уже ваш нынешний опекун.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Поворот ключа устройства",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Создайте новый (горячий) ключ устройства и замените текущий в цепочке. Полезно, если вы подозреваете, что ваше устройство взломано.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Он подписан вашим ключом восстановления (холодным). Ваш seed phrase не требуется, а ваши средства и счет останутся прежними. Продолжать?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Подтвердить ротацию",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "Ключ устройства успешно поменялся.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Активировать ключ устройства",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Создайте ключ устройства для этой восстановленной учетной записи. Обязательно перед отправкой.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "Активировать",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "Не удалось активировать ключ устройства. Попробуйте еще раз.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Показать ключ устройства",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "(Горячую) клавишу вашего устройства можно менять в меню «Настройки» → «Поменять ключ устройства», поэтому ее раскрытие менее важно, чем ваш seed phrase — но любой, кто ее держит, может подписывать транзакции до тех пор, пока вы не поменяете ее.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Закрытый ключ устройства",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Открытый ключ устройства",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Восстановление (холодного) закрытого ключа",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Открытый ключ восстановления (холодный)",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Ваша учетная запись Guardian защищена тремя ключами: ключом устройства (горячим) для обычного подписания, ключом восстановления (холодным) ключом, полученным из вашего seed phrase для операций управления учетной записью, и внешним подписавшим лицом-опекуном. Ниже приведены ваш холодный закрытый ключ и оба открытых ключа. Чтобы раскрыть закрытый ключ устройства, выберите «Настройки» → «Показать ключ устройства».",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Прежде чем раскрыть ключ вашего устройства",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Любой, у кого есть этот ключ, может подписывать транзакции, пока вы его не поменяете. Если ключ утек, поверните его через «Настройки» → «Повернуть ключ устройства».",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "Введите действительный URL-адрес, начинающийся с http:// или https://.",

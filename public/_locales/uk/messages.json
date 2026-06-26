@@ -1498,6 +1498,10 @@
     "message": "Ні з ким не діліться.",
     "englishSource": "Do not share with anyone."
   },
+  "seedPhraseRecoveryCaption": {
+    "message": "Ваш seed phrase є вашим ключем відновлення, який використовується для ротації ключів пристрою, а не для щоденних транзакцій.",
+    "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
+  },
   "select": {
     "message": "Вибрати",
     "note": "Onboarding",
@@ -1681,6 +1685,14 @@
     "message": "Направте свій обліковий запис Guardian на нову кінцеву точку опікуна. Комутатор підписаний як пропозиція в ланцюжку.",
     "englishSource": "Point your Guardian account at a new guardian endpoint. The switch is signed as an on-chain proposal."
   },
+  "switchGuardianConfirmation": {
+    "message": "Це підписано вашим (холодним) ключем відновлення та підписано вашим поточним опікуном. Ваші кошти та рахунок залишаються без змін. Продовжити?",
+    "englishSource": "This is signed with your recovery (cold) key and co-signed by your current guardian. Your funds and account stay the same. Continue?"
+  },
+  "confirmSwitchGuardian": {
+    "message": "Підтвердьте перемикання",
+    "englishSource": "Confirm switch"
+  },
   "switchingGuardian": {
     "message": "Зміна опікуна...",
     "englishSource": "Switching guardian..."
@@ -1692,6 +1704,78 @@
   "guardianEndpointUnchanged": {
     "message": "Це вже ваш поточний опікун.",
     "englishSource": "That's already your current guardian."
+  },
+  "replaceHotKey": {
+    "message": "Поверніть клавішу пристрою",
+    "englishSource": "Rotate device key"
+  },
+  "replaceHotKeyDescription": {
+    "message": "Згенеруйте новий (гарячий) ключ пристрою та замініть поточний у мережі. Корисно, якщо ви підозрюєте, що ваш пристрій зламано.",
+    "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
+  },
+  "replaceHotKeyConfirmation": {
+    "message": "Це підписано вашим (холодним) ключем відновлення. Ваш seed phrase не потрібен, а ваші кошти та рахунок залишаються незмінними. Продовжити?",
+    "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
+  },
+  "confirmReplaceHotKey": {
+    "message": "Підтвердити обертання",
+    "englishSource": "Confirm rotation"
+  },
+  "hotKeyRotated": {
+    "message": "Ключ пристрою успішно повернуто.",
+    "englishSource": "Device key rotated successfully."
+  },
+  "activateHotKeyBannerTitle": {
+    "message": "Активуйте ключ пристрою",
+    "englishSource": "Activate device key"
+  },
+  "activateHotKeyBannerBody": {
+    "message": "Згенеруйте ключ пристрою для цього відновленого облікового запису. Обов'язково перед відправкою.",
+    "englishSource": "Generate a device key for this recovered account. Required before sending."
+  },
+  "activateHotKeyBannerCta": {
+    "message": "активувати",
+    "englishSource": "Activate"
+  },
+  "activateHotKeyBannerError": {
+    "message": "Не вдалося активувати ключ пристрою. Спробуйте знову.",
+    "englishSource": "Failed to activate device key. Try again."
+  },
+  "revealHotKey": {
+    "message": "Розкрити ключ пристрою",
+    "englishSource": "Reveal device key"
+  },
+  "revealHotKeyDescription": {
+    "message": "Ваш (гарячий) ключ пристрою можна обертати в меню «Налаштування» → «Обертати ключ пристрою», тому його розкриття є нижчим, ніж ваш seed phrase — але будь-хто, хто його тримає, може підписувати транзакції, доки ви не повернете його.",
+    "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
+  },
+  "hotPrivateKey": {
+    "message": "Приватний ключ пристрою",
+    "englishSource": "Device Private Key"
+  },
+  "hotPublicKeyLabel": {
+    "message": "Відкритий ключ пристрою",
+    "englishSource": "Device Public Key"
+  },
+  "coldPrivateKey": {
+    "message": "Приватний ключ відновлення (холодний).",
+    "englishSource": "Recovery (Cold) Private Key"
+  },
+  "coldPublicKeyLabel": {
+    "message": "Відновлення (холодного) відкритого ключа",
+    "englishSource": "Recovery (Cold) Public Key"
+  },
+  "guardianKeysRevealDescription": {
+    "message": "Ваш обліковий запис опікуна захищено трьома ключами: ключем пристрою (гарячим) для звичайного підпису, ключем відновлення (холодним), отриманим із вашого seed phrase для операцій керування обліковим записом, і зовнішнім співпідписувачем опікуна. Нижче ваш холодний приватний ключ плюс обидва відкритих ключі. Щоб розкрити закритий ключ пристрою, скористайтеся Налаштуваннями → Відкрити ключ пристрою.",
+    "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
+  },
+  "hotKeyRevealWarningTitle": {
+    "message": "Перш ніж відкрити ключ свого пристрою",
+    "englishSource": "Before you reveal your device key"
+  },
+  "hotKeyRevealWarningBody": {
+    "message": "Будь-хто з цим ключем може підписувати транзакції, доки ви його не повернете. Якщо ключ витік, поверніть його через Налаштування → Обернути ключ пристрою.",
+    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
     "message": "Введіть дійсну URL-адресу, яка починається з http:// або https://",

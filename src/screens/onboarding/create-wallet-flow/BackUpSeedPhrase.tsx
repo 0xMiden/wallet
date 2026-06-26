@@ -52,6 +52,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
         <div className="text-[10px] text-center font-regular">
           <p>{t('backUpWalletInstructions')}</p>
           <p>{t('doNotShareWithAnywone')}</p>
+          <p>{t('seedPhraseRecoveryCaption')}</p>
         </div>
       </div>
 

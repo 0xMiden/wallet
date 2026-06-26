@@ -21,7 +21,11 @@ jest.mock('./storage', () => ({
 
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args)
+  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args),
+  // Mirror the real resolver: prefer the per-account endpoint, else the stored
+  // global key (driven by mockFetchFromStorage), else the default.
+  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+    acc.guardianEndpoint ?? (await mockFetchFromStorage('guardian_url_setting')) ?? 'https://default.guardian.test'
 }));
 
 const mockGetAccount = jest.fn();
@@ -48,8 +52,17 @@ jest.mock('lib/settings/constants', () => ({
 
 const GUARDIAN_PK = 'guardian-pk';
 const OTHER_PK = 'other-pk';
+const HOT_PK = 'hot-pk-hex';
 
-const guardianAccount = { publicKey: GUARDIAN_PK, type: WalletType.Guardian, name: 'Guardian', hdIndex: 0 };
+const guardianAccount = {
+  publicKey: GUARDIAN_PK,
+  type: WalletType.Guardian,
+  name: 'Guardian',
+  hdIndex: 0,
+  // Phase 4: WalletAccount carries the hot pubkey directly; getOrCreateMultisigService
+  // reads it and throws if missing.
+  hotPublicKey: HOT_PK
+};
 const onChainAccount = { publicKey: OTHER_PK, type: WalletType.OnChain, name: 'Public', hdIndex: 1 };
 
 const makeProvider = (accounts: unknown[]): GuardianAccountProvider => ({
@@ -63,7 +76,7 @@ describe('guardian-manager', () => {
     jest.clearAllMocks();
     clearGuardianCache();
     mockFetchFromStorage.mockResolvedValue('https://default.guardian.test');
-    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'abc', publicKey: 'def' });
+    mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'abc' });
     mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'acc-id' }) });
   });
 
@@ -76,7 +89,16 @@ describe('guardian-manager', () => {
       const result = await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
       expect(result).toBe(service);
-      expect(mockMultisigServiceInit).toHaveBeenCalledWith(expect.anything(), '0xdef', '0xabc', provider.signWord);
+      // The publicKey arg comes from WalletAccount.hotPublicKey (not from
+      // getSignerDetailsFromAccount anymore), prefixed with `0x`.
+      expect(mockMultisigServiceInit).toHaveBeenCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        // The resolved per-account endpoint is now passed through to init.
+        'https://default.guardian.test'
+      );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
       mockMultisigServiceInit.mockClear();
@@ -120,6 +142,27 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 
+    it('uses the per-account guardianEndpoint over the global key (multi-account isolation)', async () => {
+      // Two Guardian accounts on different operators must not collide: the one
+      // carrying its own endpoint binds to it regardless of the global key.
+      const service = { guardianEndpoint: 'https://per-account.guardian', tag: 'isolated' };
+      mockMultisigServiceInit.mockResolvedValueOnce(service);
+      const provider = makeProvider([{ ...guardianAccount, guardianEndpoint: 'https://per-account.guardian' }]);
+
+      const result = await getOrCreateMultisigService(GUARDIAN_PK, provider);
+
+      expect(result).toBe(service);
+      expect(mockMultisigServiceInit).toHaveBeenCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        'https://per-account.guardian'
+      );
+      // The per-account field short-circuits the global-key lookup.
+      expect(mockFetchFromStorage).not.toHaveBeenCalled();
+    });
+
     it('coalesces concurrent service initialization for the same account', async () => {
       const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'shared' };
       let resolveInit!: (value: unknown) => void;
@@ -146,6 +189,16 @@ describe('guardian-manager', () => {
       const provider = makeProvider([onChainAccount]);
 
       await expect(getOrCreateMultisigService(OTHER_PK, provider)).rejects.toThrow('Account is not a Guardian account');
+    });
+
+    it('throws loudly when a Guardian account is missing its hot pubkey', async () => {
+      // A Guardian record without hotPublicKey is a pre-migration/half-written
+      // state — fail rather than silently bind to a missing signer.
+      const { hotPublicKey, ...noHotKey } = guardianAccount;
+      void hotPublicKey;
+      const provider = makeProvider([noHotKey]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toThrow('missing hotPublicKey');
     });
 
     it('throws when the public key is unknown to the provider', async () => {

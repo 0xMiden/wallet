@@ -54,6 +54,18 @@ test.describe('Guardian account - consume + send', () => {
       }
     );
 
+    await steps.step('verify_guardian_auth_structure_a', async () => {
+      // First on-chain AUTH assertion in the harness (balance checks can't see
+      // this): a fresh 3-key Guardian account must carry two signers ([hot,
+      // cold]) and the `update_guardian` procedure hardened to threshold 2 —
+      // both set at creation. The same reader verifies the migrated/activated
+      // path in the (P1) migration spec.
+      const auth = await walletA.getGuardianAuthInfo(addressA!);
+      expect(auth.error, `guardian auth read failed: ${auth.error}`).toBeUndefined();
+      expect(auth.signerCommitments.length, 'fresh 3-key account should have 2 signers (hot, cold)').toBe(2);
+      expect(auth.procedureThresholds.update_guardian, 'update_guardian must be hardened to threshold 2').toBe(2);
+    });
+
     await steps.step(
       'consume_notes_guardian_a',
       async () => {

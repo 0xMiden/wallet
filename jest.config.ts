@@ -65,12 +65,20 @@ export default {
   transform: {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
-  transformIgnorePatterns: [
-    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie)/)'
-  ],
+  transformIgnorePatterns: ['/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie)/)'],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
-  modulePathIgnorePatterns: ['<rootDir>/sdk-debug/'],
-  testPathIgnorePatterns: ['<rootDir>/playwright/', '<rootDir>/mobile-e2e/'],
+  // Exclude git worktrees: they hold full copies of the repo, so without this a
+  // plain `jest` run discovers their stale test files and emits haste-map
+  // duplicate-mock collisions (spurious local failures). CI checks out clean, so
+  // this only matters for local runs.
+  modulePathIgnorePatterns: ['<rootDir>/sdk-debug/', '<rootDir>/.worktrees/', '<rootDir>/.claude/'],
+  testPathIgnorePatterns: [
+    '<rootDir>/playwright/',
+    '<rootDir>/mobile-e2e/',
+    '<rootDir>/ios/App/build/',
+    '<rootDir>/.worktrees/',
+    '<rootDir>/.claude/'
+  ],
   setupFiles: ['dotenv/config', '@serh11p/jest-webextension-mock', 'fake-indexeddb/auto'],
   setupFilesAfterEnv: ['./jest.setup.js']
 };

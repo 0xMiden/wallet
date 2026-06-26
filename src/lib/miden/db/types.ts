@@ -15,7 +15,13 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-export type ITransactionType = 'send' | 'consume' | 'execute' | 'switch-guardian';
+export type ITransactionType =
+  | 'send'
+  | 'consume'
+  | 'execute'
+  | 'switch-guardian'
+  | 'replace-hot-key'
+  | 'update-procedure-threshold';
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -183,8 +189,12 @@ export class ConsumeTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  // Background/auto-consume (vs. a user-initiated claim). Guardian accounts use
+  // this to route the signature through the cold key, avoiding a biometric
+  // prompt for a silent background claim — see generateGuardianTransaction.
+  background?: boolean;
 
-  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean) {
+  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean, background?: boolean) {
     this.id = uuid();
     this.type = 'consume';
     this.accountId = accountId;
@@ -197,6 +207,7 @@ export class ConsumeTransaction implements ITransaction {
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
+    this.background = background;
   }
 }
 
@@ -223,6 +234,73 @@ export class SwitchGuardianTransaction implements ITransaction {
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Switching guardian';
     this.extraInputs = { newGuardianEndpoint };
+    this.delegateTransaction = delegateTransaction;
+  }
+}
+
+/**
+ * Proactive hot-key rotation for a Guardian account. Cold-signed (recovery key);
+ * the on-chain proposal swaps the hot signer commitment in-place via
+ * `update_signers`. extraInputs.newHotPublicKey is filled in during
+ * `generateGuardianTransaction` once the new key is minted, and consumed by
+ * `completeReplaceHotKeyTransaction` to swap the WalletAccount pointer.
+ */
+export class ReplaceHotKeyTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  transactionId?: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: { newHotPublicKey?: string };
+  delegateTransaction?: boolean | undefined;
+
+  constructor(accountId: string, delegateTransaction?: boolean) {
+    this.id = uuid();
+    this.type = 'replace-hot-key';
+    this.accountId = accountId;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Rotating device key';
+    this.extraInputs = {};
+    this.delegateTransaction = delegateTransaction;
+  }
+}
+
+/**
+ * Sets an on-chain procedure threshold on a Guardian account (cold-signed).
+ * Used to bring migrated legacy accounts up to the same hardening a freshly
+ * created 3-key account gets — notably `update_guardian` at threshold 2 — which
+ * `update_signers` (the hot-key activation) cannot carry in the same tx.
+ */
+export class UpdateProcedureThresholdTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  transactionId?: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: { procedure: string; threshold: number };
+  delegateTransaction?: boolean | undefined;
+
+  constructor(accountId: string, procedure: string, threshold: number, delegateTransaction?: boolean) {
+    this.id = uuid();
+    this.type = 'update-procedure-threshold';
+    this.accountId = accountId;
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Securing account';
+    this.extraInputs = { procedure, threshold };
     this.delegateTransaction = delegateTransaction;
   }
 }

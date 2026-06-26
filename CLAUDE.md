@@ -122,6 +122,12 @@ xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit_Sim.fingerTouch.m
 - Grey bar at bottom → `100dvh` doesn't account for safe areas. Use `100%` + `env(safe-area-inset-*)` padding on `mobile.html` body.
 - Debug UI text should be `select-text` so errors are copyable.
 
+### Adding Swift files to the App target
+The App target in `ios/App/App.xcodeproj/project.pbxproj` does NOT auto-discover Swift files in the `App/` source directory. New files must be registered in four sections: `PBXBuildFile`, `PBXFileReference`, the App `PBXGroup` children, and the `PBXSourcesBuildPhase` files list. Pattern: see `LocalBiometricPlugin.swift` or `HotKeyPlugin.swift` entries.
+
+### Adding a custom Capacitor plugin (iOS)
+Capacitor on this app uses **manual** registration — not the `CAPBridgedPlugin` auto-discovery you'd get on a stock Capacitor app. After creating `MyPlugin.swift` and wiring it into the four pbxproj sections above, you also have to call `bridge?.registerPluginInstance(MyPlugin())` inside `capacitorDidLoad()` in `ios/App/App/AppViewController.swift`. Skip this step and JS calls land as `{"code":"UNIMPLEMENTED"}` even though the class compiled fine.
+
 ### Native navbar overlay
 Mobile hides React footer and renders bottom nav as native pill (iOS: `MidenNavbarOverlayWindow` `UIWindow`; Android: two-instance `NavbarOverlayManager` with Activity-scoped + Dialog-scoped `NavbarView`). Plugin methods: `showNativeNavbar`, `setNavbarSecondaryRow`, `setNavbarAction`, `morphNavbar{Out,In}`. Events: `nativeNavbarTap`, `nativeNavbarSecondaryTap`, `nativeNavbarActionTap`. Wiring: `src/app/providers/DappBrowserProvider.tsx`. Android gotchas: don't use `MATCH_PARENT` children in `WRAP_CONTENT` parents (1878px buttons); `Dialog.setLayout` must follow `setContentView`; shadow must be on the view owning the background drawable.
 

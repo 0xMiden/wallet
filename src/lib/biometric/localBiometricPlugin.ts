@@ -4,6 +4,9 @@
  * using iOS LocalAuthentication framework directly.
  *
  * Also includes hardware security methods for Secure Enclave vault key protection.
+ *
+ * The Guardian per-account hot-key lives in its own plugin — see
+ * `src/lib/secure-hot-key/hotKeyPlugin.ts`.
  */
 
 import { registerPlugin } from '@capacitor/core';

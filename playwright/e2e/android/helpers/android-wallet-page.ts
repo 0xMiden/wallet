@@ -1,5 +1,5 @@
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
 
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
@@ -406,6 +406,40 @@ export class AndroidWalletPage implements WalletPage {
   async setDelegateProofEnabled(enabled: boolean): Promise<void> {
     await this.cdp.eval(
       `localStorage.setItem('delegate_proof_setting_key', ${JSON.stringify(JSON.stringify(enabled))});`
+    );
+  }
+
+  /**
+   * Read a Guardian account's on-chain auth structure (overall threshold,
+   * signer commitments, per-procedure thresholds). Same contract and body as
+   * the iOS POM — the __TEST_GUARDIAN_AUTH__ hook is async (awaits
+   * getOrCreateMultisigService + a time-bounded sync), so it runs under the
+   * async CDP atom whose callback convention matches iOS
+   * (`arguments[arguments.length - 1]`).
+   */
+  async getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo> {
+    return this.cdp.evalAsync<GuardianAuthInfo>(
+      `var cb = arguments[arguments.length - 1];
+       var fn = globalThis.__TEST_GUARDIAN_AUTH__;
+       if (typeof fn !== 'function') {
+         cb({
+           threshold: NaN,
+           signerCommitments: [],
+           procedureThresholds: {},
+           error: '__TEST_GUARDIAN_AUTH__ unavailable (needs MIDEN_E2E_TEST build)'
+         });
+         return;
+       }
+       Promise.resolve(fn(${JSON.stringify(accountPublicKey)}))
+         .then(function (r) { cb(r); })
+         .catch(function (e) {
+           cb({
+             threshold: NaN,
+             signerCommitments: [],
+             procedureThresholds: {},
+             error: String(e && e.message ? e.message : e)
+           });
+         });`
     );
   }
 

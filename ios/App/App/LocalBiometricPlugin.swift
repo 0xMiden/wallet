@@ -594,4 +594,5 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             return nil
         }
     }
+
 }

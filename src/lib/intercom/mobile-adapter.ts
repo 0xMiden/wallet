@@ -106,6 +106,24 @@ export class MobileIntercomAdapter {
           privateKey: privateKey ?? ''
         };
 
+      case WalletMessageType.RevealHotKeyRequest: {
+        const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
+        return {
+          type: WalletMessageType.RevealHotKeyResponse,
+          hotPrivateKey: hotPrivateKey ?? ''
+        };
+      }
+
+      case WalletMessageType.RevealGuardianKeysRequest: {
+        const keys = await Actions.revealGuardianKeys(req.accountPublicKey, req.password);
+        return {
+          type: WalletMessageType.RevealGuardianKeysResponse,
+          coldPrivateKey: keys?.coldPrivateKey ?? '',
+          coldPublicKey: keys?.coldPublicKey ?? '',
+          hotPublicKey: keys?.hotPublicKey
+        };
+      }
+
       case WalletMessageType.RemoveAccountRequest:
         await Actions.removeAccount(req.accountPublicKey, req.password);
         return {
@@ -145,6 +163,20 @@ export class MobileIntercomAdapter {
         return {
           type: WalletMessageType.SignWordResponse,
           signature: wordSignature
+        };
+      }
+
+      case WalletMessageType.PersistNewHotKeyRequest: {
+        await Actions.persistNewHotKey(req.newHotPubKey, req.newHotCiphertext);
+        return {
+          type: WalletMessageType.PersistNewHotKeyResponse
+        };
+      }
+
+      case WalletMessageType.SwapHotKeyRequest: {
+        await Actions.swapHotKey(req.accountPublicKey, req.newHotPubKey);
+        return {
+          type: WalletMessageType.SwapHotKeyResponse
         };
       }
 

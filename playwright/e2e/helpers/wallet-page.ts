@@ -48,6 +48,14 @@ export interface WalletPage {
    * the change takes effect on the next render — no reload needed.
    */
   setDelegateProofEnabled(enabled: boolean): Promise<void>;
+  /**
+   * On-chain auth structure of a Guardian account (overall threshold, signer
+   * commitments, per-procedure thresholds) — for asserting the 3-key shape
+   * (e.g. `update_guardian === 2`, two signers) which balance checks can't see.
+   * Shared across Chrome (page.evaluate) and iOS (CDP evalAsync) so the same
+   * assertion runs on both platforms.
+   */
+  getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo>;
 }
 
 /**
@@ -76,10 +84,19 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   }>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
+  // getGuardianAuthInfo is declared on the shared WalletPage interface (above)
+  // so the iOS POM implements it too — the 3-key auth assertion runs on both.
   // IndexedDB forensics (listIndexedDBStores / dumpIndexedDBStore) come from
   // IdbDumpSource — driven store-at-a-time by streamIndexedDBToFile so a long
   // run's dump can't OOM the page. This is where the Miden SDK keeps per-tx
   // commit status — the ground truth for "did this tx land?".
+}
+
+export interface GuardianAuthInfo {
+  threshold: number;
+  signerCommitments: string[];
+  procedureThresholds: Record<string, number>;
+  error?: string;
 }
 
 /**
@@ -625,6 +642,22 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     } catch (e) {
       return { __error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  async getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo> {
+    return this.page.evaluate(async (pk: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fn = (globalThis as any).__TEST_GUARDIAN_AUTH__;
+      if (!fn) {
+        return {
+          threshold: NaN,
+          signerCommitments: [],
+          procedureThresholds: {},
+          error: '__TEST_GUARDIAN_AUTH__ unavailable (needs MIDEN_E2E_TEST build)'
+        };
+      }
+      return await fn(pk);
+    }, accountPublicKey);
   }
 
   /**
