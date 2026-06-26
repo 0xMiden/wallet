@@ -9,8 +9,8 @@ import { navigate, useLocation } from 'lib/woozie';
 import { SendFlow } from 'screens/send-flow/SendManager';
 
 /**
- * Carousel container that mounts all four home-group pages (Overview /
- * Send / Receive / Swap) in a horizontal track and lets the user drag
+ * Carousel container that mounts all five home-group pages (Overview /
+ * Send / Receive / Earn / Swap) in a horizontal track and lets the user drag
  * between them with their finger. The page tracks the finger in real
  * time and snaps to the next/previous index on release if dragged or
  * flicked past a threshold; otherwise it snaps back.
@@ -29,6 +29,7 @@ const PAGES: HomePage[] = [
   { id: 'overview', path: '/' },
   { id: 'send', path: '/send' },
   { id: 'receive', path: '/receive' },
+  { id: 'earn', path: '/earn' },
   { id: 'swap', path: '/swap' }
 ];
 
@@ -44,6 +45,13 @@ const VELOCITY_PROJECTION_MS = 300;
 const SwapPlaceholder: FC = () => (
   <div className="h-full flex flex-col items-center justify-center gap-2 bg-app-bg">
     <span className="text-2xl font-bold text-text-primary-token">Swap</span>
+    <span className="text-sm text-text-tertiary-token">Coming soon</span>
+  </div>
+);
+
+const EarnPlaceholder: FC = () => (
+  <div className="h-full flex flex-col items-center justify-center gap-2 bg-app-bg">
+    <span className="text-2xl font-bold text-text-primary-token">Earn</span>
     <span className="text-sm text-text-tertiary-token">Coming soon</span>
   </div>
 );
@@ -138,6 +146,9 @@ const HomeSwipeContainer: FC = () => {
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
           <Receive />
+        </div>
+        <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
+          <EarnPlaceholder />
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
           <SwapPlaceholder />

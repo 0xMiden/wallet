@@ -43,12 +43,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const isHidden = state === 'hidden';
   const isZero = state === 'zero';
 
-  const deltaColor =
-    delta?.direction === 'negative'
-      ? 'text-status-negative'
-      : delta?.direction === 'neutral'
-        ? 'text-surface-balance-fg-muted'
-        : 'text-surface-balance-positive';
+  const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-[#A8BBA3]';
 
   const handleMoreClick = () => {
     if (!onMore) return;
@@ -60,31 +55,10 @@ export const BalanceCard: FC<BalanceCardProps> = ({
     <div
       className={classNames('relative w-full bg-surface-balance text-surface-balance-fg rounded-lg-token ', className)}
     >
-      <div className="flex items-center justify-between gap-2 py-2.5 border-b border-dashed px-3.5 border-b-[#FFFFFF4D]">
-        <CopyButton
-          text={accountId ?? accountNumber}
-          className={classNames(
-            'text-xs font-semibold leading-none tracking-tight truncate min-w-0 text-left',
-            'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
-          )}
-        >
-          Account 1: {accountNumber}
-        </CopyButton>
-        {onMore && (
-          <button
-            type="button"
-            onClick={handleMoreClick}
-            aria-label="Account options"
-            className={classNames('shrink-0 flex items-center justify-center', 'w-5 h-5 rounded-full bg-[#F6F4F261] ')}
-          >
-            <Icon name={IconName.More} className="w-3 h-3" fill="currentColor" />
-          </button>
-        )}
-      </div>
-      <div className="px-3.5 pt-2.5 pb-4">
+      <div className="px-3.5 pt-4 pb-3.5">
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">Total Balance</div>
 
-        <div className="mt-2 flex items-end gap-1 leading-none">
+        <div className="mt-2.5 flex items-end gap-1 leading-none">
           {isLoading ? (
             <div className={classNames(SKELETON_BLOCK, 'h-12 w-48')} />
           ) : (
@@ -98,9 +72,39 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         </div>
 
         {delta && !isLoading && !isHidden && (
-          <div className={classNames('font-heading mt-1 text-base font-semibold leading-none', deltaColor)}>
-            {delta.absolute} ({delta.percentage})
+          <div className="mt-3">
+            <span
+              className={classNames(
+                'inline-flex items-center rounded-full px-3 py-1',
+                'font-heading text-sm font-semibold leading-none text-surface-balance-fg',
+                pillBg
+              )}
+            >
+              {delta.absolute} ({delta.percentage})
+            </span>
           </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 py-3 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]">
+        <CopyButton
+          text={accountId ?? accountNumber}
+          className={classNames(
+            'text-xs font-semibold leading-none tracking-tight truncate min-w-0 text-left',
+            'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
+          )}
+        >
+          Account #: {accountNumber}
+        </CopyButton>
+        {onMore && (
+          <button
+            type="button"
+            onClick={handleMoreClick}
+            aria-label="Account options"
+            className={classNames('shrink-0 flex items-center justify-center', 'w-5 h-5 rounded-full bg-[#F6F4F261] ')}
+          >
+            <Icon name={IconName.More} className="w-3 h-3" fill="currentColor" />
+          </button>
         )}
       </div>
 

@@ -35,10 +35,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
   };
 
   return (
-    <div
-      role="tablist"
-      className={classNames('flex items-center justify-evenly gap-1 px-3 py-2 bg-gray-25', className)}
-    >
+    <div role="tablist" className={classNames('flex h-[72px] items-center gap-1 bg-gray-25 px-3 py-3', className)}>
       {items.map(item => {
         const isActive = item.id === activeId;
         return (
@@ -47,21 +44,28 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             type="button"
             role="tab"
             aria-selected={isActive}
+            aria-label={item.label}
             onClick={() => handleSelect(item.id)}
             className={classNames(
-              'relative flex items-center justify-center gap-1.5 h-12 rounded-10 px-6',
-              'text-text-primary-token'
+              'relative flex h-12 min-w-0 items-center justify-center overflow-hidden rounded-[22px]',
+              'text-text-primary-token transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
+              isActive ? 'shrink-0 gap-1.5 px-2.5' : 'flex-1 px-0'
             )}
           >
             {isActive && (
               <motion.span
                 layoutId={layoutId}
-                className="absolute inset-0 rounded-10 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                className="absolute inset-0 rounded-[22px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
                 transition={springs.pill}
               />
             )}
-            <span className="relative flex items-center justify-center w-5 h-5">{item.icon}</span>
-            {isActive && <span className="relative text-base font-semibold leading-none">{item.label}</span>}
+            <span className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
+              {item.icon}
+            </span>
+            {isActive && (
+              <span className="relative whitespace-nowrap text-base font-bold leading-none">{item.label}</span>
+            )}
           </button>
         );
       })}

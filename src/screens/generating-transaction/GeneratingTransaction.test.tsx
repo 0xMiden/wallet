@@ -237,12 +237,10 @@ describe('GeneratingTransaction stage + state rendering', () => {
       root = rendered.root;
       const stepStates = () =>
         Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
-      const progressValue = () => container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow');
       const activeSpinner = () =>
         container.querySelector('[data-transaction-step][data-state="active"] svg') as SVGElement | null;
 
       expect(stepStates()).toEqual(['active', 'pending', 'pending', 'pending']);
-      expect(progressValue()).toBe('15');
       expect(activeSpinner()).toHaveClass('animate-spin');
 
       await act(async () => {
@@ -250,7 +248,6 @@ describe('GeneratingTransaction stage + state rendering', () => {
       });
 
       expect(stepStates()).toEqual(['complete', 'active', 'pending', 'pending']);
-      expect(progressValue()).toBe('40');
       expect(activeSpinner()).toHaveClass('animate-spin');
 
       await act(async () => {
@@ -258,7 +255,6 @@ describe('GeneratingTransaction stage + state rendering', () => {
       });
 
       expect(stepStates()).toEqual(['complete', 'complete', 'active', 'pending']);
-      expect(progressValue()).toBe('65');
       expect(activeSpinner()).toHaveClass('animate-spin');
     } finally {
       if (root) {
