@@ -355,8 +355,8 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --radius-md-token: 12px;
     --radius-lg-token: 16px;
 
-    /* Balance card surface — saturated royal blue, intentionally signature. */
-    --surface-balance: #224ca7;
+    /* Balance card surface — neutral graphite grey. */
+    --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
     --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
@@ -412,8 +412,8 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;
 
-    /* Balance card surface — keep same royal blue in dark mode (signature color). */
-    --surface-balance: #224ca7;
+    /* Balance card surface — keep same graphite grey in dark mode. */
+    --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
     --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);

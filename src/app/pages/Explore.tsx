@@ -173,6 +173,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({ address, tokenPrices, filteredTok
           currency="USD"
           delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
           onMore={() => undefined}
+          showDragHandle={false}
         />
       )}
     </Balance>

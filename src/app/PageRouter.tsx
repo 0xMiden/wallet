@@ -222,6 +222,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    '/earn',
+    onlyReady(() => (
+      <TabLayout>
+        <></>
+      </TabLayout>
+    ))
+  ],
+  [
     '/encrypted-wallet-file',
     onlyReady(() => (
       <FullScreenPage>

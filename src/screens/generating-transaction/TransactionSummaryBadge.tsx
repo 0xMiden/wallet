@@ -72,7 +72,6 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
 export const useTransactionSummaryBadgeContent = (
   transaction?: ITransaction
 ): TransactionSummaryBadgeContent | undefined => {
-  const { t } = useTranslation();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
 
   return useMemo(() => {
@@ -93,13 +92,8 @@ export const useTransactionSummaryBadgeContent = (
       rhs: (
         <>
           <span className="min-w-0 truncate">{recipient}</span>
-          <span className="shrink-0 text-[#8E8E93]">{t('onLowercase')}</span>
-          <span className="flex shrink-0 items-center gap-1.5">
-            <TokenLogo symbol={symbol} />
-            <span className="font-semibold">{MIDEN_METADATA.name}</span>
-          </span>
         </>
       )
     };
-  }, [assetsMetadata, t, transaction]);
+  }, [assetsMetadata, transaction]);
 };

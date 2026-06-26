@@ -18,8 +18,8 @@ import { navigate, useLocation } from 'lib/woozie';
  * Provides a persistent footer and animated content area.
  *
  * The top SegmentedActionBar is mounted when the route is in the "home"
- * tab group (/, /send, /receive, /swap) — so it stays visible across
- * Overview ↔ Send ↔ Receive ↔ Swap transitions. Other tabs (Explore,
+ * tab group (/, /send, /receive, /earn, /swap) — so it stays visible across
+ * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
  * Activity) hide it.
  */
 const TAB_ROUTES: Record<string, string> = {
@@ -32,10 +32,11 @@ const ACTION_ROUTES: Record<string, string> = {
   overview: '/',
   send: '/send',
   receive: '/receive',
+  earn: '/earn',
   swap: '/swap'
 };
 
-const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/swap']);
+const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/earn', '/swap']);
 
 function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
@@ -47,6 +48,7 @@ function activeTabFromPath(pathname: string): string {
 function activeActionFromPath(pathname: string): string {
   if (pathname === '/send') return 'send';
   if (pathname === '/receive') return 'receive';
+  if (pathname === '/earn') return 'earn';
   if (pathname === '/swap') return 'swap';
   return 'overview';
 }
@@ -119,7 +121,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'overview',
       label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5" fill="currentColor" />
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5" />
     },
     {
       id: 'send',
@@ -129,7 +131,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'receive',
       label: 'Receive',
-      icon: <Icon name={IconName.Download} className="w-5 h-5 text-receive-green" fill="currentColor" />
+      icon: <Icon name={IconName.Receive} className="w-5 h-5" />
+    },
+    {
+      id: 'earn',
+      label: 'Earn',
+      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
     },
     {
       id: 'swap',
