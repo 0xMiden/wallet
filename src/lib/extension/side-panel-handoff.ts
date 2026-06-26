@@ -39,32 +39,35 @@ export function canHandoffToSidePanel(): boolean {
 /**
  * Open the side panel onto the (already-Ready) wallet and make it the primary
  * action surface. MUST be called synchronously within the user gesture of the
- * final "Open wallet" click. Returns true if the panel opened; false (with
- * popup mode restored) on failure so the caller can fall back to in-tab nav.
+ * final "Open wallet" click. Returns true if the panel opened, false on failure
+ * so the caller can fall back to in-tab nav.
  */
 export async function openSidePanelToWallet(): Promise<boolean> {
   const chromeApi = getChrome();
   if (!canHandoffToSidePanel()) return false;
 
+  // Open the panel FIRST, while the click's user activation is still valid.
+  // sidePanel.open() is the only call here that needs the gesture, so keep the
+  // awaits ahead of it to the bare minimum (just resolving the focused window).
+  try {
+    const win = await chromeApi.windows.getLastFocused();
+    if (!win?.id) return false;
+    await chromeApi.sidePanel.open({ windowId: win.id });
+  } catch (err) {
+    console.warn('[side-panel-handoff] open failed, falling back to in-tab:', err);
+    return false;
+  }
+
+  // Panel is open. Make it the primary action surface — none of this needs the
+  // gesture, and a failure here is non-fatal (the panel is already showing).
   try {
     await chromeApi.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
     chromeApi.action.setPopup({ popup: '' });
     await chromeApi.storage.local.set({ [SIDEPANEL_MODE_FLAG]: true });
-    const win = await chromeApi.windows.getLastFocused();
-    await chromeApi.sidePanel.open({ windowId: win.id });
-    return true;
   } catch (err) {
-    console.warn('[side-panel-handoff] open failed, falling back to in-tab:', err);
-    // Roll back the primary-surface switch so the toolbar icon still works.
-    try {
-      chromeApi.action?.setPopup?.({ popup: 'popup.html' });
-      await chromeApi.storage?.local?.set?.({ [SIDEPANEL_MODE_FLAG]: false });
-      chromeApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false }).catch(() => {});
-    } catch {
-      // best-effort rollback
-    }
-    return false;
+    console.warn('[side-panel-handoff] enabling side-panel mode failed (panel still open):', err);
   }
+  return true;
 }
 
 /**

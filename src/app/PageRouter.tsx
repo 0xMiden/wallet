@@ -47,8 +47,9 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
   // catch-all so it renders regardless of Ready: creating the wallet flips the
   // app to the wallet home, and this screen must survive that to let the user
-  // open the panel.
-  ['/finish-side-panel', () => <OpenSidePanel />],
+  // open the panel. Still defers to Unlock when locked (e.g. the wallet
+  // auto-locks while a tab is parked here) by SKIPping to the `*` catch-all.
+  ['/finish-side-panel', (_p, ctx) => (ctx.locked ? Woozie.Router.SKIP : <OpenSidePanel />)],
   ['/reset-required', () => <ResetRequired />],
   [
     '/reset-wallet',

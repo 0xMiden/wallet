@@ -4,7 +4,7 @@
 
 ### Features
 
-* [FEATURE][extension] **Onboarding hands off to the Chrome side panel.** On the final onboarding screen the wallet is created while the tab spins ("Creating your wallet…"); once it's ready, the "Open wallet" button opens the side panel onto the finished wallet and closes the onboarding tab. Creating the wallet first means the panel opens from a live user gesture (Chrome requires one for `sidePanel.open()`) onto an already-functional wallet — no loading state in the panel. The side panel also becomes the primary surface (clicking the toolbar icon opens it instead of the popup — toggle back via the header's maximise-view control). Non-Chrome browsers keep the classic in-tab flow.
+* [FEATURE][extension] **New-wallet onboarding hands off to the Chrome side panel.** When creating a wallet, the final onboarding screen creates it while the tab spins ("Creating your wallet…"); once it's ready, the "Open wallet" button opens the side panel onto the finished wallet and closes the onboarding tab. Creating the wallet first means the panel opens from a live user gesture (Chrome requires one for `sidePanel.open()`) onto an already-functional wallet — no loading state in the panel. The side panel also becomes the primary surface (clicking the toolbar icon opens it instead of the popup — toggle back via the header's maximise-view control). Import flows and non-Chrome browsers keep the classic in-tab flow.
 
 ### Fixes
 

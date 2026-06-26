@@ -170,12 +170,19 @@ const Welcome: FC = () => {
 
   // Side panel handoff: kick off wallet creation as soon as the confirmation
   // screen is reached (the screen shows a spinner), so the wallet is Ready by
-  // the time the user clicks "Open wallet". The hardware/biometric path is
-  // excluded — it must prompt biometrics on an explicit tap, not on arrival.
+  // the time the user clicks "Open wallet". Scoped to the Create flow only:
+  //   - the hardware/biometric path must prompt biometrics on an explicit tap,
+  //     not on arrival;
+  //   - import flows are excluded because importWalletFromClient can fail
+  //     silently (register() resolves without a wallet), which would leave the
+  //     handoff screen spinning — imports keep the classic in-tab flow.
+  // The `confirmPhase !== 'idle'` guard makes this fire at most once even though
+  // `register`/`trackEvent` are (correctly) in the dependency array.
   useEffect(() => {
     if (!sidePanelHandoff) return;
     if (step !== OnboardingStep.Confirmation) return;
     if (confirmPhase !== 'idle') return;
+    if (onboardingType !== OnboardingType.Create) return;
     if (!password || !seedPhrase || password === '__HARDWARE_ONLY__') return;
 
     setConfirmPhase('creating');
@@ -195,8 +202,7 @@ const Welcome: FC = () => {
         setConfirmPhase('failed');
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sidePanelHandoff, step, confirmPhase, password, seedPhrase]);
+  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, trackEvent]);
 
   const onAction = async (action: OnboardingAction) => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;

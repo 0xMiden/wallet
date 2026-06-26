@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react';
+import React, { FC, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +9,12 @@ import { Message } from 'components/Message';
 import { closeOnboardingTab, openSidePanelToWallet } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { navigate } from 'lib/woozie';
+
+// Escape hatch if creation never reports Ready — e.g. the service worker died
+// before broadcasting its post-create state, or a silently-failed import.
+// Comfortably longer than even a slow Guardian creation, so it only fires on a
+// genuine stall.
+const READY_TIMEOUT_MS = 60_000;
 
 /**
  * Onboarding → side panel handoff completion screen (Chrome).
@@ -28,6 +34,15 @@ const OpenSidePanel: FC = () => {
   const { ready } = useMidenContext();
   const [opening, setOpening] = useState(false);
 
+  // Don't spin forever if Ready never arrives — bail to the wallet home (which
+  // shows Explore when ready, or the onboarding screen if creation truly
+  // failed). Cleared as soon as Ready flips.
+  useEffect(() => {
+    if (ready) return;
+    const timer = setTimeout(() => navigate('/'), READY_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [ready]);
+
   const onOpen = async () => {
     setOpening(true);
     const opened = await openSidePanelToWallet();
@@ -36,8 +51,12 @@ const OpenSidePanel: FC = () => {
       // the window's last tab — closing that would close the panel too — so
       // fall back to showing the wallet in this tab.
       const closed = await closeOnboardingTab();
-      if (!closed) navigate('/');
+      if (!closed) {
+        setOpening(false);
+        navigate('/');
+      }
     } else {
+      setOpening(false);
       navigate('/');
     }
   };

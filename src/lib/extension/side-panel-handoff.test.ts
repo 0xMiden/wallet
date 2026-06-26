@@ -96,27 +96,36 @@ describe('openSidePanelToWallet', () => {
     await expect(openSidePanelToWallet()).resolves.toBe(false);
   });
 
-  it('rolls back to popup mode and returns false when opening throws', async () => {
+  it('returns false (without switching surface) when opening throws', async () => {
     const chrome = makeChrome();
     chrome.sidePanel.open.mockRejectedValue(new Error('no user gesture'));
     setChrome(chrome);
 
     await expect(openSidePanelToWallet()).resolves.toBe(false);
 
-    expect(chrome.action.setPopup).toHaveBeenLastCalledWith({ popup: 'popup.html' });
-    expect(chrome.storage.local.set).toHaveBeenLastCalledWith({ sidepanel_mode: false });
-    expect(chrome.sidePanel.setPanelBehavior).toHaveBeenLastCalledWith({ openPanelOnActionClick: false });
+    // The panel never opened, so the primary-surface switch must not run —
+    // otherwise the toolbar icon would be left popup-less with no panel.
+    expect(chrome.action.setPopup).not.toHaveBeenCalled();
+    expect(chrome.storage.local.set).not.toHaveBeenCalled();
   });
 
-  it('still returns false when even the rollback throws', async () => {
+  it('returns false when there is no focused window id', async () => {
     const chrome = makeChrome();
-    chrome.sidePanel.open.mockRejectedValue(new Error('no user gesture'));
-    chrome.action.setPopup.mockImplementation(() => {
-      throw new Error('action gone');
-    });
+    chrome.windows.getLastFocused.mockResolvedValue({});
     setChrome(chrome);
 
     await expect(openSidePanelToWallet()).resolves.toBe(false);
+    expect(chrome.sidePanel.open).not.toHaveBeenCalled();
+  });
+
+  it('still returns true (panel stays open) when enabling side-panel mode fails', async () => {
+    const chrome = makeChrome();
+    chrome.sidePanel.setPanelBehavior.mockRejectedValue(new Error('behavior gone'));
+    setChrome(chrome);
+
+    // Open succeeded; the post-open surface switch failing is non-fatal.
+    await expect(openSidePanelToWallet()).resolves.toBe(true);
+    expect(chrome.sidePanel.open).toHaveBeenCalledWith({ windowId: 7 });
   });
 });
 
