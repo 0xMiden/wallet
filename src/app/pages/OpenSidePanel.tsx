@@ -42,37 +42,39 @@ const OpenSidePanel: FC = () => {
     }
   };
 
-  if (!ready) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen gap-y-4 bg-app-bg px-6 text-center">
-        <Spinner />
-        <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
-      </div>
-    );
-  }
-
+  // Match the onboarding flow's centered, max-width container (this screen is
+  // rendered directly by PageRouter, not inside OnboardingFlow's wrapper).
   return (
-    <div className="w-full h-full pt-11.5">
-      <div className="flex-1 flex flex-col h-full justify-between bg-app-bg gap-y-8 w-full px-6">
-        <div className="flex flex-col items-center grow">
-          <Message
-            icon={IconName.Success}
-            iconSize="3xl"
-            iconClassName="mb-8"
-            title={t('yourWalletIsReady')}
-            description=""
-          />
+    <div className="flex flex-col bg-app-bg overflow-hidden w-full h-full mx-auto" style={{ maxWidth: 420 }}>
+      {!ready ? (
+        <div className="flex flex-col flex-1 items-center justify-center gap-y-4 px-6 text-center">
+          <Spinner />
+          <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
         </div>
-        <div className="flex flex-col mt-auto items-center gap-y-3 w-full pb-8">
-          <Button
-            tabIndex={0}
-            title={t('openWallet')}
-            className="self-center w-full text-base"
-            onClick={onOpen}
-            isLoading={opening}
-          />
+      ) : (
+        <div className="w-full h-full pt-11.5">
+          <div className="flex-1 flex flex-col h-full justify-between gap-y-8 w-full px-6">
+            <div className="flex flex-col items-center grow">
+              <Message
+                icon={IconName.Success}
+                iconSize="3xl"
+                iconClassName="mb-8"
+                title={t('yourWalletIsReady')}
+                description=""
+              />
+            </div>
+            <div className="flex flex-col mt-auto items-center gap-y-3 w-full pb-8">
+              <Button
+                tabIndex={0}
+                title={t('openWallet')}
+                className="self-center w-full text-base"
+                onClick={onOpen}
+                isLoading={opening}
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
