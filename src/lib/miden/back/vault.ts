@@ -22,6 +22,7 @@ import {
 } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
 import { clearStorage } from 'lib/miden/reset';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
@@ -384,10 +385,8 @@ export class Vault {
 
       if (isGuardianRecovery) {
         console.log('[Vault.spawn] Step 7a: recovering Guardian accounts (adopt only — rotation deferred)...');
-        const guardianEndpoint = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
-        if (!guardianEndpoint) {
-          throw new Error('Guardian endpoint missing from storage — wallet must complete guardian onboarding first');
-        }
+        const guardianEndpoint =
+          (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
         const recovered = await midenClient.recoverGuardianAccountsBySeed(
           (idx: number) => deriveClientSeed(WalletType.Guardian, mnemonic!, idx),
           guardianEndpoint

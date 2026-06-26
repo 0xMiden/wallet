@@ -319,13 +319,6 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     }));
 
     try {
-      // Guardian recovery now reads the endpoint from storage and throws if
-      // missing (DEFAULT_GUARDIAN_ENDPOINT is gone), so seed it like the
-      // onboarding flow does before calling spawn.
-      const { putToStorage } = await import('../front/storage');
-      const { GUARDIAN_URL_STORAGE_KEY } = await import('lib/settings/constants');
-      await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://my-guardian.example');
-
       const vault = await Vault.spawn(WalletType.Guardian, 'pw', VALID_MNEMONIC, true);
       expect(vault).toBeInstanceOf(Vault);
     } finally {
