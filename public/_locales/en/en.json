@@ -327,6 +327,7 @@
   "onlyMidenSeedPhrasesAreSupported": "Only Miden Seed phrases are supported.",
   "yourWalletIsReady": "Your wallet is ready!",
   "getStarted": "Get started",
+  "settingUpWallet": "Setting up your wallet…",
   "enterPassword": "Enter password",
   "verifyPassword": "Verify password",
   "enterPasswordAgain": "Enter password again",

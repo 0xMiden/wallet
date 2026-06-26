@@ -2,6 +2,10 @@
 
 ## 1.15.3 (TBD)
 
+### Features
+
+* [FEATURE][extension] **Onboarding hands off to the Chrome side panel.** Finishing wallet creation/import now opens the side panel onto the new wallet and closes the fullscreen onboarding tab, and makes the side panel the primary surface (clicking the toolbar icon opens it instead of the popup — toggle back via the header's maximise-view control). The panel is opened within the final "Get started" click's user gesture (Chrome requires a live gesture for `sidePanel.open()`, which the multi-second account creation would otherwise outlive) and shows a "Setting up…" placeholder until the account is Ready. Non-Chrome browsers keep the in-tab flow.
+
 ### Fixes
 
 * [FIX][all] **Guardian co-sign transactions are now serialized per account.** The Guardian co-signs one delta per account at a time, so concurrent same-account transactions (e.g. auto-consume racing a user claim, or rapid successive claims) made the Guardian's expected commitment diverge from on-chain — stalling its canonicalization for minutes and returning `409 ConflictPendingDelta` while a prior delta was still finalizing, which surfaced as a Guardian claim/send that never completes. Guardian transactions now take a per-account lock so at most one is ever in flight, and proposal creation waits out a transient `409` (a prior delta mid-canonicalization) instead of failing the transaction. (#297)

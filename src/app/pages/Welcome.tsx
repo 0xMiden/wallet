@@ -5,6 +5,7 @@ import wordslist from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
+import { abortSidePanelHandoff, beginSidePanelHandoff, finishSidePanelHandoff } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { putToStorage } from 'lib/miden/front/storage';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -257,20 +258,43 @@ const Welcome: FC = () => {
         setGuardianLookupError(false);
         navigate('/#confirmation');
         break;
-      case 'confirmation':
+      case 'confirmation': {
+        // Chrome only: open the side panel NOW, while the click's user gesture
+        // is still live, so it survives the multi-second registerWallet() that
+        // follows (sidePanel.open() can't be called after the await). The panel
+        // shows a "Setting up…" placeholder until the account is Ready. No-op
+        // (returns false) outside Chrome → falls back to in-tab navigate('/').
+        let didHandoff = false;
         try {
           setIsLoading(true);
           setBiometricError(null);
+          didHandoff = await beginSidePanelHandoff();
           await register();
           // Wait for state to be synced before navigating
           // This fixes a race condition where navigation happens before state is Ready
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
           eventCategory = AnalyticsEventCategory.FormSubmit;
+          if (didHandoff) {
+            // The account is Ready in the side panel — close this onboarding tab.
+            // finishSidePanelHandoff returns false only if this is the window's
+            // last tab (closing it would also close the panel), in which case we
+            // navigate it to the wallet home instead. tabs.remove() destroys this
+            // page's context, so fire the completion event BEFORE it and return
+            // so the trackEvent at the end of onAction doesn't double-fire (or
+            // run in a torn-down page).
+            trackEvent(action.id, eventCategory, eventProperties);
+            const closed = await finishSidePanelHandoff();
+            if (!closed) navigate('/');
+            return;
+          }
           navigate('/');
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
+          // Undo the handoff so the user isn't left with an empty side panel
+          // and a popup-less toolbar icon after a failed account creation.
+          if (didHandoff) await abortSidePanelHandoff();
           if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
@@ -282,6 +306,7 @@ const Welcome: FC = () => {
           }
         }
         break;
+      }
       case 'switch-to-password':
         // User chose to use password after biometric failures
         setUseBiometric(false);
