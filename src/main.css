@@ -93,7 +93,9 @@ button:disabled,
     'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
     sans-serif;
   --font-heading:
-    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-onboarding-heading:
+    'Nunito', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-inter: 'Inter', system-ui, sans-serif;
   --default-font-family: var(--font-sans);
 }
@@ -103,6 +105,7 @@ button:disabled,
  * populate it, so pin it explicitly here. */
 html,
 body {
+  background-color: var(--color-app-bg);
   font-family:
     'Inter',
     system-ui,
@@ -114,6 +117,20 @@ body {
     Arial,
     'Noto Sans',
     sans-serif;
+}
+
+#root {
+  background-color: var(--color-app-bg);
+}
+
+[data-onboarding-root='true'] {
+  --color-app-bg: #fbfbfb;
+  --surface-page: #fbfbfb;
+  background-color: #fbfbfb;
+}
+
+[data-onboarding-root='true'] :is(h1, h2, h3, header, [data-onboarding-heading='true']) {
+  font-family: var(--font-onboarding-heading);
 }
 
 /**
@@ -314,8 +331,8 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --color-hover-bg: #e1dbdb;
 
     /* Design system tokens (Foundations + Typography + Radius/Spacing) */
-    --accent-primary: #e65303;
-    --accent-primary-hover: #b33e00;
+    --accent-primary: #e77537;
+    --accent-primary-hover: #c95a21;
     --text-primary: #3f3f3f;
     --text-secondary: rgba(63, 63, 63, 0.65);
     --text-tertiary: #0000009c;
@@ -324,9 +341,9 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --surface-input: #f9f9f9;
     --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --status-positive: #38824a;
+    --status-positive: #1a9c52;
     --status-pending: #e85d2f;
-    --status-negative: #c51a0a;
+    --status-negative: #ff5500;
     --tx-received: #38824a;
     --tx-sent: #024073;
     --tx-swap: #6b7280;
@@ -338,8 +355,8 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --radius-md-token: 12px;
     --radius-lg-token: 16px;
 
-    /* Balance card surface — saturated royal blue, intentionally signature. */
-    --surface-balance: #224ca7;
+    /* Balance card surface — neutral graphite grey. */
+    --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
     --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
@@ -374,8 +391,8 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
 
     /* Design system tokens - dark variants. Foundations spec is light-mode only;
      * derive dark values by inverting text/surface and keeping action/status hues. */
-    --accent-primary: #e65303;
-    --accent-primary-hover: #e55818;
+    --accent-primary: #e77537;
+    --accent-primary-hover: #f08b57;
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.65);
     --text-tertiary: rgba(255, 255, 255, 0.4);
@@ -395,8 +412,8 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;
 
-    /* Balance card surface — keep same royal blue in dark mode (signature color). */
-    --surface-balance: #224ca7;
+    /* Balance card surface — keep same graphite grey in dark mode. */
+    --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
     --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);

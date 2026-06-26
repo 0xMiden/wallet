@@ -1,7 +1,9 @@
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { yupResolver } from '@hookform/resolvers/yup';
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
+import { addDays, format } from 'date-fns';
 import { SubmitHandler, useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
@@ -18,6 +20,7 @@ import {
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { NoteTypeEnum } from 'lib/miden/types';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -26,20 +29,27 @@ import { navigate, useLocation } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { AccountsList } from './AccountsList';
+import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { ReviewTransaction } from './ReviewTransaction';
+import { SelectAmount } from './SelectAmount';
+import { SelectRecipient } from './SelectRecipient';
 import { SelectToken } from './SelectToken';
-import { SendDetails } from './SendDetails';
 import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
   {
-    name: SendFlowStep.SelectToken,
+    name: SendFlowStep.SelectRecipient,
     animationIn: 'push',
     animationOut: 'pop'
   },
   {
-    name: SendFlowStep.SendDetails,
+    name: SendFlowStep.SelectAmount,
+    animationIn: 'push',
+    animationOut: 'pop'
+  },
+  {
+    name: SendFlowStep.SelectToken,
     animationIn: 'push',
     animationOut: 'pop'
   },
@@ -85,7 +95,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const delegateEnabled = isDelegateProofEnabled();
   const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
   const [recallTime, setRecallTime] = useState('12:00');
-  const [note, setNote] = useState('');
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
@@ -320,6 +329,51 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     setValue('token', uiToken);
   }, [preselectedTokenId, balanceData, setValue]);
 
+  // Default every send to a 7-day reclaim (expiration) height. Fetch the
+  // current block height once on flow entry and seed recallDate/recallBlocks.
+  // The user can override via the "Edit" link on the Review screen, which
+  // opens RecallCalendarDrawer; we skip seeding if a date is already set.
+  useEffect(() => {
+    if (recallDate) return;
+    let cancelled = false;
+    ensureSdkWasmReady()
+      .then(() => {
+        if (cancelled) return;
+        const rpc = new RpcClient(getRpcEndpoint());
+        return rpc.getBlockHeaderByNumber().then(header => {
+          if (cancelled) return;
+          const date = addDays(new Date(), 7);
+          setRecallDate(date);
+          setRecallTime(format(date, 'HH:mm'));
+          setValue('recallBlocks', String(dateTimeToRecallBlocks(date, header.blockNum())));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-validate the amount whenever the selected token changes. In the new
+  // flow the user can type an amount before picking a token, so the balance
+  // check in onAmountChange may have run with no token (or a different one).
+  // Without this, an over-balance amount could reach Review with Confirm
+  // still enabled.
+  useEffect(() => {
+    if (!amount) return;
+    if (!validations.amount.isValidSync(amount)) {
+      setError('amount', { type: 'manual', message: 'invalidAmount' });
+    } else if (token && parseFloat(amount) > token.balance) {
+      setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
+    } else {
+      clearErrors('amount');
+    }
+    // Only re-run when the token changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   const onAction = useCallback(
     (action: SendFlowAction) => {
       switch (action.id) {
@@ -471,62 +525,34 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     [onAction]
   );
 
-  const onClearAddress = useCallback(() => {
-    onAction({
-      id: SendFlowActionId.SetFormValues,
-      payload: { recipientAddress: '' }
-    });
-    clearErrors('recipientAddress');
-  }, [onAction, clearErrors]);
-
-  const onScannedAddress = useCallback(
-    (address: string) => {
-      onAction({
-        id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: address }
-      });
-      if (!isValidMidenAddress(address)) {
-        setError('recipientAddress', { type: 'manual', message: 'invalidMidenAccountId' });
-      } else {
-        clearErrors('recipientAddress');
-      }
-    },
-    [onAction, setError, clearErrors]
-  );
-
   const renderStep = useCallback(
     (route: Route) => {
       switch (route.name) {
-        case SendFlowStep.SelectToken:
-          return <SelectToken onAction={onAction} />;
-        case SendFlowStep.SendDetails:
-          if (!token) return null;
+        case SendFlowStep.SelectRecipient:
           return (
-            <SendDetails
-              token={token}
-              amount={amount || ''}
-              recipientAddress={recipientAddress || ''}
-              sharePrivately={sharePrivately}
-              recallBlocks={recallBlocks}
-              isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
+            <SelectRecipient
+              address={recipientAddress || ''}
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
-              amountError={errors.amount?.message?.toString()}
-              addressError={errors.recipientAddress?.message?.toString()}
-              recallTime={recallTime}
-              recallDate={recallDate}
-              note={note}
-              onAction={onAction}
-              onGoBack={preselectedTokenId ? onClose : goBack}
-              onAmountChange={onAmountChange}
+              error={errors.recipientAddress?.message?.toString()}
               onAddressChange={onAddressChange}
-              onScannedAddress={onScannedAddress}
-              onClearAddress={onClearAddress}
-              onYourAccounts={() => goToStep(SendFlowStep.AccountsList)}
-              onRecallDateChange={setRecallDate}
-              onRecallTimeChange={setRecallTime}
-              onNoteChange={setNote}
+              onAddressBook={() => goToStep(SendFlowStep.AccountsList)}
+              onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );
+        case SendFlowStep.SelectAmount:
+          return (
+            <SelectAmount
+              token={token}
+              amount={amount || ''}
+              isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
+              error={errors.amount?.message?.toString()}
+              onAmountChange={onAmountChange}
+              onSelectToken={() => goToStep(SendFlowStep.SelectToken)}
+              onConfirm={() => goToStep(SendFlowStep.ReviewTransaction)}
+            />
+          );
+        case SendFlowStep.SelectToken:
+          return <SelectToken onAction={onAction} />;
         case SendFlowStep.AccountsList:
           return (
             <AccountsList
@@ -540,15 +566,15 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
           return (
             <ReviewTransaction
               amount={amount || ''}
-              token={token?.name || ''}
+              token={token}
               recipientAddress={recipientAddress}
-              sharePrivately={sharePrivately}
-              recallBlocks={recallBlocks}
               recallTime={recallTime}
               recallDate={recallDate}
               onAction={onAction}
               onGoBack={goBack}
               onSubmit={handleSubmit(onSubmit)}
+              onRecallDateChange={setRecallDate}
+              onRecallTimeChange={setRecallTime}
             />
           );
         default:
@@ -562,23 +588,16 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
-      onScannedAddress,
-      onClearAddress,
       goBack,
       onSelectContact,
       amount,
       onAmountChange,
       onAction,
-      sharePrivately,
-      recallBlocks,
       goToStep,
       handleSubmit,
       onSubmit,
       recallDate,
-      recallTime,
-      note,
-      onClose,
-      preselectedTokenId
+      recallTime
     ]
   );
 
@@ -608,7 +627,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
 const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   const { search } = useLocation();
   const preselectedTokenId = new URLSearchParams(search).get('tokenId');
-  const initialRoute = preselectedTokenId ? SendFlowStep.SendDetails : SendFlowStep.SelectToken;
+  // Always start at recipient selection; a preselected token just pre-fills the
+  // token for the Amount step (see the preselect effect in SendManager).
+  const initialRoute = SendFlowStep.SelectRecipient;
 
   return (
     <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>

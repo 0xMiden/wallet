@@ -42,7 +42,6 @@ export interface CreatedGuardianAccount {
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
   const mapEntries = account.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
-  console.log('Signer public keys map entries:', mapEntries);
   if (!mapEntries) {
     throw new Error('No signer public keys found in account storage');
   }

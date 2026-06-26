@@ -25,13 +25,20 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Success: 'Success', Failed: 'Failed', InProgress: 'InProgress' }
 }));
 
+const mockWalletStoreState = {
+  assetsMetadata: {} as Record<string, any>,
+  lastCompletedTxHash: null as string | null,
+  setLastCompletedTxHash: jest.fn()
+};
+
 jest.mock('lib/store', () => ({
-  useWalletStore: Object.assign(() => ({}), {
-    getState: () => ({
-      openTransactionModal: jest.fn(),
-      closeTransactionModal: jest.fn()
-    })
-  })
+  useWalletStore: Object.assign(
+    (selector?: (state: typeof mockWalletStoreState) => unknown) =>
+      selector ? selector(mockWalletStoreState) : mockWalletStoreState,
+    {
+      getState: () => mockWalletStoreState
+    }
+  )
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -58,7 +65,12 @@ jest.mock('lib/swr', () => ({
 const safeGenerateTransactionsLoopMock = jest.fn();
 jest.mock('lib/miden/activity', () => ({
   safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
-  getAllUncompletedTransactions: jest.fn(async () => [])
+  getAllUncompletedTransactions: jest.fn(async () => []),
+  getFailedTransactions: jest.fn(async () => []),
+  getTransactionById: jest.fn(async () => {
+    throw new Error('Transaction not found');
+  }),
+  waitForTransactionCompletion: jest.fn(async () => ({ errorMessage: 'Transaction not found' }))
 }));
 
 describe('GeneratingTransactionPage interval cleanup', () => {
@@ -72,6 +84,8 @@ describe('GeneratingTransactionPage interval cleanup', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    mockWalletStoreState.lastCompletedTxHash = null;
+    mockWalletStoreState.setLastCompletedTxHash.mockClear();
     mutateTxMock.mockClear();
     safeGenerateTransactionsLoopMock.mockReset();
   });
@@ -211,45 +225,61 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  it('advances visual steps gradually when the backend stage starts ahead', async () => {
+    jest.useFakeTimers();
+    let root: ReturnType<typeof createRoot> | undefined;
+
+    try {
+      const rendered = await renderInto(
+        <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
+      );
+      const { container } = rendered;
+      root = rendered.root;
+      const stepStates = () =>
+        Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
+      const activeSpinner = () =>
+        container.querySelector('[data-transaction-step][data-state="active"] svg') as SVGElement | null;
+
+      expect(stepStates()).toEqual(['active', 'pending', 'pending', 'pending']);
+      expect(activeSpinner()).toHaveClass('animate-spin');
+
+      await act(async () => {
+        jest.advanceTimersByTime(1_500);
+      });
+
+      expect(stepStates()).toEqual(['complete', 'active', 'pending', 'pending']);
+      expect(activeSpinner()).toHaveClass('animate-spin');
+
+      await act(async () => {
+        jest.advanceTimersByTime(1_500);
+      });
+
+      expect(stepStates()).toEqual(['complete', 'complete', 'active', 'pending']);
+      expect(activeSpinner()).toHaveClass('animate-spin');
+    } finally {
+      if (root) {
+        act(() => root!.unmount());
+      }
+      jest.useRealTimers();
+    }
+  });
+
   it('renders success state when transactionComplete + no errors', async () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
     );
-    expect(container.textContent).toContain('transactionCompleted');
+    expect(container.textContent).toContain('success');
+    expect(container.textContent).toContain('transactionComplete');
     expect(container.textContent).toContain('transactionSuccessDescription');
     act(() => root.unmount());
   });
 
   it('renders failure state with single-failure description', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors failedCount={1} />
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors />
     );
     expect(container.textContent).toContain('transactionFailed');
     expect(container.textContent).toContain('transactionErrorDescription');
-    act(() => root.unmount());
-  });
-
-  it('renders failure state with multiple-failure description', async () => {
-    const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors failedCount={3} />
-    );
-    expect(container.textContent).toContain('multipleTransactionsFailed');
-    act(() => root.unmount());
-  });
-
-  it('renders batch subtitle when more than one tx is in flight', async () => {
-    const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} remainingCount={3} />
-    );
-    expect(container.textContent).toContain('transactionsRemainingInBatch');
-    act(() => root.unmount());
-  });
-
-  it('omits batch subtitle when only one tx in flight', async () => {
-    const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} remainingCount={1} />
-    );
-    expect(container.textContent).not.toContain('transactionsRemainingInBatch');
     act(() => root.unmount());
   });
 
@@ -260,12 +290,14 @@ describe('GeneratingTransaction stage + state rendering', () => {
         onDoneClick={() => {}}
         transactionComplete
         hasErrors={false}
+        completedTxHash="0x84e3d459"
         onViewExplorer={onViewExplorer}
       />
     );
 
-    expect(container.textContent).toContain('viewOnMidenscan');
-    const button = container.querySelector('button') as HTMLButtonElement;
+    const button = Array.from(container.querySelectorAll('button')).find(
+      btn => btn.getAttribute('aria-label') === 'viewOnMidenscan'
+    ) as HTMLButtonElement;
     expect(button).not.toBeNull();
     act(() => {
       button.click();
@@ -285,13 +317,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('omits the View on Midenscan button on failure even when onViewExplorer is provided', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction
-        onDoneClick={() => {}}
-        transactionComplete
-        hasErrors
-        failedCount={1}
-        onViewExplorer={jest.fn()}
-      />
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors onViewExplorer={jest.fn()} />
     );
     expect(container.textContent).not.toContain('viewOnMidenscan');
     act(() => root.unmount());

@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
 
+import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { useMidenContext } from 'lib/miden/front';
@@ -409,21 +410,25 @@ const Welcome: FC = () => {
   }, [step, isLoading, onAction]);
 
   return (
-    <OnboardingFlow
-      wordslist={wordslist}
-      seedPhrase={seedPhrase}
-      onboardingType={onboardingType}
-      step={step}
-      password={password}
-      isLoading={isLoading}
-      useBiometric={useBiometric}
-      isHardwareSecurityAvailable={isHardwareSecurityAvailable}
-      biometricAttempts={biometricAttempts}
-      biometricError={biometricError}
-      guardianLookupError={guardianLookupError}
-      onBiometricChange={setUseBiometric}
-      onAction={onAction}
-    />
+    <AwaitFonts name="Nunito" weights={[500, 600, 700]}>
+      <div data-onboarding-root="true" className="h-full w-full bg-app-bg">
+        <OnboardingFlow
+          wordslist={wordslist}
+          seedPhrase={seedPhrase}
+          onboardingType={onboardingType}
+          step={step}
+          password={password}
+          isLoading={isLoading}
+          useBiometric={useBiometric}
+          isHardwareSecurityAvailable={isHardwareSecurityAvailable}
+          biometricAttempts={biometricAttempts}
+          biometricError={biometricError}
+          guardianLookupError={guardianLookupError}
+          onBiometricChange={setUseBiometric}
+          onAction={onAction}
+        />
+      </div>
+    </AwaitFonts>
   );
 };
 

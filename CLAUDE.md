@@ -84,6 +84,26 @@ Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tab
 3. Store action in `src/lib/store/index.ts`
 4. Expose via `useMidenContext()` in `src/lib/miden/front/client.ts`
 
+## Transaction summary badge (Generating Transaction screen)
+
+The in-progress transaction view (`src/screens/generating-transaction/GeneratingTransaction.tsx`, shown full-screen on mobile and as a card via `TransactionProgressModal`) renders a dynamic one-line summary pill under the title — `src/screens/generating-transaction/TransactionSummaryBadge.tsx`.
+
+**Today only the `send` variant exists**: `{amount} {symbol} → {recipient} on (Miden logo) Miden`. The badge returns `null` for every other transaction type. Future agents should extend it per type.
+
+**Data source**: the active `ITransaction`, passed in as the `activeTransaction` prop (the modal passes `activeTx`; the page passes `active ?? receiptTransaction`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
+- `send` → `amount`, `faucetId` (token), `secondaryAccountId` = **recipient address**.
+- `consume` (claim) → `faucetId`, `secondaryAccountId` = **note sender**, `noteId`; `amount` optional.
+- `execute` → usually nothing useful.
+- `switch-guardian` → `extraInputs.newGuardianEndpoint`. `replace-hot-key` → `extraInputs.newHotPublicKey`. Neither has amount/token.
+
+**Token symbol/logo**: `useWalletStore(s => s.assetsMetadata)[faucetId]` → `AssetMetadata` (`symbol`, `decimals`, `thumbnailUri`); native fallback `MIDEN_METADATA` (`lib/miden/metadata`). Miden network logo: `IconName.MidenLogo`. To add a variant, add a branch in `TransactionSummaryBadge`; keep returning `null` when there's no meaningful summary so no empty pill renders.
+
+**Deferred — NOT built yet (the mock shows these, intentionally skipped):**
+- **Per-step timing** ("2 sec" / "4 sec" on each step row). There's a right-side meta slot placeholder in the step row. To wire real durations: record a first-entry timestamp on each stage change in `setTransactionStage` **and** the direct `stage: 'sending'` write in `generateTransaction` (both `src/lib/miden/activity/transactions.ts`), store as a non-indexed `stageTimings?: Partial<Record<ITransactionStage, number>>` on `ITransaction` (no Dexie schema bump — non-indexed fields ride through `exportDb`/`importDb` via `...rest`), then derive per-UI-step durations in the component (step→stage map is `getActiveTransactionStepIndex`).
+- **Bridge/swap badge** ("Submitting to Base", "via Epoch", token→token swap). There is **no `swap` tx type**, no backend producer for bridged `extraInputs`, and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are referenced in `TransactionSuccess.tsx` but **not defined anywhere** — define them before relying on them.
+
+The redesigned in-progress view dropped the `ScreenHeader` and the linear progress bar; dismissal is via the bottom Hide/Done button.
+
 ## Navigation
 
 Two systems:
@@ -127,9 +147,6 @@ The App target in `ios/App/App.xcodeproj/project.pbxproj` does NOT auto-discover
 
 ### Adding a custom Capacitor plugin (iOS)
 Capacitor on this app uses **manual** registration — not the `CAPBridgedPlugin` auto-discovery you'd get on a stock Capacitor app. After creating `MyPlugin.swift` and wiring it into the four pbxproj sections above, you also have to call `bridge?.registerPluginInstance(MyPlugin())` inside `capacitorDidLoad()` in `ios/App/App/AppViewController.swift`. Skip this step and JS calls land as `{"code":"UNIMPLEMENTED"}` even though the class compiled fine.
-
-### swift-secp256k1 (P256K) trait-gating workaround
-21-DOT-DEV/swift-secp256k1 v0.22+ gates `ENABLE_MODULE_ECDH/RECOVERY/SCHNORRSIG/MUSIG/ELLSWIFT` behind SPM traits. CLI `swift build` honors the default-enabled traits; **Xcode silently drops `.when(traits:)` conditions** so libsecp256k1 ships those C symbols missing while P256K's Swift code references them — undefined-symbol link errors. Workaround: `ios/App/scripts/patch-swift-secp256k1.sh` promotes the five defines into `baseSettings` (unconditional). Yarn pipeline (`mobile:ios`, `mobile:ios:build`, `test:e2e:mobile:build`, `mobile:ios:release`) calls it as `yarn mobile:ios:patch-spm`. Re-run manually after a Package "Reset Caches" in Xcode.
 
 ### Native navbar overlay
 Mobile hides React footer and renders bottom nav as native pill (iOS: `MidenNavbarOverlayWindow` `UIWindow`; Android: two-instance `NavbarOverlayManager` with Activity-scoped + Dialog-scoped `NavbarView`). Plugin methods: `showNativeNavbar`, `setNavbarSecondaryRow`, `setNavbarAction`, `morphNavbar{Out,In}`. Events: `nativeNavbarTap`, `nativeNavbarSecondaryTap`, `nativeNavbarActionTap`. Wiring: `src/app/providers/DappBrowserProvider.tsx`. Android gotchas: don't use `MATCH_PARENT` children in `WRAP_CONTENT` parents (1878px buttons); `Dialog.setLayout` must follow `setContentView`; shadow must be on the view owning the background drawable.

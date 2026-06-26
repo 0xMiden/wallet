@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.15.3 (TBD)
+
+### Changes
+
+* [CHANGE][all] Typography refresh: [Nunito](https://fonts.google.com/specimen/Nunito) is now the heading font, used for page titles/headings plus token symbols and all monetary amounts (balances, prices, and amounts across send, receive, history, and dapp-confirmation screens), while body text stays on Inter. Removed the Bitter onboarding-heading font — onboarding headings now use Nunito too.
+* [CHANGE][all] Redesigned the send flow into a simpler multi-step wizard — Choose recipient → Select amount (with token-picker sub-screen) → Review details — replacing the combined details screen. Sends now default to a 7-day reclaim/expiration (editable on the Review screen), the per-send privacy toggle was dropped (sends stay private), and in-page CTA buttons replace the native-navbar action hoisting across the send flow. Adds reusable `AmountInput` and `ReviewLayout`/`ReviewRow`/`ReviewAmount` components (the latter so swap and other flows can share one review shell), and a leading-back-arrow variant on `ScreenHeader`.
+* [CHANGE][all] Redesigned the transaction-progress view: a type-based title ("Sending Payment"), a new dynamic summary badge (`{amount} {symbol} → {recipient} on Miden`), and the step list moved into a bordered card. The summary badge supports sends today; other transaction types render no badge — see CLAUDE.md for how to add variants and the deferred per-step timing / bridge-swap badge.
+* [CHANGE][all] The transaction-progress modal no longer renders any UI on any platform — `TransactionProgressModal` stays mounted purely as the headless driver of the transaction queue (processing + orphan recovery), so sends/claims/Guardian txs still complete, but no progress modal pops up. Progress surfaces via inline states and the full-screen `/generating-transaction` page.
+* [CHANGE][all] Redesigned the home balance card: a neutral graphite (`#6f6f6f`) surface with "Total Balance", the amount, and the 24h-change pill (`#a8bba3`) stacked at the top, and the account row moved below a dashed divider.
+
+### Fixes
+
+* [FIX][mobile] iOS: the safe-area strip around the Dynamic Island / status bar no longer shows a fixed white band — the mobile `<body>` had an inline `background-color: #ffffff` overriding the themed `--color-app-bg`, so the inset region now matches the app background in both light and dark mode.
+
+## 1.15.2 (2026-06-22)
+
+### Features
+
+* [FEATURE][all] **Custom-transaction support for Guardian accounts.** Guardian accounts can now co-sign arbitrary transaction requests, not just sends and note consumption: the multisig client builds a custom proposal from the request bytes, co-signs it through the Guardian, and reconstructs the executable `TransactionRequest` from the Guardian's advice. (#153)
+
+### Changes
+
+* [CHANGE][all] **Guardian now runs on the Miden 0.15 protocol line.** The OpenZeppelin Guardian client packages (`@openzeppelin/miden-multisig-client`, `@openzeppelin/guardian-client`) are pinned to `0.15.0-rc.0` (built against `@miden-sdk/miden-sdk ^0.15.0`), replacing the published `0.14.9` — which targets SDK `0.14.5` and trapped with `RuntimeError: memory access out of bounds` inside `MultisigClient.create()` when run on the wallet's 0.15 SDK (WASM ABI skew between the 0.14 client and the 0.15 SDK). Guardian account creation, note consumption, and sends now work end-to-end on 0.15. **Guardian currently requires devnet:** the hosted devnet Guardian runs the 0.15 server, while the testnet/production Guardian is still on the 0.14 server and is incompatible with the 0.15 client — until OpenZeppelin publishes a 0.15 Guardian server release. (#153)
+* [CHANGE][all] Bumped `@miden-sdk/miden-sdk` and `@miden-sdk/react` from `0.15.1` to `0.15.2` (and the matching `**/@miden-sdk/miden-sdk` resolution pin). `@miden-sdk/vite-plugin` stays at `0.14.11`. (#153)
+* [CHANGE][all] Removed dead UI code: deleted 4 unused button components (`RadioButton`, `explore/ActionButtons`, `atoms/ActionButtons`, `atoms/UploadFileButton`) and 134 unreferenced icon SVGs (105 legacy root icons, 26 unused `v2` icons, 3 others), pruned the `v2` `IconName` registry to the icons actually in use, and reduced the root icon barrel (`app/icons`) to its single consumed export.
+
+### Fixes
+
+* [FIX][all] Corrected the devnet Guardian endpoint host (`stg-guardian.openzeppelin.com` → `guardian-stg.openzeppelin.com`); the transposed hostname had no DNS record, so the default devnet Guardian URL never resolved. (#153)
+
+## 1.15.1 (2026-06-19)
+
+### Changes
+
+* [CHANGE][all] Bumped `@miden-sdk/miden-sdk` and `@miden-sdk/react` to the stable `0.15.1` release, replacing the `0.15.0-alpha.7` prerelease (npm `next` dist-tag) that shipped in 1.15.0 with the GA build on the `latest` dist-tag. `@miden-sdk/vite-plugin` stays at `0.14.11` (no 0.15.x is published; it's SDK-version-agnostic), and the `**/@miden-sdk/miden-sdk` resolution pin tracks the same `0.15.1`.
+* [CHANGE][ci] Mobile E2E iOS build now targets a generic simulator destination (`generic/platform=iOS Simulator`) instead of a named device (`name=iPhone 17`), matching the approach `build-mobile.yml`'s release build already uses. A build needs no concrete booted device, and the generic destination resolves even when Xcode's IDE-layer CoreSimulator goes blind to concrete sims on macos-26 runners — the flake that was failing `Mobile E2E` at the build step (`xcodebuild: Unable to find a device`). The now-redundant "wait for xcodebuild to see the simulators" gate is removed (it could hard-fail the job for a condition that no longer blocks the build); pinned sims are still pre-booted for the test-run phase, which reaches them via `simctl`.
+
 ## 1.15.0 (2026-06-12)
 
 ### Features

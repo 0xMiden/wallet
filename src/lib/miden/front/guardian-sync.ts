@@ -40,7 +40,6 @@ export async function syncGuardianAccounts(): Promise<void> {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
     } catch (error) {
-      console.log(account);
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }
   }

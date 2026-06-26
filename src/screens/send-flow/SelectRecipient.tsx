@@ -1,25 +1,34 @@
-import React, { ChangeEvent, useCallback, useState } from 'react';
+import React, { ChangeEvent, useEffect, useRef } from 'react';
 
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { NavigationHeader } from 'components/NavigationHeader';
-import { TextArea } from 'components/TextArea';
-import { hapticSuccess, hapticError } from 'lib/mobile/haptics';
-import { scanQRCode, isScanAvailable } from 'lib/qr';
+import { isMobile } from 'lib/platform';
+
+const AddressBookIcon: React.FC = () => (
+  <svg width="15" height="16" viewBox="0 0 11 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M5.46105 5.6433C6.81823 5.6433 7.91844 4.54309 7.91844 3.18591C7.91844 1.82873 6.81823 0.728516 5.46105 0.728516C4.10387 0.728516 3.00366 1.82873 3.00366 3.18591C3.00366 4.54309 4.10387 5.6433 5.46105 5.6433Z"
+      stroke="currentColor"
+      strokeWidth="1.45623"
+    />
+    <path
+      d="M0.728271 10.6498C1.36537 8.46541 3.27668 7.28223 5.46102 7.28223C7.64537 7.28223 9.55668 8.46541 10.1938 10.6498"
+      stroke="currentColor"
+      strokeWidth="1.45623"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
 export interface SelectRecipientProps {
-  address?: string;
+  address: string;
   isValidAddress: boolean;
   error?: string;
-  onGoNext: () => void;
   onAddressChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
-  onScannedAddress?: (address: string) => void;
-  onYourAccounts: () => void;
-  onClear: () => void;
-  onClose: () => void;
-  onCancel: () => void;
+  onAddressBook: () => void;
+  onConfirm: () => void;
 }
 
 export const SelectRecipient: React.FC<SelectRecipientProps> = ({
@@ -27,80 +36,65 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   isValidAddress,
   error,
   onAddressChange,
-  onScannedAddress,
-  onYourAccounts,
-  onGoNext,
-  onClear,
-  onClose,
-  onCancel
+  onAddressBook,
+  onConfirm
 }) => {
   const { t } = useTranslation();
-  const [scanError, setScanError] = useState<string | null>(null);
-  const showScanButton = isScanAvailable();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleScan = useCallback(async () => {
-    setScanError(null);
-    const result = await scanQRCode();
-
-    if (result.success && result.address) {
-      hapticSuccess();
-      onScannedAddress?.(result.address);
-    } else if (result.errorKey && result.errorKey !== 'scanCancelled') {
-      hapticError();
-      setScanError(result.errorKey);
-    }
-  }, [onScannedAddress]);
+  // Auto-grow the borderless address field as it wraps across lines.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [address]);
 
   return (
-    <div className="flex-1 flex flex-col">
-      <NavigationHeader title={t('recipient')} onBack={onClose} showBorder />
-      <div className="flex flex-col flex-1 p-4 md:w-[460px] md:mx-auto">
-        <div className="flex-1 flex flex-col justify-stretch gap-y-2">
-          <div className="relative">
-            <TextArea
-              placeholder={t('recipientAccountId')}
-              className={`w-full ${showScanButton ? 'pr-20' : 'pr-10'}`}
-              value={address}
-              onChange={onAddressChange}
-              autoFocus
-            />
-            <div className="absolute top-0 right-0 mt-2 mr-2 flex items-center gap-x-1">
-              {showScanButton && (
-                <button
-                  type="button"
-                  onClick={handleScan}
-                  className="p-1 rounded-lg hover:bg-gray-100 transition duration-200"
-                  aria-label={t('scanQr')}
-                >
-                  <Icon name={IconName.QrScan} fill="currentColor" size="md" />
-                </button>
-              )}
-              {address && (
-                <button type="button" onClick={onClear} className="p-1" aria-label={t('clearText')}>
-                  <Icon name={IconName.CloseCircle} fill="currentColor" size="md" />
-                </button>
-              )}
-            </div>
-          </div>
-          {(error || scanError) && <p className="text-red-500 text-xs">{scanError ? t(scanError) : t(`${error}`)}</p>}
-          <Button
-            title={t('yourAccounts')}
-            iconLeft={IconName.ContactsBook}
-            variant={ButtonVariant.Ghost}
-            onClick={onYourAccounts}
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
+        <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('chooseRecipient')}</span>
+
+        <div className="relative mt-3">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            placeholder={t('enterMidenOrEthereumAddress')}
+            className={clsx(
+              'font-heading w-full resize-none bg-transparent outline-none',
+              'text-[40px] font-bold leading-tight wrap-break-word',
+              'text-heading-gray caret-primary-500',
+              error ? 'text-red-500' : 'text-black'
+            )}
+            value={address}
+            onChange={onAddressChange}
+            spellCheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
           />
         </div>
-        <div></div>
-        <div className="flex flex-row gap-x-2">
-          <Button className="flex-1" title={t('cancel')} variant={ButtonVariant.Secondary} onClick={onCancel} />
+
+        {error && <p className="text-red-500 text-sm mt-2">{t(`${error}`)}</p>}
+
+        <div className="mt-4 flex">
           <Button
-            className="flex-1"
-            title={t('next')}
-            variant={ButtonVariant.Primary}
-            disabled={!isValidAddress}
-            onClick={onGoNext}
+            variant={ButtonVariant.Secondary}
+            title={t('addressBook')}
+            iconLeft={<AddressBookIcon />}
+            onClick={onAddressBook}
+            className="rounded-full text-base font-bold w-39.25"
           />
         </div>
+      </div>
+
+      <div className="shrink-0 pt-4 pb-24">
+        <Button
+          title={t('confirm')}
+          variant={ButtonVariant.Primary}
+          onClick={onConfirm}
+          disabled={!isValidAddress}
+          className="w-full max-w-none rounded-full text-base font-semibold"
+        />
       </div>
     </div>
   );

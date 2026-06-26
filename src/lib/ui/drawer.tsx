@@ -2,7 +2,9 @@ import * as React from 'react';
 import { createContext, useCallback, useContext, useEffect } from 'react';
 
 import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
+import { Icon, IconName } from 'app/icons/v2';
 import { durations, easings, springs } from 'lib/animation';
 
 import Portal from './Portal';
@@ -29,9 +31,13 @@ function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
 interface DrawerContentProps {
   className?: string;
   children: React.ReactNode;
+  /** The handle is hidden by default — the standard drawer design closes via an
+   *  explicit close button (see `DrawerTopBar`). Pass `hideHandle={false}` to
+   *  restore the draggable handle + drag-to-dismiss for a legacy drawer. */
+  hideHandle?: boolean;
 }
 
-function DrawerContent({ className, children }: DrawerContentProps) {
+function DrawerContent({ className, children, hideHandle = true }: DrawerContentProps) {
   const { open, onClose } = useContext(DrawerContext);
 
   useEffect(() => {
@@ -78,15 +84,17 @@ function DrawerContent({ className, children }: DrawerContentProps) {
               exit={{ y: '100%' }}
               transition={springs.sheetPresent}
             >
-              <motion.div
-                className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing"
-                drag="y"
-                dragConstraints={{ top: 0, bottom: 0 }}
-                dragElastic={0.2}
-                onDragEnd={handleDragEnd}
-              >
-                <div className="bg-primary-500 h-0.5 w-10 shrink-0 rounded-full" />
-              </motion.div>
+              {!hideHandle && (
+                <motion.div
+                  className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing"
+                  drag="y"
+                  dragConstraints={{ top: 0, bottom: 0 }}
+                  dragElastic={0.2}
+                  onDragEnd={handleDragEnd}
+                >
+                  <div className="bg-primary-500 h-0.5 w-10 shrink-0 rounded-full" />
+                </motion.div>
+              )}
               {children}
             </motion.div>
           </>
@@ -96,13 +104,30 @@ function DrawerContent({ className, children }: DrawerContentProps) {
   );
 }
 
-function DrawerHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+/**
+ * Drawer header / top bar: a large left-aligned title (via `DrawerTitle`, 28px
+ * semibold) with a circular close button on the right, a bottom divider, and a
+ * 16px gap to the content below (`mb-4`). The handle-less default closes through
+ * this button — it reads `onClose` from the drawer context, so no extra wiring.
+ * Children render in a column on the left (title + optional `DrawerDescription`).
+ */
+function DrawerHeader({ className, children }: { className?: string; children?: React.ReactNode }) {
+  const { t } = useTranslation();
+  const { onClose } = useContext(DrawerContext);
   return (
-    <div
-      data-slot="drawer-header"
-      className={cn('flex flex-col gap-0.5 px-4 pb-6 text-center', className)}
-      {...props}
-    />
+    <div data-slot="drawer-header" className={cn('border-b border-border-faint mb-4', className)}>
+      <div className="flex w-full items-center justify-between gap-3 p-4">
+        <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t('close')}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100"
+        >
+          <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-heading-gray" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -112,7 +137,11 @@ function DrawerFooter({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 
 function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h2 data-slot="drawer-title" className={cn('text-base font-medium text-black', className)} {...props}>
+    <h2
+      data-slot="drawer-title"
+      className={cn('text-[28px] font-semibold leading-none text-heading-gray', className)}
+      {...props}
+    >
       {children}
     </h2>
   );

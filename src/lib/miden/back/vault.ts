@@ -958,13 +958,11 @@ export class Vault {
   async signWord(publicKey: string, wordHex: string): Promise<string> {
     const accounts = await this.fetchAccounts();
     const isCold = accounts.some(acc => acc.coldPublicKey === publicKey);
-    console.log('signWord: isCold =', isCold, 'for publicKey =', publicKey);
     if (isCold) {
       const coldHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
         accColdSecretKeyStrgKey(publicKey),
         this.vaultKey
       );
-      console.log('Sign word for cold key, got coldHex =', coldHex);
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
       const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
       console.log(

@@ -9,6 +9,7 @@ import { QRCode } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
   address: string;
@@ -42,12 +43,15 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
       data-testid="receive-page"
     >
       <div className="min-h-full flex flex-col">
-        <div className="m-auto flex flex-col items-center px-13 pt-8 pb-32 gap-8">
+        <div className="flex flex-col items-center px-6 pt-8 pb-32">
           <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
-          <div className="flex items-center justify-center">
-            <QRCode address={address} size={240} onCopy={copy} className="w-auto" />
+          <div className="flex flex-col items-center justify-center gap-8">
+            <QRCode address={address} size={300} />
+            <span className="w-full rounded-10 text-center text-sm text-heading-gray py-5 bg-surface-interactive">
+              {truncateAddress(address, false, 16, 8)}
+            </span>
           </div>
-          <div className="flex items-center gap-12">
+          <div className="flex items-center gap-12 pt-4 pb-4">
             <button
               type="button"
               onClick={handleShare}

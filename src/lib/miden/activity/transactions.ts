@@ -1144,8 +1144,12 @@ const generateGuardianTransaction = async (
     }
     case 'execute':
     default: {
+      // For custom transactions, build a custom proposal from the serialized request bytes.
+      if (!transaction.requestBytes) {
+        throw new Error('Request Bytes not available for custom transaction');
+      }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createCustomProposal(transaction.requestBytes!);
+      proposalResult = await service.createCustomProposal(transaction.requestBytes);
       break;
     }
   }
@@ -1178,10 +1182,6 @@ const generateGuardianTransaction = async (
     await coldService.signProposal(proposalResult.id);
   }
 
-  // Custom proposals (swap, execute) rebuild the final tx from the original
-  // request bytes inside `signAndCreateTransactionRequest`; built-in proposal
-  // types ignore the arg. `transaction.requestBytes` is the exact serialized
-  // request the custom proposal was created from (persisted above for swap).
   const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
   console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
   const options: MidenClientCreateOptions = {

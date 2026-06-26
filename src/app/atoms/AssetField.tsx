@@ -17,7 +17,7 @@ const AssetExtraInner = (
       className={classNames('overflow-hidden', 'absolute inset-y-0 right-0 w-40', 'flex items-center justify-end')}
       style={{ fontSize: '14px', lineHeight: '20px' }}
     >
-      <span className="mr-2 font-medium text-black cursor-pointer">{assetSymbol}</span>
+      <span className="font-heading mr-2 font-medium text-black cursor-pointer">{assetSymbol}</span>
       {showMax && (
         <button
           className="mr-2 font-medium text-black bg-chip-bg hover:bg-gray-100 active:bg-gray-100 py-2 px-2 rounded-lg cursor-pointer"

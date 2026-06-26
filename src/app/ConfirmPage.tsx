@@ -48,12 +48,12 @@ const ConfirmPage: FC = () => {
       ready ? (
         <ContentContainer
           padding={false}
-          className={classNames('min-h-screen', 'flex flex-col items-center justify-center')}
+          className={classNames('min-h-screen', 'flex flex-col items-center justify-center bg-app-bg')}
         >
           <ErrorBoundary whileMessage={t('fetchingConfirmationDetails')}>
             <Suspense
               fallback={
-                <div className="flex items-center justify-center h-screen">
+                <div className="flex items-center justify-center h-screen bg-app-bg">
                   <div>
                     <Spinner />
                   </div>
@@ -391,24 +391,24 @@ const SigningInputsPayloadContent: React.FC<{ bytes: Uint8Array }> = ({ bytes })
                   {removedFungibleAssets.length > 0 &&
                     removedFungibleAssetsDetails.map(details => (
                       <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
-                        <span className="text-black-500 text-lg font-semibold">
+                        <span className="font-heading text-black-500 text-lg font-semibold">
                           {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
-                        <span className="text-text-muted">{`~$${details.asset.amount()}`}</span>
+                        <span className="font-heading text-text-muted">{`~$${details.asset.amount()}`}</span>
                       </div>
                     ))}
 
                   {addedFungibleAssets.length > 0 &&
                     addedFungibleAssetsDetails.map(details => (
                       <div key={details.asset.faucetId().toString()} className="flex flex-col w-full my-2 text-sm">
-                        <span className="text-green-500 text-lg font-semibold">
+                        <span className="font-heading text-green-500 text-lg font-semibold">
                           {`${formatAmount(details.asset.amount(), details.metadata.decimals)} ${
                             details.metadata.symbol ?? t('unknown')
                           }`}
                         </span>
-                        <span className="text-text-muted">{`~$${details.asset.amount()}`}</span>
+                        <span className="font-heading text-text-muted">{`~$${details.asset.amount()}`}</span>
                       </div>
                     ))}
                 </div>
