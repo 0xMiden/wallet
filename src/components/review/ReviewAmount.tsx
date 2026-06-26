@@ -11,6 +11,8 @@ export interface ReviewAmountProps {
   fiat?: number;
   /** Optional caption above the amount, e.g. "You Send" / "You Receive". */
   label?: string;
+  /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `symbol`. */
+  logoSymbol?: string;
 }
 
 /**
@@ -18,14 +20,14 @@ export interface ReviewAmountProps {
  * an optional caption and an optional ≈USD line. Compose two of these (plus a
  * swap arrow) for a swap review hero.
  */
-export const ReviewAmount: React.FC<ReviewAmountProps> = ({ symbol, amount, fiat, label }) => {
+export const ReviewAmount: React.FC<ReviewAmountProps> = ({ symbol, amount, fiat, label, logoSymbol }) => {
   const { t } = useTranslation();
 
   return (
     <div>
       {label && <div className="font-heading text-base font-medium text-[#808080]">{label}</div>}
       <div className="flex items-center gap-2 mt-2">
-        <TokenLogo symbol={symbol} size="md" />
+        <TokenLogo symbol={logoSymbol ?? symbol} size="md" />
         <span className="font-heading text-[40px] font-extrabold text-heading-gray leading-none">
           {amount} {symbol}
         </span>

@@ -530,6 +530,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     if (type === 'consume') return 'transactionStageClaiming';
     if (type === 'execute') return 'transactionStageExecuting';
     if (type === 'switch-guardian') return 'transactionStageSwitching';
+    if (type === 'swap') return 'transactionStageSwapping';
     return 'transactionStageSending';
   }, []);
 
@@ -574,9 +575,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [keepOpen, t]);
 
   // During processing the title is type-based ("Sending Payment") rather than
-  // stage-based, matching the redesign. Only `send` has a bespoke title today;
+  // stage-based, matching the redesign. `send` and `swap` have bespoke titles;
   // other types fall back to the generic label.
-  const processingTitleKey = activeType === 'send' ? 'transactionTitleSend' : 'generatingTransaction';
+  const processingTitleKey =
+    activeType === 'send'
+      ? 'transactionTitleSend'
+      : activeType === 'swap'
+        ? 'transactionTitleSwap'
+        : 'generatingTransaction';
   const visibleTitle = transactionComplete ? headerText() : t(processingTitleKey);
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
   const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');

@@ -4,10 +4,10 @@ import { animate, motion, PanInfo, useMotionValue } from 'framer-motion';
 
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
-import Swap from 'app/pages/Swap';
 import { springs } from 'lib/animation';
 import { navigate, useLocation } from 'lib/woozie';
 import { SendFlow } from 'screens/send-flow/SendManager';
+import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
 /**
  * Carousel container that mounts all five home-group pages (Overview /
@@ -145,7 +145,7 @@ const HomeSwipeContainer: FC = () => {
           <EarnPlaceholder />
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
-          <Swap />
+          <SwapFlow />
         </div>
       </motion.div>
     </div>

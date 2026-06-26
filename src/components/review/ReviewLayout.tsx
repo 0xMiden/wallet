@@ -21,6 +21,8 @@ export interface ReviewLayoutProps {
   backLabel?: string;
   /** Hero block — a ReviewAmount (send) or a composed swap hero. */
   hero: React.ReactNode;
+  /** Orange underline under the hero. Default true (send); pass false for swap (its hero owns its dividers). */
+  heroDivider?: boolean;
   /** Divider lines between the detail rows. Default true (send); pass false for swap. */
   dividers?: boolean;
   /** The ReviewRow list. */
@@ -42,6 +44,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   onBack,
   backLabel,
   hero,
+  heroDivider = true,
   dividers = true,
   children,
   primary,
@@ -57,7 +60,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
 
         {hero}
 
-        <div className="my-4 h-1.75 w-full rounded-full bg-primary-500" />
+        {heroDivider && <div className="my-4 h-1.75 w-full rounded-full bg-primary-500" />}
 
         <div className={classNames(dividers && 'divide-y divide-border-light')}>{children}</div>
       </div>

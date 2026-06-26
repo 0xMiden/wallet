@@ -88,10 +88,11 @@ Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tab
 
 The in-progress transaction view (`src/screens/generating-transaction/GeneratingTransaction.tsx`, shown full-screen on mobile and as a card via `TransactionProgressModal`) renders a dynamic one-line summary pill under the title — `src/screens/generating-transaction/TransactionSummaryBadge.tsx`.
 
-**Today only the `send` variant exists**: `{amount} {symbol} → {recipient} on (Miden logo) Miden`. The badge returns `null` for every other transaction type. Future agents should extend it per type.
+**`send` and `swap` variants exist**: send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {symbol} → (logo) {amount} {symbol}`. The badge returns `null` for every other transaction type. Future agents should extend it per type.
 
 **Data source**: the active `ITransaction`, passed in as the `activeTransaction` prop (the modal passes `activeTx`; the page passes `active ?? receiptTransaction`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
 - `send` → `amount`, `faucetId` (token), `secondaryAccountId` = **recipient address**.
+- `swap` → `amount`/`faucetId` = **offered** side; `extraInputs.requestedAmount`/`extraInputs.requestedFaucetId` = **requested** side. Symbol/decimals/logo for the fixed devnet DEX tokens resolve via `getSwapTokenByFaucetId` in `src/lib/miden/swap/tokens.ts` (the swap-token registry — source of truth, since these faucets may be absent from `assetsMetadata`).
 - `consume` (claim) → `faucetId`, `secondaryAccountId` = **note sender**, `noteId`; `amount` optional.
 - `execute` → usually nothing useful.
 - `switch-guardian` → `extraInputs.newGuardianEndpoint`. `replace-hot-key` → `extraInputs.newHotPublicKey`. Neither has amount/token.
@@ -100,7 +101,7 @@ The in-progress transaction view (`src/screens/generating-transaction/Generating
 
 **Deferred — NOT built yet (the mock shows these, intentionally skipped):**
 - **Per-step timing** ("2 sec" / "4 sec" on each step row). There's a right-side meta slot placeholder in the step row. To wire real durations: record a first-entry timestamp on each stage change in `setTransactionStage` **and** the direct `stage: 'sending'` write in `generateTransaction` (both `src/lib/miden/activity/transactions.ts`), store as a non-indexed `stageTimings?: Partial<Record<ITransactionStage, number>>` on `ITransaction` (no Dexie schema bump — non-indexed fields ride through `exportDb`/`importDb` via `...rest`), then derive per-UI-step durations in the component (step→stage map is `getActiveTransactionStepIndex`).
-- **Bridge/swap badge** ("Submitting to Base", "via Epoch", token→token swap). There is **no `swap` tx type**, no backend producer for bridged `extraInputs`, and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are referenced in `TransactionSuccess.tsx` but **not defined anywhere** — define them before relying on them.
+- **Bridge step labels** ("Submitting to Base", "via Epoch") and the per-step timing meta. The in-protocol token→token swap badge is **now built** (see the `swap` bullet above), but the bridge-specific step labels and the right-side meta slot are still deferred — there's no backend producer for bridged `extraInputs` and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are referenced in `TransactionSuccess.tsx` but **not defined anywhere** — define them before relying on them.
 
 The redesigned in-progress view dropped the `ScreenHeader` and the linear progress bar; dismissal is via the bottom Hide/Done button.
 
@@ -108,7 +109,7 @@ The redesigned in-progress view dropped the `ScreenHeader` and the linear progre
 
 Two systems:
 - **Woozie** (`src/lib/woozie/`) — hash-based global router. `navigate`, `goBack`, `useLocation`, `<Link>`.
-- **Navigator** (`src/components/Navigator.tsx`) — internal step flows (`SendManager`, `EncryptedFileManager`). `useNavigator()` → `{navigateTo, goBack, cardStack}`.
+- **Navigator** (`src/components/Navigator.tsx`) — internal step flows (`SendManager`, `SwapManager`, `EncryptedFileManager`). `useNavigator()` → `{navigateTo, goBack, cardStack}`. The swap flow (`src/screens/swap-flow/`) mirrors send: amounts (two `SelectAmount` in `embedded` mode) → token picker → review, rendered at `/swap` in both `PageRouter` and `HomeSwipeContainer`.
 
 Onboarding (`Welcome.tsx`) and `ForgotPassword.tsx` use hash-based state (`/#step-name`), NOT Navigator.
 

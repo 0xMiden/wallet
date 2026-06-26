@@ -1,12 +1,12 @@
 import React, { FC, ReactNode, useMemo } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { TokenLogo } from 'components/TokenLogo';
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { AssetMetadata } from 'lib/miden/metadata/types';
+import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
@@ -60,14 +60,41 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
   );
 };
 
+interface ResolvedAsset {
+  symbol: string;
+  decimals?: number;
+  /** Symbol understood by TokenLogo (MIDEN/ETH/USDC/BTC). */
+  logoSymbol: string;
+}
+
 /**
- * Today only the `send` variant is implemented:
+ * Resolve a swap-side faucet to a display symbol/decimals/logo. The DEX token
+ * registry is the source of truth for the fixed swap tokens (whose faucets may
+ * not be present in `assetsMetadata`); fall back to wallet metadata, then to
+ * the native asset.
+ */
+const resolveSwapAsset = (
+  faucetId: string | undefined,
+  assetsMetadata: Record<string, AssetMetadata> | undefined
+): ResolvedAsset => {
+  const swapToken = getSwapTokenByFaucetId(faucetId);
+  const metadata = faucetId ? assetsMetadata?.[faucetId] : undefined;
+  return {
+    symbol: swapToken?.symbol ?? metadata?.symbol ?? MIDEN_METADATA.symbol,
+    decimals: swapToken?.decimals ?? metadata?.decimals,
+    logoSymbol: swapToken?.logoSymbol ?? metadata?.symbol ?? MIDEN_METADATA.symbol
+  };
+};
+
+/**
+ * Implemented variants:
  *
- *   {amount} {symbol}  ->  {recipient}  on  (Miden) Miden
+ *   send  →  {amount} {symbol}        ->  {recipient}
+ *   swap  →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
  *
- * Other transaction types (consume/claim, swap, switch-guardian, bridged
- * sends) render nothing for now. See CLAUDE.md -> "Transaction summary badge"
- * for how to add a variant and where each type's data lives.
+ * Other transaction types (consume/claim, switch-guardian, bridged sends)
+ * render nothing for now. See CLAUDE.md -> "Transaction summary badge" for how
+ * to add a variant and where each type's data lives.
  */
 export const useTransactionSummaryBadgeContent = (
   transaction?: ITransaction
@@ -75,6 +102,38 @@ export const useTransactionSummaryBadgeContent = (
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
 
   return useMemo(() => {
+    if (transaction?.type === 'swap') {
+      const offered = resolveSwapAsset(transaction.faucetId, assetsMetadata);
+      const requestedFaucetId = transaction.extraInputs?.requestedFaucetId;
+      const requested = resolveSwapAsset(requestedFaucetId, assetsMetadata);
+
+      const offeredAmount =
+        transaction.amount !== undefined ? formatAmount(transaction.amount, offered.decimals) : undefined;
+      const requestedRaw = transaction.extraInputs?.requestedAmount;
+      const requestedAmount = requestedRaw !== undefined ? formatAmount(requestedRaw, requested.decimals) : undefined;
+
+      if (!offeredAmount || !requestedAmount) return undefined;
+
+      return {
+        lhs: (
+          <>
+            <TokenLogo symbol={offered.logoSymbol} size="sm" />
+            <span className="whitespace-nowrap">
+              {offeredAmount} {offered.symbol}
+            </span>
+          </>
+        ),
+        rhs: (
+          <>
+            <TokenLogo symbol={requested.logoSymbol} size="sm" />
+            <span className="min-w-0 truncate">
+              {requestedAmount} {requested.symbol}
+            </span>
+          </>
+        )
+      };
+    }
+
     if (transaction?.type !== 'send') return undefined;
 
     const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
