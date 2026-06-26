@@ -27,7 +27,10 @@ test.describe('Fullpage UI', () => {
     expect(errors).toHaveLength(0);
   });
 
-  test('onboarding create flow completes and shows Explore page', async ({ extensionContext, extensionId }) => {
+  test('onboarding create flow completes and hands off to the side panel', async ({
+    extensionContext,
+    extensionId
+  }) => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const page = await extensionContext.newPage();
 
@@ -78,12 +81,16 @@ test.describe('Fullpage UI', () => {
     await page.getByText(/fully private/i).first().click();
     await page.getByRole('button', { name: /continue/i }).click();
 
-    // Complete onboarding and verify we reach the Explore page
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible();
-    await page.getByRole('button', { name: /get started/i }).click();
-    // Verify Explore page by checking for Send, Receive, Faucet buttons
-    await expect(page.getByText('Send')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText('Receive')).toBeVisible({ timeout: 30000 });
+    // New-wallet onboarding hands the wallet off to the Chrome side panel: the
+    // wallet is created in the background ("Creating your wallet…"), then once
+    // it's ready an "Open wallet" CTA appears. Clicking it opens the side panel
+    // (a separate context) and closes this tab, so we assert the ready handoff
+    // screen here rather than driving the side panel. The "Open wallet" button
+    // is gated on the store reaching Ready, so seeing it confirms the wallet was
+    // created and is functional. (The classic in-tab "Get started" → Explore
+    // path is covered by the import flow test below.)
+    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
   test('onboarding import flow completes and shows Explore page', async ({ extensionContext, extensionId }) => {

@@ -1424,6 +1424,14 @@
     "note": "Onboarding",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "Créer votre portefeuille…",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "Portefeuille ouvert",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "Entrez le mot de passe",
     "note": "Onboarding",

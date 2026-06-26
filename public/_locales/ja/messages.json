@@ -1424,6 +1424,14 @@
     "note": "Onboarding",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "ウォレットを作成中…",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "オープンウォレット",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "パスワードを入力する",
     "note": "Onboarding",

@@ -1424,6 +1424,14 @@
     "noteeee": "Onboarding",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "Cüzdanınız oluşturuluyor…",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "Cüzdanı aç",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "Şifre girin",
     "noteeee": "Onboarding",

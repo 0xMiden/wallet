@@ -1424,6 +1424,14 @@
     "note": "Onboarding",
     "englishSource": "Get started"
   },
+  "creatingYourWallet": {
+    "message": "지갑을 만드는 중…",
+    "englishSource": "Creating your wallet…"
+  },
+  "openWallet": {
+    "message": "오픈 지갑",
+    "englishSource": "Open wallet"
+  },
   "enterPassword": {
     "message": "비밀번호 입력",
     "note": "Onboarding",
