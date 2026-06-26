@@ -1,4 +1,5 @@
 import { MultisigService } from 'lib/miden/guardian';
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -104,7 +105,7 @@ export async function getOrCreateMultisigService(
     }
 
     // Get the Account object from the Miden client.
-    const { sdkAccount } = await withWasmClientLock(async () => {
+    const sdkAccount = await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
       return midenClient.getAccount(accountPublicKey);
     });

@@ -29,12 +29,16 @@ import { navigate, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
 
 import { AccountsList } from './AccountsList';
+import { BRIDGE_OUTPUT_TOKEN_SYMBOL, DEFAULT_BRIDGE_NETWORK, getBridgeNetwork } from './bridge-networks';
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { ReviewTransaction } from './ReviewTransaction';
+import { Route as RouteStep } from './Route';
 import { SelectAmount } from './SelectAmount';
+import { SelectNetwork } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectToken } from './SelectToken';
-import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
+import { BridgeRoute, Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
+import { useEpochQuote } from './useEpochQuote';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
@@ -50,6 +54,16 @@ const ROUTES: Route[] = [
   },
   {
     name: SendFlowStep.SelectToken,
+    animationIn: 'push',
+    animationOut: 'pop'
+  },
+  {
+    name: SendFlowStep.SelectNetwork,
+    animationIn: 'push',
+    animationOut: 'pop'
+  },
+  {
+    name: SendFlowStep.Route,
     animationIn: 'push',
     animationOut: 'pop'
   },
@@ -77,8 +91,7 @@ const validations = {
     .string()
     .required()
     .test('is-valid-address', 'Invalid address', value => isValidRecipientAddress(value ?? '')),
-  recallBlocks: yup.number(),
-  delegateTransaction: yup.boolean().required()
+  recallBlocks: yup.number()
 };
 
 const validationSchema = yup.object().shape(validations).required();
@@ -128,14 +141,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
 
   // Handle mobile back button/gesture
   useMobileBackHandler(() => {
-    if (showTokenDrawer) {
-      setShowTokenDrawer(false);
-      return true;
-    }
-    if (showContactDrawer) {
-      setShowContactDrawer(false);
-      return true;
-    }
     if (cardStack.length > 1) {
       goBack(); // Go to previous step (e.g. back from review)
       return true;
@@ -143,7 +148,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     // On the root step, close the entire flow
     onClose();
     return true;
-  }, [showTokenDrawer, showContactDrawer, cardStack.length, goBack, onClose]);
+  }, [cardStack.length, goBack, onClose]);
 
   const navigateToGeneratingTransaction = useCallback((txId?: string) => {
     navigate({
@@ -171,7 +176,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       sharePrivately: true,
       recipientAddress: undefined,
       recallBlocks: undefined,
-      delegateTransaction: delegateEnabled,
       token: undefined,
       bridgeRoute: 'epoch'
     },
@@ -184,6 +188,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     register('recipientAddress');
     register('recallBlocks');
     register('token');
+    register('bridgeNetwork');
     register('bridgeRoute');
   }, [register]);
 
@@ -192,11 +197,68 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const recipientAddress = watch('recipientAddress');
   const recallBlocks = watch('recallBlocks');
   const token = watch('token');
+  const bridgeNetwork = watch('bridgeNetwork');
   const bridgeRoute = watch('bridgeRoute');
+
+  // delegateTransaction is driven exclusively by the global proving setting
+  // (the per-send toggle was removed). Read fresh each render so a settings
+  // change while the flow is open takes effect.
+  const delegateTransaction = delegateEnabled;
+
+  // A 0x recipient routes through the bridge instead of a same-chain Miden send.
+  const isBridge = !!recipientAddress && detectAddressChain(recipientAddress) === 'ethereum';
+  const bridgeNetworkObj = getBridgeNetwork(bridgeNetwork);
 
   // Cross-chain sends are restricted to the single bridgeable faucet token.
   const isBridgeableToken =
     !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
+
+  // Default a cross-chain send to the only destination network (Sepolia) so the
+  // Amount screen shows "Network: Sepolia · arrives as USDC" without an extra tap.
+  useEffect(() => {
+    if (isBridge && !bridgeNetwork) {
+      setValue('bridgeNetwork', DEFAULT_BRIDGE_NETWORK.id);
+    }
+  }, [isBridge, bridgeNetwork, setValue]);
+
+  // The Slow (Agglayer) route only carries the dedicated bridgeable token. If it
+  // was selected and the token changes to one it can't bridge, fall back to Fast
+  // so Review/submit don't dead-end on the bridgeable-token guard.
+  useEffect(() => {
+    if (isBridge && bridgeRoute === 'agglayer' && !isBridgeableToken) {
+      setValue('bridgeRoute', 'epoch');
+    }
+  }, [isBridge, bridgeRoute, isBridgeableToken, setValue]);
+
+  // Forward-quote the USDC output for the Fast (Epoch) route. Drives both the
+  // Route screen's Fast fee (input value − USDC out) and the Review "you receive"
+  // line. Runs for any bridge send with valid inputs, independent of the
+  // currently-selected route, so the Fast card always shows a live fee.
+  const amountBaseUnits = useMemo(() => {
+    if (!token || !amount || !validations.amount.isValidSync(amount)) return undefined;
+    try {
+      return stringToBigInt(amount, token.decimals);
+    } catch {
+      return undefined;
+    }
+  }, [token, amount]);
+
+  const epochQuote = useEpochQuote({
+    amount: amountBaseUnits,
+    faucetId: token?.id,
+    destinationAddress: recipientAddress,
+    senderPublicKey: publicKey ?? undefined,
+    enabled: isBridge
+  });
+
+  // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
+  const fastFeeUsd = useMemo(() => {
+    if (!token || !amount || epochQuote.amount == null) return undefined;
+    const input = parseFloat(amount) * token.fiatPrice;
+    const output = parseFloat(epochQuote.amount);
+    if (!isFinite(input) || !isFinite(output)) return undefined;
+    return Math.max(0, input - output);
+  }, [token, amount, epochQuote.amount]);
 
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -420,7 +482,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   const debouncedValidateAddress = useDebouncedCallback(validateAddress, 400);
 
   const onAddressChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
       const address = event.target.value;
       onAction({
         id: SendFlowActionId.SetFormValues,
@@ -441,9 +503,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: contact.id }
       });
-      setShowContactDrawer(false);
+      // Contact is picked from the AccountsList step — pop back to recipient.
+      setTimeout(() => goBack(), 300);
     },
-    [onAction, clearErrors]
+    [onAction, goBack, clearErrors]
   );
 
   const onAmountChange = useCallback(
@@ -465,10 +528,25 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     [onAction, token, setError, clearErrors]
   );
 
-  const onMax = useCallback(() => {
-    if (!token) return;
-    onAmountChange(String(token.balance));
-  }, [token, onAmountChange]);
+  const goToStep = useCallback(
+    (step: SendFlowStep) => {
+      onAction({ id: SendFlowActionId.Navigate, step });
+    },
+    [onAction]
+  );
+
+  const onRouteChange = useCallback(
+    (route: BridgeRoute) => {
+      onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeRoute: route } });
+    },
+    [onAction]
+  );
+
+  // From the Amount screen: a cross-chain send picks a route next; a same-chain
+  // Miden send goes straight to review.
+  const onAmountConfirm = useCallback(() => {
+    goToStep(isBridge ? SendFlowStep.Route : SendFlowStep.ReviewTransaction);
+  }, [goToStep, isBridge]);
 
   const renderStep = useCallback(
     (route: Route) => {
@@ -491,13 +569,30 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
+              isBridge={isBridge}
+              network={bridgeNetworkObj}
+              outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
               onAmountChange={onAmountChange}
               onSelectToken={() => goToStep(SendFlowStep.SelectToken)}
-              onConfirm={() => goToStep(SendFlowStep.ReviewTransaction)}
+              onSelectNetwork={() => goToStep(SendFlowStep.SelectNetwork)}
+              onConfirm={onAmountConfirm}
             />
           );
         case SendFlowStep.SelectToken:
           return <SelectToken onAction={onAction} />;
+        case SendFlowStep.SelectNetwork:
+          return <SelectNetwork selectedNetwork={bridgeNetwork} onAction={onAction} />;
+        case SendFlowStep.Route:
+          return (
+            <RouteStep
+              route={bridgeRoute ?? 'epoch'}
+              onRouteChange={onRouteChange}
+              fastFeeUsd={fastFeeUsd}
+              fastQuoteLoading={epochQuote.loading}
+              slowEnabled={isBridgeableToken}
+              onConfirm={() => goToStep(SendFlowStep.ReviewTransaction)}
+            />
+          );
         case SendFlowStep.AccountsList:
           return (
             <AccountsList
@@ -515,6 +610,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               recipientAddress={recipientAddress}
               recallTime={recallTime}
               recallDate={recallDate}
+              isBridge={isBridge}
+              network={bridgeNetworkObj}
+              route={bridgeRoute}
+              quote={epochQuote}
+              outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
+              isSubmitting={isSubmitting}
               onAction={onAction}
               onGoBack={goBack}
               onClose={onClose}
@@ -532,6 +633,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       recipientAddress,
       errors.recipientAddress,
       errors.amount,
+      isBridge,
+      bridgeNetwork,
+      bridgeNetworkObj,
+      bridgeRoute,
+      isBridgeableToken,
+      epochQuote,
+      fastFeeUsd,
+      onRouteChange,
+      onAmountConfirm,
+      allContactsList,
+      onSelectContact,
+      onClose,
       onAddressChange,
       goBack,
       amount,
@@ -540,6 +653,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       goToStep,
       handleSubmit,
       onSubmit,
+      isSubmitting,
       recallDate,
       recallTime
     ]
@@ -564,19 +678,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 h-full min-h-0">
         <Navigator renderRoute={renderStep} />
       </form>
-
-      <SelectTokenDrawer
-        open={showTokenDrawer}
-        onClose={() => setShowTokenDrawer(false)}
-        onSelectToken={onSelectToken}
-      />
-      <SelectContactDrawer
-        open={showContactDrawer}
-        onClose={() => setShowContactDrawer(false)}
-        recipientAccountId={recipientAddress}
-        accounts={allContactsList}
-        onSelectContact={onSelectContact}
-      />
     </div>
   );
 };
@@ -589,7 +690,7 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   const initialRoute = SendFlowStep.SelectRecipient;
 
   return (
-    <NavigatorProvider routes={ROUTES} initialRouteName={SendFlowStep.SendForm}>
+    <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
       <SendManager {...props} preselectedTokenId={preselectedTokenId} />
     </NavigatorProvider>
   );

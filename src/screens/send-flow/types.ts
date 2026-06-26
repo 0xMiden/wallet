@@ -1,7 +1,14 @@
+import { BridgeNetworkId } from './bridge-networks';
+
+/** Cross-chain route. Fast = Epoch (any token → USDC, fee), Slow = Agglayer (bridgeable token only, no fee). */
+export type BridgeRoute = 'epoch' | 'agglayer';
+
 export enum SendFlowStep {
   SelectRecipient = 'SelectRecipient',
   SelectAmount = 'SelectAmount',
   SelectToken = 'SelectToken',
+  SelectNetwork = 'SelectNetwork',
+  Route = 'Route',
   AccountsList = 'AccountsList',
   ReviewTransaction = 'ReviewTransaction',
   TransactionInitiated = 'TransactionInitiated'
@@ -13,8 +20,10 @@ export type SendFlowForm = {
   recipientAddress: string;
   recallBlocks?: string;
   token?: UIToken;
+  /** Destination network, only meaningful when the recipient is a 0x (Ethereum) address. */
+  bridgeNetwork?: BridgeNetworkId;
   /** Cross-chain route, only meaningful when the recipient is a 0x (Ethereum) address. */
-  bridgeRoute?: 'epoch' | 'agglayer';
+  bridgeRoute?: BridgeRoute;
 };
 
 export enum SendFlowActionId {
@@ -36,7 +45,7 @@ export type GoBack = {
 
 export type SetFormValues = {
   id: SendFlowActionId.SetFormValues;
-  payload: Partial<UIForm>;
+  payload: Partial<SendFlowForm>;
   triggerValidation?: boolean;
 };
 

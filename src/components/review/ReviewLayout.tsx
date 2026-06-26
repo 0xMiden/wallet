@@ -10,6 +10,10 @@ export interface ReviewAction {
   onPress: () => void;
   /** Defaults to 'button'. Use 'submit' when the screen is inside a <form>. */
   type?: 'button' | 'submit';
+  /** Show a spinner and block taps — e.g. while an Epoch bridge quote/solve runs. */
+  loading?: boolean;
+  /** Disable (without a spinner). */
+  disabled?: boolean;
 }
 
 export interface ReviewLayoutProps {
@@ -68,6 +72,8 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
           title={primary.label}
           variant={ButtonVariant.Primary}
           onClick={primary.onPress}
+          isLoading={primary.loading}
+          disabled={primary.disabled || primary.loading}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
         {secondary && (
@@ -76,6 +82,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
             title={secondary.label}
             variant={ButtonVariant.Secondary}
             onClick={secondary.onPress}
+            disabled={secondary.disabled}
             className="w-full max-w-none rounded-full text-base font-semibold"
           />
         )}

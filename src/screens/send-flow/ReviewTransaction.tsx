@@ -6,8 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { truncateAddress } from 'utils/string';
 
+import { BridgeNetwork } from './bridge-networks';
 import { RecallCalendarDrawer } from './RecallCalendarDrawer';
-import { SendFlowAction, UIToken } from './types';
+import { SendFlowAction, BridgeRoute, UIToken } from './types';
+import { EpochQuoteState } from './useEpochQuote';
 
 export interface ReviewTransactionProps {
   amount: string;
@@ -15,6 +17,15 @@ export interface ReviewTransactionProps {
   recipientAddress?: string;
   recallDate?: Date;
   recallTime: string;
+  /** Cross-chain (0x recipient) send — shows bridge details instead of the Miden expiration row. */
+  isBridge?: boolean;
+  network?: BridgeNetwork;
+  route?: BridgeRoute;
+  /** Forward-quote of the USDC output (Fast route). */
+  quote?: EpochQuoteState;
+  outputSymbol?: string;
+  /** True while the tx is being initiated (e.g. an Epoch bridge quote/solve) — drives the confirm-button loader. */
+  isSubmitting?: boolean;
   onAction: (action: SendFlowAction) => void;
   onGoBack: () => void;
   onClose: () => void;
@@ -26,10 +37,15 @@ export interface ReviewTransactionProps {
 export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   amount,
   token,
-  fiatValue,
   recipientAddress,
   recallDate,
   recallTime,
+  isBridge = false,
+  network,
+  route,
+  quote,
+  outputSymbol,
+  isSubmitting = false,
   onAction,
   onGoBack,
   onSubmit,
@@ -49,6 +65,12 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
       })()
     : t('none');
 
+  // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
+  // USDC output. Show a skeleton only while the Fast quote is still loading.
+  const youReceiveLoading = isBridge && route !== 'agglayer' && !!quote?.loading;
+  const youReceiveAmount = route === 'agglayer' ? amount : quote?.amount;
+  const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+
   return (
     <>
       <ReviewLayout
@@ -57,32 +79,54 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
         onBack={onGoBack}
         backLabel={t('back')}
         hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} fiat={fiatValue} />}
-        primary={{ label: t('sendPayment'), onPress: onSubmit, type: 'submit' }}
-        secondary={{ label: t('back'), onPress: onGoBack }}
+        primary={{ label: t('sendPayment'), onPress: onSubmit, type: 'submit', loading: isSubmitting }}
+        secondary={{ label: t('back'), onPress: onGoBack, disabled: isSubmitting }}
       >
         <ReviewRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
 
         <ReviewRow label={t('network')}>
           <span className="flex items-center gap-2 text-base text-black font-medium">
             <span className="w-2 h-2 rounded-full bg-primary-500" />
-            {t('miden')}
+            {isBridge ? (network?.name ?? t('ethereum')) : t('miden')}
           </span>
         </ReviewRow>
 
-        <ReviewRow label={t('expirationDate')} onEdit={() => setShowCalendar(true)} editLabel={t('edit')}>
-          <span className="text-base text-black font-semibold">{expirationLabel}</span>
-        </ReviewRow>
+        {isBridge ? (
+          <>
+            <ReviewRow label={t('route')}>
+              <span className="flex items-center gap-2 text-base text-black font-semibold">
+                {route === 'agglayer' ? t('slow') : t('fast')}
+                <span className="text-heading-gray/50 font-medium">{arrivalLabel}</span>
+              </span>
+            </ReviewRow>
+            <ReviewRow label={t('youReceive')}>
+              {youReceiveLoading ? (
+                <div className="h-4 w-20 animate-pulse rounded bg-heading-gray/10" />
+              ) : (
+                <span className="text-base text-black font-semibold">
+                  {youReceiveAmount != null ? `≈ ${youReceiveAmount} ${outputSymbol}` : outputSymbol}
+                </span>
+              )}
+            </ReviewRow>
+          </>
+        ) : (
+          <ReviewRow label={t('expirationDate')} onEdit={() => setShowCalendar(true)} editLabel={t('edit')}>
+            <span className="text-base text-black font-semibold">{expirationLabel}</span>
+          </ReviewRow>
+        )}
       </ReviewLayout>
 
-      <RecallCalendarDrawer
-        open={showCalendar}
-        onOpenChange={setShowCalendar}
-        recallDate={recallDate}
-        recallTime={recallTime}
-        onAction={onAction}
-        onRecallDateChange={onRecallDateChange}
-        onRecallTimeChange={onRecallTimeChange}
-      />
+      {!isBridge && (
+        <RecallCalendarDrawer
+          open={showCalendar}
+          onOpenChange={setShowCalendar}
+          recallDate={recallDate}
+          recallTime={recallTime}
+          onAction={onAction}
+          onRecallDateChange={onRecallDateChange}
+          onRecallTimeChange={onRecallTimeChange}
+        />
+      )}
     </>
   );
 };
