@@ -164,6 +164,16 @@ describe('guardian-manager', () => {
       await expect(getOrCreateMultisigService(OTHER_PK, provider)).rejects.toThrow('Account is not a Guardian account');
     });
 
+    it('throws loudly when a Guardian account is missing its hot pubkey', async () => {
+      // A Guardian record without hotPublicKey is a pre-migration/half-written
+      // state — fail rather than silently bind to a missing signer.
+      const { hotPublicKey, ...noHotKey } = guardianAccount;
+      void hotPublicKey;
+      const provider = makeProvider([noHotKey]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toThrow('missing hotPublicKey');
+    });
+
     it('throws when the public key is unknown to the provider', async () => {
       const provider = makeProvider([guardianAccount]);
 

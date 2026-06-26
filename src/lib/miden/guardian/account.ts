@@ -47,7 +47,13 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
     throw new Error('No signer public keys found in account storage');
   }
 
-  const index = getCold ? 1 : 0;
+  // New 3-key accounts store [hot, cold] (hot at index 0, cold at index 1).
+  // Legacy single-key Guardian accounts (feature #153) have only one on-chain
+  // signer — the cold/HD key — at index 0. So when reading the cold commitment,
+  // fall back to index 0 if there's a single signer; otherwise activating a
+  // migrated legacy account would read a non-existent index 1 and throw,
+  // bricking the account (it can neither activate nor cold-sign).
+  const index = getCold ? (mapEntries.length <= 1 ? 0 : 1) : 0;
 
   if (!mapEntries[index]) {
     throw new Error('No signer commitments found in account storage');
@@ -159,8 +165,9 @@ export async function createGuardianAccount(
       }
     };
   } catch (e) {
-    console.log(e);
     console.error('Error creating Guardian account:', e);
-    throw new Error('Failed to create Guardian account');
+    // Preserve the original cause so callers can distinguish guardian-unreachable
+    // from node/registration/WASM failures.
+    throw new Error('Failed to create Guardian account', { cause: e });
   }
 }

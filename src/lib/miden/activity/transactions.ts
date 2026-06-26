@@ -1180,11 +1180,14 @@ const generateGuardianTransaction = async (
       walletAccount,
       guardianProvider.signWord
     );
-    await coldService.signProposal(proposalResult.id);
+    // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
+    // otherwise a prior delta mid-canonicalization fails the whole switch even
+    // though the hot proposal already landed.
+    await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
   }
 
   const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-  console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
+  console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       console.log('Signing transaction request with external callback');

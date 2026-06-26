@@ -332,25 +332,26 @@ export class MultisigService {
     const targetSignerCommitments = [ensure0x(newHot.commitmentHex), ensure0x(coldCommitRaw)];
     const targetThreshold = this.multisig.threshold;
 
-    const webClient = (await getMidenClient()).client;
-    const { request, salt } = await withWasmClientLock(async () =>
-      buildUpdateSignersTransactionRequest(webClient, targetThreshold, targetSignerCommitments, {
-        signatureScheme: 'ecdsa'
-      })
-    );
-    const summary = await withWasmClientLock(async () => executeForSummary(webClient, this.accountId, request));
-    const summaryBase64 = u8ToB64(summary.serialize());
-    console.log(
-      'Executed transaction for summary',
-      summaryBase64,
-      'with target signer commitments',
-      targetSignerCommitments
-    );
+    // Keep getMidenClient() and both WASM ops inside a single lock scope — the
+    // WASM client is single-threaded, so resolving the client outside the lock
+    // (or splitting the build/execute into two lock windows) leaves a gap where
+    // another holder can run and trigger "recursive use ... unsafe aliasing".
+    const { summaryBase64, saltHex } = await withWasmClientLock(async () => {
+      const webClient = (await getMidenClient()).client;
+      const { request, salt } = await buildUpdateSignersTransactionRequest(
+        webClient,
+        targetThreshold,
+        targetSignerCommitments,
+        { signatureScheme: 'ecdsa' }
+      );
+      const summary = await executeForSummary(webClient, this.accountId, request);
+      return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
+    });
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
       targetThreshold,
       targetSignerCommitments,
-      saltHex: salt.toHex(),
+      saltHex,
       requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
       description: 'Replace device (hot) signer'
     };

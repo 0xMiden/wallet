@@ -49,17 +49,14 @@ export async function getOrCreateMultisigService(
   accountPublicKey: string,
   provider: GuardianAccountProvider
 ): Promise<MultisigService> {
-  // Return cached instance if its endpoint still matches storage. In the
-  // extension build, `clearGuardianServiceFor` from the SW realm doesn't reach
-  // the frontend's own copy of this Map, so a guardian switch would leave
-  // the popup syncing against the old guardian indefinitely. Re-check
-  // GUARDIAN_URL_STORAGE_KEY here and evict on drift.
-  const cached = guardianServiceCache.get(accountPublicKey);
-  if (cached) {
-    const currentEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
-    if (cached.service.guardianEndpoint === currentEndpoint) return cached.service;
-    guardianServiceCache.delete(accountPublicKey);
-  }
+  // NOTE: no endpoint-only fast-path here. The cache hit is served by the inner
+  // check below (after we resolve the account's current hotPublicKey), which
+  // compares BOTH the guardian endpoint AND the bound hot pubkey. An outer
+  // endpoint-only check returned the stale service after a replace_hot_key
+  // rotation (which doesn't touch the endpoint), so the popup kept signing with
+  // the rotated-out hot key — `clearGuardianServiceFor` runs in the SW realm and
+  // never evicts the popup's Map. getAccounts() is an in-memory store read, so
+  // routing cache hits through init is cheap.
   // Coalesce concurrent inits: the guardian sync runs every 3s and does not
   // await previous ticks, so without this an in-flight init can start again
   // before its resolved service reaches the cache.

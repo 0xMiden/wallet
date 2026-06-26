@@ -1465,6 +1465,26 @@ describe('Vault.migrateLegacyGuardianAccounts', () => {
     expect(threeKey.requiresHotKeyRotation).toBeUndefined();
   });
 
+  it('skips imported Guardian accounts (hdIndex < 0) — they cannot be re-derived', async () => {
+    // Imported Guardian accounts are tagged hdIndex = -1; deriving a cold key
+    // from the mnemonic at a negative index would be wrong, so they're excluded.
+    const importedGuardian = {
+      publicKey: 'guardian-imported',
+      name: 'Guardian Imported',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: -1
+    };
+    const vault = await seedVault('pw', { accounts: [importedGuardian] as any });
+    sdk.AuthSecretKey.ecdsaWithRNG.mockClear();
+    await vault.migrateLegacyGuardianAccounts();
+
+    expect(sdk.AuthSecretKey.ecdsaWithRNG).not.toHaveBeenCalled();
+    const imported = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-imported')!;
+    expect(imported.coldPublicKey).toBeUndefined();
+    expect(imported.requiresHotKeyRotation).toBeUndefined();
+  });
+
   it('is idempotent — a second run derives nothing', async () => {
     const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
     await vault.migrateLegacyGuardianAccounts();

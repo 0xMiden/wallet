@@ -132,7 +132,6 @@ const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
     const pubKeyHex = Buffer.from(key).toString('hex');
-    console.log('Inserting key with pubKeyHex', pubKeyHex);
     const secretKeyHex = Buffer.from(secretKey).toString('hex');
     await encryptAndSaveMany(
       [
@@ -916,9 +915,12 @@ export class Vault {
     try {
       const allAccounts = await this.fetchAccounts();
       // Legacy = a Guardian record with neither the cold key nor the
-      // pending-rotation flag, i.e. created before the 3-key model.
+      // pending-rotation flag, i.e. created before the 3-key model. Require a
+      // real HD index: imported Guardian accounts are tagged hdIndex = -1, and
+      // deriveClientSeed(..., -1) would derive the wrong cold key (or throw), so
+      // they can't be migrated by re-deriving from the mnemonic.
       const legacy = allAccounts.filter(
-        acc => acc.type === WalletType.Guardian && !acc.coldPublicKey && !acc.requiresHotKeyRotation
+        acc => acc.type === WalletType.Guardian && !acc.coldPublicKey && !acc.requiresHotKeyRotation && acc.hdIndex >= 0
       );
       if (legacy.length === 0) return;
 
@@ -994,7 +996,6 @@ export class Vault {
   }
 
   async signTransaction(publicKey: string, signingInputs: string): Promise<string> {
-    console.log('signTransaction: publicKey', publicKey);
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
       accAuthSecretKeyStrgKey(publicKey),
       this.vaultKey
@@ -1026,10 +1027,6 @@ export class Vault {
       );
       const wasmSecretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(coldHex, 'hex')));
       const signature = wasmSecretKey.sign(Word.fromHex(wordHex));
-      console.log(
-        'Cold signature generated, signature.serialize() =',
-        Buffer.from(signature.serialize()).toString('hex')
-      );
       return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
     }
 
