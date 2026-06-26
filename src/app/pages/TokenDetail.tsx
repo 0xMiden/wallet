@@ -1,5 +1,6 @@
 import React, { FC, useRef, useState } from 'react';
 
+import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import classNames from 'clsx';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -7,9 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { Line, LineChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
-import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
-import { ReactComponent as SendIcon } from 'app/icons/send-new.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import History from 'app/templates/history/History';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { TokenLogo } from 'components/TokenLogo';

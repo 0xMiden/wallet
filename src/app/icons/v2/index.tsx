@@ -44,6 +44,7 @@ import { ReactComponent as ContactsBook } from './contacts-book.svg';
 import { ReactComponent as Convert } from './convert.svg';
 import { ReactComponent as Copy } from './copy.svg';
 import { ReactComponent as Download } from './download.svg';
+import { ReactComponent as Earn } from './earn.svg';
 import { ReactComponent as Explore } from './explore.svg';
 import { ReactComponent as EyeOff } from './eye-off.svg';
 import { ReactComponent as Eye } from './eye.svg';
@@ -73,11 +74,12 @@ import { ReactComponent as MidenLogoWhite } from './miden-logo-white.svg';
 import { ReactComponent as MidenLogo } from './miden-logo.svg';
 import { ReactComponent as More } from './more.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
+import { ReactComponent as Receive } from './receive-new.svg';
 import { ReactComponent as Refresh } from './refresh.svg';
 import { ReactComponent as Rocket } from './rocket.svg';
 import { ReactComponent as ScanFrame } from './scan-frame.svg';
 import { ReactComponent as Search } from './search.svg';
-import { ReactComponent as Send } from './send.svg';
+import { ReactComponent as Send } from './send-new.svg';
 import { ReactComponent as Settings2 } from './settings-2.svg';
 import { ReactComponent as SettingsNew } from './settings-new.svg';
 import { ReactComponent as Settings } from './settings.svg';
@@ -136,6 +138,7 @@ export enum IconName {
   Convert = 'convert',
   Copy = 'copy',
   Download = 'download',
+  Earn = 'earn',
   Explore = 'explore',
   EyeOff = 'eye-off',
   Eye = 'eye',
@@ -184,7 +187,8 @@ export enum IconName {
   InProgress = 'in-progress',
   Failed = 'failed',
   Success = 'success',
-  Tokens = 'tokens'
+  Tokens = 'tokens',
+  Receive = 'receive'
 }
 
 export type IconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | '3xl' | '4xl' | '5xl';
@@ -274,6 +278,8 @@ const IconSwitch = (props: IconProps) => {
       return <Copy {...props} />;
     case IconName.Download:
       return <Download {...props} />;
+    case IconName.Earn:
+      return <Earn {...props} />;
     case IconName.Explore:
       return <Explore {...props} />;
     case IconName.EyeOff:
@@ -372,6 +378,8 @@ const IconSwitch = (props: IconProps) => {
       return isDevnet ? <SuccessDevnet {...props} /> : <Success {...props} />;
     case IconName.Tokens:
       return <Tokens {...props} />;
+    case IconName.Receive:
+      return <Receive {...props} />;
     default:
       return null;
   }
