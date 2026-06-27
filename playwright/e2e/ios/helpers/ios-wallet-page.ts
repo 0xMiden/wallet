@@ -599,15 +599,9 @@ export class IosWalletPage implements WalletPage {
    * __TEST_GUARDIAN_AUTH__ hook the Chrome POM uses, but over the async CDP
    * atom: the hook awaits getOrCreateMultisigService + a best-effort
    * (time-bounded) sync, so it returns a Promise and must run under
-   * execute_async_script.
-   *
-   * Budget: 90s, not the 30s evalAsync default. The hook pauses the background
-   * sync while it reads (so it's no longer starved — see __TEST_GUARDIAN_AUTH__),
-   * but a sync already in flight when the read starts still holds the WASM lock
-   * until it releases, and on the slow iOS runners that wait plus the service
-   * build/sign can exceed 30s. 90s comfortably covers waiting out one in-flight
-   * sync; with the pause in place the read completes well within it rather than
-   * hanging indefinitely.
+   * execute_async_script. The hook itself caps its internal sync at 8s, so the
+   * 30s evalAsync budget is comfortable even when the background sync holds the
+   * WASM lock.
    */
   async getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo> {
     return this.cdp.evalAsync<GuardianAuthInfo>(
@@ -631,8 +625,7 @@ export class IosWalletPage implements WalletPage {
              procedureThresholds: {},
              error: String(e && e.message ? e.message : e)
            });
-         });`,
-      { timeoutMs: 90_000 }
+         });`
     );
   }
 

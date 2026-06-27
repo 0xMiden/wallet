@@ -9,12 +9,11 @@ import { getIntercom, useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { syncGuardianAccounts } from './guardian-sync';
-import { isTestSyncPaused } from './test-sync-pause';
 
 const SYNC_INTERVAL_MS = 3_000;
 
 function triggerSync(intercom: ReturnType<typeof getIntercom>) {
-  if (isInsideSendFlow() || isTestSyncPaused()) return;
+  if (isInsideSendFlow()) return;
   intercom
     .request({ type: WalletMessageType.SyncRequest })
     .then(() => {
@@ -98,7 +97,7 @@ export function useSyncTrigger() {
       const mobileTxModalOpen = isMobile() && storeState.isTransactionModalOpen;
       const inSendFlow = isInsideSendFlow();
 
-      if (!onGeneratingTxPage && !mobileTxModalOpen && !inSendFlow && !isTestSyncPaused()) {
+      if (!onGeneratingTxPage && !mobileTxModalOpen && !inSendFlow) {
         useWalletStore.getState().setSyncStatus(true);
         try {
           await withWasmClientLock(async () => {

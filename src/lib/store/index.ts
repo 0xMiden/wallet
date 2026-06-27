@@ -3,7 +3,6 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
-import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -724,37 +723,36 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
 
   // Guardian on-chain auth structure (overall threshold + signer set + procedure
   // thresholds) for E2E assertions — the harness's balance checks can't see the
-  // 3-key shape. Reads the cached front-end MultisigService; dynamic imports
-  // avoid a static cycle (guardian-sync pulls in this store module).
+  // 3-key shape. Dynamic imports avoid a static cycle.
   (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
-    // Read-only inspection of the on-chain auth structure (signers + procedure
-    // thresholds). It must NOT drive `service.sync()`: that runs the
-    // transaction-oriented runSync loop, whose realign path re-registers on the
-    // guardian (signing + HTTP round-trips) when the guardian's blob lags the
-    // post-consume on-chain state. On the single-threaded mobile WASM that loop
-    // is uncancellable and starves this read for >90s (a prior run logged 44
-    // `signWithHotKey` calls here vs. 26 for a full consume). The auth structure
-    // is immutable — set at account creation, unchanged by consume/send — so
-    // `getOrCreateMultisigService` (which loads it via `client.load`, the same
-    // bounded init the passing consume step already does) plus a synchronous
-    // `getAuthInfo()` read is both correct and sufficient. No sync needed.
-    //
-    // We still quiesce the always-on frontend WASM pollers (balance poll —
-    // which bypasses the WASM lock — claimable-notes SWR, useSyncTrigger) around
-    // the load so the single-threaded init runs unobstructed; always restored in
-    // `finally`. Gated on MIDEN_E2E_TEST, tree-shaken from production.
-    setTestSyncPaused(true);
+    // Read the structure with a PURE storage parse (`AccountInspector.fromAccount`),
+    // not the transaction-oriented MultisigService. Going through
+    // `getOrCreateMultisigService` → `MultisigClient.load` drove a re-sign/realign
+    // loop (~48 `signWithHotKey` calls vs. 26 for a full consume) when loading
+    // against the post-consume state where the guardian's stored blob lags the
+    // on-chain account — on the single-threaded mobile WASM that loop hung the
+    // read past the eval budget. The inspector only reads the account's storage
+    // maps (signers, threshold_config, procedure_thresholds): no signing, no
+    // guardian HTTP, no load. A single `getAccount` (the same read the balance
+    // poll already does) plus the parse is cheap and correct — the structure is
+    // immutable.
     try {
-      const [{ getOrCreateMultisigService }, { zustandProvider }] = await Promise.all([
-        import('lib/miden/front/guardian-manager'),
-        import('lib/miden/front/guardian-sync')
+      const [{ AccountInspector }, { getMidenClient, withWasmClientLock }] = await Promise.all([
+        import('@openzeppelin/miden-multisig-client'),
+        import('lib/miden/sdk/miden-client')
       ]);
-      const service = await getOrCreateMultisigService(accountPublicKey, zustandProvider);
-      return service.getAuthInfo();
+      const account = await withWasmClientLock(async () => (await getMidenClient()).getAccount(accountPublicKey));
+      if (!account) {
+        return { error: `Guardian account ${accountPublicKey} not found in local client` };
+      }
+      const config = AccountInspector.fromAccount(account);
+      return {
+        threshold: config.threshold,
+        signerCommitments: config.signerCommitments,
+        procedureThresholds: Object.fromEntries(config.procedureThresholds)
+      };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
-    } finally {
-      setTestSyncPaused(false);
     }
   };
 }

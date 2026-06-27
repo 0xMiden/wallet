@@ -6,7 +6,6 @@ import { useWalletStore } from 'lib/store';
 import { fetchBalances } from 'lib/store/utils/fetchBalances';
 
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
-import { isTestSyncPaused } from './test-sync-pause';
 
 export interface TokenBalanceData {
   tokenId: string;
@@ -141,12 +140,9 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
     // Initial fetch
     fetchBalancesWithDeduping();
 
-    // Set up polling interval. `isTestSyncPaused()` lets an E2E hook quiesce
-    // this poll (which bypasses the WASM lock) while it does its own
-    // single-threaded-WASM read — otherwise the read is livelocked on mobile.
-    // No-op in production (tree-shaken).
+    // Set up polling interval
     const intervalId = setInterval(() => {
-      if (mountedRef.current && !isTestSyncPaused()) {
+      if (mountedRef.current) {
         fetchBalancesWithDeduping();
       }
     }, REFRESH_INTERVAL);
