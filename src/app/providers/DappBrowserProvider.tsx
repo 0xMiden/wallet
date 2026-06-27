@@ -950,7 +950,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     navbarShownRef.current = false;
   }, [location.pathname, walletShellActive, t]);
 
-
   // Drive the native navbar's secondary row (Send / Receive / Settings
   // quick actions). Visible on Home / Send / Receive / Settings routes.
   // When visible on /send, /receive, or /settings, the matching pill
