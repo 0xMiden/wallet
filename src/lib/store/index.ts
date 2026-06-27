@@ -726,6 +726,15 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // 3-key shape. Reads the cached front-end MultisigService; dynamic imports
   // avoid a static cycle (guardian-sync pulls in this store module).
   (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
+    // Suspend the background sync (useSyncTrigger) for the duration of this
+    // read. getOrCreateMultisigService + service.sync() + getAuthInfo all take
+    // the single-threaded WASM lock; on mobile the 3s in-process auto-sync
+    // holds that same lock and keeps re-acquiring it, starving this read so it
+    // never completes (a 90s eval budget still timed out — it's contention, not
+    // slowness). Pausing removes the competing lock-holder; the auth structure
+    // is immutable during the assertion, so a slightly stale read is still
+    // correct. Always restored in `finally` so later sync-dependent steps work.
+    (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
     try {
       const [{ getOrCreateMultisigService }, { zustandProvider }] = await Promise.all([
         import('lib/miden/front/guardian-manager'),
@@ -734,11 +743,9 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       const service = await getOrCreateMultisigService(accountPublicKey, zustandProvider);
       try {
         // Best-effort refresh of on-chain state before reading. service.sync()
-        // takes the global WASM lock; on mobile the background sync can hold it
-        // for tens of seconds, which would blow the 30s execute_async_script
-        // budget the iOS bridge runs this under. Cap the wait — the auth
-        // structure (signers + procedure thresholds) is immutable during this
-        // assertion, so a slightly stale local read is still correct.
+        // takes the global WASM lock; with the background sync paused above it
+        // gets the lock cleanly. Still capped so a slow network can't stall the
+        // read past the eval budget — the structure is immutable here anyway.
         await Promise.race([service.sync(), new Promise<void>(resolve => setTimeout(resolve, 8_000))]);
       } catch {
         // best-effort — fall back to last-synced state
@@ -746,6 +753,8 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       return service.getAuthInfo();
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = false;
     }
   };
 }
