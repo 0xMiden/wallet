@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -736,16 +737,19 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // guardian HTTP, no load. A single `getAccount` (the same read the balance
     // poll already does) plus the parse is cheap and correct — the structure is
     // immutable.
+    // The read still needs one `getAccount`, and on the single-threaded mobile
+    // WASM even that lone call queues behind an in-flight background sync
+    // (`syncState` can hold the SDK's internal call-queue for tens of seconds).
+    // So quiesce the always-on frontend WASM pollers (`useSyncTrigger`, the
+    // balance poll — which bypasses the wallet mutex — and the claimable-notes
+    // SWR) via `__TEST_SYNC_PAUSED__` for the read, restored in `finally`. Gated
+    // on MIDEN_E2E_TEST, tree-shaken from production.
+    setTestSyncPaused(true);
     try {
       const [{ AccountInspector }, { getMidenClient }] = await Promise.all([
         import('@openzeppelin/miden-multisig-client'),
         import('lib/miden/sdk/miden-client')
       ]);
-      // `getAccount` is serialized internally by the SDK (`_serializeWasmCall`),
-      // so it's read-safe without the wallet mutex — and skipping the mutex (the
-      // same deliberate bypass the balance poll uses) keeps this read from
-      // waiting out a `useSyncTrigger` sync that's holding the lock for tens of
-      // seconds on the single-threaded mobile WASM.
       const account = await (await getMidenClient()).getAccount(accountPublicKey);
       if (!account) {
         return { error: `Guardian account ${accountPublicKey} not found in local client` };
@@ -758,6 +762,8 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      setTestSyncPaused(false);
     }
   };
 }
