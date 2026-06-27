@@ -737,11 +737,16 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // poll already does) plus the parse is cheap and correct — the structure is
     // immutable.
     try {
-      const [{ AccountInspector }, { getMidenClient, withWasmClientLock }] = await Promise.all([
+      const [{ AccountInspector }, { getMidenClient }] = await Promise.all([
         import('@openzeppelin/miden-multisig-client'),
         import('lib/miden/sdk/miden-client')
       ]);
-      const account = await withWasmClientLock(async () => (await getMidenClient()).getAccount(accountPublicKey));
+      // `getAccount` is serialized internally by the SDK (`_serializeWasmCall`),
+      // so it's read-safe without the wallet mutex — and skipping the mutex (the
+      // same deliberate bypass the balance poll uses) keeps this read from
+      // waiting out a `useSyncTrigger` sync that's holding the lock for tens of
+      // seconds on the single-threaded mobile WASM.
+      const account = await (await getMidenClient()).getAccount(accountPublicKey);
       if (!account) {
         return { error: `Guardian account ${accountPublicKey} not found in local client` };
       }

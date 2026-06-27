@@ -139,9 +139,11 @@ export class IosWalletPage implements WalletPage {
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
     const passwordEnc = encodeURIComponent(password);
-    // Guardian account creation does extra HTTP round-trips to co-sign with the
-    // guardian, so it needs a wider readiness window than a private wallet.
-    const readyTimeoutMs = recovery === 'guardian' ? 180_000 : 120_000;
+    // Guardian creation does extra guardian co-sign round-trips, so it gets the
+    // wider window — but both paths run generously because cold WASM init +
+    // account creation on the macos-26 simulator can exceed a minute under load
+    // (a standard create was observed passing 120s).
+    const readyTimeoutMs = recovery === 'guardian' ? 240_000 : 180_000;
     await this.cdp.eval(
       `var u = new URL(location.href); ` +
         `u.searchParams.set('__test_skip_onboarding', '1'); ` +
@@ -295,10 +297,7 @@ export class IosWalletPage implements WalletPage {
 
   // ── Claim ─────────────────────────────────────────────────────────────────
 
-  async claimAllNotes(
-    timeoutMs: number = 120_000,
-    knownFaucetIds: string[] = []
-  ): Promise<void> {
+  async claimAllNotes(timeoutMs: number = 120_000, knownFaucetIds: string[] = []): Promise<void> {
     // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
     // — that's safe on Chrome because the SW holds the vault unlock in a
     // separate context. On mobile there's no SW; a reload would drop the
@@ -440,20 +439,9 @@ export class IosWalletPage implements WalletPage {
       return;
     }
     const result = await this.cdp
-      .eval<{ before: string[]; injected: string[]; after: string[] } | { error: string }>(
-        `var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; ` +
-          `var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); ` +
-          `var injected = {}; ` +
-          `for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; ` +
-          `var s = window.__TEST_STORE__; ` +
-          `if (!s) return { error: 'no __TEST_STORE__' }; ` +
-          `var st = s.getState(); ` +
-          `var before = Object.keys(st.assetsMetadata || {}); ` +
-          `if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } ` +
-          `else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } ` +
-          `var after = Object.keys(s.getState().assetsMetadata || {}); ` +
-          `return { before: before, injected: bech32, after: after };`
-      )
+      .eval<
+        { before: string[]; injected: string[]; after: string[] } | { error: string }
+      >(`var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; ` + `var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); ` + `var injected = {}; ` + `for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; ` + `var s = window.__TEST_STORE__; ` + `if (!s) return { error: 'no __TEST_STORE__' }; ` + `var st = s.getState(); ` + `var before = Object.keys(st.assetsMetadata || {}); ` + `if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } ` + `else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } ` + `var after = Object.keys(s.getState().assetsMetadata || {}); ` + `return { before: before, injected: bech32, after: after };`)
       .catch((e: Error) => ({ error: e.message }));
     // eslint-disable-next-line no-console
     console.log(`[injectTestMetadataForFaucets] hex=${hexJson} -> ${JSON.stringify(result)}`);
@@ -625,7 +613,12 @@ export class IosWalletPage implements WalletPage {
              procedureThresholds: {},
              error: String(e && e.message ? e.message : e)
            });
-         });`
+         });`,
+      // The read is a pure storage parse (no signing/load), but its one
+      // `getAccount` can still queue behind in-flight WASM work on the loaded
+      // single-threaded iOS runner — 60s clears that without the 30s default
+      // tripping.
+      { timeoutMs: 60_000 }
     );
   }
 
