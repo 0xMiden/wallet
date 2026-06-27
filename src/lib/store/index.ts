@@ -727,15 +727,22 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // 3-key shape. Reads the cached front-end MultisigService; dynamic imports
   // avoid a static cycle (guardian-sync pulls in this store module).
   (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
-    // Quiesce the always-on frontend WASM pollers for the duration of this read.
-    // getOrCreateMultisigService + service.sync() + getAuthInfo run on the
-    // single-threaded mobile WASM; the balance poll (which bypasses the WASM
-    // lock), the claimable-notes SWR, and useSyncTrigger each re-fire every few
-    // seconds and would livelock this read so it never completes (a 90s eval
-    // budget timed out — it's contention, not slowness). `setTestSyncPaused`
-    // flips the shared flag those pollers check; the auth structure is immutable
-    // during the assertion, so a slightly stale read is still correct. Always
-    // restored in `finally` so later sync-dependent steps resume.
+    // Read-only inspection of the on-chain auth structure (signers + procedure
+    // thresholds). It must NOT drive `service.sync()`: that runs the
+    // transaction-oriented runSync loop, whose realign path re-registers on the
+    // guardian (signing + HTTP round-trips) when the guardian's blob lags the
+    // post-consume on-chain state. On the single-threaded mobile WASM that loop
+    // is uncancellable and starves this read for >90s (a prior run logged 44
+    // `signWithHotKey` calls here vs. 26 for a full consume). The auth structure
+    // is immutable — set at account creation, unchanged by consume/send — so
+    // `getOrCreateMultisigService` (which loads it via `client.load`, the same
+    // bounded init the passing consume step already does) plus a synchronous
+    // `getAuthInfo()` read is both correct and sufficient. No sync needed.
+    //
+    // We still quiesce the always-on frontend WASM pollers (balance poll —
+    // which bypasses the WASM lock — claimable-notes SWR, useSyncTrigger) around
+    // the load so the single-threaded init runs unobstructed; always restored in
+    // `finally`. Gated on MIDEN_E2E_TEST, tree-shaken from production.
     setTestSyncPaused(true);
     try {
       const [{ getOrCreateMultisigService }, { zustandProvider }] = await Promise.all([
@@ -743,15 +750,6 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
         import('lib/miden/front/guardian-sync')
       ]);
       const service = await getOrCreateMultisigService(accountPublicKey, zustandProvider);
-      try {
-        // Best-effort refresh of on-chain state before reading. service.sync()
-        // takes the global WASM lock; with the background sync paused above it
-        // gets the lock cleanly. Still capped so a slow network can't stall the
-        // read past the eval budget — the structure is immutable here anyway.
-        await Promise.race([service.sync(), new Promise<void>(resolve => setTimeout(resolve, 8_000))]);
-      } catch {
-        // best-effort — fall back to last-synced state
-      }
       return service.getAuthInfo();
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
