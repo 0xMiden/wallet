@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { useAccount } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
 import { hapticLight } from 'lib/mobile/haptics';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { navigate } from 'lib/woozie';
@@ -24,7 +25,7 @@ const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
       if (!account) {
         return null;
       }
-      const publicKeyCommitments = account.getPublicKeyCommitments();
+      const publicKeyCommitments = resolvePublicKeyCommitments(account);
       if (publicKeyCommitments.length === 0) {
         return null;
       }

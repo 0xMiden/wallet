@@ -72,6 +72,7 @@ import {
 } from '../activity/transactions';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -125,7 +126,7 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
   if (!account) {
     throw new Error('Account not found');
   }
-  const publicKeyCommitments = account.getPublicKeyCommitments();
+  const publicKeyCommitments = resolvePublicKeyCommitments(account);
   if (publicKeyCommitments.length === 0) {
     throw new Error('Account has no public key commitments');
   }
