@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 
 import { InAppBrowser } from '@miden/dapp-browser';
-
 import { isMobile } from 'lib/platform';
 
 /**

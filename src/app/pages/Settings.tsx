@@ -1,9 +1,9 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { InAppBrowser } from '@miden/dapp-browser';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { InAppBrowser } from '@miden/dapp-browser';
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
 import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
 import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
