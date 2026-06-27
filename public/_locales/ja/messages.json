@@ -441,8 +441,28 @@
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "ネットワークトラフィックのレベルに応じて、これには少し時間がかかる場合があります",
-    "englishSource": "This may take a moment depending on the level network traffic"
+    "message": "ネットワーク トラフィックによっては、これには少し時間がかかる場合があります。これは閉じても構いません。完了したら通知されます。",
+    "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
+  },
+  "transactionTitleSend": {
+    "message": "支払いの送信",
+    "englishSource": "Sending Payment"
+  },
+  "transactionStepGuardianApproved": {
+    "message": "保護者の承認済み",
+    "englishSource": "Guardian approved"
+  },
+  "transactionStepProofGenerated": {
+    "message": "生成された証拠",
+    "englishSource": "Proof generated"
+  },
+  "transactionStepSubmitting": {
+    "message": "提出中",
+    "englishSource": "Submitting"
+  },
+  "transactionStepSyncingGuardian": {
+    "message": "ガーディアンと同期中",
+    "englishSource": "Syncing with Guardian"
   },
   "transactionStageSyncing": {
     "message": "アカウントを同期しています",
@@ -1186,6 +1206,55 @@
     "message": "ここで連絡先を管理します",
     "englishSource": "Manage your contacts here"
   },
+  "chooseRecipient": {
+    "message": "受信者の選択",
+    "englishSource": "Choose recipient"
+  },
+  "enterMidenOrEthereumAddress": {
+    "message": "Miden または Ethereum アドレスを入力してください",
+    "englishSource": "Enter Miden or Ethereum address"
+  },
+  "selectAmount": {
+    "message": "金額を選択してください",
+    "englishSource": "Select Amount"
+  },
+  "selectAToken": {
+    "message": "トークンを選択してください",
+    "englishSource": "Select a token"
+  },
+  "searchForTokens": {
+    "message": "トークンを検索する",
+    "englishSource": "Search for tokens"
+  },
+  "available": {
+    "message": "利用可能",
+    "englishSource": "Available"
+  },
+  "approxFiatValue": {
+    "message": "≈  $value$ 米ドル",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "reviewDetails": {
+    "message": "レビューの詳細",
+    "englishSource": "Review Details"
+  },
+  "expirationDate": {
+    "message": "有効期限",
+    "englishSource": "Expiration Date"
+  },
+  "edit": {
+    "message": "編集",
+    "englishSource": "Edit"
+  },
+  "miden": {
+    "message": "ミデン",
+    "englishSource": "Miden"
+  },
   "addNewContact": {
     "message": "新しい連絡先",
     "englishSource": "New contact"
@@ -1354,6 +1423,146 @@
     "note": "Onboarding",
     "englishSource": "I already have a wallet"
   },
+  "welcome": {
+    "message": "いらっしゃいませ",
+    "englishSource": "Welcome"
+  },
+  "toLowercase": {
+    "message": "に",
+    "englishSource": "to"
+  },
+  "breadWalletDescription": {
+    "message": "Bread Wallet は、デジタルマネーをプライベートに管理するためのシンプルかつ安全な方法です。",
+    "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
+  },
+  "recoverYourAccount": {
+    "message": "アカウントを回復する",
+    "englishSource": "Recover your account"
+  },
+  "chooseHowToProtect": {
+    "message": "ウォレットを保護する方法を選択してください",
+    "englishSource": "Choose how you want to protect your wallet"
+  },
+  "useFaceIdOrBiometric": {
+    "message": "FaceID または生体認証を使用する",
+    "englishSource": "Use FaceID or Biometric"
+  },
+  "setUpYourPasscode": {
+    "message": "パスコードを設定する",
+    "englishSource": "Set up your passcode"
+  },
+  "confirmYourPasscode": {
+    "message": "パスコードを確認してください",
+    "englishSource": "Confirm your passcode"
+  },
+  "enterYourPasscode": {
+    "message": "パスコードを入力してください",
+    "englishSource": "Enter your passcode"
+  },
+  "enterYour6DigitCode": {
+    "message": "6桁のコードを入力してください",
+    "englishSource": "Enter your 6-digit code"
+  },
+  "incorrectPasscode": {
+    "message": "パスコードが間違っています。もう一度やり直してください。",
+    "englishSource": "Incorrect passcode. Try again."
+  },
+  "forgotPasscode": {
+    "message": "パスコードをお忘れですか?",
+    "englishSource": "Forgot passcode?"
+  },
+  "createA6DigitCode": {
+    "message": "6桁のコードを作成します",
+    "englishSource": "Create a 6 digit code"
+  },
+  "reEnterTheSame6Digits": {
+    "message": "同じ6桁を再入力してください",
+    "englishSource": "Re-enter the same 6 digits"
+  },
+  "faceIdSetUp": {
+    "message": "顔認証の設定",
+    "englishSource": "Face ID set up"
+  },
+  "biometricSetUp": {
+    "message": "生体認証のセットアップ",
+    "englishSource": "Biometric set up"
+  },
+  "usePasscodeInstead": {
+    "message": "代わりにパスコードを使用してください",
+    "englishSource": "Use passcode instead"
+  },
+  "biometricConfirmed": {
+    "message": "確認済み！",
+    "englishSource": "Confirmed!"
+  },
+  "onlyOneMoreStep": {
+    "message": "あと一歩だけ！",
+    "englishSource": "Only one more step!"
+  },
+  "biometricSetupReason": {
+    "message": "ウォレットの生体認証によるロック解除を設定する",
+    "englishSource": "Set up biometric unlock for your wallet"
+  },
+  "biometricUnavailable": {
+    "message": "このデバイスでは生体認証によるロック解除は利用できません。",
+    "englishSource": "Biometric unlock isn't available on this device."
+  },
+  "chooseYourGuardian": {
+    "message": "ガーディアンを選択してください",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "最後のステップでは、ミデン ガーディアンを選択します。これは保護層として機能します",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "ガーディアンについて詳しく知る",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "運営者:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "位置：",
+    "englishSource": "Location:"
+  },
+  "whatIsAGuardian": {
+    "message": "ガーディアンとは何ですか?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "ガーディアンは、 ウォレットからの<b>すべてのトランザクションに連署</b>し、自己管理を放棄することなくセーフティネットを追加する独立したサービスです。",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "何をするのか",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "セキュリティ ポリシーに基づいてトランザクションを承認または拒否します。デバイスを紛失した場合の回復に役立ちます。",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "できないこと",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "資金を勝手に移動させます。自分のプライベートな状態にアクセスします。残高を共有しない限り、残高を確認できます。",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "切り替えは簡単です",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "回復フレーズを使用していつでも別のガーディアンにローテーションしたり、ガーディアンを完全に削除したりできます。",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "gotIt": {
+    "message": "わかった",
+    "englishSource": "Got it"
+  },
   "backUpYourWallet": {
     "message": "ウォレットをバックアップする",
     "note": "Onboarding",
@@ -1415,9 +1624,20 @@
     "englishSource": "Only Miden Seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "あなたのウォレットが準備できました",
-    "note": "Onboarding",
-    "englishSource": "Your wallet is ready!"
+    "message": "<highlight>ウォレット</highlight>の準備ができました。",
+    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+  },
+  "recoveryPhraseSevenDayReminder": {
+    "message": "ウォレットを完全に保護するために、7 日以内に回復フレーズを書き留めてください。",
+    "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
+  },
+  "recoveryPhraseDailyReminder": {
+    "message": "ホーム画面で毎日通知されます。",
+    "englishSource": "We'll remind you daily on the home screen."
+  },
+  "openWallet": {
+    "message": "オープンウォレット",
+    "englishSource": "Open wallet"
   },
   "getStarted": {
     "message": "始める",
@@ -1427,10 +1647,6 @@
   "creatingYourWallet": {
     "message": "ウォレットを作成中…",
     "englishSource": "Creating your wallet…"
-  },
-  "openWallet": {
-    "message": "オープンウォレット",
-    "englishSource": "Open wallet"
   },
   "enterPassword": {
     "message": "パスワードを入力する",
@@ -1455,6 +1671,10 @@
   "passwordsDoNotMatch": {
     "message": "パスワードが一致しません",
     "englishSource": "Passwords do not match"
+  },
+  "passcodesDoNotMatch": {
+    "message": "パスコードが一致しません。もう一度やり直してください。",
+    "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
     "message": "パスワードを作成する",
@@ -1672,6 +1892,10 @@
     "message": "現在のガーディアン",
     "englishSource": "Current Guardian"
   },
+  "currentLabel": {
+    "message": "現在",
+    "englishSource": "Current"
+  },
   "newGuardianEndpoint": {
     "message": "新しいガーディアン エンドポイント",
     "englishSource": "New Guardian Endpoint"
@@ -1703,6 +1927,70 @@
   "guardianEndpointUnchanged": {
     "message": "それはすでにあなたの現在の保護者です。",
     "englishSource": "That's already your current guardian."
+  },
+  "rotateGuardian": {
+    "message": "ガーディアンを回転させる",
+    "englishSource": "Rotate Guardian"
+  },
+  "keys": {
+    "message": "キー",
+    "englishSource": "Keys"
+  },
+  "guardianAboutDescription": {
+    "message": "Guardian はこのウォレットからのすべてのトランザクションに連署し、資金を保管することなく第 2 要素のセーフティ ネットを提供します。回復フレーズを使用していつでもガーディアンを回転または削除できます。",
+    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
+  },
+  "customGuardian": {
+    "message": "カスタムガーディアン",
+    "englishSource": "Custom Guardian"
+  },
+  "guardianProvider": {
+    "message": "プロバイダー",
+    "englishSource": "Provider"
+  },
+  "guardianEndpointLabel": {
+    "message": "終点",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "地域",
+    "englishSource": "Region"
+  },
+  "customEndpoint": {
+    "message": "カスタムエンドポイント",
+    "englishSource": "Custom endpoint"
+  },
+  "customEndpointDescription": {
+    "message": "独自の Guardian を実行している場合は、Guardian URL を貼り付けます。",
+    "englishSource": "Paste a Guardian URL if you're running your own."
+  },
+  "customEndpointPlaceholder": {
+    "message": "https://guardian.example.com",
+    "englishSource": "https://guardian.example.com"
+  },
+  "reviewRotation": {
+    "message": "ローテーションの見直し",
+    "englishSource": "Review rotation"
+  },
+  "newLabel": {
+    "message": "新しい",
+    "englishSource": "New"
+  },
+  "walletKeyHot": {
+    "message": "ウォレットキー（ホット）",
+    "englishSource": "Wallet key (hot)"
+  },
+  "recoveryPhraseCold": {
+    "message": "回復フレーズ（コールド）",
+    "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "あなたの古いガーディアンはこれをブロックできません",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "ローテーションは、デバイス上の 2 つのキーによって承認されます。古いガーディアンにのみ通知されます。",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "デバイスキーをローテーションする",
@@ -2367,9 +2655,42 @@
       }
     }
   },
+  "claimAllProgress": {
+    "message": "全部請求しますか？ ( $unclaimed$ / $total$ )",
+    "englishSource": "Claim All? ($unclaimed$/$total$)",
+    "placeholders": {
+      "unclaimed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "readyToClaim": {
     "message": "保留中 notes: $count$ ",
     "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "totalPending": {
+    "message": "合計保留中",
+    "englishSource": "Total Pending"
+  },
+  "pendingNotesCount": {
+    "message": "notes 保留中",
+    "englishSource": "notes pending"
+  },
+  "pendingAssetsCount": {
+    "message": "資産",
+    "englishSource": "assets"
+  },
+  "incomingCount": {
+    "message": "$count$ 受信",
+    "englishSource": "$count$ Incoming",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3078,6 +3399,10 @@
     "message": "の上",
     "englishSource": "On"
   },
+  "onLowercase": {
+    "message": "の上",
+    "englishSource": "on"
+  },
   "off": {
     "message": "オフ",
     "englishSource": "Off"
@@ -3174,8 +3499,28 @@
     "message": "パズル アイコンをクリックして Bread を固定すると、ツールバーから簡単にアクセスできます。",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
-  "gotIt": {
-    "message": "わかった",
-    "englishSource": "Got it"
+  "all": {
+    "message": "全て",
+    "englishSource": "All"
+  },
+  "sent": {
+    "message": "送信済み",
+    "englishSource": "Sent"
+  },
+  "pending": {
+    "message": "保留中",
+    "englishSource": "Pending"
+  },
+  "faucetRequestTitle": {
+    "message": "Faucet リクエスト",
+    "englishSource": "Faucet Request"
+  },
+  "share": {
+    "message": "共有",
+    "englishSource": "Share"
+  },
+  "copy": {
+    "message": "コピー",
+    "englishSource": "Copy"
   }
 }

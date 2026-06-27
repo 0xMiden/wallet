@@ -441,8 +441,28 @@
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "Це може зайняти деякий час залежно від рівня мережевого трафіку",
-    "englishSource": "This may take a moment depending on the level network traffic"
+    "message": "Це може зайняти деякий час залежно від мережевого трафіку. Ви можете закрити це — ми повідомимо вас, коли це буде зроблено.",
+    "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
+  },
+  "transactionTitleSend": {
+    "message": "Відправлення платежу",
+    "englishSource": "Sending Payment"
+  },
+  "transactionStepGuardianApproved": {
+    "message": "Затверджено опікуном",
+    "englishSource": "Guardian approved"
+  },
+  "transactionStepProofGenerated": {
+    "message": "Доказ створено",
+    "englishSource": "Proof generated"
+  },
+  "transactionStepSubmitting": {
+    "message": "Подання",
+    "englishSource": "Submitting"
+  },
+  "transactionStepSyncingGuardian": {
+    "message": "Синхронізація з Guardian",
+    "englishSource": "Syncing with Guardian"
   },
   "transactionStageSyncing": {
     "message": "Синхронізація облікового запису",
@@ -1186,6 +1206,55 @@
     "message": "Керуйте своїми контактами тут",
     "englishSource": "Manage your contacts here"
   },
+  "chooseRecipient": {
+    "message": "Виберіть одержувача",
+    "englishSource": "Choose recipient"
+  },
+  "enterMidenOrEthereumAddress": {
+    "message": "Введіть адресу Miden або Ethereum",
+    "englishSource": "Enter Miden or Ethereum address"
+  },
+  "selectAmount": {
+    "message": "Виберіть Сума",
+    "englishSource": "Select Amount"
+  },
+  "selectAToken": {
+    "message": "Виберіть маркер",
+    "englishSource": "Select a token"
+  },
+  "searchForTokens": {
+    "message": "Пошук жетонів",
+    "englishSource": "Search for tokens"
+  },
+  "available": {
+    "message": "в наявності",
+    "englishSource": "Available"
+  },
+  "approxFiatValue": {
+    "message": "≈  $value$ доларів США",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "reviewDetails": {
+    "message": "Деталі огляду",
+    "englishSource": "Review Details"
+  },
+  "expirationDate": {
+    "message": "Термін придатності",
+    "englishSource": "Expiration Date"
+  },
+  "edit": {
+    "message": "Редагувати",
+    "englishSource": "Edit"
+  },
+  "miden": {
+    "message": "Міден",
+    "englishSource": "Miden"
+  },
   "addNewContact": {
     "message": "Новий контакт",
     "englishSource": "New contact"
@@ -1354,6 +1423,146 @@
     "note": "Onboarding",
     "englishSource": "I already have a wallet"
   },
+  "welcome": {
+    "message": "Ласкаво просимо",
+    "englishSource": "Welcome"
+  },
+  "toLowercase": {
+    "message": "до",
+    "englishSource": "to"
+  },
+  "breadWalletDescription": {
+    "message": "Bread Wallet — це простий і безпечний спосіб конфіденційного керування цифровими грошима.",
+    "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
+  },
+  "recoverYourAccount": {
+    "message": "Відновіть обліковий запис",
+    "englishSource": "Recover your account"
+  },
+  "chooseHowToProtect": {
+    "message": "Виберіть, як ви хочете захистити свій гаманець",
+    "englishSource": "Choose how you want to protect your wallet"
+  },
+  "useFaceIdOrBiometric": {
+    "message": "Використовуйте FaceID або Biometric",
+    "englishSource": "Use FaceID or Biometric"
+  },
+  "setUpYourPasscode": {
+    "message": "Налаштуйте свій пароль",
+    "englishSource": "Set up your passcode"
+  },
+  "confirmYourPasscode": {
+    "message": "Підтвердьте свій пароль",
+    "englishSource": "Confirm your passcode"
+  },
+  "enterYourPasscode": {
+    "message": "Введіть свій пароль",
+    "englishSource": "Enter your passcode"
+  },
+  "enterYour6DigitCode": {
+    "message": "Введіть свій 6-значний код",
+    "englishSource": "Enter your 6-digit code"
+  },
+  "incorrectPasscode": {
+    "message": "Неправильний пароль. Спробуйте знову.",
+    "englishSource": "Incorrect passcode. Try again."
+  },
+  "forgotPasscode": {
+    "message": "Забули пароль?",
+    "englishSource": "Forgot passcode?"
+  },
+  "createA6DigitCode": {
+    "message": "Створіть 6-значний код",
+    "englishSource": "Create a 6 digit code"
+  },
+  "reEnterTheSame6Digits": {
+    "message": "Повторно введіть ті самі 6 цифр",
+    "englishSource": "Re-enter the same 6 digits"
+  },
+  "faceIdSetUp": {
+    "message": "Налаштування Face ID",
+    "englishSource": "Face ID set up"
+  },
+  "biometricSetUp": {
+    "message": "Біометричне налаштування",
+    "englishSource": "Biometric set up"
+  },
+  "usePasscodeInstead": {
+    "message": "Замість цього використовуйте пароль",
+    "englishSource": "Use passcode instead"
+  },
+  "biometricConfirmed": {
+    "message": "Підтверджено!",
+    "englishSource": "Confirmed!"
+  },
+  "onlyOneMoreStep": {
+    "message": "Лише один крок!",
+    "englishSource": "Only one more step!"
+  },
+  "biometricSetupReason": {
+    "message": "Налаштуйте біометричне розблокування для свого гаманця",
+    "englishSource": "Set up biometric unlock for your wallet"
+  },
+  "biometricUnavailable": {
+    "message": "Біометричне розблокування недоступне на цьому пристрої.",
+    "englishSource": "Biometric unlock isn't available on this device."
+  },
+  "chooseYourGuardian": {
+    "message": "Виберіть свого опікуна",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "Для останнього кроку виберіть свого Miden Guardian. Це буде служити захисним шаром",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Дізнайтеся більше про Guardian",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "Керується:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "Розташування:",
+    "englishSource": "Location:"
+  },
+  "whatIsAGuardian": {
+    "message": "Що таке опікун?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian — це незалежна служба, яка <b>підписує кожну трансакцію</b> з вашого гаманця, додаючи систему безпеки, не відмовляючись від самостійної опіки.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "Що воно робить",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Схвалює або відхиляє транзакції на основі вашої політики безпеки. Допомагає відновити роботу, якщо ви втратите пристрій.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "Що воно не може зробити",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "Перемістіть свої кошти самостійно. Доступ до приватного стану. Переглядайте свої баланси, якщо ви не ділитеся ними.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "Перемикатися легко",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Ви можете будь-коли перейти до іншого Опікуна — або повністю видалити одного — за допомогою фрази відновлення.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "gotIt": {
+    "message": "зрозумів",
+    "englishSource": "Got it"
+  },
   "backUpYourWallet": {
     "message": "Створіть резервну копію вашого гаманця",
     "note": "Onboarding",
@@ -1415,9 +1624,20 @@
     "englishSource": "Only Miden Seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Ваш гаманець готовий",
-    "note": "Onboarding",
-    "englishSource": "Your wallet is ready!"
+    "message": "Ваш <highlight>гаманець</highlight> готовий!",
+    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+  },
+  "recoveryPhraseSevenDayReminder": {
+    "message": "Запишіть свою фразу відновлення протягом 7 днів, щоб повністю захистити свій гаманець.",
+    "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
+  },
+  "recoveryPhraseDailyReminder": {
+    "message": "Ми будемо нагадувати вам щодня на головному еFaucetі.",
+    "englishSource": "We'll remind you daily on the home screen."
+  },
+  "openWallet": {
+    "message": "Відкритий гаманець",
+    "englishSource": "Open wallet"
   },
   "getStarted": {
     "message": "Почати",
@@ -1427,10 +1647,6 @@
   "creatingYourWallet": {
     "message": "Створення гаманця…",
     "englishSource": "Creating your wallet…"
-  },
-  "openWallet": {
-    "message": "Відкритий гаманець",
-    "englishSource": "Open wallet"
   },
   "enterPassword": {
     "message": "Введіть пароль",
@@ -1455,6 +1671,10 @@
   "passwordsDoNotMatch": {
     "message": "Паролі не збігаються",
     "englishSource": "Passwords do not match"
+  },
+  "passcodesDoNotMatch": {
+    "message": "Коди доступу не збігаються. Спробуйте знову.",
+    "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
     "message": "Створити пароль",
@@ -1673,6 +1893,10 @@
     "message": "Поточний опікун",
     "englishSource": "Current Guardian"
   },
+  "currentLabel": {
+    "message": "поточний",
+    "englishSource": "Current"
+  },
   "newGuardianEndpoint": {
     "message": "Нова кінцева точка Guardian",
     "englishSource": "New Guardian Endpoint"
@@ -1704,6 +1928,70 @@
   "guardianEndpointUnchanged": {
     "message": "Це вже ваш поточний опікун.",
     "englishSource": "That's already your current guardian."
+  },
+  "rotateGuardian": {
+    "message": "Обертати опікуна",
+    "englishSource": "Rotate Guardian"
+  },
+  "keys": {
+    "message": "Ключі",
+    "englishSource": "Keys"
+  },
+  "guardianAboutDescription": {
+    "message": "Guardian підписує кожну транзакцію з цього гаманця, забезпечуючи вам вторинну безпеку без збереження ваших коштів. Ви можете будь-коли змінити або видалити свого Опікуна за допомогою фрази відновлення.",
+    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
+  },
+  "customGuardian": {
+    "message": "Custom Guardian",
+    "englishSource": "Custom Guardian"
+  },
+  "guardianProvider": {
+    "message": "Провайдер",
+    "englishSource": "Provider"
+  },
+  "guardianEndpointLabel": {
+    "message": "Кінцева точка",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Регіон",
+    "englishSource": "Region"
+  },
+  "customEndpoint": {
+    "message": "Спеціальна кінцева точка",
+    "englishSource": "Custom endpoint"
+  },
+  "customEndpointDescription": {
+    "message": "Вставте URL-адресу Guardian, якщо ви використовуєте власну.",
+    "englishSource": "Paste a Guardian URL if you're running your own."
+  },
+  "customEndpointPlaceholder": {
+    "message": "https://guardian.example.com",
+    "englishSource": "https://guardian.example.com"
+  },
+  "reviewRotation": {
+    "message": "Оглядова ротація",
+    "englishSource": "Review rotation"
+  },
+  "newLabel": {
+    "message": "новий",
+    "englishSource": "New"
+  },
+  "walletKeyHot": {
+    "message": "Ключ гаманця (гарячий)",
+    "englishSource": "Wallet key (hot)"
+  },
+  "recoveryPhraseCold": {
+    "message": "Фраза відновлення (холодна)",
+    "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "Ваш старий опікун не може це заблокувати",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "Обертання підтверджується двома вашими клавішами на пристрої. Старий Охоронець отримує лише сповіщення.",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "Поверніть клавішу пристрою",
@@ -2368,9 +2656,42 @@
       }
     }
   },
+  "claimAllProgress": {
+    "message": "Вимагати всіх? ( $unclaimed$ / $total$ )",
+    "englishSource": "Claim All? ($unclaimed$/$total$)",
+    "placeholders": {
+      "unclaimed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "readyToClaim": {
     "message": "Очікує notes: $count$ ",
     "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "totalPending": {
+    "message": "Всього в очікуванні",
+    "englishSource": "Total Pending"
+  },
+  "pendingNotesCount": {
+    "message": "notes очікує на розгляд",
+    "englishSource": "notes pending"
+  },
+  "pendingAssetsCount": {
+    "message": "активів",
+    "englishSource": "assets"
+  },
+  "incomingCount": {
+    "message": "$count$ Вхідні",
+    "englishSource": "$count$ Incoming",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3079,6 +3400,10 @@
     "message": "Увімкнено",
     "englishSource": "On"
   },
+  "onLowercase": {
+    "message": "на",
+    "englishSource": "on"
+  },
   "off": {
     "message": "Вимкнено",
     "englishSource": "Off"
@@ -3175,8 +3500,28 @@
     "message": "Клацніть піктограму головоломки та закріпіть Bread для швидкого доступу з панелі інструментів.",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
-  "gotIt": {
-    "message": "зрозумів",
-    "englishSource": "Got it"
+  "all": {
+    "message": "всі",
+    "englishSource": "All"
+  },
+  "sent": {
+    "message": "Надіслано",
+    "englishSource": "Sent"
+  },
+  "pending": {
+    "message": "В очікуванні",
+    "englishSource": "Pending"
+  },
+  "faucetRequestTitle": {
+    "message": "Faucet Запит",
+    "englishSource": "Faucet Request"
+  },
+  "share": {
+    "message": "Поділіться",
+    "englishSource": "Share"
+  },
+  "copy": {
+    "message": "Копія",
+    "englishSource": "Copy"
   }
 }

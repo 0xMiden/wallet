@@ -425,8 +425,28 @@
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "Może to chwilę potrwać, w zależności od poziomu ruchu sieciowego",
-    "englishSource": "This may take a moment depending on the level network traffic"
+    "message": "Może to chwilę potrwać, w zależności od ruchu sieciowego. Możesz to zamknąć — powiadomimy Cię, gdy to się skończy.",
+    "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
+  },
+  "transactionTitleSend": {
+    "message": "Wysyłanie płatności",
+    "englishSource": "Sending Payment"
+  },
+  "transactionStepGuardianApproved": {
+    "message": "Opiekun zatwierdzony",
+    "englishSource": "Guardian approved"
+  },
+  "transactionStepProofGenerated": {
+    "message": "Wygenerowano dowód",
+    "englishSource": "Proof generated"
+  },
+  "transactionStepSubmitting": {
+    "message": "Przedkładający",
+    "englishSource": "Submitting"
+  },
+  "transactionStepSyncingGuardian": {
+    "message": "Synchronizacja z Guardianem",
+    "englishSource": "Syncing with Guardian"
   },
   "transactionStageSyncing": {
     "message": "Synchronizowanie konta",
@@ -1169,6 +1189,55 @@
     "message": "Zarządzaj tutaj swoimi kontaktami",
     "englishSource": "Manage your contacts here"
   },
+  "chooseRecipient": {
+    "message": "Wybierz odbiorcę",
+    "englishSource": "Choose recipient"
+  },
+  "enterMidenOrEthereumAddress": {
+    "message": "Wpisz adres Miden lub Ethereum",
+    "englishSource": "Enter Miden or Ethereum address"
+  },
+  "selectAmount": {
+    "message": "Wybierz Kwota",
+    "englishSource": "Select Amount"
+  },
+  "selectAToken": {
+    "message": "Wybierz token",
+    "englishSource": "Select a token"
+  },
+  "searchForTokens": {
+    "message": "Wyszukaj tokeny",
+    "englishSource": "Search for tokens"
+  },
+  "available": {
+    "message": "Dostępny",
+    "englishSource": "Available"
+  },
+  "approxFiatValue": {
+    "message": "≈  $value$ USD",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "reviewDetails": {
+    "message": "Szczegóły recenzji",
+    "englishSource": "Review Details"
+  },
+  "expirationDate": {
+    "message": "Data ważności",
+    "englishSource": "Expiration Date"
+  },
+  "edit": {
+    "message": "Redagować",
+    "englishSource": "Edit"
+  },
+  "miden": {
+    "message": "Miden",
+    "englishSource": "Miden"
+  },
   "addNewContact": {
     "message": "Nowy kontakt",
     "englishSource": "New contact"
@@ -1334,6 +1403,146 @@
     "message": "Mam już portfel",
     "englishSource": "I already have a wallet"
   },
+  "welcome": {
+    "message": "Powitanie",
+    "englishSource": "Welcome"
+  },
+  "toLowercase": {
+    "message": "Do",
+    "englishSource": "to"
+  },
+  "breadWalletDescription": {
+    "message": "Bread Wallet to prosty i bezpieczny sposób na prywatne zarządzanie cyfrowymi pieniędzmi.",
+    "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
+  },
+  "recoverYourAccount": {
+    "message": "Odzyskaj swoje konto",
+    "englishSource": "Recover your account"
+  },
+  "chooseHowToProtect": {
+    "message": "Wybierz, jak chcesz chronić swój portfel",
+    "englishSource": "Choose how you want to protect your wallet"
+  },
+  "useFaceIdOrBiometric": {
+    "message": "Użyj FaceID lub biometrii",
+    "englishSource": "Use FaceID or Biometric"
+  },
+  "setUpYourPasscode": {
+    "message": "Skonfiguruj hasło",
+    "englishSource": "Set up your passcode"
+  },
+  "confirmYourPasscode": {
+    "message": "Potwierdź swoje hasło",
+    "englishSource": "Confirm your passcode"
+  },
+  "enterYourPasscode": {
+    "message": "Wprowadź swoje hasło",
+    "englishSource": "Enter your passcode"
+  },
+  "enterYour6DigitCode": {
+    "message": "Wpisz swój 6-cyfrowy kod",
+    "englishSource": "Enter your 6-digit code"
+  },
+  "incorrectPasscode": {
+    "message": "Nieprawidłowe hasło. Spróbuj ponownie.",
+    "englishSource": "Incorrect passcode. Try again."
+  },
+  "forgotPasscode": {
+    "message": "Zapomniałeś hasła?",
+    "englishSource": "Forgot passcode?"
+  },
+  "createA6DigitCode": {
+    "message": "Utwórz 6-cyfrowy kod",
+    "englishSource": "Create a 6 digit code"
+  },
+  "reEnterTheSame6Digits": {
+    "message": "Wprowadź ponownie te same 6 cyfr",
+    "englishSource": "Re-enter the same 6 digits"
+  },
+  "faceIdSetUp": {
+    "message": "Skonfigurowano identyfikator twarzy",
+    "englishSource": "Face ID set up"
+  },
+  "biometricSetUp": {
+    "message": "Konfiguracja biometryczna",
+    "englishSource": "Biometric set up"
+  },
+  "usePasscodeInstead": {
+    "message": "Zamiast tego użyj hasła",
+    "englishSource": "Use passcode instead"
+  },
+  "biometricConfirmed": {
+    "message": "Potwierdzony!",
+    "englishSource": "Confirmed!"
+  },
+  "onlyOneMoreStep": {
+    "message": "Jeszcze tylko jeden krok!",
+    "englishSource": "Only one more step!"
+  },
+  "biometricSetupReason": {
+    "message": "Skonfiguruj odblokowanie biometryczne dla swojego portfela",
+    "englishSource": "Set up biometric unlock for your wallet"
+  },
+  "biometricUnavailable": {
+    "message": "Odblokowanie biometryczne nie jest dostępne na tym urządzeniu.",
+    "englishSource": "Biometric unlock isn't available on this device."
+  },
+  "chooseYourGuardian": {
+    "message": "Wybierz swojego Strażnika",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "W ostatnim kroku wybierz swojego Miden Guardiana. Będzie to służyć jako warstwa ochronna",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Dowiedz się więcej o Guardianie",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "Obsługiwany przez:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "Lokalizacja:",
+    "englishSource": "Location:"
+  },
+  "whatIsAGuardian": {
+    "message": "Co to jest opiekun?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian to niezależna usługa, która <b>podpisuje każdą transakcję</b> z Twojego portfela, dodając siatkę bezpieczeństwa bez rezygnacji z samodzielnej opieki.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "Co to robi",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Zatwierdza lub odrzuca transakcje w oparciu o Twoją politykę bezpieczeństwa. Pomaga odzyskać siły w przypadku utraty urządzenia.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "Czego nie może zrobić",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "Przenieś swoje środki samodzielnie. Uzyskaj dostęp do swojego prywatnego stanu. Zobacz swoje salda, chyba że je udostępnisz.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "Przełączanie jest łatwe",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Możesz przejść do innego Strażnika — lub całkowicie go usunąć — w dowolnym momencie, używając frazy odzyskiwania.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "gotIt": {
+    "message": "Rozumiem",
+    "englishSource": "Got it"
+  },
   "backUpYourWallet": {
     "message": "Utwórz kopię zapasową swojego portfela",
     "englishSource": "Back up your wallet"
@@ -1387,8 +1596,20 @@
     "englishSource": "Only Miden Seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Twój portfel jest gotowy!",
-    "englishSource": "Your wallet is ready!"
+    "message": "Twój <highlight>Portfel</highlight> jest gotowy!",
+    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+  },
+  "recoveryPhraseSevenDayReminder": {
+    "message": "Zapisz frazę odzyskiwania w ciągu 7 dni, aby w pełni zabezpieczyć swój portfel.",
+    "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
+  },
+  "recoveryPhraseDailyReminder": {
+    "message": "Codziennie będziemy Ci o tym przypominać na ekranie głównym.",
+    "englishSource": "We'll remind you daily on the home screen."
+  },
+  "openWallet": {
+    "message": "Otwórz portfel",
+    "englishSource": "Open wallet"
   },
   "getStarted": {
     "message": "Zacznij",
@@ -1397,10 +1618,6 @@
   "creatingYourWallet": {
     "message": "Tworzenie portfela…",
     "englishSource": "Creating your wallet…"
-  },
-  "openWallet": {
-    "message": "Otwórz portfel",
-    "englishSource": "Open wallet"
   },
   "enterPassword": {
     "message": "Wprowadź hasło",
@@ -1421,6 +1638,10 @@
   "passwordsDoNotMatch": {
     "message": "Hasła nie pasują",
     "englishSource": "Passwords do not match"
+  },
+  "passcodesDoNotMatch": {
+    "message": "Hasła nie pasują. Spróbuj ponownie.",
+    "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
     "message": "Utwórz hasło",
@@ -1614,6 +1835,10 @@
     "message": "Obecny Strażnik",
     "englishSource": "Current Guardian"
   },
+  "currentLabel": {
+    "message": "Aktualny",
+    "englishSource": "Current"
+  },
   "newGuardianEndpoint": {
     "message": "Nowy punkt końcowy Guardiana",
     "englishSource": "New Guardian Endpoint"
@@ -1645,6 +1870,70 @@
   "guardianEndpointUnchanged": {
     "message": "To już twój obecny opiekun.",
     "englishSource": "That's already your current guardian."
+  },
+  "rotateGuardian": {
+    "message": "Obróć strażnika",
+    "englishSource": "Rotate Guardian"
+  },
+  "keys": {
+    "message": "Klawiatura",
+    "englishSource": "Keys"
+  },
+  "guardianAboutDescription": {
+    "message": "Guardian podpisuje każdą transakcję z tego portfela, zapewniając Ci drugorzędną siatkę bezpieczeństwa bez konieczności przejmowania opieki nad Twoimi środkami. Możesz zmienić lub usunąć swojego Strażnika w dowolnym momencie, korzystając z frazy regeneracyjnej.",
+    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
+  },
+  "customGuardian": {
+    "message": "Niestandardowy Strażnik",
+    "englishSource": "Custom Guardian"
+  },
+  "guardianProvider": {
+    "message": "Dostawca",
+    "englishSource": "Provider"
+  },
+  "guardianEndpointLabel": {
+    "message": "Punkt końcowy",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Region",
+    "englishSource": "Region"
+  },
+  "customEndpoint": {
+    "message": "Niestandardowy punkt końcowy",
+    "englishSource": "Custom endpoint"
+  },
+  "customEndpointDescription": {
+    "message": "Wklej adres URL Guardiana, jeśli prowadzisz własny.",
+    "englishSource": "Paste a Guardian URL if you're running your own."
+  },
+  "customEndpointPlaceholder": {
+    "message": "https://guardian.example.com",
+    "englishSource": "https://guardian.example.com"
+  },
+  "reviewRotation": {
+    "message": "Przejrzyj rotację",
+    "englishSource": "Review rotation"
+  },
+  "newLabel": {
+    "message": "Nowy",
+    "englishSource": "New"
+  },
+  "walletKeyHot": {
+    "message": "Klucz do portfela (gorący)",
+    "englishSource": "Wallet key (hot)"
+  },
+  "recoveryPhraseCold": {
+    "message": "Fraza regeneracyjna (na zimno)",
+    "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "Twój stary Strażnik nie może tego zablokować",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "Obrót jest zatwierdzany przez dwa klucze na urządzeniu. Stary Strażnik zostaje jedynie powiadomiony.",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "Obróć klucz urządzenia",
@@ -2292,9 +2581,42 @@
     "message": "Odbierz wszystko",
     "englishSource": "Claim All"
   },
+  "claimAllProgress": {
+    "message": "Odbierz wszystko? ( $unclaimed$ / $total$ )",
+    "englishSource": "Claim All? ($unclaimed$/$total$)",
+    "placeholders": {
+      "unclaimed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "readyToClaim": {
     "message": "Oczekujące notes: $count$ ",
     "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "totalPending": {
+    "message": "Łącznie w toku",
+    "englishSource": "Total Pending"
+  },
+  "pendingNotesCount": {
+    "message": "notes w oczekiwaniu",
+    "englishSource": "notes pending"
+  },
+  "pendingAssetsCount": {
+    "message": "aktywa",
+    "englishSource": "assets"
+  },
+  "incomingCount": {
+    "message": "$count$ Przychodzące",
+    "englishSource": "$count$ Incoming",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3003,6 +3325,10 @@
     "message": "NA",
     "englishSource": "On"
   },
+  "onLowercase": {
+    "message": "NA",
+    "englishSource": "on"
+  },
   "off": {
     "message": "Wyłączony",
     "englishSource": "Off"
@@ -3099,8 +3425,28 @@
     "message": "Kliknij ikonę puzzli i przypnij portfel Miden, aby uzyskać szybki dostęp z paska narzędzi.",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
-  "gotIt": {
-    "message": "Rozumiem",
-    "englishSource": "Got it"
+  "all": {
+    "message": "Wszystko",
+    "englishSource": "All"
+  },
+  "sent": {
+    "message": "Wysłano",
+    "englishSource": "Sent"
+  },
+  "pending": {
+    "message": "Aż do",
+    "englishSource": "Pending"
+  },
+  "faucetRequestTitle": {
+    "message": "Faucet Żądanie",
+    "englishSource": "Faucet Request"
+  },
+  "share": {
+    "message": "Udział",
+    "englishSource": "Share"
+  },
+  "copy": {
+    "message": "Kopia",
+    "englishSource": "Copy"
   }
 }
