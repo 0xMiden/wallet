@@ -243,10 +243,15 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         // Conditional cast: a corrupted/foreign Keychain item at this tag would
         // crash the app process on a force-cast.
-        guard let sePrivateKey = foundKey as? SecKey else {
+        // `as? SecKey` is a no-op for CoreFoundation types — it always succeeds,
+        // so the conditional cast never actually guarded against a foreign item
+        // (and Xcode 26+ rejects it as an error). Validate the CF type id, then
+        // force-cast, which is the correct way to defensively downcast to SecKey.
+        guard CFGetTypeID(foundKey) == SecKeyGetTypeID() else {
             call.reject("Hot-key Keychain item is not a SecKey")
             return
         }
+        let sePrivateKey = foundKey as! SecKey
 
         // 4. SecKeyCreateDecryptedData triggers Face ID / Touch ID via the
         //    `.userPresence` flag on the SE key (device builds; silent on the
@@ -349,10 +354,15 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         // Conditional cast: avoid crashing on a corrupted/foreign Keychain item.
-        guard let sePrivateKey = foundKey as? SecKey else {
+        // `as? SecKey` is a no-op for CoreFoundation types — it always succeeds,
+        // so the conditional cast never actually guarded against a foreign item
+        // (and Xcode 26+ rejects it as an error). Validate the CF type id, then
+        // force-cast, which is the correct way to defensively downcast to SecKey.
+        guard CFGetTypeID(foundKey) == SecKeyGetTypeID() else {
             call.reject("Hot-key Keychain item is not a SecKey")
             return
         }
+        let sePrivateKey = foundKey as! SecKey
 
         var decError: Unmanaged<CFError>?
         guard var unwrapped = SecKeyCreateDecryptedData(
