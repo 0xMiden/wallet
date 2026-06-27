@@ -81,22 +81,34 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // 4. Create the SE-backed P-256 key. .privateKeyUsage triggers Face ID
-        //    only when the private key is used (i.e. SecKeyCreateDecryptedData
-        //    in signWithHotKey), not at create time.
-        //    THREAT MODEL: we intentionally do NOT add `.biometryCurrentSet`.
-        //    That flag would invalidate the SE key whenever the biometric
-        //    enrollment changes (a face/finger added or re-enrolled), forcing the
-        //    user to re-activate the hot key. We accept "any enrolled biometric
-        //    can sign" in exchange for not bricking the hot key on an enrollment
-        //    change; the key never leaves the Secure Enclave either way. Switch
-        //    to `.biometryCurrentSet` (with a re-activation migration) if a
-        //    stricter "enrollment change = re-activate" posture is required.
+        // 4. Create the SE-backed P-256 key.
+        //    `.privateKeyUsage` is only a *usage permission* — by itself it does
+        //    NOT prompt for authentication. On real devices we add `.userPresence`
+        //    so every use of the private key (SecKeyCreateDecryptedData in
+        //    signWithHotKey / revealHotKey) requires Face ID / Touch ID, with a
+        //    device-passcode fallback. That is the "tap-to-confirm" gate for
+        //    user-initiated hot signing; background auto-consume is cold-signed in
+        //    WASM and never reaches this key (see generateGuardianTransaction).
+        //    THREAT MODEL: we use `.userPresence`, NOT `.biometryCurrentSet`. Both
+        //    require the user to be present, but `.biometryCurrentSet` invalidates
+        //    the SE key whenever biometric enrollment changes (a face/finger added
+        //    or re-enrolled), bricking the hot key until re-activation.
+        //    `.userPresence` survives re-enrollment and falls back to the passcode.
+        //    Switch to `.biometryCurrentSet` (with a re-activation migration) only
+        //    if a stricter "enrollment change = re-activate" posture is required.
+        //    Simulator: the host SE is unavailable and biometrics aren't reliably
+        //    enrolled, so we keep `.privateKeyUsage` only there — matching the
+        //    kSecAttrTokenIDSecureEnclave guard below and keeping the iOS E2E
+        //    harness's silent signing working.
+        var accessFlags: SecAccessControlCreateFlags = [.privateKeyUsage]
+        #if !targetEnvironment(simulator)
+        accessFlags.insert(.userPresence)
+        #endif
         var accessError: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
             kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            .privateKeyUsage,
+            accessFlags,
             &accessError
         ) else {
             zeroBytes(&secretBytes)
@@ -236,8 +248,9 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // 4. SecKeyCreateDecryptedData triggers Face ID via .privateKeyUsage
-        //    on the SE key.
+        // 4. SecKeyCreateDecryptedData triggers Face ID / Touch ID via the
+        //    `.userPresence` flag on the SE key (device builds; silent on the
+        //    simulator, where the key is created without `.userPresence`).
         var decError: Unmanaged<CFError>?
         guard var unwrapped = SecKeyCreateDecryptedData(
             sePrivateKey,
