@@ -9,25 +9,9 @@ import { getIntercom, useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { syncGuardianAccounts } from './guardian-sync';
+import { isTestSyncPaused } from './test-sync-pause';
 
 const SYNC_INTERVAL_MS = 3_000;
-
-/**
- * E2E-only: lets a test hook suspend the background sync while it performs a
- * WASM-lock-bound read. On mobile the sync runs in-process and holds the
- * single-threaded WASM lock; its 3s cadence re-acquires the lock faster than a
- * contending read can make progress, starving the read indefinitely (no fixed
- * eval budget survives it — see `__TEST_GUARDIAN_AUTH__`). The hook sets
- * `__TEST_SYNC_PAUSED__` around its read to remove the contention. Tree-shaken
- * out of production: `MIDEN_E2E_TEST` is statically `'false'` there, so this
- * short-circuits and the global lookup is dead-code-eliminated.
- */
-function isTestSyncPaused(): boolean {
-  return (
-    process.env.MIDEN_E2E_TEST === 'true' &&
-    (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ === true
-  );
-}
 
 function triggerSync(intercom: ReturnType<typeof getIntercom>) {
   if (isInsideSendFlow() || isTestSyncPaused()) return;
