@@ -406,7 +406,10 @@ describe('safeGenerateTransactionsLoop', () => {
       accountId: 'acc-1',
       secondaryAccountId: 'recipient',
       status: ITransactionStatus.Queued,
-      initiatedAt: 1,
+      // Recent timestamp so cancelStaleQueuedTransactions skips it; otherwise the
+      // loop cancels this row before generateTransaction runs and setTransactionStage
+      // never gets to throw (see the cancelTransaction finalized-guard `.where().first()`).
+      initiatedAt: Math.floor(Date.now() / 1000),
       noteType: NoteTypeEnum.Public,
       faucetId: 'f'
     });

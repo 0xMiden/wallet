@@ -28,9 +28,7 @@ export const PRIMARY_HEX_LIGHT_ALPHA = isDevnet ? 'rgba(114,134,160,0.10)' : 'rg
 export const ACCENT_HEX = ACCENT_ORANGE;
 
 // Focus ring shadow
-export const OUTLINE_SHADOW = isDevnet
-  ? '0 0 0 3px rgba(114, 134, 160, 0.5)'
-  : '0 0 0 3px rgba(231, 117, 55, 0.5)';
+export const OUTLINE_SHADOW = isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(231, 117, 55, 0.5)';
 
 // Orange sub-palette (for tailwind config). Testnet ramp regenerated around #E77537.
 export const ORANGE_PALETTE = isDevnet

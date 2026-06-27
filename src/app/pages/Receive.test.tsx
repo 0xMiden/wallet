@@ -5,14 +5,31 @@ import { act } from 'react-dom/test-utils';
 
 import { Receive } from './Receive';
 
+// The imported `act` from react-dom/test-utils is an overloaded function that
+// does not structurally satisfy a hand-written `(cb) => Promise<void>` type.
+// Reuse its real type for helpers that accept `act` so call sites type-check.
+type ActFn = typeof act;
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
 jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
 
+// Capture the most recently registered back handler so tests can simulate the
+// hardware/swipe "back" gesture (which is how the per-asset detail view returns
+// to the pending summary on mobile).
+const backHandlerRef: { current: (() => void) | null } = { current: null };
 jest.mock('app/env', () => ({
-  useAppEnv: () => ({ fullPage: false })
+  useAppEnv: () => ({
+    fullPage: false,
+    registerBackHandler: (handler: () => void) => {
+      backHandlerRef.current = handler;
+      return () => {
+        if (backHandlerRef.current === handler) backHandlerRef.current = null;
+      };
+    }
+  })
 }));
 
 jest.mock('lib/store', () => ({
@@ -46,6 +63,14 @@ jest.mock('app/icons/qr-new.svg', () => ({
 
 jest.mock('app/templates/AssetIcon', () => ({
   AssetIcon: () => null
+}));
+
+jest.mock('components/TokenLogo', () => ({
+  TokenLogo: () => null
+}));
+
+jest.mock('lib/prices', () => ({
+  getTokenPrice: () => ({ price: 0 })
 }));
 
 jest.mock('components/Button', () => ({
@@ -158,10 +183,16 @@ jest.mock('lib/miden/activity', () => ({
   requestSWTransactionProcessing: jest.fn()
 }));
 
-// Helper: each note gets a unique faucetId so it renders as a SingleNoteRow (not grouped)
+// Helper: notes share a single faucetId by default so they all collapse into ONE
+// asset group. The redesigned Receive page is a tabbed view: the "Pending" tab shows
+// a per-asset summary, and clicking an asset group opens a detail view that lists the
+// individual notes (each with its own Claim/Retry button + spinner). To exercise the
+// individual-note behaviour the tests therefore have to (1) switch to the Pending tab
+// and (2) open the asset group detail.
+const SHARED_FAUCET_ID = 'faucet-shared';
 const createMockNote = (id: string, overrides: Record<string, any> = {}) => ({
   id,
-  faucetId: `faucet-${id}`,
+  faucetId: SHARED_FAUCET_ID,
   amount: '1000000',
   senderAddress: 'sender-address-789',
   isBeingClaimed: false,
@@ -173,6 +204,47 @@ const createMockNote = (id: string, overrides: Record<string, any> = {}) => ({
   },
   ...overrides
 });
+
+// Find the tab-switcher buttons (Address / Pending) rendered by Receive itself.
+// They are the plain <button> elements that carry aria-pressed.
+const getTabButtons = (container: HTMLElement): HTMLButtonElement[] =>
+  Array.from(container.querySelectorAll('button[aria-pressed]')) as HTMLButtonElement[];
+
+// Switch to the "Pending" tab so PendingTab (and the claim UI) mounts.
+const switchToPendingTab = async (container: HTMLElement, act: ActFn): Promise<void> => {
+  const tabs = getTabButtons(container);
+  const pendingTab = tabs.find(b => (b.textContent ?? '').startsWith('pending'));
+  if (!pendingTab) throw new Error('Pending tab button not found');
+  await act(async () => {
+    pendingTab.click();
+  });
+};
+
+// Asset-group summary rows are the <button>s that are neither the tab switcher
+// (aria-pressed) nor a mocked Button (data-testid="claim-button").
+const getAssetGroupRows = (container: HTMLElement): HTMLButtonElement[] =>
+  (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).filter(
+    b => !b.hasAttribute('aria-pressed') && b.getAttribute('data-testid') !== 'claim-button'
+  );
+
+// Open the first asset group's detail view (where individual note rows live).
+const openFirstAssetGroup = async (container: HTMLElement, act: ActFn): Promise<void> => {
+  const rows = getAssetGroupRows(container);
+  const firstRow = rows[0];
+  if (!firstRow) throw new Error('No asset group rows to open');
+  await act(async () => {
+    firstRow.click();
+  });
+};
+
+// Simulate the hardware/swipe "back" gesture to return from a detail view to the summary.
+const goBackToSummary = async (act: ActFn): Promise<void> => {
+  const handler = backHandlerRef.current;
+  if (!handler) throw new Error('No back handler registered (not in detail view?)');
+  await act(async () => {
+    handler();
+  });
+};
 
 describe('Receive - Single Note Claiming', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
@@ -221,6 +293,9 @@ describe('Receive - Single Note Claiming', () => {
       testRoot!.render(<Receive />);
     });
 
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButton = Array.from(buttons).find(b => b.textContent === 'claim');
     expect(claimButton).toBeTruthy();
@@ -237,6 +312,9 @@ describe('Receive - Single Note Claiming', () => {
       testRoot!.render(<Receive />);
     });
 
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
     const spinner = testContainer.querySelector('[data-testid="sync-wave"]');
     expect(spinner).toBeTruthy();
   });
@@ -251,6 +329,9 @@ describe('Receive - Single Note Claiming', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
@@ -280,6 +361,9 @@ describe('Receive - Single Note Claiming', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
@@ -315,6 +399,9 @@ describe('Receive - Single Note Claiming', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
@@ -382,6 +469,8 @@ describe('Receive - Claim All', () => {
       testRoot!.render(<Receive />);
     });
 
+    await switchToPendingTab(testContainer, act);
+
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
     expect(claimAllButton).toBeFalsy();
@@ -397,6 +486,8 @@ describe('Receive - Claim All', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
@@ -416,6 +507,8 @@ describe('Receive - Claim All', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
@@ -455,6 +548,8 @@ describe('Receive - Claim All', () => {
       testRoot!.render(<Receive />);
     });
 
+    await switchToPendingTab(testContainer, act);
+
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
 
@@ -486,6 +581,8 @@ describe('Receive - Claim All', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
@@ -519,6 +616,8 @@ describe('Receive - Claim All', () => {
       testRoot!.render(<Receive />);
     });
 
+    await switchToPendingTab(testContainer, act);
+
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
 
@@ -528,14 +627,15 @@ describe('Receive - Claim All', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // Should show spinners for individual notes
-    const spinners = testContainer.querySelectorAll('[data-testid="sync-wave"]');
-    expect(spinners.length).toBe(2); // One spinner per note
-
-    // Claim All button should NOT be visible (no unclaimed notes)
+    // Claim All button should NOT be visible at the summary (no unclaimed notes left).
     const buttonsAfterClick = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButtonAfterClick = Array.from(buttonsAfterClick).find(b => b.textContent === 'claimAll');
     expect(claimAllButtonAfterClick).toBeFalsy();
+
+    // Drill into the asset group to verify each note row shows its claiming spinner.
+    await openFirstAssetGroup(testContainer, act);
+    const spinners = testContainer.querySelectorAll('[data-testid="sync-wave"]');
+    expect(spinners.length).toBe(2); // One spinner per note
   });
 });
 
@@ -596,7 +696,9 @@ describe('Receive - Dynamic Note Arrivals', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim All
+    await switchToPendingTab(testContainer, act);
+
+    // Click Claim All (summary level)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
 
@@ -605,8 +707,7 @@ describe('Receive - Dynamic Note Arrivals', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // Verify spinners are showing and Claim All is hidden (no unclaimed notes)
-    expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(3);
+    // Claim All hidden at summary (no unclaimed notes)
     let currentButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     expect(Array.from(currentButtons).find(b => b.textContent === 'claimAll')).toBeFalsy();
 
@@ -625,17 +726,17 @@ describe('Receive - Dynamic Note Arrivals', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // Claim All button should now appear (enabled) for the new note
+    // Claim All button should now appear (enabled) at summary for the new note
     currentButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const newClaimAllButton = Array.from(currentButtons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
     expect(newClaimAllButton).toBeTruthy();
     expect(newClaimAllButton.disabled).toBeFalsy();
 
-    // Should still show spinners for the 3 original notes
+    // Drill into the asset group: 3 original notes spin, the new note has a Claim button.
+    await openFirstAssetGroup(testContainer, act);
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(3);
-
-    // New note should have a Claim button
-    const claimButtons = Array.from(currentButtons).filter(b => b.textContent === 'claim');
+    const detailButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButtons = Array.from(detailButtons).filter(b => b.textContent === 'claim');
     expect(claimButtons.length).toBe(1);
   });
 
@@ -654,6 +755,8 @@ describe('Receive - Dynamic Note Arrivals', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     // Click Claim All
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -687,7 +790,10 @@ describe('Receive - Dynamic Note Arrivals', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click individual Claim on note-1
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Click individual Claim on note-1 (in the asset detail view)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const individualClaimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     const note1ClaimButton = individualClaimButtons[0] as HTMLButtonElement;
@@ -703,7 +809,8 @@ describe('Receive - Dynamic Note Arrivals', () => {
     // Clear mock to track new calls
     mockInitiateConsumeTransaction.mockClear();
 
-    // Click Claim All - should only claim note-2 and note-3
+    // Return to summary and click Claim All - should only claim note-2 and note-3
+    await goBackToSummary(act);
     const currentButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(currentButtons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
 
@@ -739,12 +846,15 @@ describe('Receive - Dynamic Note Arrivals', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // Claim All button should not be visible
+    await switchToPendingTab(testContainer, act);
+
+    // Claim All button should not be visible at summary (all notes are being claimed)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
     expect(claimAllButton).toBeFalsy();
 
-    // Should show spinners
+    // Drill into the asset group: both note rows should show spinners
+    await openFirstAssetGroup(testContainer, act);
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(2);
   });
 
@@ -761,6 +871,8 @@ describe('Receive - Dynamic Note Arrivals', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
@@ -796,7 +908,9 @@ describe('Receive - Dynamic Note Arrivals', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim All
+    await switchToPendingTab(testContainer, act);
+
+    // Click Claim All (summary)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
 
@@ -820,17 +934,18 @@ describe('Receive - Dynamic Note Arrivals', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // Should show 2 spinners (original notes) and 3 Claim buttons (new notes)
-    expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(2);
-
-    const currentButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    const claimButtons = Array.from(currentButtons).filter(b => b.textContent === 'claim');
-    expect(claimButtons.length).toBe(3);
-
-    // Claim All should be visible and enabled
-    const newClaimAllButton = Array.from(currentButtons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
+    // Claim All should be visible and enabled at summary (3 unclaimed notes arrived)
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const newClaimAllButton = Array.from(summaryButtons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
     expect(newClaimAllButton).toBeTruthy();
     expect(newClaimAllButton.disabled).toBeFalsy();
+
+    // Drill into the asset group: 2 original notes spin, 3 new notes have Claim buttons.
+    await openFirstAssetGroup(testContainer, act);
+    expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(2);
+    const detailButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButtons = Array.from(detailButtons).filter(b => b.textContent === 'claim');
+    expect(claimButtons.length).toBe(3);
   });
 
   it('Claim All processes only unclaimed notes when mixed states exist', async () => {
@@ -849,6 +964,8 @@ describe('Receive - Dynamic Note Arrivals', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
@@ -917,7 +1034,10 @@ describe('Receive - Claiming State Reporting', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Initially both notes have Claim buttons
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Initially both notes have Claim buttons (in the asset detail view)
     let buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     let claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     expect(claimButtons.length).toBe(2);
@@ -928,17 +1048,17 @@ describe('Receive - Claiming State Reporting', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // First note should now show spinner
+    // First note should now show spinner; only one Claim button should remain
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(1);
-
-    // Claim All should still be visible (for the second unclaimed note)
     buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
-    expect(claimAllButton).toBeTruthy();
-
-    // Only one Claim button should remain
     claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     expect(claimButtons.length).toBe(1);
+
+    // Back at the summary, Claim All should still be visible (for the second unclaimed note)
+    await goBackToSummary(act);
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimAllButton = Array.from(summaryButtons).find(b => b.textContent === 'claimAll');
+    expect(claimAllButton).toBeTruthy();
   });
 
   it('re-enables Claim All button after individual claim completes', async () => {
@@ -960,7 +1080,10 @@ describe('Receive - Claiming State Reporting', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim on the note
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Click Claim on the note (in the asset detail view)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
 
@@ -969,8 +1092,9 @@ describe('Receive - Claiming State Reporting', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // Claim All should be hidden (note is being claimed)
-    let currentButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    // Back at the summary, Claim All should be hidden (note is being claimed)
+    await goBackToSummary(act);
+    const currentButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     expect(Array.from(currentButtons).find(b => b.textContent === 'claimAll')).toBeFalsy();
 
     // Complete the claim
@@ -998,7 +1122,10 @@ describe('Receive - Claiming State Reporting', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim on first note
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Click Claim on first note (in the asset detail view)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     const note1ClaimButton = claimButtons[0] as HTMLButtonElement;
@@ -1013,8 +1140,10 @@ describe('Receive - Claiming State Reporting', () => {
     const retryButton = Array.from(currentButtons).find(b => b.textContent === 'retry');
     expect(retryButton).toBeTruthy();
 
-    // Claim All should still be available for note-2
-    const claimAllButton = Array.from(currentButtons).find(b => b.textContent === 'claimAll');
+    // Back at the summary, Claim All should still be available for note-2
+    await goBackToSummary(act);
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimAllButton = Array.from(summaryButtons).find(b => b.textContent === 'claimAll');
     expect(claimAllButton).toBeTruthy();
   });
 
@@ -1032,7 +1161,10 @@ describe('Receive - Claiming State Reporting', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim on first note - it will fail
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Click Claim on first note (in the asset detail view) - it will fail
     let buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     let claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     const note1ClaimButton = claimButtons[0] as HTMLButtonElement;
@@ -1050,8 +1182,10 @@ describe('Receive - Claiming State Reporting', () => {
     mockInitiateConsumeTransaction.mockClear();
     mockWaitForConsumeTx.mockResolvedValue('tx-hash');
 
-    // Click Claim All
-    const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
+    // Back at the summary, click Claim All
+    await goBackToSummary(act);
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimAllButton = Array.from(summaryButtons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
     expect(claimAllButton).toBeTruthy();
 
     await act(async () => {
@@ -1080,7 +1214,10 @@ describe('Receive - Claiming State Reporting', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim on the only note - it will fail
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Click Claim on the only note (in the asset detail view) - it will fail
     let buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButton = Array.from(buttons).find(b => b.textContent === 'claim') as HTMLButtonElement;
 
@@ -1094,8 +1231,10 @@ describe('Receive - Claiming State Reporting', () => {
     const retryButton = Array.from(buttons).find(b => b.textContent === 'retry');
     expect(retryButton).toBeTruthy();
 
-    // Claim All should STILL be visible (the failed note is claimable via Claim All)
-    const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
+    // Back at the summary, Claim All should STILL be visible (the failed note is claimable via Claim All)
+    await goBackToSummary(act);
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimAllButton = Array.from(summaryButtons).find(b => b.textContent === 'claimAll');
     expect(claimAllButton).toBeTruthy();
   });
 
@@ -1113,7 +1252,10 @@ describe('Receive - Claiming State Reporting', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim on first note - it will fail
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Click Claim on first note (in the asset detail view) - it will fail
     let buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     let claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     const note1ClaimButton = claimButtons[0] as HTMLButtonElement;
@@ -1187,6 +1329,8 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
+    await switchToPendingTab(testContainer, act);
+
     // No Claim buttons or spinners should be present
     expect(testContainer.querySelectorAll('[data-testid="claim-button"]').length).toBe(0);
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(0);
@@ -1203,6 +1347,8 @@ describe('Receive - Edge Cases', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     // Should not crash, no Claim All button should be present
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
@@ -1221,7 +1367,10 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Should only render valid notes
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Should only render valid notes (in the asset detail view)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     expect(claimButtons.length).toBe(2);
@@ -1238,17 +1387,23 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Should show both individual Claim and Claim All buttons
-    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    expect(Array.from(buttons).find(b => b.textContent === 'claim')).toBeTruthy();
-    expect(Array.from(buttons).find(b => b.textContent === 'claimAll')).toBeTruthy();
+    await switchToPendingTab(testContainer, act);
+
+    // Claim All button should be visible at the summary
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    expect(Array.from(summaryButtons).find(b => b.textContent === 'claimAll')).toBeTruthy();
+
+    // Drill into the asset group: the individual Claim button should be visible
+    await openFirstAssetGroup(testContainer, act);
+    const detailButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    expect(Array.from(detailButtons).find(b => b.textContent === 'claim')).toBeTruthy();
   });
 
   it('handles large number of notes', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
-    // Create 20 notes with unique faucetIds
+    // 20 notes that all share a faucetId collapse into a single asset group.
     const notes = Array.from({ length: 20 }, (_, i) => createMockNote(`note-${i + 1}`));
     currentClaimableNotes = notes;
 
@@ -1256,14 +1411,17 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Should render all notes as SingleNoteRows (each has unique faucetId)
-    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    const claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
-    expect(claimButtons.length).toBe(20);
+    await switchToPendingTab(testContainer, act);
 
-    // Claim All should be available
-    const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll');
-    expect(claimAllButton).toBeTruthy();
+    // Claim All should be available at the summary
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    expect(Array.from(summaryButtons).find(b => b.textContent === 'claimAll')).toBeTruthy();
+
+    // Drill into the asset group: all 20 notes should render their Claim buttons
+    await openFirstAssetGroup(testContainer, act);
+    const detailButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButtons = Array.from(detailButtons).filter(b => b.textContent === 'claim');
+    expect(claimButtons.length).toBe(20);
   });
 
   it('handles all notes transitioning to being claimed simultaneously', async () => {
@@ -1279,7 +1437,9 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click Claim All
+    await switchToPendingTab(testContainer, act);
+
+    // Click Claim All (summary)
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
 
@@ -1288,16 +1448,16 @@ describe('Receive - Edge Cases', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // All notes should show spinners
+    // Claim All should be hidden at summary (no unclaimed notes left)
+    const summaryButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    expect(Array.from(summaryButtons).find(b => b.textContent === 'claimAll')).toBeFalsy();
+
+    // Drill into the asset group: all notes spin, no Claim buttons remain
+    await openFirstAssetGroup(testContainer, act);
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(3);
-
-    // No Claim buttons should remain
-    const currentButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    const claimButtons = Array.from(currentButtons).filter(b => b.textContent === 'claim');
+    const detailButtons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButtons = Array.from(detailButtons).filter(b => b.textContent === 'claim');
     expect(claimButtons.length).toBe(0);
-
-    // Claim All should be hidden
-    expect(Array.from(currentButtons).find(b => b.textContent === 'claimAll')).toBeFalsy();
   });
 
   it('handles interleaved individual and Claim All operations', async () => {
@@ -1318,9 +1478,12 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Click individual Claim on note-1
-    let buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    let claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
+    await switchToPendingTab(testContainer, act);
+    await openFirstAssetGroup(testContainer, act);
+
+    // Click individual Claim on note-1 (in the asset detail view)
+    const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
+    const claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     const note1ClaimButton = claimButtons[0] as HTMLButtonElement;
 
     await act(async () => {
@@ -1331,23 +1494,27 @@ describe('Receive - Edge Cases', () => {
     // 1 spinner should appear
     expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(1);
 
-    // Click Claim All for remaining notes
+    // Click the in-view "Claim all in this group" action (shares claimNotesBatch with
+    // Claim All) for the remaining notes. Staying in the detail view keeps note-1's
+    // individual claiming spinner mounted.
     mockInitiateConsumeTransaction.mockClear();
-    buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
-    const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
+    const groupClaimButton = (Array.from(testContainer.querySelectorAll('button')) as HTMLButtonElement[]).find(
+      b => b.textContent === 'claimAllProgress'
+    ) as HTMLButtonElement;
+    expect(groupClaimButton).toBeTruthy();
 
     await act(async () => {
-      claimAllButton.click();
+      groupClaimButton.click();
       await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    // All 4 notes should now show spinners
-    expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(4);
-
-    // Claim All should have only processed notes 2, 3, 4
+    // The batch claim should have only processed notes 2, 3, 4 (not note-1, already claiming)
     expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(3);
     const calledNoteIds = mockInitiateConsumeTransaction.mock.calls.map((call: any[]) => call[1].id);
     expect(calledNoteIds).not.toContain('note-1');
+
+    // All 4 notes should now show spinners (note-1 individually + 2/3/4 via the batch)
+    expect(testContainer.querySelectorAll('[data-testid="sync-wave"]').length).toBe(4);
   });
 
   it('cleans up claiming state when component unmounts during Claim All', async () => {
@@ -1360,6 +1527,8 @@ describe('Receive - Edge Cases', () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+
+    await switchToPendingTab(testContainer, act);
 
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimAllButton = Array.from(buttons).find(b => b.textContent === 'claimAll') as HTMLButtonElement;
@@ -1395,8 +1564,10 @@ describe('Receive - Edge Cases', () => {
       testRoot!.render(<Receive />);
     });
 
-    // Grouped notes are collapsed by default, so individual claim buttons are hidden
-    // Only the Claim All button should be visible at the bottom
+    await switchToPendingTab(testContainer, act);
+
+    // On the pending summary the group is collapsed, so individual claim buttons are
+    // hidden — only the Claim All button is visible.
     const buttons = testContainer.querySelectorAll('[data-testid="claim-button"]');
     const claimButtons = Array.from(buttons).filter(b => b.textContent === 'claim');
     expect(claimButtons.length).toBe(0); // No individual claim buttons when collapsed

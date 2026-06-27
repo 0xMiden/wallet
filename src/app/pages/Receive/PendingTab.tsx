@@ -7,7 +7,6 @@ import { useAppEnv } from 'app/env';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { AssetIcon } from 'app/templates/AssetIcon';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
@@ -256,7 +255,7 @@ interface AssetSummaryRowProps {
 
 const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, claimingNoteIds, onClick }) => {
   const { t } = useTranslation();
-  const { metadata, faucetId, notes, totalAmount } = group;
+  const { metadata, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
   const decimals = metadata?.decimals ?? 6;
   const formattedTotal = formatBigInt(totalAmount, decimals);
@@ -340,6 +339,14 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="w-full mx-auto pt-6 px-4 flex flex-col min-h-full">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label={t('back')}
+          className="self-start -ml-1 mb-2 flex items-center justify-center w-9 h-9 rounded-full text-text-primary-token hover:bg-surface-interactive transition-colors"
+        >
+          <Icon name={IconName.ChevronLeft} className="w-5 h-5" fill="currentColor" />
+        </button>
         <div className="flex flex-col items-center flex-1">
           <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
             <span>{name}</span>

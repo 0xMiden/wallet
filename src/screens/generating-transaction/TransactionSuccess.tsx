@@ -50,7 +50,8 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = ({
 }) => {
   const { t } = useTranslation();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
-  const bridgedInputs = isBridgedSendExtraInputs(transaction?.extraInputs) ? transaction.extraInputs : undefined;
+  const extraInputs = transaction?.extraInputs;
+  const bridgedInputs = isBridgedSendExtraInputs(extraInputs) ? extraInputs : undefined;
 
   const tokenMetadata = transaction?.faucetId ? assetsMetadata[transaction.faucetId] : undefined;
   const tokenSymbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol ?? 'MDN';

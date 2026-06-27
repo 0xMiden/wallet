@@ -51,11 +51,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   const primaryButtonTitle = hasError ? t('retry') : t('openWallet');
 
   return (
-    <div
-      {...props}
-      className="bg-app-bg max-w-full h-full overflow-hidden"
-      data-testid="onboarding-confirmation"
-    >
+    <div {...props} className="bg-app-bg max-w-full h-full overflow-hidden" data-testid="onboarding-confirmation">
       <div className="min-h-full flex flex-col items-center px-6 pb-8">
         <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
           <ConfirmationHero style={{ width: 240, height: 'auto' }} />

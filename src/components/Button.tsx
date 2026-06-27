@@ -38,11 +38,11 @@ const propsPerButtonVariant = {
     fontWeight: 'font-medium',
     disabledColor: 'text-heading-gray',
     disabledFontWeight: 'font-semibold',
-    backgroundColor: 'bg-gray-25',
+    backgroundColor: 'bg-surface-interactive',
     hoverBackgroundColor: 'hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f]',
     disabledBackgroundColor: 'bg-surface-inactive',
     iconColor: 'black',
-    border: 'border-[0.5px] border-transparent'
+    border: 'border border-border-button'
   },
   [ButtonVariant.Ghost]: {
     color: 'text-heading-gray',
@@ -107,7 +107,7 @@ export const Button: React.FC<ButtonProps> = ({
       className={cn(
         'flex justify-center items-center gap-x-2 font-heading',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
-        'h-14 px-4 rounded-3xl w-full',
+        'max-w-92.5 h-14 px-4 rounded-3xl w-full',
         'transition duration-300 ease-in-out text-base',
         color,
         fontWeight,

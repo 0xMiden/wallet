@@ -14,6 +14,27 @@ export enum ITransactionStatus {
   Failed
 }
 
+/**
+ * Off-chain bridge provider for a bridged send. `epoch` settles quickly
+ * (FAST badge); `agglayer` settles on the slower path (SLOW badge). See
+ * `TransactionSuccess` for the badge mapping.
+ */
+export type IBridgeProvider = 'epoch' | 'agglayer';
+
+/**
+ * `extraInputs` payload carried by a bridged send (sending an asset out of
+ * Miden to another network). Populated when the user routes a send through a
+ * bridge; absent for plain in-network sends.
+ */
+export interface IBridgedSendExtraInputs {
+  /** Recipient address on the destination network. */
+  destinationAddress: string;
+  /** Destination network chain id. */
+  destinationNetwork: number;
+  /** Which bridge provider carries the transfer. */
+  provider: IBridgeProvider;
+}
+
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
   | 'send'

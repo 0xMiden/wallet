@@ -1,9 +1,9 @@
 /**
  * @jest-environment jsdom
  */
+import { InAppBrowser } from '@miden/dapp-browser';
 import { renderHook } from '@testing-library/react';
 
-import { InAppBrowser } from '@miden/dapp-browser';
 import { isMobile } from 'lib/platform';
 
 import { useHideNavbarWhileOpen } from './useHideNavbarWhileOpen';

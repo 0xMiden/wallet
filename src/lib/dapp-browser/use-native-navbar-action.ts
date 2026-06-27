@@ -37,6 +37,7 @@
 import { useEffect, useId, useRef } from 'react';
 
 import { InAppBrowser } from '@miden/dapp-browser';
+
 import { isMobile } from 'lib/platform';
 
 export interface NavbarAction {

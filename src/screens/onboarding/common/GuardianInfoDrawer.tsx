@@ -14,10 +14,7 @@ export interface GuardianInfoDrawerProps {
 const ShieldHero: React.FC = () => (
   <div className="w-20 h-20 rounded-2xl bg-[#0B4B33] flex items-center justify-center">
     <svg width="32" height="36" viewBox="0 0 32 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M16 1 L29 6 V18 C29 26 23 32 16 35 C9 32 3 26 3 18 V6 Z"
-        fill="#FFFFFF"
-      />
+      <path d="M16 1 L29 6 V18 C29 26 23 32 16 35 C9 32 3 26 3 18 V6 Z" fill="#FFFFFF" />
     </svg>
   </div>
 );
@@ -68,10 +65,7 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
           </div>
 
           <p className="mt-6 text-base text-heading-gray leading-[140%]">
-            <Trans
-              i18nKey="guardianInfoDescription"
-              components={{ b: <span className="font-semibold" /> }}
-            />
+            <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
           </p>
 
           <div className="mt-6 flex flex-col gap-3">
