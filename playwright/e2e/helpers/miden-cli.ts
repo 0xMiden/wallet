@@ -12,6 +12,29 @@ symbol = "TST"
 `;
 
 /**
+ * Classify a `miden-client` CLI stderr as a transient failure that should be
+ * retried (vs. a deterministic error that should fail fast). Matched
+ * wrap-tolerantly with `\s+` because miette folds messages at terminal width.
+ *
+ * Categories:
+ *  - RPC/transport to the node: 5xx, gRPC framing, reset/timeout.
+ *  - `new nonce N is less than old nonce M`: the node's account state lags the
+ *    store's optimistic post-submit state while a deploy/mint is still in
+ *    flight, and miden-client's sqlite store hard-fails the whole sync on it
+ *    (0xMiden/miden-client#2243). Clears once the tx commits.
+ *  - Remote-prover connection failures (`failed to connect to ... prover`,
+ *    `transport error`, `no native certs found`): the TLS/gRPC handshake to the
+ *    delegated prover endpoint flakes intermittently on the macOS CI runners
+ *    (a sibling mint in the same test connects fine), so a connection-level
+ *    prover error is transient, not a proving-logic failure.
+ */
+export function isTransientCliError(stderr: string): boolean {
+  return /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce|failed\s+to\s+connect\s+to(\s+the)?(\s+remote)?\s+prover|transport\s+error|no\s+native\s+certs/i.test(
+    stderr
+  );
+}
+
+/**
  * Resolve the miden-client binary path.
  * 1. MIDEN_CLIENT_BIN env var
  * 2. `miden-client` in PATH
@@ -188,17 +211,7 @@ export class MidenCli {
         break;
       }
       lastErr = createResult.stderr;
-      const transient =
-        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
-        // miette folds the message at terminal width): the node's account
-        // state lags the store's optimistic post-submit state while a
-        // deploy or mint is still in flight, and miden-client's sqlite
-        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
-        // Clears as soon as the tx commits, so it retries like any other
-        // transient.
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
-          lastErr
-        );
+      const transient = isTransientCliError(lastErr);
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
@@ -266,17 +279,7 @@ export class MidenCli {
         return { txId, noteId };
       }
       lastErr = result.stderr;
-      const transient =
-        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
-        // miette folds the message at terminal width): the node's account
-        // state lags the store's optimistic post-submit state while a
-        // deploy or mint is still in flight, and miden-client's sqlite
-        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
-        // Clears as soon as the tx commits, so it retries like any other
-        // transient.
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
-          lastErr
-        );
+      const transient = isTransientCliError(lastErr);
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
@@ -296,17 +299,7 @@ export class MidenCli {
       const result = await this.run('sync', { timeoutMs: 60_000 });
       if (result.exitCode === 0) return;
       lastErr = result.stderr;
-      const transient =
-        // `new nonce N is less than old nonce M` (matched wrap-tolerantly —
-        // miette folds the message at terminal width): the node's account
-        // state lags the store's optimistic post-submit state while a
-        // deploy or mint is still in flight, and miden-client's sqlite
-        // store hard-fails the whole sync on it (0xMiden/miden-client#2243).
-        // Clears as soon as the tx commits, so it retries like any other
-        // transient.
-        /HTTP status code 5\d\d|grpc request failed|grpc-status header missing|connection reset|timed out|Temporary failure|less\s+than\s+old\s+nonce/i.test(
-          lastErr
-        );
+      const transient = isTransientCliError(lastErr);
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
