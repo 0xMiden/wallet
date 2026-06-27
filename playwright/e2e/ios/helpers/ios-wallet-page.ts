@@ -599,9 +599,16 @@ export class IosWalletPage implements WalletPage {
    * __TEST_GUARDIAN_AUTH__ hook the Chrome POM uses, but over the async CDP
    * atom: the hook awaits getOrCreateMultisigService + a best-effort
    * (time-bounded) sync, so it returns a Promise and must run under
-   * execute_async_script. The hook itself caps its internal sync at 8s, so the
-   * 30s evalAsync budget is comfortable even when the background sync holds the
-   * WASM lock.
+   * execute_async_script.
+   *
+   * Budget: 90s, not the 30s evalAsync default. Building the multisig service
+   * co-signs with the Guardian (HTTP round-trips) and a hot signature, and on
+   * the slow iOS simulator runners that work can also queue behind
+   * useSyncTrigger's WASM-lock hold (documented at 30-60s). The hook's internal
+   * sync is capped at 8s, but the service build itself is not — observed
+   * actively progressing (HotKey.signWithHotKey returning) right up to a 30s
+   * cutoff, i.e. it was slow, not wedged. 90s clears the lock-hold window with
+   * headroom; a genuine wedge still fails fast enough for --retries.
    */
   async getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo> {
     return this.cdp.evalAsync<GuardianAuthInfo>(
@@ -625,7 +632,8 @@ export class IosWalletPage implements WalletPage {
              procedureThresholds: {},
              error: String(e && e.message ? e.message : e)
            });
-         });`
+         });`,
+      { timeoutMs: 90_000 }
     );
   }
 
