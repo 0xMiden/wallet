@@ -111,6 +111,13 @@ const Welcome: FC = () => {
   // Or navigate to /?__test_skip_onboarding=1
   const [testBypassTriggered, setTestBypassTriggered] = useState(false);
   useEffect(() => {
+    // E2E-only. Gate on the build flag (like __TEST_STORE__ / __TEST_INTERCOM__):
+    // Vite replaces process.env.MIDEN_E2E_TEST with 'false' in every non-E2E
+    // build, so this whole bypass — including the `seed` import path below —
+    // becomes dead code and tree-shakes out of production. Without this guard a
+    // crafted `fullpage.html?__test_skip_onboarding=1&seed=<words>` link could
+    // silently provision an attacker-chosen wallet.
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
     const params = new URLSearchParams(window.location.search);
     const skipViaParam = params.get('__test_skip_onboarding') === '1';
     const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;

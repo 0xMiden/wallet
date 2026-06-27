@@ -1175,6 +1175,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * passcode IS the vault password; entering 6 digits auto-submits.
    */
   async unlockWallet(password: string = PASSWORD): Promise<void> {
+    // The extension Unlock screen is a 6-digit Numpad — a non-digit passcode has
+    // no numpad-<ch> key and would hang until the home-surface wait throws. Fail
+    // fast with a clear message instead.
+    if (!/^\d{6}$/.test(password)) {
+      throw new Error(`unlockWallet: passcode must be 6 digits for the Numpad unlock, got "${password}"`);
+    }
     await this.navigateHome();
     await this.page.getByTestId('unlock-passcode').waitFor({ timeout: 15_000 });
 
