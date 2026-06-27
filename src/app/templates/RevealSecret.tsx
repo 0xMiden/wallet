@@ -10,6 +10,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -381,7 +382,7 @@ const getAccountPublicKeyCommitment = async (accPublicKey: string): Promise<stri
     if (!account) {
       throw new Error('Account not found');
     }
-    const commitments = account.getPublicKeyCommitments();
+    const commitments = resolvePublicKeyCommitments(account);
     if (commitments.length === 0) {
       throw new Error('Account has no public key');
     }
