@@ -37,9 +37,10 @@ test.describe('Wallet Lifecycle', () => {
 
     await steps.step('unlock_wallet', async () => {
       await walletA.unlockWallet();
-      // Verify we're back on the Explore page
+      // Verify we're back on the Explore page. The old "Send" home text is
+      // gone in the v0 UI — assert on the stable explore-page testid instead.
       await expect
-        .poll(async () => (await walletA.locatorText('body'))?.includes('Send') ?? false, {
+        .poll(async () => (await walletA.locatorText('[data-testid="explore-page"]')) !== null, {
           timeout: 30_000,
         })
         .toBe(true);

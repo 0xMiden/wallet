@@ -22,6 +22,14 @@ test.describe('Guardian account - consume + send', () => {
     steps,
     timeline
   }) => {
+    // The full guardian flow (account creation + co-signed consume + co-signed
+    // send) makes many HTTP round-trips to the guardian backend, each with its
+    // own multi-second canonicalization wait, on top of three 180s balance
+    // budgets — more than the default 5-min per-test cap. 10 min is comfortable
+    // headroom against the CI-spawned local guardian (a hosted/remote guardian
+    // is materially slower and may still exceed this).
+    test.setTimeout(600_000);
+
     let addressA: string;
     let addressB: string;
 

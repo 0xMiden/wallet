@@ -199,9 +199,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // the SW. Do NOT reload afterwards: that kills the in-flight intercom request.
     await this.page.getByTestId('onboarding-confirmation-submit').click();
 
-    // Wait for the home / Explore surface to appear after wallet creation.
+    // Wait for the wallet to be ready. The new home (Explore) has no stable
+    // "Send"/"Receive" text, so signal on the store's currentAccount.publicKey
+    // (register() populates it in place — no reload) or the home page testid.
     try {
-      await this.page.getByText('Send').or(this.page.getByText('Receive')).first().waitFor({ timeout: 120_000 });
+      await this.page.waitForFunction(
+        () => {
+          const store = (
+            window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+          ).__TEST_STORE__;
+          const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+          if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
+          return !!document.querySelector('[data-testid="explore-page"]');
+        },
+        { timeout: 120_000 }
+      );
     } catch (e) {
       const bodyText = await this.page
         .locator('body')
@@ -1051,8 +1063,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       await this.page.getByTestId(`numpad-${ch}`).click();
     }
 
-    // Entering the 6th digit auto-submits; wait for the home surface.
-    await this.page.getByText('Send').or(this.page.getByText('Receive')).first().waitFor({ timeout: 30_000 });
+    // Entering the 6th digit auto-submits and (on the extension) reloads the page;
+    // wait for the home surface to re-render.
+    await this.page.getByTestId('explore-page').waitFor({ timeout: 30_000 });
   }
 
   async setDelegateProofEnabled(enabled: boolean): Promise<void> {

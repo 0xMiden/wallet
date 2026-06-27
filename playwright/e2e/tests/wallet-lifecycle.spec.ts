@@ -37,8 +37,8 @@ test.describe('Wallet Lifecycle', () => {
 
     await steps.step('unlock_wallet', async () => {
       await walletA.unlockWallet();
-      // Verify we're back on the Explore page
-      await expect(walletA.page.getByText('Send')).toBeVisible({ timeout: 30_000 });
+      // Verify we're back on the Explore (home) page
+      await expect(walletA.page.getByTestId('explore-page')).toBeVisible({ timeout: 30_000 });
     });
   });
 });

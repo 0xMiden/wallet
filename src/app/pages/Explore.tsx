@@ -134,7 +134,7 @@ const Explore: FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-app-bg font-inter">
+    <div className="flex flex-col h-full overflow-hidden bg-app-bg font-inter" data-testid="explore-page">
       <div className="shrink-0">
         <ConnectivityIssueBanner />
       </div>

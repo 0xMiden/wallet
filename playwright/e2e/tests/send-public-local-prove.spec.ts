@@ -30,6 +30,11 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
     steps,
     timeline,
   }) => {
+    // Local proving (offscreen-doc WASM) runs the sender's claim AND send proofs
+    // in-browser on devnet — far slower than delegated proving, so the default
+    // 5-min per-test budget isn't enough for this path.
+    test.setTimeout(600_000);
+
     let addressA: string;
     let addressB: string;
 
