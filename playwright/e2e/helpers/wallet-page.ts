@@ -83,6 +83,13 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   }>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
+  /**
+   * Drain pending notes via the two-level per-faucet GROUP-claim UI (Pending
+   * tab → asset detail → group claim / per-note claim) instead of the top-level
+   * "Claim All". Chrome-only: the desktop two-level DOM drill-down has no mobile
+   * analogue (mobile Claim All is a native-navbar action).
+   */
+  claimNotesByGroup(timeoutMs?: number): Promise<void>;
   // getGuardianAuthInfo is declared on the shared WalletPage interface (above)
   // so the iOS POM implements it too — the 3-key auth assertion runs on both.
   // IndexedDB forensics (listIndexedDBStores / dumpIndexedDBStore) come from
@@ -875,6 +882,118 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       console.log(`[WalletPage.claimAllNotes] drained in ${iteration} iteration(s)`);
     }
 
+    await this.navigateHome();
+  }
+
+  /**
+   * Drain pending notes via the per-faucet GROUP-claim path (Pending tab → open
+   * an asset-summary row → asset detail view → group "Claim N/M" button, or the
+   * per-note Claim buttons), exercising `handleClaimGroup` / `AssetPendingDetail`
+   * — the two-level claim UI that the top-level "Claim All" (claimAllNotes) never
+   * reaches. Chrome desktop only.
+   */
+  async claimNotesByGroup(timeoutMs: number = 180_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    const STABLE_ZERO_THRESHOLD = 2;
+    await this.reloadAndPrepareReceive();
+
+    const readPendingCount = (): Promise<number> =>
+      this.page.evaluate(async () => {
+        const storage = await new Promise<any>(resolve => {
+          chrome.storage.local.get(['miden_sync_data'], resolve);
+        });
+        const notes = storage?.miden_sync_data?.notes;
+        return Array.isArray(notes) ? notes.length : 0;
+      });
+
+    let stableZero = 0;
+    let iteration = 0;
+    let lastPending = -1;
+    let stuckSameCountIters = 0;
+    while (Date.now() < deadline && stableZero < STABLE_ZERO_THRESHOLD) {
+      iteration++;
+      await this.triggerSync();
+      const pending = await readPendingCount();
+
+      if (pending === 0) {
+        stableZero++;
+        if (stableZero < STABLE_ZERO_THRESHOLD) await this.page.waitForTimeout(2_000);
+        continue;
+      }
+      stableZero = 0;
+      stuckSameCountIters = pending === lastPending ? stuckSameCountIters + 1 : 0;
+      lastPending = pending;
+      await this.page.waitForTimeout(2_000);
+
+      // Ensure the Pending tab is active so the two-level claim UI is mounted.
+      const pendingTab = this.page.getByTestId('receive-tab-pending');
+      if (await pendingTab.isVisible().catch(() => false)) {
+        await pendingTab.click({ timeout: 5_000 }).catch(() => {});
+        await this.page.waitForTimeout(1_000);
+      }
+
+      // Open the first per-faucet summary row → asset detail view.
+      const row = this.page.getByTestId('pending-asset-row').first();
+      if (!(await row.isVisible().catch(() => false))) {
+        await this.page.waitForTimeout(3_000);
+        continue;
+      }
+      await row.click({ timeout: 5_000 });
+
+      // The detail view (and its claim buttons) render asynchronously — a balance
+      // read behind the WASM lock gates them. Wait for either claim affordance to
+      // appear before acting, else we'd go back having clicked nothing.
+      const groupBtn = this.page.getByTestId('claim-group-button');
+      const noteBtn = this.page.getByTestId('claim-button');
+      await groupBtn
+        .or(noteBtn)
+        .first()
+        .waitFor({ state: 'visible', timeout: 15_000 })
+        .catch(() => {});
+
+      let clicked = false;
+      // Prefer the group-level "Claim N/M" button (handleClaimGroup).
+      if (await groupBtn.isVisible().catch(() => false)) {
+        try {
+          await groupBtn.click({ timeout: 10_000 });
+          clicked = true;
+        } catch {
+          // disabled/transient — fall through to per-note buttons
+        }
+      }
+      if (!clicked) {
+        const noteCount = await noteBtn.count().catch(() => 0);
+        for (let i = 0; i < noteCount; i++) {
+          try {
+            await this.page.getByTestId('claim-button').first().click({ timeout: 5_000 });
+            clicked = true;
+            await this.page.waitForTimeout(1_000);
+          } catch {
+            // button vanished as the list re-rendered
+          }
+        }
+      }
+      console.log(
+        `[WalletPage.claimNotesByGroup] iter=${iteration} pending=${pending} claimed=${clicked} (stuck ${stuckSameCountIters})`
+      );
+      await this.page.waitForTimeout(clicked ? 8_000 : 2_000);
+
+      // Back to the summary list for the next pass.
+      await this.page
+        .getByTestId('pending-detail-back')
+        .click({ timeout: 5_000 })
+        .catch(() => {});
+
+      // If the count hasn't budged for a few passes, a prior claim may have left
+      // notes gated by `isBeingClaimed`; a full reload clears the in-memory gate.
+      if (stuckSameCountIters >= 3) {
+        await this.reloadAndPrepareReceive();
+        stuckSameCountIters = 0;
+      }
+      await this.page.waitForTimeout(2_000);
+    }
+
+    console.log(`[WalletPage.claimNotesByGroup] done after ${iteration} iteration(s)`);
     await this.navigateHome();
   }
 
