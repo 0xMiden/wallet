@@ -103,6 +103,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
               className="self-center w-full text-base"
               onClick={onSubmit}
               isLoading={isLoading}
+              data-testid="onboarding-confirmation-submit"
             />
           )}
         </div>

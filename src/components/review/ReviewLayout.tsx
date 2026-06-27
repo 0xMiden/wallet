@@ -10,6 +10,8 @@ export interface ReviewAction {
   onPress: () => void;
   /** Defaults to 'button'. Use 'submit' when the screen is inside a <form>. */
   type?: 'button' | 'submit';
+  /** Optional stable selector for E2E; set by the caller, not hardcoded here. */
+  'data-testid'?: string;
 }
 
 export interface ReviewLayoutProps {
@@ -68,6 +70,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
           title={primary.label}
           variant={ButtonVariant.Primary}
           onClick={primary.onPress}
+          data-testid={primary['data-testid']}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
         {secondary && (

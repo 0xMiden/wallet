@@ -29,12 +29,18 @@ export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, className }) 
   return (
     <div className={cn('grid grid-cols-3 gap-4 w-fit mx-auto', className)}>
       {DIGITS.map(digit => (
-        <button key={digit} type="button" className={keyClass} onClick={() => handleDigit(digit)}>
+        <button
+          key={digit}
+          type="button"
+          className={keyClass}
+          onClick={() => handleDigit(digit)}
+          data-testid={`numpad-${digit}`}
+        >
           {digit}
         </button>
       ))}
       <div aria-hidden="true" />
-      <button type="button" className={keyClass} onClick={() => handleDigit('0')}>
+      <button type="button" className={keyClass} onClick={() => handleDigit('0')} data-testid="numpad-0">
         0
       </button>
       <button
@@ -42,6 +48,7 @@ export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, className }) 
         aria-label="Delete"
         className="size-23 rounded-2xl text-heading-gray flex items-center justify-center select-none"
         onClick={handleDelete}
+        data-testid="numpad-delete"
       >
         <Icon name={IconName.Backspace} size="lg" />
       </button>

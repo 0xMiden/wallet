@@ -294,6 +294,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
       <div className="shrink-0 flex border-b border-rule-default">
         <button
           type="button"
+          data-testid="receive-tab-address"
           onClick={() => handleTabTap('address')}
           aria-pressed={activeTab === 'address'}
           className={classNames(
@@ -305,6 +306,7 @@ export const Receive: React.FC<ReceiveProps> = () => {
         </button>
         <button
           type="button"
+          data-testid="receive-tab-pending"
           onClick={() => handleTabTap('pending')}
           aria-pressed={activeTab === 'pending'}
           className={classNames(
@@ -312,7 +314,9 @@ export const Receive: React.FC<ReceiveProps> = () => {
             activeTab === 'pending' ? 'bg-surface-interactive text-accent-primary' : 'bg-white text-text-primary-token'
           )}
         >
-          {`${t('pending')} (${pendingCount})`}
+          {`${t('pending')} (`}
+          <span data-testid="receive-pending-count">{pendingCount}</span>
+          {')'}
         </button>
       </div>
 

@@ -44,6 +44,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const tokenSelector = (
     <button
       type="button"
+      data-testid="send-token-selector"
       onClick={() => {
         hapticLight();
         onSelectToken();
@@ -81,6 +82,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           error={error ? t(error) : undefined}
           helper={helper}
           tokenSelector={tokenSelector}
+          data-testid="send-amount-input"
           onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
         />
       </div>
@@ -91,6 +93,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}
+          data-testid="send-amount-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>

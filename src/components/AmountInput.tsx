@@ -33,6 +33,7 @@ export interface AmountInputProps {
   autoFocus?: boolean;
   disabled?: boolean;
   className?: string;
+  'data-testid'?: string;
 }
 
 /**
@@ -51,7 +52,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   tokenSelector,
   autoFocus,
   disabled,
-  className
+  className,
+  'data-testid': dataTestId
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -82,6 +84,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           maxLength={16}
           autoFocus={autoFocus}
           disabled={disabled}
+          data-testid={dataTestId}
         />
       </div>
 

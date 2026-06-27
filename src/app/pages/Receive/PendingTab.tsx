@@ -235,6 +235,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
         {unclaimedNotesCount > 0 && !isMobile() && (
           <div className="flex justify-center mt-2 pb-2">
             <Button
+              data-testid="claim-all-button"
               className="w-30 h-10 text-md"
               variant={ButtonVariant.Primary}
               onClick={onClaimAll}
@@ -264,6 +265,8 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, claimingNoteId
   return (
     <button
       type="button"
+      data-testid="pending-asset-row"
+      data-faucet-id={group.faucetId}
       onClick={onClick}
       className={classNames(
         'w-full flex items-center rounded-2xl border border-rule-default bg-white',
@@ -341,6 +344,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
       <div className="w-full mx-auto pt-6 px-4 flex flex-col min-h-full">
         <button
           type="button"
+          data-testid="pending-detail-back"
           onClick={onBack}
           aria-label={t('back')}
           className="self-start -ml-1 mb-2 flex items-center justify-center w-9 h-9 rounded-full text-text-primary-token hover:bg-surface-interactive transition-colors"
@@ -386,6 +390,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
         {onClaimGroup && (
           <button
             type="button"
+            data-testid="claim-group-button"
             onClick={handleClaimGroup}
             disabled={!canClaimAllGroup}
             className={classNames(
@@ -508,13 +513,14 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
         </span>
         {!showSpinner ? (
           <Button
+            data-testid="claim-button"
             className="w-18 h-7.5 text-white font-semibold rounded-5 text-xs leading-none"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
             title={hasError ? t('retry') : t('claim')}
           />
         ) : (
-          <div className="w-18 h-7.5" />
+          <div data-testid="claim-spinner" className="w-18 h-7.5" />
         )}
       </div>
     </div>

@@ -19,6 +19,8 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   iconLeft?: React.ReactNode | IconName;
   iconRight?: React.ReactNode | IconName;
   isLoading?: boolean;
+  /** Optional E2E hook, forwarded to the root <button>. Set by specific callers. */
+  'data-testid'?: string;
 }
 
 const propsPerButtonVariant = {

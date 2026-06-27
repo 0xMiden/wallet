@@ -10,6 +10,7 @@ export interface AssetRowProps {
   asset: TokenBalanceData;
   tokenPrices: TokenPrices;
   onClick?: () => void;
+  'data-testid'?: string;
 }
 
 const FLAT_SPARKLINE_POINTS = [1, 1];
@@ -20,7 +21,7 @@ const FLAT_SPARKLINE_POINTS = [1, 1];
  * Binance (flat-grey fallback for unindexed symbols), fiat price, and
  * coloured 24h delta.
  */
-export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick }) => {
+export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick, 'data-testid': dataTestId }) => {
   const { metadata, balance } = asset;
   const priceInfo = getTokenPrice(tokenPrices, metadata.symbol);
   const isPositive = priceInfo.percentageChange24h >= 0;
@@ -45,6 +46,7 @@ export const AssetRow: FC<AssetRowProps> = ({ asset, tokenPrices, onClick }) => 
       price={`$${(balance * priceInfo.price).toFixed(2)}`}
       delta={{ value: deltaValue, direction }}
       onClick={onClick}
+      data-testid={dataTestId}
     />
   );
 };

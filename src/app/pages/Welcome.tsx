@@ -124,13 +124,27 @@ const Welcome: FC = () => {
     // matches the Chrome E2E's private default and keeps non-guardian specs
     // independent of a guardian backend.
     const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
-    console.log(`[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}`);
-    const testSeed = generateMnemonic(128).split(' ');
+    // Optional `seed` param: a space- or comma-separated mnemonic. When present,
+    // import that exact seed (onboardingType=Import drives registerWallet's
+    // isImport=true) instead of generating a fresh mnemonic + Create. This lets
+    // the harness restore a specific wallet through the bypass.
+    const seedParam = params.get('seed');
+    const importedSeed = seedParam
+      ? seedParam
+          .split(/[\s,]+/)
+          .map(word => word.trim())
+          .filter(Boolean)
+      : null;
+    const bypassOnboardingType = importedSeed ? OnboardingType.Import : OnboardingType.Create;
+    console.log(
+      `[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}, onboardingType=${bypassOnboardingType}`
+    );
+    const testSeed = importedSeed ?? generateMnemonic(128).split(' ');
     const testPassword = params.get('password') || 'password1';
     setWalletType(bypassWalletType);
     setSeedPhrase(testSeed);
     setPassword(testPassword);
-    setOnboardingType(OnboardingType.Create);
+    setOnboardingType(bypassOnboardingType);
     setTestBypassTriggered(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

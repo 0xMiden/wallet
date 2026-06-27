@@ -58,6 +58,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         <div className="relative mt-3">
           <textarea
             ref={textareaRef}
+            data-testid="send-recipient-input"
             rows={1}
             placeholder={t('enterMidenOrEthereumAddress')}
             className={clsx(
@@ -93,6 +94,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!isValidAddress}
+          data-testid="send-recipient-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
