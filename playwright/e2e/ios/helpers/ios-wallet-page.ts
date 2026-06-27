@@ -80,6 +80,29 @@ export class IosWalletPage implements WalletPage {
     if (!ok) throw new Error(`IosWalletPage.click: no element matched ${selector}`);
   }
 
+  /**
+   * Poll until `selector` is present AND enabled, then click it. On iOS, click()
+   * is a JS `el.click()` that silently no-ops on a disabled <button>, so clicking
+   * a form CTA before its validation has enabled it advances nothing (the next
+   * screen never renders). The single-threaded WASM lock held by the ~3s sync
+   * tick can delay that validation, so gated CTAs (recipient/amount confirm)
+   * must wait for the enabled state rather than fire-and-hope.
+   */
+  async clickWhenEnabled(selector: string, timeoutMs: number): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const state = await this.cdp.eval<string>(
+        `var el = document.querySelector(${JSON.stringify(selector)}); ` +
+          `if (!el) return 'missing'; ` +
+          `if (el.disabled || el.getAttribute('aria-disabled') === 'true') return 'disabled'; ` +
+          `el.click(); return 'clicked';`
+      );
+      if (state === 'clicked') return;
+      await sleep(500);
+    }
+    throw new Error(`IosWalletPage.clickWhenEnabled: ${selector} not present+enabled within ${timeoutMs}ms`);
+  }
+
   async waitFor(selector: string, opts: { timeoutMs?: number } = {}): Promise<void> {
     const timeoutMs = opts.timeoutMs ?? 15_000;
     await this.pollForSelector(selector, timeoutMs);
@@ -479,9 +502,9 @@ export class IosWalletPage implements WalletPage {
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
     // 1. SelectRecipient: fill the recipient address (textarea) and confirm.
+    // Confirm is gated on a valid address, so wait for it to enable.
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
-    await this.pollForSelector('[data-testid="send-recipient-confirm"]', 15_000);
-    await this.click('[data-testid="send-recipient-confirm"]');
+    await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
     // 2. SelectAmount: open the token sub-screen, pick a token, then fill the
     // amount. The amount Confirm stays disabled until a token is picked.
@@ -491,11 +514,15 @@ export class IosWalletPage implements WalletPage {
     // Pick the token row. Prefer the requested symbol; otherwise take the first
     // token row that isn't the selector control, the search box, or MIDEN
     // (which typically sits at 0 balance above the real fundable token).
-    await this.pollForCondition(
-      `return !!document.querySelector('[data-testid^="send-token-"]');`,
-      15_000
-    );
     const tokenSymbol = params.tokenSymbol;
+    if (tokenSymbol) {
+      // Wait for the FUNDED token row specifically — balance sync can lag, and
+      // if only the 0-balance MIDEN row has rendered, the fallback would grab it
+      // and the amount Confirm would never enable.
+      await this.pollForSelector(`[data-testid="send-token-${tokenSymbol}"]`, 30_000);
+    } else {
+      await this.pollForCondition(`return !!document.querySelector('[data-testid^="send-token-"]');`, 15_000);
+    }
     const clickedToken = await this.cdp.eval<boolean>(
       `var symbol = ${JSON.stringify(tokenSymbol ?? '')}; ` +
         `if (symbol) { ` +
@@ -512,11 +539,15 @@ export class IosWalletPage implements WalletPage {
       throw new Error('IosWalletPage.sendTokens: no token row to select');
     }
 
-    // Back on SelectAmount after the sub-screen closes.
-    await this.pollForSelector('[data-testid="send-amount-input"]', 15_000);
+    // Back on SelectAmount after the sub-screen closes. Generous timeout: the
+    // single-threaded WASM lock (held by the ~3s sync tick on mobile) can queue
+    // the balance reads that gate each screen, so render can lag.
+    await this.pollForSelector('[data-testid="send-amount-input"]', 30_000);
     await this.fillInput('[data-testid="send-amount-input"]', params.amount);
-    await this.pollForSelector('[data-testid="send-amount-confirm"]', 15_000);
-    await this.click('[data-testid="send-amount-confirm"]');
+    // Confirm is disabled until a token is picked AND the amount validates
+    // (both involve balance reads behind the WASM lock); clicking it while still
+    // disabled is a silent no-op, so wait for the enabled state.
+    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 45_000);
 
     // 3. Force the note type. The public/private toggle was removed (private by
     // default); the E2E hook persists the choice across the remaining steps.
@@ -528,8 +559,10 @@ export class IosWalletPage implements WalletPage {
       `window.__TEST_SET_SHARE_PRIVATELY__(${params.isPrivate ? 'true' : 'false'}); return null;`
     );
 
-    // 4. ReviewTransaction: submit. The flow unmounts on success.
-    await this.pollForSelector('[data-testid="send-review-submit"]', 15_000);
+    // 4. ReviewTransaction: submit. The Review screen recomputes the fee/summary
+    // on entry (a balance read behind the WASM lock), which can lag well past 15s
+    // when a sync tick holds the lock — so poll generously.
+    await this.pollForSelector('[data-testid="send-review-submit"]', 45_000);
     await this.click('[data-testid="send-review-submit"]');
 
     // 5. Treat the submit button detaching as the "submit accepted" signal — the
