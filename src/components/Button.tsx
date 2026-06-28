@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { motion } from 'framer-motion';
+
 import { IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
@@ -103,14 +105,18 @@ export const Button: React.FC<ButtonProps> = ({
     hapticLight();
     props.onClick?.(e);
   };
+  const motionButtonProps = props as Omit<
+    React.ComponentPropsWithoutRef<typeof motion.button>,
+    'children' | 'className' | 'onClick'
+  >;
 
   return (
-    <button
+    <motion.button
       className={cn(
         'flex justify-center items-center gap-x-2 font-heading',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
         'max-w-92.5 h-14 px-4 rounded-3xl w-full',
-        'transition duration-300 ease-in-out text-base',
+        'transition-colors duration-300 ease-in-out text-base',
         color,
         fontWeight,
         backgroundColor,
@@ -122,10 +128,12 @@ export const Button: React.FC<ButtonProps> = ({
       )}
       disabled={disabled}
       type="button"
-      {...props}
+      whileTap={!disabled && !isLoading ? { scale: 0.95, transition: { duration: 0.03 } } : undefined}
+      transition={{ type: 'spring', stiffness: 800, damping: 35 }}
+      {...motionButtonProps}
       onClick={onClick}
     >
       {renderContent()}
-    </button>
+    </motion.button>
   );
 };

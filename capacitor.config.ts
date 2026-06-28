@@ -1,8 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-///@ts-ignore
-const isLiveReload = process.argv.includes('--live-reload') || process.argv.includes('-l');
-
 const config: CapacitorConfig = {
   appId: 'com.miden.wallet',
   appName: 'Bread',
@@ -15,8 +12,7 @@ const config: CapacitorConfig = {
     // Mobile prove uses the native @miden/native-prover plugin, so we do not
     // need cross-origin isolation in the WebView.
     androidScheme: 'http',
-    cleartext: true,
-    ...(isLiveReload ? { appStartPath: '/mobile.html' } : {})
+    cleartext: true
   },
   plugins: {
     Preferences: {

@@ -350,7 +350,7 @@
   "biometricSetupReason": "Set up biometric unlock for your wallet",
   "biometricUnavailable": "Biometric unlock isn't available on this device.",
   "chooseYourGuardian": "Choose your Guardian",
-  "chooseGuardianDescription": "For the last step, choose your Miden Guardian. This will serve as a protective layer",
+  "chooseGuardianDescription": "Select an option below",
   "learnMoreAboutGuardian": "Learn more about the Guardian",
   "guardianOperatedBy": "Operated by:",
   "guardianLocation": "Location:",

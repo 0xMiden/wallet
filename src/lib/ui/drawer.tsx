@@ -37,16 +37,19 @@ interface DrawerContentProps extends Omit<
   'children' | 'className'
 > {
   className?: string;
+  overlayClassName?: string;
   children: React.ReactNode;
   /** The visual handle is hidden by default. Vaul still handles sheet drag
    *  gestures; pass `hideHandle={false}` to show the handle affordance. */
   hideHandle?: boolean;
 }
 
-function DrawerContent({ className, children, hideHandle = true, ...props }: DrawerContentProps) {
+function DrawerContent({ className, overlayClassName, children, hideHandle = true, ...props }: DrawerContentProps) {
   return (
     <VaulDrawer.Portal>
-      <VaulDrawer.Overlay className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50" />
+      <VaulDrawer.Overlay
+        className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
+      />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
