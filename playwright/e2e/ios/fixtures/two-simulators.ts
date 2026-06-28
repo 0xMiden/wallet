@@ -265,6 +265,40 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// A healthy two-simulator setup (terminate→uninstall→install→launch→CDP for
+// both, sims already booted by globalSetup) runs in ~2-3 min. A degraded
+// macos-26 CoreSimulator stretches it past 8 min; cap there so the whole 15-min
+// test timeout isn't consumed in fixture setup with no room for a retry.
+const SETUP_DEADLINE_MS = 480_000;
+// Upper bound for the on-timeout daemon restart so the recovery itself can't run
+// into the test timeout — setupBothWallets does its own recovery on the retry.
+const SETUP_RECOVERY_BUDGET_MS = 90_000;
+
+/**
+ * Run the `_simPair` setup with a hard deadline. On overrun, run `onTimeout`
+ * (a best-effort, time-bounded sim-subsystem restart) so Playwright's retry
+ * lands on a fresh daemon, then throw a named error instead of letting setup
+ * silently eat the entire test timeout.
+ */
+async function withSetupDeadline<T>(fn: () => Promise<T>, deadlineMs: number, onTimeout: () => Promise<void>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`_simPair setup exceeded ${deadlineMs}ms (degraded CoreSimulator)`));
+    }, deadlineMs);
+  });
+  try {
+    return await Promise.race([fn(), deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (timedOut) {
+      await Promise.race([onTimeout(), sleep(SETUP_RECOVERY_BUDGET_MS)]).catch(() => undefined);
+    }
+  }
+}
+
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 let _devicePair: { udidA: string; udidB: string } | null = null;
@@ -335,7 +369,28 @@ export const test = base.extend<TwoSimulatorFixtures>({
     // macos-26 daemon-wedge that hangs simctl mid-suite) by restarting the sim
     // subsystem and retrying the pair. The shared `_simPair` fixture still
     // consolidates teardown.
-    const { instanceA, instanceB } = await setupBothWallets(simA, udidA, simB, udidB, envConfig, timeline);
+    //
+    // Cap the whole setup. On a degraded macos-26 CoreSimulator every simctl op
+    // crawls (install/terminate observed at 30-180s vs. <5s healthy); slow-but-
+    // completing ops never trip the per-op recovery, so the cumulative cost can
+    // silently eat the entire 15-min test timeout "while setting up _simPair"
+    // with no attribution and no room for Playwright's retry. A hard cap turns
+    // that into a fast, named failure — and on overrun we restart the sim
+    // subsystem first so the retry runs against a fresh daemon.
+    const { instanceA, instanceB } = await withSetupDeadline(
+      () => setupBothWallets(simA, udidA, simB, udidB, envConfig, timeline),
+      SETUP_DEADLINE_MS,
+      async () => {
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'warn',
+          message:
+            `[sim-setup] _simPair setup exceeded ${SETUP_DEADLINE_MS}ms (degraded CoreSimulator); ` +
+            `restarting the sim subsystem so the retry gets a fresh daemon`,
+        });
+        await SimulatorControl.recoverSimSubsystem([udidA, udidB]).catch(() => undefined);
+      }
+    );
     steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));
     steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instanceB.walletPage, ''));
 
