@@ -2111,6 +2111,66 @@
     "message": "Нам не вдалося знайти ваш обліковий запис у цього опікуна. Перевірте URL-адресу або імпортуйте як публічний обліковий запис.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "chooseYourGuardian": {
+    "message": "Виберіть свого опікуна",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "Для останнього кроку виберіть свого Miden Guardian. Це буде служити захисним шаром",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Дізнайтеся більше про Guardian",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "Керується:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "Розташування:",
+    "englishSource": "Location:"
+  },
+  "currentLabel": {
+    "message": "поточний",
+    "englishSource": "Current"
+  },
+  "whatIsAGuardian": {
+    "message": "Що таке опікун?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian — це незалежна служба, яка <b>підписує кожну трансакцію</b> з вашого гаманця, додаючи систему безпеки, не відмовляючись від самостійної опіки.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "Що воно робить",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Схвалює або відхиляє транзакції на основі вашої політики безпеки. Допомагає відновити роботу, якщо ви втратите пристрій.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "Що воно не може зробити",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "Перемістіть свої кошти самостійно. Доступ до приватного стану. Переглядайте свої баланси, якщо ви не ділитеся ними.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "Перемикатися легко",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Ви можете будь-коли перейти до іншого Опікуна — або повністю видалити одного — за допомогою фрази відновлення.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "useCustomGuardianUrl": {
+    "message": "Використовуйте спеціальну URL-адресу Guardian",
+    "englishSource": "Use a custom Guardian URL"
+  },
   "default": {
     "message": "За замовчуванням",
     "englishSource": "Default"

@@ -2111,6 +2111,66 @@
     "message": "Нам не удалось найти вашу учетную запись на этом опекуне. Вместо этого проверьте URL-адрес или импортируйте его как общедоступную учетную запись.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "chooseYourGuardian": {
+    "message": "Выберите своего Хранителя",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "На последнем шаге выберите своего стража Мидена. Это будет служить защитным слоем.",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Узнайте больше о Гардиане",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "Управляется:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "Расположение:",
+    "englishSource": "Location:"
+  },
+  "currentLabel": {
+    "message": "Текущий",
+    "englishSource": "Current"
+  },
+  "whatIsAGuardian": {
+    "message": "Что такое Хранитель?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian – это независимая служба, которая <b>подписывает каждую транзакцию</b> из вашего кошелька, обеспечивая дополнительную безопасность, не отказываясь от самостоятельного хранения.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "Что он делает",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Утверждает или отклоняет транзакции на основе вашей политики безопасности. Поможет вам восстановиться, если вы потеряете устройство.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "Чего он не может сделать",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "Перемещайте свои средства самостоятельно. Получите доступ к своему личному состоянию. Просматривайте свои балансы, если вы ими не делитесь.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "Переключиться легко",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Вы можете в любой момент перейти к другому Стражу или полностью удалить его, используя фразу восстановления.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "useCustomGuardianUrl": {
+    "message": "Используйте собственный URL-адрес Guardian",
+    "englishSource": "Use a custom Guardian URL"
+  },
   "default": {
     "message": "По умолчанию",
     "englishSource": "Default"

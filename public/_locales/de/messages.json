@@ -2110,6 +2110,66 @@
     "message": "Wir konnten Ihr Konto bei diesem Guardian nicht finden. Überprüfen Sie die URL oder importieren Sie stattdessen als öffentliches Konto.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "chooseYourGuardian": {
+    "message": "Wählen Sie Ihren Wächter",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "Wählen Sie im letzten Schritt Ihren Miden Guardian aus. Dies dient als Schutzschicht",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Erfahren Sie mehr über den Wächter",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "Betrieben von:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "Standort:",
+    "englishSource": "Location:"
+  },
+  "currentLabel": {
+    "message": "Aktuell",
+    "englishSource": "Current"
+  },
+  "whatIsAGuardian": {
+    "message": "Was ist ein Wächter?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Ein Guardian ist ein unabhängiger Dienst, der <b>jede Transaktion aus Ihrem Wallet mitsigniert</b> und so ein Sicherheitsnetz hinzufügt, ohne auf die Selbstverwahrung zu verzichten.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "Was es bewirkt",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Genehmigt oder lehnt Transaktionen basierend auf Ihrer Sicherheitsrichtlinie ab. Hilft Ihnen bei der Wiederherstellung, wenn Sie Ihr Gerät verlieren.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "Was es nicht kann",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "Bewegen Sie Ihr Geld selbstständig. Greifen Sie auf Ihren privaten Status zu. Sehen Sie sich Ihre Guthaben an, es sei denn, Sie teilen sie.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "Der Wechsel ist einfach",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Mit Ihrer Wiederherstellungsphrase können Sie jederzeit zu einem anderen Wächter wechseln oder ihn ganz entfernen.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "useCustomGuardianUrl": {
+    "message": "Verwenden Sie eine benutzerdefinierte Guardian-URL",
+    "englishSource": "Use a custom Guardian URL"
+  },
   "default": {
     "message": "Standard",
     "englishSource": "Default"
