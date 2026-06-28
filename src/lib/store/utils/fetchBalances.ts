@@ -31,7 +31,11 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
   try {
     const { AccountInspector } = await import('@openzeppelin/miden-multisig-client');
     const config = AccountInspector.fromAccount(account);
-    if (!config.signerCommitments || config.signerCommitments.length === 0) return;
+    if (!config.signerCommitments || config.signerCommitments.length === 0) {
+      // eslint-disable-next-line no-console
+      console.log('[E2E] captureGuardianAuthStructure: not a multisig account (0 signers), skipping', address);
+      return;
+    }
     const holder = globalThis as {
       __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
         string,
@@ -46,8 +50,11 @@ async function captureGuardianAuthStructureForTest(address: string, account: Sdk
         procedureThresholds: Object.fromEntries(config.procedureThresholds)
       }
     };
-  } catch {
-    // best-effort — the test hook falls back to a live read if nothing is stashed
+    // eslint-disable-next-line no-console
+    console.log('[E2E] captureGuardianAuthStructure: stashed', address, 'signers=', config.signerCommitments.length);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log('[E2E] captureGuardianAuthStructure failed:', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -96,7 +103,12 @@ export async function fetchBalances(
   // structure is immutable, so a slightly-old capture is correct. Best-effort,
   // fire-and-forget; gated on MIDEN_E2E_TEST and tree-shaken from production.
   if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
-    void captureGuardianAuthStructureForTest(address, acc);
+    // Awaited (not fire-and-forget): tie the capture to this balance fetch so it
+    // is stashed before `verify_balance` passes and the auth step reads it — a
+    // fire-and-forget capture loses the race against the test on the contended
+    // iOS main thread. The `@openzeppelin/...` import is already warm (the
+    // guardian flow loaded it), so this adds negligible latency.
+    await captureGuardianAuthStructureForTest(address, acc);
   }
 
   let account: typeof acc | null = null;
