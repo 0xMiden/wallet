@@ -275,19 +275,13 @@ button,
   animation: mobile-slide-in 0.15s ease-out both;
 }
 
-/* Native navbar overlay retired — wallet now ships a React-only BottomNav
- * mounted inside TabLayout. The legacy rules keyed on
- * `body[data-native-navbar]` (which hid `[data-tabbar-footer='true']` and
- * reserved 88pt of bottom gutter) have been removed so a stale compiled
- * bundle that still toggles that attribute can't make the React BottomNav
- * vanish or push the page upward. */
+/* Wallet navigation is React-only: BottomNav is mounted inside TabLayout. */
 
 /* Parked-dApp bubble host — default transform is identity, and it
  * rides a ~spring transition so that when the drawer-open rule
  * below kicks in the bubble slides off the bottom of the screen on
- * roughly the same curve as the native navbar's morphOut. Opacity
- * drops alongside so a ghost isn't visible behind a translucent
- * drawer backdrop. */
+ * roughly the same curve as the drawer. Opacity drops alongside so a
+ * ghost isn't visible behind a translucent drawer backdrop. */
 [data-dapp-bubble-host='true'] {
   transition:
     transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),

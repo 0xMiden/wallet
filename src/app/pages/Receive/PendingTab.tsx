@@ -232,7 +232,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
           ))}
         </div>
 
-        {unclaimedNotesCount > 0 && !isMobile() && (
+        {unclaimedNotesCount > 0 && (
           <div className="flex justify-center mt-2 pb-2">
             <Button
               data-testid="claim-all-button"

@@ -3,7 +3,6 @@ import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { InAppBrowser } from '@miden/dapp-browser';
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
 import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
 import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
@@ -312,44 +311,29 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
 
-  // On mobile, morph the native navbar AND the parked-dApp bubbles
-  // OUT when a settings drawer / seed-warning overlay takes over the
-  // bottom of the screen — both would otherwise fight with the drawer
-  // for the same real estate. The navbar morph is a Swift spring
-  // animation on the native UIWindow; the bubbles morph via a CSS
-  // rule keyed on `body[data-drawer-open]` (see main.css).
-  //
-  // Morphs back IN when the drawer closes. No-op on desktop/extension.
+  // On mobile, move parked dApp trays out when a settings drawer /
+  // seed-warning overlay takes over the bottom of the screen.
   const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
   useEffect(() => {
     if (!isMobile()) return;
     if (drawerOrSheetOpen) {
       document.body.setAttribute('data-drawer-open', '');
-      InAppBrowser.morphNavbarOut().catch(() => {});
     } else {
       document.body.removeAttribute('data-drawer-open');
-      InAppBrowser.morphNavbarIn().catch(() => {});
     }
     // Unmount cleanup: if the Settings page unmounts while a drawer
-    // is still open (e.g. user swipes back mid-open), force both the
-    // navbar and the bubbles back in so nothing is stranded
-    // off-screen on the next page.
+    // is still open, force parked dApp trays back in.
     return () => {
       if (!isMobile()) return;
       if (drawerOrSheetOpen) {
         document.body.removeAttribute('data-drawer-open');
-        InAppBrowser.morphNavbarIn().catch(() => {});
       }
     };
   }, [drawerOrSheetOpen]);
 
-  // Mark Settings as an edge-to-edge page so it extends behind the
-  // navbar pill (no 88pt bottom gutter from main.css). The list
-  // container below adds its own pb-[88px] so the last item can
-  // still be scrolled above the floating toolbar — without that
-  // internal padding the bottom item would sit permanently under
-  // the pill and be unreachable. Only apply when we're showing the
-  // settings root (not an active sub-tab with its own layout).
+  // Mark Settings as an edge-to-edge page. The list container below
+  // adds its own bottom padding so the last item can still scroll above
+  // the React BottomNav.
   const showSettingsRoot = !activeTab;
   useEffect(() => {
     if (!isMobile()) return;
@@ -391,11 +375,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             </>
           )
         ) : (
-          // pb-[88px] reserves space at the bottom equal to the native
-          // navbar pill's height (76 + 12 gap = 88pt) so the last menu
-          // item can be scrolled above the floating toolbar. Without
-          // this, opting out of the body gutter via data-edge-to-edge
-          // would leave the bottom row permanently hidden behind the pill.
+          // pb-[88px] reserves space at the bottom so the last menu item
+          // can scroll above the React BottomNav.
           <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
             {tabGroups.map(group => (
               <div key={group.titleI18nKey}>

@@ -74,23 +74,16 @@ export const DappActive: FC = () => {
     });
   }, [session, close, open]);
 
-  // When the actions sheet opens:
-  //   1. Morph out the floating navbar + park bubbles (same CSS/Swift
-  //      pattern Settings uses — see Settings.tsx for the rationale).
-  //   2. HIDE the dApp WKWebView via `setVisible(false)`. This is the
-  //      same trick the card switcher uses: the dApp lives in a
-  //      UIWindow above the Capacitor host window, so any React-rendered
-  //      drawer sheet that tries to slide up from the bottom gets buried
-  //      behind the webview. Hiding the webview clears the occluding
-  //      layer and lets the sheet sit on top. The webview's JS context,
-  //      scroll position, and in-flight requests all survive the
-  //      hide/show cycle.
+  // When the actions sheet opens, hide the dApp WKWebView so the
+  // React-rendered drawer can sit above it, and mark the drawer as open
+  // so parked dApp trays move out of the way. The webview's JS context,
+  // scroll position, and in-flight requests survive the hide/show cycle.
   //
   // IMPORTANT: this effect is a NO-OP while the sheet is closed — it only
   // runs side effects on "open" and reverses them via the cleanup. An
   // earlier revision also ran the reverse branch on close, which meant
   // DappActive's first mount (actionsOpen=false) would call
-  // `morphNavbarIn()` + `setVisible(true)` even when neither were needed.
+  // `setVisible(true)` even when it was not needed.
   // That race with the provider's own restore flow (which also calls
   // `setVisible(true)` + `setRect()` on bubble-tap) caused restored dApps
   // to briefly appear and then get re-parked on the first click.
@@ -98,11 +91,9 @@ export const DappActive: FC = () => {
     if (!isMobile() || !session || !actionsOpen) return;
     const sessionId = session.id;
     document.body.setAttribute('data-drawer-open', '');
-    InAppBrowser.morphNavbarOut().catch(() => {});
     InAppBrowser.setVisible({ id: sessionId, visible: false }).catch(() => {});
     return () => {
       document.body.removeAttribute('data-drawer-open');
-      InAppBrowser.morphNavbarIn().catch(() => {});
       InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
     };
   }, [actionsOpen, session]);
@@ -116,19 +107,12 @@ export const DappActive: FC = () => {
   // DURING the slide-in lands ~32pt to the right of the real
   // resting position.
   //
-  // Additionally: `DappBrowserProvider` flips the `data-dapp-foreground`
-  // body attribute when a session becomes foreground, which in turn
-  // toggles main.css's body.padding-bottom from 122 → 34. That's a
-  // body-size change, which cascades through the flex chain and
-  // resizes the slot div from 607 to 695 pt tall. The ResizeObserver
-  // fires on that size change — and because the size change happens
-  // DURING the tab slide-in transform, the `getBoundingClientRect`
-  // call inside the RO callback returns mid-transition x coordinates.
-  // That wrong rect then flows into `setSlotRect` → provider's
-  // restore effect → `instance.setRect(wrong)` → WKWebView renders
-  // ~32pt too far right. 200ms later the transform settles, another
-  // re-measure pushes the correct x, webview jumps back. Visible
-  // flicker.
+  // If a measurement happens DURING the tab slide-in transform, the
+  // `getBoundingClientRect` call returns mid-transition x coordinates.
+  // That wrong rect then flows into `setSlotRect` → provider's restore
+  // effect → `instance.setRect(wrong)` → WKWebView renders ~32pt too
+  // far right. 200ms later the transform settles, another re-measure
+  // pushes the correct x, and the webview jumps back.
   //
   // GUARD (moved inside `update` itself so EVERY path — immediate,
   // 200ms timer, 400ms timer, ResizeObserver — respects it): if any

@@ -228,10 +228,14 @@ describe('PendingTab', () => {
     act(() => root.unmount());
   });
 
-  it('hides the claim-all button on mobile', async () => {
+  it('shows the claim-all button on mobile and fires onClaimAll', async () => {
     isMobileMock.mockReturnValue(true);
-    const { container, root } = await renderInto(<PendingTab {...baseProps()} />);
-    expect(container.querySelector('[data-testid="claim-all-button"]')).toBeNull();
+    const onClaimAll = jest.fn();
+    const { container, root } = await renderInto(<PendingTab {...baseProps({ onClaimAll })} />);
+    const claimAll = container.querySelector('[data-testid="claim-all-button"]');
+    expect(claimAll).not.toBeNull();
+    click(claimAll);
+    expect(onClaimAll).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
   });
 

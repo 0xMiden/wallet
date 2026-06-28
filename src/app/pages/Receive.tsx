@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { PendingTab } from 'app/pages/Receive/PendingTab';
-import { useNativeNavbarAction } from 'lib/dapp-browser';
 import {
   getFailedTransactions,
   initiateConsumeTransaction,
@@ -254,21 +253,6 @@ export const Receive: React.FC<ReceiveProps> = () => {
       await claimNotesBatch(n => n.faucetId === faucetId);
     },
     [claimNotesBatch]
-  );
-
-  // Lift the Claim All button into the native navbar overlay on mobile.
-  // The navbar morphs to compact mode when claimableNotes appear and
-  // back to default when they're all gone — handles the dynamic case
-  // where the background sync surfaces claimable notes mid-page-life.
-  const isClaimingAll = claimingNoteIds.size > 0;
-  useNativeNavbarAction(
-    unclaimedNotes.length > 0
-      ? {
-          label: t('claimAll'),
-          onTap: handleClaimAll,
-          enabled: !isClaimingAll
-        }
-      : null
   );
 
   // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding).

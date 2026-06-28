@@ -86,8 +86,8 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   /**
    * Drain pending notes via the two-level per-faucet GROUP-claim UI (Pending
    * tab → asset detail → group claim / per-note claim) instead of the top-level
-   * "Claim All". Chrome-only: the desktop two-level DOM drill-down has no mobile
-   * analogue (mobile Claim All is a native-navbar action).
+   * "Claim All". Chrome-only: mobile page objects cover their React Claim All
+   * button path separately.
    */
   claimNotesByGroup(timeoutMs?: number): Promise<void>;
   // getGuardianAuthInfo is declared on the shared WalletPage interface (above)

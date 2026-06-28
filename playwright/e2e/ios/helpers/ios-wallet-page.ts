@@ -327,7 +327,7 @@ export class IosWalletPage implements WalletPage {
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full
-    // sync cycle before we start polling for the navbar action.
+    // sync cycle before we start polling for the Claim All button.
     await sleep(10_000);
 
     // The wallet's `attachMetadataToNotes` (`src/lib/miden/front/claimable-notes.ts`)
@@ -335,8 +335,8 @@ export class IosWalletPage implements WalletPage {
     // fetched from the RPC. The test deploys a custom `basic-fungible-faucet`
     // whose on-chain procedures don't match what the SDK's
     // `BasicFungibleFaucetComponent.fromAccount` expects — so the wallet
-    // hides the note, "Claim All" never registers in the navbar, and
-    // triggerNavbarAction times out. Mirrors Chrome's claimAllNotes
+    // hides the note, "Claim All" never renders, and the claim button
+    // poll times out. Mirrors Chrome's claimAllNotes
     // workaround (`playwright/e2e/helpers/wallet-page.ts:762-792`): inject
     // synthetic metadata for any faucet we don't already have, so
     // `attachMetadataToNotes`'s `metadataByFaucetId[n.faucetId]` lookup
@@ -356,7 +356,14 @@ export class IosWalletPage implements WalletPage {
     // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
     // timeout (default 180s) still has ~50s left for balance polling
     // after this resolves.
-    await this.triggerNavbarAction(120_000);
+    await this.pollForCondition(
+      `var pending = document.querySelector('[data-testid="receive-tab-pending"]'); ` +
+        `if (pending) pending.click(); ` +
+        `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+        `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
+        `btn.click(); return true;`,
+      120_000
+    );
 
     // TEMPORARY (mobile-MT test): periodically dump
     // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
@@ -482,9 +489,7 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Execute the full v0-UI send flow: SelectRecipient → SelectAmount(+token) →
-   * ReviewTransaction. The new send flow registers NO native navbar actions, so
-   * (unlike claimAllNotes) every step is driven by DOM buttons via CDP — calling
-   * triggerNavbarAction here would throw.
+   * ReviewTransaction. Every step is driven by React DOM buttons via CDP.
    */
   async sendTokens(params: {
     recipientAddress: string;
@@ -716,88 +721,6 @@ export class IosWalletPage implements WalletPage {
              error: String(e && e.message ? e.message : e)
            });
          });`
-    );
-  }
-
-  /**
-   * Fire the currently-registered native navbar action on mobile. The
-   * wallet's native iOS overlay (MidenNavbarOverlayWindow) lives in a
-   * separate UIWindow outside the WebView that CDP sees, so a coordinate
-   * tap via simctl isn't an option. Instead, we call
-   * __TEST_TRIGGER_NAVBAR_ACTION__ (installed in E2E builds by
-   * lib/dapp-browser/use-native-navbar-action.ts) which invokes the same
-   * onTap the native button would dispatch. Poll until an action is
-   * registered (pages mount their action in useEffect — there's a small
-   * window where nothing is registered).
-   */
-  private async triggerNavbarAction(timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const fired = await this.cdp
-        .eval<boolean>(
-          `if (typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ !== 'function') return false; ` +
-            `return window.__TEST_TRIGGER_NAVBAR_ACTION__() === true;`
-        )
-        .catch(() => false);
-      if (fired) return;
-      await sleep(POLL_INTERVAL_MS);
-    }
-    // Timed out without firing. The bare "no action registered" error
-    // can't distinguish between "hook never installed" (MIDEN_E2E_TEST
-    // not baked into the build) and "hook installed but no page mounted
-    // a non-null action" (sync didn't surface claimable notes). Capture
-    // the diagnostic state from the WebView so the next CI failure
-    // pinpoints the cause instead of forcing a fresh investigation.
-    const diag = await this.cdp
-      .eval<{
-        hookInstalled: boolean;
-        hash: string;
-        status: unknown;
-        balanceFaucetIds: string[];
-        balanceAmounts: string[];
-        claimableNotesCount: number | null;
-        isSyncing: boolean | null;
-        hasCompletedInitialSync: boolean | null;
-        lastSyncedAt: number | null;
-        msSinceLastSync: number | null;
-      } | null>(
-        `try {` +
-          `  var s = window.__TEST_STORE__; ` +
-          `  var st = s ? s.getState() : null; ` +
-          `  var balances = (st && st.balances) || {}; ` +
-          `  var faucetIds = []; var amounts = []; ` +
-          `  for (var k in balances) { ` +
-          `    var list = balances[k]; ` +
-          `    if (!Array.isArray(list)) continue; ` +
-          `    for (var i = 0; i < list.length; i++) { ` +
-          `      var t = list[i]; ` +
-          `      faucetIds.push(String(t.faucetId || '')); ` +
-          `      amounts.push(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-          `    } ` +
-          `  } ` +
-          `  var notes = (st && st.claimableNotes) || (st && st.notes) || null; ` +
-          `  var lastSync = st && typeof st.lastSyncedAt === 'number' ? st.lastSyncedAt : null; ` +
-          `  return {` +
-          `    hookInstalled: typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ === 'function',` +
-          `    hash: location.hash || '',` +
-          `    status: st ? st.status : null,` +
-          `    balanceFaucetIds: faucetIds,` +
-          `    balanceAmounts: amounts,` +
-          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null,` +
-          `    isSyncing: st ? !!st.isSyncing : null,` +
-          `    hasCompletedInitialSync: st ? !!st.hasCompletedInitialSync : null,` +
-          `    lastSyncedAt: lastSync,` +
-          `    msSinceLastSync: lastSync ? Date.now() - lastSync : null` +
-          `  }; ` +
-          `} catch (e) { return null; }`
-      )
-      .catch(() => null);
-    throw new Error(
-      `triggerNavbarAction: no action registered within ${timeoutMs}ms. ` +
-        `diag=${JSON.stringify(diag)} — ` +
-        `hookInstalled=false ⇒ MIDEN_E2E_TEST not baked into the build; ` +
-        `hookInstalled=true + amounts all 0 ⇒ wallet sync hasn't surfaced the note yet; ` +
-        `hash != '#/receive' ⇒ navigation didn't take.`
     );
   }
 

@@ -76,8 +76,7 @@ test.describe('Guardian account - consume + send', () => {
       // at creation. Runs after the consume has committed the account so the
       // cached MultisigService read reflects the on-chain shape. The read goes
       // through the async CDP atom (the hook awaits a time-bounded sync), which
-      // CDP can see — unlike the native navbar, which is why this is a WebView
-      // read rather than a UI check.
+      // CDP can see.
       const auth = await walletA.getGuardianAuthInfo(addressA!);
       expect(auth.error, `guardian auth read failed: ${auth.error}`).toBeUndefined();
       expect(auth.signerCommitments.length, 'fresh 3-key account should have 2 signers (hot, cold)').toBe(2);

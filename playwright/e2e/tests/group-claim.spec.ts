@@ -5,9 +5,9 @@ import { expect, test } from '../fixtures/two-wallets';
  * path: PendingTab summary → open an asset row → asset detail view → the
  * "Claim N/M" group button (handleClaimGroup) / per-note Claim buttons. Every
  * other claim spec (mint-and-balance, send-*, multi-claim) drains via the
- * top-level "Claim All" (claimAllNotes) on desktop or the native navbar on
- * mobile, so this two-level DOM drill-down is otherwise unexercised. Chrome-only
- * by design — on mobile the Claim-All affordance lives in the native navbar.
+ * top-level "Claim All" (claimAllNotes), so this two-level DOM drill-down is
+ * otherwise unexercised. Chrome-only by design; mobile page objects cover their
+ * React Claim All button path separately.
  */
 test.describe('Pending tab — per-faucet group claim', () => {
   test.describe.configure({ mode: 'serial' });
