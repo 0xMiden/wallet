@@ -18,6 +18,39 @@ export interface FetchBalancesOptions {
   tokenPrices?: TokenPrices;
 }
 
+type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
+
+/**
+ * E2E-only: parse a Guardian account's on-chain auth structure (signer set +
+ * procedure thresholds) with `AccountInspector` — a pure storage read, no
+ * signing/load — and stash it on `globalThis.__TEST_GUARDIAN_AUTH_STRUCTURE__`
+ * keyed by address, so `__TEST_GUARDIAN_AUTH__` can serve it without any WASM
+ * call. No-op for non-multisig accounts. Tree-shaken from production.
+ */
+async function captureGuardianAuthStructureForTest(address: string, account: SdkAccount): Promise<void> {
+  try {
+    const { AccountInspector } = await import('@openzeppelin/miden-multisig-client');
+    const config = AccountInspector.fromAccount(account);
+    if (!config.signerCommitments || config.signerCommitments.length === 0) return;
+    const holder = globalThis as {
+      __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
+        string,
+        { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> }
+      >;
+    };
+    holder.__TEST_GUARDIAN_AUTH_STRUCTURE__ = {
+      ...(holder.__TEST_GUARDIAN_AUTH_STRUCTURE__ ?? {}),
+      [address]: {
+        threshold: config.threshold,
+        signerCommitments: config.signerCommitments,
+        procedureThresholds: Object.fromEntries(config.procedureThresholds)
+      }
+    };
+  } catch {
+    // best-effort — the test hook falls back to a live read if nothing is stashed
+  }
+}
+
 /**
  * Fetch all token balances for an account
  *
@@ -54,6 +87,18 @@ export async function fetchBalances(
   // queued behind long-running writes like `syncState`.
   const midenClient = await getMidenClient();
   const acc = await midenClient.getAccount(address);
+
+  // E2E-only: capture a Guardian account's on-chain auth structure HERE, inside
+  // the wallet's own working balance poll (which reliably completes), so the
+  // `__TEST_GUARDIAN_AUTH__` test hook can read it as a plain value instead of
+  // doing its own blocking-eval WASM read — which on the single-threaded iOS
+  // WASM gets starved by other main-thread WASM activity and times out. The
+  // structure is immutable, so a slightly-old capture is correct. Best-effort,
+  // fire-and-forget; gated on MIDEN_E2E_TEST and tree-shaken from production.
+  if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
+    void captureGuardianAuthStructureForTest(address, acc);
+  }
+
   let account: typeof acc | null = null;
   let assets: FungibleAsset[] = [];
   if (acc) {

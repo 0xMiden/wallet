@@ -726,6 +726,25 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // thresholds) for E2E assertions — the harness's balance checks can't see the
   // 3-key shape. Dynamic imports avoid a static cycle.
   (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
+    // Fast path: the balance poll (`fetchBalances`, which reliably completes in
+    // the wallet's own flow) stashes this account's auth structure on
+    // `__TEST_GUARDIAN_AUTH_STRUCTURE__`. Serving it here is a plain object read
+    // with NO WASM call, so it can't be starved by other main-thread WASM
+    // activity on the single-threaded iOS WASM (the live read below otherwise
+    // times out: the auth eval was observed taking 60s with the WebView main
+    // thread saturated even after all the wallet's own pollers were paused).
+    const stashed = (
+      globalThis as {
+        __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
+          string,
+          { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> }
+        >;
+      }
+    ).__TEST_GUARDIAN_AUTH_STRUCTURE__?.[accountPublicKey];
+    if (stashed) {
+      return stashed;
+    }
+
     // Read the structure with a PURE storage parse (`AccountInspector.fromAccount`),
     // not the transaction-oriented MultisigService. Going through
     // `getOrCreateMultisigService` → `MultisigClient.load` drove a re-sign/realign
