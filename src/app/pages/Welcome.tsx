@@ -1,10 +1,11 @@
-import React, { FC, useCallback, useEffect, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
 
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
+import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { putToStorage } from 'lib/miden/front/storage';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -86,6 +87,13 @@ const Welcome: FC = () => {
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
+  // Chrome side panel handoff: create the wallet while the confirmation screen
+  // spins, then the final "Open wallet" click opens the side panel onto the
+  // ready wallet (sidePanel.open() needs that click's live gesture). Disabled
+  // under E2E and on non-Chrome — those keep the classic click-to-create flow.
+  const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
+  const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
+
   // Check hardware security availability on mount
   useEffect(() => {
     checkHardwareSecurityAvailable().then(available => {
@@ -159,6 +167,42 @@ const Welcome: FC = () => {
     walletType,
     importedWalletAccounts
   ]);
+
+  // Side panel handoff: kick off wallet creation as soon as the confirmation
+  // screen is reached (the screen shows a spinner), so the wallet is Ready by
+  // the time the user clicks "Open wallet". Scoped to the Create flow only:
+  //   - the hardware/biometric path must prompt biometrics on an explicit tap,
+  //     not on arrival;
+  //   - import flows are excluded because importWalletFromClient can fail
+  //     silently (register() resolves without a wallet), which would leave the
+  //     handoff screen spinning — imports keep the classic in-tab flow.
+  // The `confirmPhase !== 'idle'` guard makes this fire at most once even though
+  // `register`/`trackEvent` are (correctly) in the dependency array.
+  useEffect(() => {
+    if (!sidePanelHandoff) return;
+    if (step !== OnboardingStep.Confirmation) return;
+    if (confirmPhase !== 'idle') return;
+    if (onboardingType !== OnboardingType.Create) return;
+    if (!password || !seedPhrase || password === '__HARDWARE_ONLY__') return;
+
+    setConfirmPhase('creating');
+    (async () => {
+      try {
+        await register();
+        trackEvent('confirmation', AnalyticsEventCategory.FormSubmit, {});
+        // Move to the dedicated handoff route, which survives the Ready
+        // transition and shows the "Open wallet" button. Crucially we do NOT
+        // waitForReadyState here — pushing Ready into the store first would
+        // route this tab to the wallet home before we navigate.
+        navigate('/finish-side-panel');
+      } catch (error) {
+        // Fall back to the classic click-to-create flow: the confirmation
+        // button reverts to running register() in-tab on the next tap.
+        console.error('[Welcome] Side panel handoff auto-create failed:', error);
+        setConfirmPhase('failed');
+      }
+    })();
+  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, trackEvent]);
 
   const onAction = async (action: OnboardingAction) => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;
@@ -268,7 +312,10 @@ const Welcome: FC = () => {
         navigate('/#confirmation');
         break;
       case 'confirmation':
-        // Create the wallet on the explicit "Get Started" tap, then enter in-tab.
+        // Side panel handoff (Chrome) creates the wallet in the auto-create
+        // effect above and navigates to /finish-side-panel, so this click only
+        // runs in the classic flow: non-Chrome, hardware/biometric, or a retry
+        // after a failed auto-create. It creates the wallet then enters in-tab.
         try {
           setIsLoading(true);
           setBiometricError(null);
@@ -423,6 +470,7 @@ const Welcome: FC = () => {
       biometricAttempts={biometricAttempts}
       biometricError={biometricError}
       guardianLookupError={guardianLookupError}
+      confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
       onBiometricChange={setUseBiometric}
       onAction={onAction}
     />

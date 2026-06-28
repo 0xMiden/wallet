@@ -12,6 +12,12 @@ export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTML
   isLoading?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
+  /**
+   * Side panel handoff (Chrome): the wallet is being created in the background
+   * before the user opens it. While true, show a spinner instead of the
+   * ready-state success message + button.
+   */
+  creating?: boolean;
   onSubmit?: () => void;
   onSwitchToPassword?: () => void;
 }
@@ -21,6 +27,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   isLoading,
   biometricAttempts = 0,
   biometricError,
+  creating = false,
   onSubmit,
   onSwitchToPassword,
   ...props
@@ -78,7 +85,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
               title={primaryButtonTitle}
               className="self-center w-full text-base"
               onClick={onSubmit}
-              isLoading={isLoading}
+              isLoading={isLoading || creating}
             />
           )}
         </div>
