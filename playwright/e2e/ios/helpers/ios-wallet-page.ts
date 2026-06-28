@@ -583,43 +583,62 @@ export class IosWalletPage implements WalletPage {
 
   /**
    * Read a Guardian account's on-chain auth structure (overall threshold,
-   * signer commitments, per-procedure thresholds). Calls the same
-   * __TEST_GUARDIAN_AUTH__ hook the Chrome POM uses, but over the async CDP
-   * atom: the hook awaits getOrCreateMultisigService + a best-effort
-   * (time-bounded) sync, so it returns a Promise and must run under
-   * execute_async_script. The hook itself caps its internal sync at 8s, so the
-   * 30s evalAsync budget is comfortable even when the background sync holds the
-   * WASM lock.
+   * signer commitments, per-procedure thresholds).
+   *
+   * iOS reads this from the `__TEST_GUARDIAN_AUTH_STRUCTURE__` stash that the
+   * wallet's own balance poll populates (`fetchBalances` →
+   * `captureGuardianAuthStructureForTest`, a pure `AccountInspector.fromAccount`
+   * parse) — NOT through the async `__TEST_GUARDIAN_AUTH__` hook. Two reasons,
+   * both proven against the CI timeline:
+   *
+   *   1. The stash is a plain JSON-serializable object, so it reads over the
+   *      reliable SYNCHRONOUS `execute_script` atom. The async
+   *      `execute_async_script` atom (appium-remote-debugger) hands the user
+   *      script its completion callback as `arguments[arguments.length - 1]`,
+   *      but on this iOS RWI bridge that slot arrives as the boolean `true`, so
+   *      `cb(result)` throws `TypeError: cb is not a function`, the promise
+   *      rejects unhandled, the callback never fires, and EVERY `evalAsync`
+   *      hangs to its timeout. (Observed: `Unhandled Promise Rejection:
+   *      TypeError: d is not a function ... 'd' is true` fired the instant the
+   *      auth read ran, then a 60s timeout — even though the stash was already
+   *      populated.) The sync atom returns its value directly, no callback.
+   *   2. A direct WASM read in the eval path gets starved on the single-threaded
+   *      iOS WASM. The stash read touches no WASM at all.
+   *
+   * The auth structure is immutable (fixed at account creation), so a
+   * slightly-old captured copy is exactly correct for these assertions. The
+   * stash is keyed by the address the balance poll fetched, which can be a
+   * different encoding than the publicKey the test passes — but a wallet
+   * instance only ever has one Guardian account, so the single stashed
+   * structure is unambiguous. Polls because the capture runs on the balance-poll
+   * cadence; by the auth step the consume has already driven several polls, so
+   * the first read almost always hits.
    */
   async getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo> {
-    return this.cdp.evalAsync<GuardianAuthInfo>(
-      `var cb = arguments[arguments.length - 1];
-       var fn = globalThis.__TEST_GUARDIAN_AUTH__;
-       if (typeof fn !== 'function') {
-         cb({
-           threshold: NaN,
-           signerCommitments: [],
-           procedureThresholds: {},
-           error: '__TEST_GUARDIAN_AUTH__ unavailable (needs MIDEN_E2E_TEST build)'
-         });
-         return;
-       }
-       Promise.resolve(fn(${JSON.stringify(accountPublicKey)}))
-         .then(function (r) { cb(r); })
-         .catch(function (e) {
-           cb({
-             threshold: NaN,
-             signerCommitments: [],
-             procedureThresholds: {},
-             error: String(e && e.message ? e.message : e)
-           });
-         });`,
-      // The read is a pure storage parse (no signing/load), but its one
-      // `getAccount` can still queue behind in-flight WASM work on the loaded
-      // single-threaded iOS runner — 60s clears that without the 30s default
-      // tripping.
-      { timeoutMs: 60_000 }
-    );
+    const deadline = Date.now() + 30_000;
+    let lastErr = 'guardian auth structure not captured (stash empty after 30s)';
+    while (Date.now() < deadline) {
+      try {
+        const result = await this.cdp.eval<GuardianAuthInfo | null>(
+          `var s = globalThis.__TEST_GUARDIAN_AUTH_STRUCTURE__;
+           if (!s) return null;
+           var keys = Object.keys(s);
+           if (keys.length === 0) return null;
+           var v = s[${JSON.stringify(accountPublicKey)}] || s[keys[0]];
+           if (!v) return null;
+           return {
+             threshold: v.threshold,
+             signerCommitments: v.signerCommitments,
+             procedureThresholds: v.procedureThresholds
+           };`
+        );
+        if (result) return result;
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+      await sleep(1_500);
+    }
+    return { threshold: NaN, signerCommitments: [], procedureThresholds: {}, error: lastErr };
   }
 
   /**

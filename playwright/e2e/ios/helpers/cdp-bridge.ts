@@ -119,11 +119,22 @@ export class CdpSession {
   /**
    * Evaluate asynchronous JavaScript. The body MUST call the callback
    * `arguments[arguments.length - 1]` with its result — this is the
-   * `execute_async_script` WebDriver atom contract. Useful when the page
-   * code awaits Promises (store.fetchBalances, intercom.request, etc.).
+   * `execute_async_script` WebDriver atom contract.
    *
-   * The optional outer timeout protects against scripts that never invoke
-   * the callback — without it, executeAtomAsync waits forever. Default 30s.
+   * ⚠️ BROKEN on this iOS RWI bridge — prefer the synchronous `eval` and poll.
+   * appium-remote-debugger's `execute_async_script` atom delivers its
+   * completion callback in the `arguments[arguments.length - 1]` slot as the
+   * boolean `true` (not a function) here, so `cb(result)` throws
+   * `TypeError: cb is not a function`, the promise rejects unhandled, the
+   * callback never fires, and the call ALWAYS hangs to the timeout below —
+   * regardless of how fast the script itself completes. (See
+   * `getGuardianAuthInfo`, which used to use this and now reads its data over
+   * the reliable sync `eval` atom instead.) If you need to await page Promises,
+   * stash the resolved value on a global from the page's own code and poll it
+   * with `eval`, rather than relying on this callback.
+   *
+   * The outer timeout protects against scripts that never invoke the callback —
+   * without it, executeAtomAsync waits forever. Default 30s.
    */
   async evalAsync<T = unknown>(body: string, opts: { timeoutMs?: number } = {}): Promise<T> {
     const timeoutMs = opts.timeoutMs ?? 30_000;
