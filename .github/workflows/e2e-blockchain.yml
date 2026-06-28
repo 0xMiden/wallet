@@ -534,11 +534,13 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run blockchain E2E (mobile, devnet)
-        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
-        # runners. Each fixture retries install → launch → CDP connect from
-        # scratch, so a transient webinspectord hiccup doesn't fail the run.
-        # Config stays at retries: 0 for fast local dev feedback.
-        run: yarn playwright test --config playwright.ios.config.ts --retries=1
+        # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
+        # CoreSimulator sim-setup failures on macos-26 runners. Each fixture
+        # retries install → launch → CDP connect from scratch (and restarts the
+        # sim subsystem on a wedged daemon), so a transient runner hiccup gets
+        # multiple fresh attempts within the job budget. Config stays at
+        # retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --retries=2
 
       - name: Upload artifacts
         if: always()
@@ -701,11 +703,13 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run blockchain E2E (mobile, testnet)
-        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
-        # runners. Each fixture retries install → launch → CDP connect from
-        # scratch, so a transient webinspectord hiccup doesn't fail the run.
-        # Config stays at retries: 0 for fast local dev feedback.
-        run: yarn playwright test --config playwright.ios.config.ts --retries=1
+        # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
+        # CoreSimulator sim-setup failures on macos-26 runners. Each fixture
+        # retries install → launch → CDP connect from scratch (and restarts the
+        # sim subsystem on a wedged daemon), so a transient runner hiccup gets
+        # multiple fresh attempts within the job budget. Config stays at
+        # retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --retries=2
 
       - name: Upload artifacts
         if: always()
