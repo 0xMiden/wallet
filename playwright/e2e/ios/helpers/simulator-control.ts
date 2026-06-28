@@ -102,7 +102,7 @@ export class SimulatorControl {
     //
     // bootstatus failing is a HARD error: continuing onto a half-booted
     // simulator does not produce "a clearer error later" — it produces
-    // simctl install/launch calls that hang for the entire 15-minute test
+    // simctl install/launch calls that hang for the entire per-test
     // timeout, twice (observed on macos-26 runners). One shutdown→boot
     // cycle is allowed to recover a wedged first boot; after that, fail
     // loudly so the job dies in minutes with the real cause named.
@@ -270,7 +270,7 @@ export class SimulatorControl {
 
 // Every simctl call gets a hard timeout: on macos-26 CI runners a single
 // `simctl install` / `launch` against an unhealthy simulator hangs
-// indefinitely, silently eating the whole 15-minute test timeout with no
+// indefinitely, silently eating the whole per-test timeout with no
 // attribution. Failing in 3 minutes with the command named turns that into
 // a diagnosable error (and lets the per-test recovery + CI retry actually
 // kick in — see SimulatorControl.recoverSimSubsystem).

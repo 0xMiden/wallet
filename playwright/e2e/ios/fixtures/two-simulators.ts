@@ -189,7 +189,7 @@ async function setupBothWallets(
   // 3 attempts = up to 2 daemon-restart recoveries. The macos-26 wedge has been
   // observed to survive a single recovery, so give it one more shot before
   // failing the test (each wedged attempt fails fast at its simctl/CDP timeout,
-  // not the 15-min test timeout, so the extra attempt is cheap).
+  // not the full per-test timeout, so the extra attempt is cheap).
   const MAX_ATTEMPTS = 3;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let instanceA: SimWalletInstance | undefined;
@@ -267,9 +267,15 @@ function sleep(ms: number): Promise<void> {
 
 // A healthy two-simulator setup (terminate→uninstall→install→launch→CDP for
 // both, sims already booted by globalSetup) runs in ~2-3 min. A degraded
-// macos-26 CoreSimulator stretches it past 8 min; cap there so the whole 15-min
-// test timeout isn't consumed in fixture setup with no room for a retry.
-const SETUP_DEADLINE_MS = 480_000;
+// macos-26 CoreSimulator stretches every simctl op (97 real CI samples: per-
+// wallet setup p50 65s, p90 267s, max 401s → two sequential wallets up to
+// ~13 min) yet still COMPLETES. The earlier 8-min cap killed those slow-but-
+// completing setups that would have finished and passed; only a TRULY hung
+// runner (observed: setup not done after 15 min) genuinely can't recover. So
+// cap at 13 min — past the slowest observed completing setup — so degraded-but-
+// completing runners get to finish, and only the hung ones fail fast (clearly
+// attributed, leaving room within the 25-min test timeout for the retry).
+const SETUP_DEADLINE_MS = 780_000;
 // Upper bound for the on-timeout daemon restart so the recovery itself can't run
 // into the test timeout — setupBothWallets does its own recovery on the retry.
 const SETUP_RECOVERY_BUDGET_MS = 90_000;
@@ -373,7 +379,7 @@ export const test = base.extend<TwoSimulatorFixtures>({
     // Cap the whole setup. On a degraded macos-26 CoreSimulator every simctl op
     // crawls (install/terminate observed at 30-180s vs. <5s healthy); slow-but-
     // completing ops never trip the per-op recovery, so the cumulative cost can
-    // silently eat the entire 15-min test timeout "while setting up _simPair"
+    // silently eat the entire per-test timeout "while setting up _simPair"
     // with no attribution and no room for Playwright's retry. A hard cap turns
     // that into a fast, named failure — and on overrun we restart the sim
     // subsystem first so the retry runs against a fresh daemon.
