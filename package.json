@@ -202,6 +202,7 @@
     "use-debounce": "7.0.1",
     "use-force-update": "1.0.7",
     "uuid": "^9.0.0",
+    "vaul": "^1.1.2",
     "wasm-themis": "0.14.6",
     "webextension-polyfill": "^0.10.0",
     "yup": "^1.4.0",

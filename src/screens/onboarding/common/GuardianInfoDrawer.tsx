@@ -4,7 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Drawer, DrawerContent } from 'lib/ui/drawer';
+import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
 
 export interface GuardianInfoDrawerProps {
   open: boolean;
@@ -47,9 +47,9 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
       <DrawerContent className="max-h-[90vh]">
         <div className="flex flex-col overflow-y-auto px-6 pb-4">
           <div className="flex items-start justify-between">
-            <h2 className="text-3xl font-semibold font-heading text-heading-gray leading-tight tracking-tight">
+            <DrawerTitle className="font-heading text-3xl font-semibold leading-tight tracking-tight">
               {t('whatIsAGuardian')}
-            </h2>
+            </DrawerTitle>
             <button
               type="button"
               aria-label={t('close')}

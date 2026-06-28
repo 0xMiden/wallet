@@ -27,6 +27,7 @@ button:disabled,
 
 @import 'tippy.js/dist/tippy.css';
 @import 'tippy.js/animations/shift-away-subtle.css';
+@import 'vaul/style.css';
 
 .tippy-content {
   white-space: pre-line;
