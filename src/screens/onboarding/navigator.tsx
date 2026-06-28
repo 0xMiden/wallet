@@ -9,6 +9,7 @@ import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
 import type { WalletAccount } from 'lib/shared/types';
 
+import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import { WelcomeScreen } from './common/Welcome';
@@ -34,8 +35,6 @@ export interface OnboardingFlowProps {
   biometricAttempts?: number;
   biometricError?: string | null;
   guardianLookupError?: boolean;
-  /** Side panel handoff (Chrome): wallet is being created in the background. */
-  confirmCreating?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
 }
@@ -58,6 +57,8 @@ const Header: React.FC<{
   } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
     currentStep = 2;
   } else if (step === OnboardingStep.SelectRecoveryMethod) {
+    currentStep = 4;
+  } else if (step === OnboardingStep.ChooseGuardian) {
     currentStep = 4;
   } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
     currentStep = 4;
@@ -85,7 +86,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupError = false,
-  confirmCreating = false,
   onBiometricChange,
   onAction
 }) => {
@@ -152,6 +152,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onSelectRecoveryMethodSubmit = (walletType: WalletType) =>
       onForwardAction?.({ id: 'select-recovery-method', payload: walletType });
 
+    const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
+      onForwardAction?.({ id: 'choose-guardian', payload });
+
     const onSelectTransactionTypeSubmit = () =>
       onForwardAction?.({ id: 'select-transaction-type', payload: 'private' });
 
@@ -191,6 +194,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectRecoveryMethod:
         return <SelectRecoveryMethodScreen onSubmit={onSelectRecoveryMethodSubmit} />;
+      case OnboardingStep.ChooseGuardian:
+        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
       case OnboardingStep.ImportSelectRecoveryMethod:
         return (
           <ImportRecoveryMethodScreen
@@ -206,7 +211,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             isLoading={isLoading}
             biometricAttempts={biometricAttempts}
             biometricError={biometricError}
-            creating={confirmCreating}
             onSubmit={onConfirmSubmit}
             onSwitchToPassword={onSwitchToPassword}
           />
@@ -226,8 +230,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onBiometricChange,
     biometricAttempts,
     biometricError,
-    guardianLookupError,
-    confirmCreating
+    guardianLookupError
   ]);
 
   const onBack = () => {

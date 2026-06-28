@@ -1,10 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
-import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import GuardianReplaceHotKey from 'app/templates/GuardianReplaceHotKey';
 import {
   initiateSwitchGuardianTransaction,
@@ -16,12 +13,9 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled, isValidGuardianUrl } from 'lib/settings/helpers';
+import { isDelegateProofEnabled, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-
-type FormData = {
-  guardianEndpoint: string;
-};
+import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
 type Props = {
   onClose?: () => void;
@@ -31,43 +25,26 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
   const { t } = useTranslation();
   const { endpoint: currentEndpoint, refresh: refreshCurrentEndpoint } = useCurrentGuardianEndpoint();
   const [submitSuccess, setSubmitSuccess] = useState(false);
-  // Two-stage submit: first click validates + enters confirming, second click fires the tx.
-  // Mirrors GuardianReplaceHotKey's cold-signing confirmation since switch_guardian also
-  // requires the cold key (co-signed by the current guardian).
+  // Two-stage submit: first tap validates + enters confirming, second tap fires the tx.
+  // switch_guardian requires the cold key (co-signed by the current guardian),
+  // so the confirmation step mirrors the cold-signing acknowledgement pattern.
   const [confirming, setConfirming] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    setError,
-    clearErrors,
-    reset,
-    formState: { errors, isSubmitting }
-  } = useForm<FormData>({ defaultValues: { guardianEndpoint: '' } });
+  const [pendingEndpoint, setPendingEndpoint] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const currentAccount = useWalletStore(s => s.currentAccount);
 
-  const onSubmit = useCallback<SubmitHandler<FormData>>(
-    async ({ guardianEndpoint }) => {
-      if (isSubmitting || !currentAccount) return;
-      const trimmed = guardianEndpoint.trim();
-      if (trimmed === currentEndpoint) {
-        setError('guardianEndpoint', { type: 'manual', message: t('guardianEndpointUnchanged') });
-        return;
-      }
-
-      clearErrors();
+  const runSwitch = useCallback(
+    async (newEndpoint: string) => {
+      if (!currentAccount) return;
+      setSubmitting(true);
+      setError(null);
       setSubmitSuccess(false);
-
-      if (!confirming) {
-        setConfirming(true);
-        return;
-      }
-
       try {
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
-          trimmed,
+          newEndpoint,
           isDelegateProofEnabled(),
           zustandProvider
         );
@@ -76,22 +53,49 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
 
         const result = await waitForTransactionCompletion(txId);
         if ('errorMessage' in result) {
-          setError('guardianEndpoint', { type: 'manual', message: result.errorMessage });
+          setError(result.errorMessage);
           return;
         }
 
         setSubmitSuccess(true);
         setConfirming(false);
-        reset({ guardianEndpoint: '' });
+        setPendingEndpoint(null);
         // Pull the new endpoint back from storage so the "Current guardian"
         // display reflects the switch on platforms without storage-change events.
         refreshCurrentEndpoint();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setError('guardianEndpoint', { type: 'manual', message });
+        setError(message);
+      } finally {
+        setSubmitting(false);
       }
     },
-    [clearErrors, confirming, currentAccount, currentEndpoint, isSubmitting, refreshCurrentEndpoint, reset, setError, t]
+    [currentAccount, refreshCurrentEndpoint]
+  );
+
+  const handleSubmit = useCallback(
+    ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
+      if (submitting || !currentAccount) return;
+      setSubmitSuccess(false);
+
+      if (guardianEndpoint === currentEndpoint) {
+        setError(t('guardianEndpointUnchanged'));
+        setConfirming(false);
+        setPendingEndpoint(null);
+        return;
+      }
+
+      setError(null);
+
+      if (!confirming || pendingEndpoint !== guardianEndpoint) {
+        setConfirming(true);
+        setPendingEndpoint(guardianEndpoint);
+        return;
+      }
+
+      void runSwitch(guardianEndpoint);
+    },
+    [confirming, currentAccount, currentEndpoint, pendingEndpoint, runSwitch, submitting, t]
   );
 
   return (
@@ -101,54 +105,25 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         <p className="text-sm text-black break-all select-text">{currentEndpoint || t('loading')}</p>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <FormField
-          {...register('guardianEndpoint', {
-            required: t('required'),
-            validate: value => isValidGuardianUrl(value) || t('invalidUrl')
-          })}
-          label={t('newGuardianEndpoint')}
-          labelDescription={t('switchGuardianDescription')}
-          id="guardian-endpoint"
-          type="text"
-          placeholder="https://"
-          errorCaption={errors.guardianEndpoint?.message}
-          containerClassName="mb-4"
-          onChange={() => {
-            clearErrors();
-            if (submitSuccess) setSubmitSuccess(false);
-            // Editing the endpoint after confirming invalidates the confirmation:
-            // drop back to the form-entry stage so the user re-acknowledges the new value.
-            if (confirming) setConfirming(false);
-          }}
-        />
+      <ChooseGuardianScreen
+        onSubmit={handleSubmit}
+        currentEndpoint={currentEndpoint}
+        hideHeader
+        allowCustomEndpoint
+        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
+      />
 
-        {confirming && !isSubmitting && !submitSuccess && (
-          <div className="text-xs text-heading-gray mb-3 select-text">{t('switchGuardianConfirmation')}</div>
-        )}
+      {confirming && !submitting && !submitSuccess && (
+        <div className="text-xs text-heading-gray mt-3 select-text">{t('switchGuardianConfirmation')}</div>
+      )}
 
-        <FormSubmitButton
-          className="capitalize w-full justify-center mt-6"
-          loading={isSubmitting}
-          disabled={!currentAccount}
-          style={{
-            fontSize: '18px',
-            lineHeight: '24px',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-            paddingTop: '12px',
-            paddingBottom: '12px'
-          }}
-        >
-          {confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
-        </FormSubmitButton>
+      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
 
-        {submitSuccess && (
-          <div className="mt-4 text-green-600 text-sm font-medium" onAnimationEnd={() => onClose?.()}>
-            {t('guardianSwitched')}
-          </div>
-        )}
-      </form>
+      {submitSuccess && (
+        <div className="mt-4 text-green-600 text-sm font-medium" onAnimationEnd={() => onClose?.()}>
+          {t('guardianSwitched')}
+        </div>
+      )}
 
       <hr className="my-6" />
 
@@ -169,7 +144,7 @@ function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void }
     fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
       .then(stored => {
         if (cancelled) return;
-        setEndpoint(stored || DEFAULT_GUARDIAN_ENDPOINT);
+        setEndpoint(sanitizeGuardianUrl(stored || DEFAULT_GUARDIAN_ENDPOINT));
       })
       .catch(() => {
         if (cancelled) return;
@@ -185,7 +160,7 @@ function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void }
   useEffect(
     () =>
       onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
-        setEndpoint(next || DEFAULT_GUARDIAN_ENDPOINT);
+        setEndpoint(sanitizeGuardianUrl(next || DEFAULT_GUARDIAN_ENDPOINT));
       }),
     []
   );

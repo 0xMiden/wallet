@@ -71,6 +71,16 @@ export function isValidGuardianUrl(value: string): boolean {
   return url.protocol === 'https:' || (url.protocol === 'http:' && isLocalhost);
 }
 
+/**
+ * Normalize a Guardian endpoint for storage and comparison: trim surrounding
+ * whitespace and strip any trailing slashes, so `https://g.example.com/` and
+ * `https://g.example.com` are treated as the same endpoint. Apply this to any
+ * user-entered Guardian URL before persisting or comparing it.
+ */
+export function sanitizeGuardianUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
 export function setThemeSetting(theme: ThemeSetting) {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);

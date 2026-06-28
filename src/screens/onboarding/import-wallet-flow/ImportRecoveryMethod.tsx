@@ -6,9 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
-import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
-import { isValidGuardianUrl } from 'lib/settings/helpers';
+import { DEFAULT_GUARDIAN_ENDPOINT, DEFAULT_NETWORK, GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { Badge } from 'lib/ui/badge';
+import { cn } from 'lib/ui/util';
 
 import { WalletType } from '../types';
 
@@ -27,16 +28,16 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
   const showError = Boolean(isError) && !dirty && selected === WalletType.Guardian;
 
-  const trimmedEndpoint = endpointInput.trim();
+  const sanitizedEndpoint = sanitizeGuardianUrl(endpointInput);
   const canContinue =
-    selected === WalletType.OnChain || (selected === WalletType.Guardian && isValidGuardianUrl(trimmedEndpoint));
+    selected === WalletType.OnChain || (selected === WalletType.Guardian && isValidGuardianUrl(sanitizedEndpoint));
 
   const handleContinue = () => {
     if (selected === WalletType.OnChain) {
       onSubmit({ walletType: WalletType.OnChain });
       return;
     }
-    onSubmit({ walletType: WalletType.Guardian, guardianEndpoint: trimmedEndpoint });
+    onSubmit({ walletType: WalletType.Guardian, guardianEndpoint: sanitizedEndpoint });
   };
 
   const handleSelectGuardian = () => {
@@ -54,6 +55,25 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     setIsCustomizing(prev => !prev);
     setDirty(true);
   };
+
+  const handleSelectPreset = (endpoint: string) => {
+    setEndpointInput(endpoint);
+    setIsCustomizing(false);
+    setDirty(true);
+  };
+
+  // Guardian providers that run on the active network, resolved to their
+  // endpoint on it.
+  const guardianPresets = useMemo(
+    () =>
+      GUARDIAN_OPTIONS.filter(o => o.endpoint.has(DEFAULT_NETWORK)).map(o => ({
+        id: o.id,
+        name: o.name,
+        location: o.location,
+        endpoint: o.endpoint.get(DEFAULT_NETWORK)!
+      })),
+    []
+  );
 
   const options = useMemo(
     () => [
@@ -110,6 +130,25 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
               {isGuardian && isSelected && (
                 <div className="mt-4 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
+                  <div className="grid grid-cols-3 gap-2">
+                    {guardianPresets.map(provider => {
+                      const isActive = !isCustomizing && endpointInput.trim() === provider.endpoint;
+                      return (
+                        <button
+                          key={provider.id}
+                          type="button"
+                          onClick={() => handleSelectPreset(provider.endpoint)}
+                          className={cn(
+                            'flex flex-col items-start p-2 rounded-lg bg-white text-left border-2 transition-colors',
+                            isActive ? 'border-primary-500' : 'border-grey-200'
+                          )}
+                        >
+                          <span className="text-xs font-semibold text-heading-gray leading-tight">{provider.name}</span>
+                          <span className="text-[10px] text-grey-600 mt-0.5">{provider.location}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                   {!isCustomizing && (
                     <div className="flex flex-col gap-1">
                       <span className="text-xs text-grey-600">{t('guardianEndpoint')}</span>

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.4 (TBD)
+
+### Features
+
+* [FEATURE][all] **Choose among multiple Guardian providers.** A new "Choose your Guardian" picker lets you select which Guardian operator (OpenZeppelin, Gateway, or Lambda Class) co-signs your account — during create onboarding (after picking Guardian recovery), in the import flow (as quick presets alongside the custom-URL field), and in the Switch-Guardian settings screen. Previously the wallet defaulted to a single OpenZeppelin endpoint.
+
 ## 1.15.3 (2026-06-27)
 
 ### Features

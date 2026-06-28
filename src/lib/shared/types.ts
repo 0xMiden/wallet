@@ -1,4 +1,5 @@
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -371,6 +372,17 @@ export interface WalletNetwork {
   id: string;
   name: string;
   autoSync: boolean;
+}
+
+/**
+ * A selectable Guardian provider shown in the Choose-Guardian picker.
+ */
+export interface GuardianOption {
+  id: string;
+  name: string;
+  operatedBy: string;
+  location: string;
+  endpoint: Map<MIDEN_NETWORK_NAME, string>; // endpoints for guardian
 }
 
 export interface LoadingResponse extends WalletMessageBase {
