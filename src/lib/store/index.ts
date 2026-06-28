@@ -733,14 +733,20 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // activity on the single-threaded iOS WASM (the live read below otherwise
     // times out: the auth eval was observed taking 60s with the WebView main
     // thread saturated even after all the wallet's own pollers were paused).
-    const stashed = (
+    const stashStore = (
       globalThis as {
         __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
           string,
           { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> }
         >;
       }
-    ).__TEST_GUARDIAN_AUTH_STRUCTURE__?.[accountPublicKey];
+    ).__TEST_GUARDIAN_AUTH_STRUCTURE__;
+    // Prefer the exact-key match; fall back to the single stashed entry. The
+    // balance poll keys the stash by the address it's called with, which can be
+    // a different encoding of the same account than the publicKey the test
+    // passes here — and a wallet instance only ever has one Guardian account, so
+    // any stashed multisig structure on this page belongs to it.
+    const stashed = stashStore?.[accountPublicKey] ?? (stashStore ? Object.values(stashStore)[0] : undefined);
     if (stashed) {
       return stashed;
     }
