@@ -3,7 +3,6 @@ import React from 'react';
 import classNames from 'clsx';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
 
 export interface ReviewAction {
   label: string;
@@ -17,8 +16,6 @@ export interface ReviewLayoutProps {
   title: string;
   /** Small date caption above the title, e.g. "06.06.26". */
   date?: string;
-  onBack?: () => void;
-  backLabel?: string;
   /** Hero block — a ReviewAmount (send) or a composed swap hero. */
   hero: React.ReactNode;
   /** Orange underline under the hero. Default true (send); pass false for swap (its hero owns its dividers). */
@@ -41,8 +38,6 @@ export interface ReviewLayoutProps {
 export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   title,
   date,
-  onBack,
-  backLabel,
   hero,
   heroDivider = true,
   dividers = true,
@@ -51,8 +46,6 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   secondary
 }) => (
   <div className="flex flex-col h-full min-h-0 bg-app-bg">
-    <ScreenHeader title={title} onBack={onBack} backLabel={backLabel} className="px-4" />
-
     <div className="flex flex-col flex-1 min-h-0 px-6">
       <div className="flex-1 overflow-y-auto no-scrollbar pt-8">
         {date && <p className="text-sm text-heading-gray/50">{date}</p>}
@@ -62,7 +55,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
 
         {heroDivider && <div className="my-4 h-1.75 w-full rounded-full bg-primary-500" />}
 
-        <div className={classNames(dividers && 'divide-y divide-border-light')}>{children}</div>
+        <div className={classNames('pt-5', dividers && 'divide-y divide-border-light')}>{children}</div>
       </div>
 
       <div className="shrink-0 pt-4 pb-24 flex flex-col gap-y-2">

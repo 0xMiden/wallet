@@ -74,7 +74,9 @@ export const TransactionProgressModal: FC = () => {
       if (cancelled) return;
       const uncompleted = await getAllUncompletedTransactions();
       if (cancelled) return;
-      const hasSendTxs = uncompleted.some(tx => tx.type === 'send' || tx.type === 'execute');
+      const hasSendTxs = uncompleted.some(
+        tx => tx.type === 'send' || tx.type === 'execute' || tx.type === 'swap'
+      );
       if (!hasSendTxs) return;
       if (isExtension()) {
         requestSWTransactionProcessing();

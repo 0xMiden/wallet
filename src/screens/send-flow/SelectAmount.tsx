@@ -106,7 +106,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   }
 
   return (
-    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
         <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">
           {t('miden')}

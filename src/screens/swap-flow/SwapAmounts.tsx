@@ -60,8 +60,8 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div className={clsx('flex h-full min-h-0 flex-col bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto no-scrollbar pt-10">
+    <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto no-scrollbar pt-10">
         <SelectAmount
           embedded
           label={t('youPay')}
@@ -74,7 +74,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         />
 
         <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-border-light" />
+          <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
           <motion.button
             type="button"
             onClick={() => {
@@ -95,7 +95,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
               />
             </svg>
           </motion.button>
-          <div className="h-px flex-1 bg-border-light" />
+          <div className="h-0.75 flex-1 bg-[#ECEBE8]" />
         </div>
 
         <SelectAmount
@@ -118,7 +118,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
 
       <div className="shrink-0 pt-4 pb-24">
         <Button
-          title={t('confirm')}
+          title={t('reviewSwap')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}

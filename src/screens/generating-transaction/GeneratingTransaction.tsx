@@ -22,6 +22,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import { isExtension } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -182,6 +183,13 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
   const generateTransaction = useCallback(async () => {
     setHasStartedProcessing(true);
+    // On extension the service worker owns the tx loop; the page is a pure
+    // observer there (running the WASM loop in the page context would race the
+    // SW). Just refresh the list and let polling surface progress.
+    if (isExtension()) {
+      mutateTx();
+      return;
+    }
     try {
       const success = await dbTransactionsLoop(signTransaction, false, zustandProvider);
       if (success === false) {

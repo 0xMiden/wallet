@@ -72,7 +72,13 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
 }) => {
   const { t } = useTranslation();
   const today = format(new Date(), 'dd.MM.yy');
-  const rate = formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice);
+  const rate = (
+    <p className="font-bold text-[#9B968D] text-sm">
+      {formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice)}
+    </p>
+  );
+
+  const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
 
   const hero = (
     <div className="mt-3">
@@ -84,9 +90,9 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       />
 
       <div className="my-4 flex items-center gap-3">
-        <div className="h-px flex-1 bg-border-light" />
+        {divider}
         <SwapArrows />
-        <div className="h-px flex-1 bg-border-light" />
+        {divider}
       </div>
 
       <ReviewAmount
@@ -102,18 +108,14 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     <ReviewLayout
       title={t('reviewSwapDetails')}
       date={today}
-      onBack={onGoBack}
-      backLabel={t('back')}
       hero={hero}
       heroDivider={false}
       dividers={false}
       primary={{ label: t('sendPayment'), onPress: onSubmit }}
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
-      <ReviewRow label={t('rate')} value={rate ?? '—'} />
+      <ReviewRow label={t('rate')}>{rate}</ReviewRow>
       <ReviewRow label={t('usuallyFillsIn')} value={t('swapUsuallyFillsInValue')} />
-      <ReviewRow label={t('expires')} value={t('swapExpiresValue')} />
-      <ReviewRow label={t('networkFee')} value={t('swapNetworkFeeValue')} />
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
   );

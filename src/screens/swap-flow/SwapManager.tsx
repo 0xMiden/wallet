@@ -3,18 +3,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { useAppEnv } from 'app/env';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSwapTransaction,
-  requestSWTransactionProcessing,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
+import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { deriveRequestAmount, getSwapTokenPrice, SwapToken, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension, isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
@@ -37,7 +32,6 @@ const SwapManager: React.FC = () => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { publicKey } = useAccount();
-  const { fullPage } = useAppEnv();
 
   const [offerToken, setOfferToken] = useState<SwapToken>(TOKEN_IMIDEN);
   const [requestToken, setRequestToken] = useState<SwapToken>(TOKEN_IETH);
@@ -164,19 +158,6 @@ const SwapManager: React.FC = () => {
     [selectingSide, offerToken, requestToken, goBack]
   );
 
-  const onGenerateTransaction = useCallback(() => {
-    if (isMobile()) {
-      useWalletStore.getState().openTransactionModal();
-      return;
-    }
-    if (fullPage) {
-      navigate('/generating-transaction-full');
-      return;
-    }
-    useWalletStore.getState().openTransactionModal();
-    navigate('/');
-  }, [fullPage]);
-
   const onSubmit = useCallback(async () => {
     if (submitting || !publicKey) return;
     setSubmitting(true);
@@ -193,28 +174,21 @@ const SwapManager: React.FC = () => {
         isDelegateProofEnabled()
       );
 
-      useWalletStore.getState().openTransactionModal();
+      // On extension the service worker owns the tx loop — nudge it. On
+      // mobile/desktop the generating-transaction page drives the loop itself.
       if (isExtension()) {
         requestSWTransactionProcessing();
       }
 
-      const result = await waitForTransactionCompletion(txId);
-      if ('errorMessage' in result) {
-        setSubmitError(result.errorMessage);
-      } else {
-        useWalletStore.getState().setLastCompletedTxHash(result.txHash);
-        if (isMobile()) {
-          navigate('/');
-        } else {
-          onGenerateTransaction();
-        }
-      }
+      // Hand off to the full-screen generating-transaction page, which renders
+      // progress steps + the swap summary badge and observes the tx through to
+      // its success/failure receipt. Replaces the old headless-modal path.
+      navigate({ pathname: '/generating-transaction', search: `?txId=${txId}` });
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
-    } finally {
       setSubmitting(false);
     }
-  }, [submitting, publicKey, offerToken, requestToken, offerAmount, requestAmount, onGenerateTransaction]);
+  }, [submitting, publicKey, offerToken, requestToken, offerAmount, requestAmount]);
 
   const statusMessage = useMemo(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true };
