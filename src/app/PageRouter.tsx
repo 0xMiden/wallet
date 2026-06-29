@@ -8,6 +8,7 @@ import Explore from 'app/pages/Explore';
 import Faucet from 'app/pages/Faucet';
 import ImportAccount from 'app/pages/ImportAccount';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
+import { Pending } from 'app/pages/Pending';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
@@ -174,6 +175,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <Receive />
       </TabLayout>
+    ))
+  ],
+  [
+    '/pending',
+    onlyReady(() => (
+      <FullScreenPage>
+        <Pending />
+      </FullScreenPage>
     ))
   ],
   [

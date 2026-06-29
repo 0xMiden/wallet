@@ -10,6 +10,7 @@
 ### Changes
 
 * [CHANGE][all] **Guardian picker now shows operator brand logos.** `ChooseGuardianScreen` cards render each operator's wordmark (Open-Zeppelin, Gateway, Lambda Class) centered, with the "Operated by / Location" caption moved below the card, a "Default" banner on the recommended operator, and the selected card outlined in the brand color; logos recolor with the theme. The onboarding subtitle is shortened to "Select an option below". (#248)
+* [CHANGE][all] **Activity list restyled; pending notes moved to a dedicated screen.** Activity rows now reuse the home action-bar glyphs (Send / Receive / Earn / Swap) rendered white on each glyph's own brand hue, with pill-shaped filter chips and a new pending-notes button in the Activity header. Claimable ("pending") notes moved out of the Receive tab switcher onto their own `/pending` page — Receive is now address-only.
 
 ### Fixes
 

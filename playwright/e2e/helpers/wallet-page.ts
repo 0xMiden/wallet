@@ -736,20 +736,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * the recovery step when the loop gets stuck with pending notes but no
    * visible buttons.
    */
-  private async reloadAndPrepareReceive(): Promise<void> {
+  private async reloadAndPreparePending(): Promise<void> {
     await this.page.reload({ waitUntil: 'domcontentloaded' });
     await this.page.waitForSelector('#root > *', { timeout: 15_000 }).catch(() => {});
     await this.page.waitForTimeout(3_000);
     await this.injectClaimableMetadata();
-    await this.navigateTo('/receive');
-    // Receive is tabbed; claimable notes live on the Pending tab. Switch to it
-    // so PendingTab mounts. The tab may not exist when there are zero pending
-    // notes — tolerate that.
-    try {
-      await this.page.getByTestId('receive-tab-pending').click({ timeout: 5_000 });
-    } catch {
-      // No Pending tab (e.g. zero pending notes) — stay on whatever is shown.
-    }
+    // Claimable notes live on their own /pending page now, which mounts the
+    // claim UI directly (no tab to switch to).
+    await this.navigateTo('/pending');
     await this.page.waitForTimeout(3_000);
   }
 
@@ -760,8 +754,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // Fresh reload + metadata injection + land on /receive. The reload (NOT a
     // client-side navigate) gives a fresh Dexie connection AND resets the
     // wallet's in-memory store — clearing the `extensionClaimingNoteIds` gate.
-    // See reloadAndPrepareReceive.
-    await this.reloadAndPrepareReceive();
+    // See reloadAndPreparePending.
+    await this.reloadAndPreparePending();
 
     const readPendingCount = (): Promise<number> =>
       this.page.evaluate(async () => {
@@ -798,14 +792,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
       // Let the React UI render buttons for newly-arrived notes before probing.
       await this.page.waitForTimeout(2_000);
-
-      // Ensure the Pending tab is active so the claim UI is mounted. The tab
-      // may be absent (e.g. mid-render or zero pending) — tolerate that.
-      const pendingTab = this.page.getByTestId('receive-tab-pending');
-      if (await pendingTab.isVisible().catch(() => false)) {
-        await pendingTab.click({ timeout: 5_000 }).catch(() => {});
-        await this.page.waitForTimeout(1_000);
-      }
 
       // Desktop fast path: a single "Claim All" button drains every faucet.
       const claimAllBtn = this.page.getByTestId('claim-all-button');
@@ -869,7 +855,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
       if (stuckSameCountIters >= 3) {
-        await this.reloadAndPrepareReceive();
+        await this.reloadAndPreparePending();
         stuckSameCountIters = 0;
       }
       await this.page.waitForTimeout(3_000);
@@ -895,7 +881,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   async claimNotesByGroup(timeoutMs: number = 180_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     const STABLE_ZERO_THRESHOLD = 2;
-    await this.reloadAndPrepareReceive();
+    await this.reloadAndPreparePending();
 
     const readPendingCount = (): Promise<number> =>
       this.page.evaluate(async () => {
@@ -924,13 +910,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       stuckSameCountIters = pending === lastPending ? stuckSameCountIters + 1 : 0;
       lastPending = pending;
       await this.page.waitForTimeout(2_000);
-
-      // Ensure the Pending tab is active so the two-level claim UI is mounted.
-      const pendingTab = this.page.getByTestId('receive-tab-pending');
-      if (await pendingTab.isVisible().catch(() => false)) {
-        await pendingTab.click({ timeout: 5_000 }).catch(() => {});
-        await this.page.waitForTimeout(1_000);
-      }
 
       // Open the first per-faucet summary row → asset detail view.
       const row = this.page.getByTestId('pending-asset-row').first();
@@ -987,7 +966,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // If the count hasn't budged for a few passes, a prior claim may have left
       // notes gated by `isBeingClaimed`; a full reload clears the in-memory gate.
       if (stuckSameCountIters >= 3) {
-        await this.reloadAndPrepareReceive();
+        await this.reloadAndPreparePending();
         stuckSameCountIters = 0;
       }
       await this.page.waitForTimeout(2_000);

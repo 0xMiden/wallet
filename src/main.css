@@ -336,13 +336,16 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --surface-input: #f9f9f9;
     --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --status-positive: #1a9c52;
+    --status-positive: #90BA89;
     --status-pending: #e85d2f;
     --status-negative: #ff5500;
-    --tx-received: #38824a;
-    --tx-sent: #024073;
-    --tx-swap: #6b7280;
-    --tx-earn: #891db1;
+    /* Activity icon-square hues — mirror the Send/Receive/Earn/Swap action-bar
+     * logo colors (the glyph is rendered white on top of these). */
+    --tx-received: #99ac94;
+    --tx-sent: #91acc1;
+    --tx-swap: #beacd2;
+    --tx-earn: #777487;
+    --tx-faucet: #891db1;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -396,13 +399,14 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
     --surface-input: #3f3f3f99;
     --surface-interactive: #3f3f3f99;
     --surface-inactive: #3f3f3f99;
-    --status-positive: #38824a;
+    --status-positive: #90BA89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
-    --tx-received: #38824a;
-    --tx-sent: #024073;
-    --tx-swap: #6b7280;
-    --tx-earn: #891db1;
+    --tx-received: #99ac94;
+    --tx-sent: #91acc1;
+    --tx-swap: #beacd2;
+    --tx-earn: #777487;
+    --tx-faucet: #891db1;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;

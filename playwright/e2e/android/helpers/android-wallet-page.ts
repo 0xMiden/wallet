@@ -230,13 +230,13 @@ export class AndroidWalletPage implements WalletPage {
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
-    await this.navigateTo('/receive');
+    // Claimable notes live on their own /pending page (mounts the claim UI
+    // directly).
+    await this.navigateTo('/pending');
     await sleep(3_000);
 
     await this.pollForCondition(
-      `var pending = document.querySelector('[data-testid="receive-tab-pending"]'); ` +
-        `if (pending) pending.click(); ` +
-        `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
         `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
         `btn.click(); return true;`,
       60_000
