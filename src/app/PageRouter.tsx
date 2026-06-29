@@ -15,6 +15,10 @@ import Welcome from 'app/pages/Welcome';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import { ConsumingNotePage } from 'screens/consuming-note/ConsumingNote';
+import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
+import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
+import EarnPositions from 'screens/earn-flow/EarnPositions';
+import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
@@ -226,6 +230,38 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <></>
       </TabLayout>
+    ))
+  ],
+  [
+    '/earn/vaults/:vaultId/deposit',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnDepositAmount vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/vaults/:vaultId',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnVaultDetail vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions/:positionId',
+    onlyReady(({ positionId }) => (
+      <FullScreenPage>
+        <EarnPositionDetail positionId={positionId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions',
+    onlyReady(() => (
+      <FullScreenPage>
+        <EarnPositions />
+      </FullScreenPage>
     ))
   ],
   [
