@@ -241,8 +241,7 @@ async function launchWalletInstance(label: 'A' | 'B', extensionPath: string, tim
       // Wait for either the onboarding welcome screen OR the main Explore page.
       await page
         .locator('[data-testid="onboarding-welcome"]')
-        .or(page.locator('[data-testid="receive-page"]'))
-        .or(page.getByText('Send'))
+        .or(page.locator('[data-testid="explore-page"]'))
         .first()
         .waitFor({ timeout: ATTEMPT_TIMEOUT });
 

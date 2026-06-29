@@ -2,6 +2,7 @@ import React, { FC, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { animate, motion, PanInfo, useMotionValue } from 'framer-motion';
 
+import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
 import { springs } from 'lib/animation';
@@ -42,13 +43,6 @@ const COMMIT_THRESHOLD = 0.3;
 // momentum to extrapolate when deciding whether to commit. Higher feels
 // flickier; lower feels stickier.
 const VELOCITY_PROJECTION_MS = 300;
-
-const EarnPlaceholder: FC = () => (
-  <div className="h-full flex flex-col items-center justify-center gap-2 bg-app-bg">
-    <span className="text-2xl font-bold text-text-primary-token">Earn</span>
-    <span className="text-sm text-text-tertiary-token">Coming soon</span>
-  </div>
-);
 
 const HomeSwipeContainer: FC = () => {
   const { pathname } = useLocation();
@@ -142,7 +136,7 @@ const HomeSwipeContainer: FC = () => {
           <Receive />
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
-          <EarnPlaceholder />
+          <Earn />
         </div>
         <div className="h-full shrink-0" style={{ width: `${100 / PAGES.length}%` }}>
           <SwapFlow />

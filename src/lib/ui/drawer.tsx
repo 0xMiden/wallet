@@ -1,13 +1,11 @@
 import * as React from 'react';
-import { createContext, useCallback, useContext, useEffect } from 'react';
+import { createContext, useCallback, useContext } from 'react';
 
-import { AnimatePresence, motion, type PanInfo } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { Drawer as VaulDrawer } from 'vaul';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { durations, easings, springs } from 'lib/animation';
 
-import Portal from './Portal';
 import { cn } from './util';
 
 interface DrawerContextValue {
@@ -25,82 +23,50 @@ interface DrawerProps {
 
 function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
-  return <DrawerContext.Provider value={{ open, onClose }}>{children}</DrawerContext.Provider>;
+  return (
+    <DrawerContext.Provider value={{ open, onClose }}>
+      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} direction="bottom">
+        {children}
+      </VaulDrawer.Root>
+    </DrawerContext.Provider>
+  );
 }
 
-interface DrawerContentProps {
+interface DrawerContentProps extends Omit<
+  React.ComponentPropsWithoutRef<typeof VaulDrawer.Content>,
+  'children' | 'className'
+> {
   className?: string;
+  overlayClassName?: string;
   children: React.ReactNode;
-  /** The handle is hidden by default — the standard drawer design closes via an
-   *  explicit close button (see `DrawerTopBar`). Pass `hideHandle={false}` to
-   *  restore the draggable handle + drag-to-dismiss for a legacy drawer. */
+  /** The visual handle is hidden by default. Vaul still handles sheet drag
+   *  gestures; pass `hideHandle={false}` to show the handle affordance. */
   hideHandle?: boolean;
 }
 
-function DrawerContent({ className, children, hideHandle = true }: DrawerContentProps) {
-  const { open, onClose } = useContext(DrawerContext);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  const handleDragEnd = useCallback(
-    (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-      if (info.offset.y > 80 || info.velocity.y > 300) {
-        onClose();
-      }
-    },
-    [onClose]
-  );
-
+function DrawerContent({ className, overlayClassName, children, hideHandle = true, ...props }: DrawerContentProps) {
   return (
-    <Portal>
-      <AnimatePresence>
-        {open && (
-          <>
-            <motion.div
-              key="drawer-backdrop"
-              className="fixed inset-0 z-50 bg-black/30 dark:bg-black/50 backdrop-blur-sm"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: durations.normal, ease: easings.easeInOut }}
-              onClick={onClose}
-            />
-            <motion.div
-              key="drawer-sheet"
-              data-slot="drawer-content"
-              className={cn(
-                'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm',
-                className
-              )}
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={springs.sheetPresent}
-            >
-              {!hideHandle && (
-                <motion.div
-                  className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing"
-                  drag="y"
-                  dragConstraints={{ top: 0, bottom: 0 }}
-                  dragElastic={0.2}
-                  onDragEnd={handleDragEnd}
-                >
-                  <div className="bg-primary-500 h-0.5 w-10 shrink-0 rounded-full" />
-                </motion.div>
-              )}
-              {children}
-            </motion.div>
-          </>
+    <VaulDrawer.Portal>
+      <VaulDrawer.Overlay
+        className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
+      />
+      <VaulDrawer.Content
+        data-slot="drawer-content"
+        aria-describedby={undefined}
+        className={cn(
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none',
+          className
         )}
-      </AnimatePresence>
-    </Portal>
+        {...props}
+      >
+        {!hideHandle && (
+          <div className="flex cursor-grab items-center justify-center pt-6 pb-2 active:cursor-grabbing">
+            <VaulDrawer.Handle className="h-0.5 w-10 shrink-0 rounded-full bg-primary-500 opacity-100" />
+          </div>
+        )}
+        {children}
+      </VaulDrawer.Content>
+    </VaulDrawer.Portal>
   );
 }
 
@@ -137,33 +103,30 @@ function DrawerFooter({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 
 function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h2
+    <VaulDrawer.Title
       data-slot="drawer-title"
       className={cn('text-[28px] font-semibold leading-none text-heading-gray', className)}
       {...props}
     >
       {children}
-    </h2>
+    </VaulDrawer.Title>
   );
 }
 
 function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
-  return <p data-slot="drawer-description" className={cn('text-sm text-text-muted', className)} {...props} />;
+  return (
+    <VaulDrawer.Description
+      data-slot="drawer-description"
+      className={cn('text-sm text-text-muted', className)}
+      {...props}
+    />
+  );
 }
 
-// Stub exports for API compatibility (unused by consumers)
-function DrawerTrigger({ children }: { children?: React.ReactNode }) {
-  return <>{children}</>;
-}
-function DrawerClose({ children }: { children?: React.ReactNode }) {
-  return <>{children}</>;
-}
-function DrawerPortal({ children }: { children?: React.ReactNode }) {
-  return <>{children}</>;
-}
-function DrawerOverlay({ children }: { children?: React.ReactNode }) {
-  return <>{children}</>;
-}
+const DrawerTrigger = VaulDrawer.Trigger;
+const DrawerClose = VaulDrawer.Close;
+const DrawerPortal = VaulDrawer.Portal;
+const DrawerOverlay = VaulDrawer.Overlay;
 
 export {
   Drawer,

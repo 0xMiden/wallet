@@ -441,8 +441,28 @@
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "这可能需要一些时间，具体取决于网络流量水平",
-    "englishSource": "This may take a moment depending on the level network traffic"
+    "message": "这可能需要一些时间，具体取决于网络流量。您可以关闭它 - 完成后我们会通知您。",
+    "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
+  },
+  "transactionTitleSend": {
+    "message": "发送付款",
+    "englishSource": "Sending Payment"
+  },
+  "transactionStepGuardianApproved": {
+    "message": "监护人批准",
+    "englishSource": "Guardian approved"
+  },
+  "transactionStepProofGenerated": {
+    "message": "生成证明",
+    "englishSource": "Proof generated"
+  },
+  "transactionStepSubmitting": {
+    "message": "正在提交",
+    "englishSource": "Submitting"
+  },
+  "transactionStepSyncingGuardian": {
+    "message": "与监护人同步",
+    "englishSource": "Syncing with Guardian"
   },
   "transactionStageSyncing": {
     "message": "正在同步帐户",
@@ -1204,6 +1224,55 @@
     "message": "在这里管理您的联系人",
     "englishSource": "Manage your contacts here"
   },
+  "chooseRecipient": {
+    "message": "选择收件人",
+    "englishSource": "Choose recipient"
+  },
+  "enterMidenOrEthereumAddress": {
+    "message": "输入 Miden 或以太坊地址",
+    "englishSource": "Enter Miden or Ethereum address"
+  },
+  "selectAmount": {
+    "message": "选择金额",
+    "englishSource": "Select Amount"
+  },
+  "selectAToken": {
+    "message": "选择一个代币",
+    "englishSource": "Select a token"
+  },
+  "searchForTokens": {
+    "message": "搜索代币",
+    "englishSource": "Search for tokens"
+  },
+  "available": {
+    "message": "可用的",
+    "englishSource": "Available"
+  },
+  "approxFiatValue": {
+    "message": "≈  $value$ 美元",
+    "englishSource": "≈ $value$ USD",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "reviewDetails": {
+    "message": "评论详情",
+    "englishSource": "Review Details"
+  },
+  "expirationDate": {
+    "message": "截止日期",
+    "englishSource": "Expiration Date"
+  },
+  "edit": {
+    "message": "编辑",
+    "englishSource": "Edit"
+  },
+  "miden": {
+    "message": "米登",
+    "englishSource": "Miden"
+  },
   "addNewContact": {
     "message": "新联系人",
     "englishSource": "New contact"
@@ -1372,6 +1441,146 @@
     "note": "Onboarding",
     "englishSource": "I already have a wallet"
   },
+  "welcome": {
+    "message": "欢迎",
+    "englishSource": "Welcome"
+  },
+  "toLowercase": {
+    "message": "到",
+    "englishSource": "to"
+  },
+  "breadWalletDescription": {
+    "message": "Bread Wallet 是一种简单、安全的方式来私下管理您的数字货币。",
+    "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
+  },
+  "recoverYourAccount": {
+    "message": "恢复您的帐户",
+    "englishSource": "Recover your account"
+  },
+  "chooseHowToProtect": {
+    "message": "选择您想要如何保护您的钱包",
+    "englishSource": "Choose how you want to protect your wallet"
+  },
+  "useFaceIdOrBiometric": {
+    "message": "使用 FaceID 或生物识别",
+    "englishSource": "Use FaceID or Biometric"
+  },
+  "setUpYourPasscode": {
+    "message": "设置您的密码",
+    "englishSource": "Set up your passcode"
+  },
+  "confirmYourPasscode": {
+    "message": "确认您的密码",
+    "englishSource": "Confirm your passcode"
+  },
+  "enterYourPasscode": {
+    "message": "输入您的密码",
+    "englishSource": "Enter your passcode"
+  },
+  "enterYour6DigitCode": {
+    "message": "输入您的 6 位数代码",
+    "englishSource": "Enter your 6-digit code"
+  },
+  "incorrectPasscode": {
+    "message": "密码不正确。再试一次。",
+    "englishSource": "Incorrect passcode. Try again."
+  },
+  "forgotPasscode": {
+    "message": "忘记密码？",
+    "englishSource": "Forgot passcode?"
+  },
+  "createA6DigitCode": {
+    "message": "创建 6 位数字代码",
+    "englishSource": "Create a 6 digit code"
+  },
+  "reEnterTheSame6Digits": {
+    "message": "重新输入相同的 6 位数字",
+    "englishSource": "Re-enter the same 6 digits"
+  },
+  "faceIdSetUp": {
+    "message": "面容 ID 设置",
+    "englishSource": "Face ID set up"
+  },
+  "biometricSetUp": {
+    "message": "生物识别设置",
+    "englishSource": "Biometric set up"
+  },
+  "usePasscodeInstead": {
+    "message": "请改用密码",
+    "englishSource": "Use passcode instead"
+  },
+  "biometricConfirmed": {
+    "message": "确认的！",
+    "englishSource": "Confirmed!"
+  },
+  "onlyOneMoreStep": {
+    "message": "只需要多一步！",
+    "englishSource": "Only one more step!"
+  },
+  "biometricSetupReason": {
+    "message": "为您的钱包设置生物识别解锁",
+    "englishSource": "Set up biometric unlock for your wallet"
+  },
+  "biometricUnavailable": {
+    "message": "此设备不支持生物识别解锁。",
+    "englishSource": "Biometric unlock isn't available on this device."
+  },
+  "chooseYourGuardian": {
+    "message": "选择您的监护人",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "最后一步，选择您的 Miden Guardian。这将作为保护层",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "了解有关卫报的更多信息",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "经营者：",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "地点：",
+    "englishSource": "Location:"
+  },
+  "whatIsAGuardian": {
+    "message": "什么是监护人？",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian 是一项独立服务，可以从您的钱包中<b>共同签署每笔交易</b>，在不放弃自我保管的情况下添加安全网。",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "它的作用",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "根据您的安全策略批准或拒绝交易。如果您丢失设备，可帮助您恢复。",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "它不能做什么",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "自行转移资金。访问您的私有状态。除非您分享，否则请查看您的余额。",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "切换很容易",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "您可以随时使用恢复短语轮换至其他监护人，或完全删除监护人。",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "gotIt": {
+    "message": "知道了",
+    "englishSource": "Got it"
+  },
   "backUpYourWallet": {
     "message": "备份你的钱包",
     "note": "Onboarding",
@@ -1433,14 +1642,29 @@
     "englishSource": "Only Miden Seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "您的钱包已准备好",
-    "note": "Onboarding",
-    "englishSource": "Your wallet is ready!"
+    "message": "您的<highlight>钱包</highlight>已准备就绪！",
+    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+  },
+  "recoveryPhraseSevenDayReminder": {
+    "message": "在 7 天内记下您的恢复短语，以充分保护您的钱包。",
+    "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
+  },
+  "recoveryPhraseDailyReminder": {
+    "message": "我们每天都会在主屏幕上提醒您。",
+    "englishSource": "We'll remind you daily on the home screen."
+  },
+  "openWallet": {
+    "message": "打开钱包",
+    "englishSource": "Open wallet"
   },
   "getStarted": {
     "message": "开始",
     "note": "Onboarding",
     "englishSource": "Get started"
+  },
+  "creatingYourWallet": {
+    "message": "创建你的钱包...",
+    "englishSource": "Creating your wallet…"
   },
   "enterPassword": {
     "message": "输入密码",
@@ -1465,6 +1689,10 @@
   "passwordsDoNotMatch": {
     "message": "密码不匹配",
     "englishSource": "Passwords do not match"
+  },
+  "passcodesDoNotMatch": {
+    "message": "密码不匹配。再试一次。",
+    "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
     "message": "创建密码",
@@ -1682,6 +1910,10 @@
     "message": "现任监护人",
     "englishSource": "Current Guardian"
   },
+  "currentLabel": {
+    "message": "当前的",
+    "englishSource": "Current"
+  },
   "newGuardianEndpoint": {
     "message": "新的守护者端点",
     "englishSource": "New Guardian Endpoint"
@@ -1713,6 +1945,70 @@
   "guardianEndpointUnchanged": {
     "message": "那已经是你现在的监护人了。",
     "englishSource": "That's already your current guardian."
+  },
+  "rotateGuardian": {
+    "message": "轮换守护者",
+    "englishSource": "Rotate Guardian"
+  },
+  "keys": {
+    "message": "按键",
+    "englishSource": "Keys"
+  },
+  "guardianAboutDescription": {
+    "message": "Guardian 对该钱包中的每笔交易进行联合签名，为您提供第二因素安全网，而无需托管您的资金。您可以随时使用恢复短语轮换或删除您的监护人。",
+    "englishSource": "Guardian cosigns every transaction from this wallet, giving you a second-factor safety net without taking custody of your funds. You can rotate or remove your Guardian anytime with your recovery phrase."
+  },
+  "customGuardian": {
+    "message": "定制守护者",
+    "englishSource": "Custom Guardian"
+  },
+  "guardianProvider": {
+    "message": "提供者",
+    "englishSource": "Provider"
+  },
+  "guardianEndpointLabel": {
+    "message": "端点",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "地区",
+    "englishSource": "Region"
+  },
+  "customEndpoint": {
+    "message": "自定义端点",
+    "englishSource": "Custom endpoint"
+  },
+  "customEndpointDescription": {
+    "message": "如果您正在运行自己的监护人 URL，请粘贴该监护人 URL。",
+    "englishSource": "Paste a Guardian URL if you're running your own."
+  },
+  "customEndpointPlaceholder": {
+    "message": "https://guardian.example.com",
+    "englishSource": "https://guardian.example.com"
+  },
+  "reviewRotation": {
+    "message": "审查轮换",
+    "englishSource": "Review rotation"
+  },
+  "newLabel": {
+    "message": "新的",
+    "englishSource": "New"
+  },
+  "walletKeyHot": {
+    "message": "钱包钥匙（热门）",
+    "englishSource": "Wallet key (hot)"
+  },
+  "recoveryPhraseCold": {
+    "message": "恢复短语（冷）",
+    "englishSource": "Recovery phrase (cold)"
+  },
+  "oldGuardianCantBlockTitle": {
+    "message": "你的旧监护人无法阻止这个",
+    "englishSource": "Your old Guardian can't block this"
+  },
+  "oldGuardianCantBlockBody": {
+    "message": "旋转由您的两个设备上的密钥批准。老守护者只得到通知。",
+    "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
     "message": "旋转设备密钥",
@@ -2377,9 +2673,42 @@
       }
     }
   },
+  "claimAllProgress": {
+    "message": "索取全部？ （ $unclaimed$ / $total$ )",
+    "englishSource": "Claim All? ($unclaimed$/$total$)",
+    "placeholders": {
+      "unclaimed": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
   "readyToClaim": {
     "message": "待处理 notes： $count$ ",
     "englishSource": "Pending notes: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "totalPending": {
+    "message": "待处理总数",
+    "englishSource": "Total Pending"
+  },
+  "pendingNotesCount": {
+    "message": "notes 待处理",
+    "englishSource": "notes pending"
+  },
+  "pendingAssetsCount": {
+    "message": "资产",
+    "englishSource": "assets"
+  },
+  "incomingCount": {
+    "message": "$count$ 传入",
+    "englishSource": "$count$ Incoming",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3088,6 +3417,10 @@
     "message": "在",
     "englishSource": "On"
   },
+  "onLowercase": {
+    "message": "在",
+    "englishSource": "on"
+  },
   "off": {
     "message": "离开",
     "englishSource": "Off"
@@ -3184,8 +3517,28 @@
     "message": "单击拼图图标并固定 Bread，以便从工具栏快速访问。",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
-  "gotIt": {
-    "message": "知道了",
-    "englishSource": "Got it"
+  "all": {
+    "message": "全部",
+    "englishSource": "All"
+  },
+  "sent": {
+    "message": "发送",
+    "englishSource": "Sent"
+  },
+  "pending": {
+    "message": "待办的",
+    "englishSource": "Pending"
+  },
+  "faucetRequestTitle": {
+    "message": "Faucet 请求",
+    "englishSource": "Faucet Request"
+  },
+  "share": {
+    "message": "分享",
+    "englishSource": "Share"
+  },
+  "copy": {
+    "message": "复制",
+    "englishSource": "Copy"
   }
 }

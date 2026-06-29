@@ -1,11 +1,27 @@
-import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
+import { Account, AuthSecretKey, MidenClient, Word } from '@miden-sdk/miden-sdk/lazy';
 import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
+import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
+import { WalletAccount } from 'lib/shared/types';
 
+import { registerGuardianOrigin } from './native-http';
 import { fetchFromStorage } from '../front/storage';
+
+/**
+ * Resolve the guardian operator endpoint for a Guardian account.
+ *
+ * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
+ * on switch-guardian) so accounts on different operators don't collide. Falls
+ * back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records created
+ * before the field existed, then to `DEFAULT_GUARDIAN_ENDPOINT`.
+ */
+export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
+  if (account.guardianEndpoint) return account.guardianEndpoint;
+  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
+}
 
 // Re-export the slot names from the package for reading account state
 export const MULTISIG_SLOT_NAMES = {
@@ -31,30 +47,49 @@ export interface CreatedGuardianKeys {
 export interface CreatedGuardianAccount {
   account: Account;
   keys: CreatedGuardianKeys;
+  // The guardian operator endpoint this account was registered with — persisted
+  // onto the WalletAccount so runtime reads resolve per-account, not globally.
+  guardianEndpoint: string;
 }
 
 /**
- * Extract the hot signer's commitment from a Guardian account's storage and
- * pair it with the supplied hot public key.
+ * Signers live in the SIGNER_PUBLIC_KEYS storage map keyed by their index word
+ * (matching @openzeppelin/miden-multisig-client's `signerMapKey`). The hot
+ * signer is at index 0, the cold signer at index 1.
+ */
+const signerMapKey = (index: number): Word => new Word(new BigUint64Array([BigInt(index), 0n, 0n, 0n]));
+
+/**
+ * Read a signer's commitment from a Guardian account's storage.
  *
- * Convention: `signerCommitments: [hot, cold]` per createGuardianAccount —
- * so `mapEntries[0]` is the hot signer's commitment.
+ * 3-key accounts store `[hot@0, cold@1]`; legacy single-key Guardian accounts
+ * (feature #153) keep the cold/HD key alone at index 0. So for the cold lookup
+ * we read index 1 and fall back to index 0 — otherwise activating a migrated
+ * legacy account would read a non-existent index 1 and brick it.
+ *
+ * Commitments MUST be read BY KEY (`getMapItem(signerMapKey(i))`), not by
+ * `getMapEntries()[i]` array position: getMapEntries returns the storage SMT's
+ * iteration order (key-hash order), which is NOT the signer-index order, so a
+ * positional read binds the wrong signer for roughly half of all accounts. The
+ * SDK's own reader (multisig-client `AccountInspector.fromAccount`) reads by key
+ * for the same reason.
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
-  const mapEntries = account.storage().getMapEntries(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS);
-  if (!mapEntries) {
-    throw new Error('No signer public keys found in account storage');
-  }
+  const storage = account.storage();
 
-  const index = getCold ? 1 : 0;
+  const readSigner = (index: number): string | undefined => {
+    const value = storage.getMapItem(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS, signerMapKey(index));
+    if (!value) return undefined;
+    const hex = value.toHex();
+    const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
+    // An absent map entry reads back as the empty word (all zeros) in some SDK
+    // builds — treat that as "no signer at this index".
+    return /^0*$/.test(unprefixed) ? undefined : unprefixed;
+  };
 
-  if (!mapEntries[index]) {
-    throw new Error('No signer commitments found in account storage');
-  }
-
-  const commitment = mapEntries[index].value.slice(2);
+  const commitment = getCold ? (readSigner(1) ?? readSigner(0)) : readSigner(0);
   if (!commitment) {
-    throw new Error('Commitment not found in account storage');
+    throw new Error('No signer commitment found in account storage');
   }
 
   return { commitment };
@@ -74,7 +109,7 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
  * @param skipRegistration - Skip guardian registration (used by the import path).
  * @param guardianEndpointOverride - Force a specific guardian URL for pubkey
  *   derivation. Account ID is a content hash that includes the guardian pubkey
- *   baked into storage, so the import flow passes the stored guardian endpoint
+ *   baked into storage, so the import flow passes `DEFAULT_GUARDIAN_ENDPOINT`
  *   to reproduce the ID the account originally had.
  */
 export async function createGuardianAccount(
@@ -106,12 +141,12 @@ export async function createGuardianAccount(
     const hot = await secureHotKey.generateHotKey();
 
     // Get Guardian endpoint and initialize client
-    const guardianEndpoint = guardianEndpointOverride ?? (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY));
-    if (!guardianEndpoint) {
-      throw new Error('Guardian endpoint missing from storage — wallet must complete guardian onboarding first');
-    }
-    console.log('Using Guardian endpoint:', guardianEndpoint);
+    const guardianEndpoint =
+      guardianEndpointOverride ??
+      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
+      DEFAULT_GUARDIAN_ENDPOINT;
 
+    registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
     // Signer order is [hot, cold] by convention — the migration plan diagrams
@@ -157,11 +192,14 @@ export async function createGuardianAccount(
         coldPublicKey,
         hotCiphertext: hot.ciphertext,
         coldSecretKeyHex
-      }
+      },
+      guardianEndpoint
     };
   } catch (e) {
     console.log(e);
     console.error('Error creating Guardian account:', e);
-    throw new Error('Failed to create Guardian account');
+    // Preserve the original cause so callers can distinguish guardian-unreachable
+    // from node/registration/WASM failures.
+    throw new Error('Failed to create Guardian account', { cause: e });
   }
 }

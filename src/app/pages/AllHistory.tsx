@@ -7,7 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import History from 'app/templates/history/History';
 import { SearchInput } from 'components/ui';
 import { useAccount } from 'lib/miden/front';
-import { hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
 type AllHistoryProps = {
@@ -41,13 +41,27 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <header className="shrink-0 px-4 py-4 flex items-center justify-between">
-        <h1 className="text-[28px] font-semibold text-heading-gray dark:text-pure-white">{t('activity')}</h1>
+      <header className="shrink-0 px-4 py-3 flex items-center justify-between border-b  border-[#00000017]">
+        <h1 className="font-heading text-[28px] font-bold text-heading-gray dark:text-pure-white">{t('activity')}</h1>
         <div className="flex items-center gap-2">
           <button
             type="button"
+            aria-label={t('pendingNotes')}
+            onClick={() => {
+              hapticLight();
+              navigate('/pending');
+            }}
+            className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
+          >
+            <Icon name={IconName.PendingNotes} className="w-4 h-4 [&_path]:fill-current" />
+          </button>
+          <button
+            type="button"
             aria-label={t('settings')}
-            onClick={() => navigate('/settings')}
+            onClick={() => {
+              hapticLight();
+              navigate('/settings');
+            }}
             className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
           >
             <Icon name={IconName.Settings} className="w-4 h-4" fill="currentColor" />
@@ -65,7 +79,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
               aria-pressed={isActive}
               onClick={() => handleFilterTap(f.id)}
               className={classNames(
-                'px-6 py-2 rounded-10 text-sm leading-[100%] font-medium transition-colors',
+                'px-6 py-2 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
                 isActive
                   ? 'bg-accent-primary text-pure-white font-semibold'
                   : 'bg-white text-text-primary-token border border-rule-strong'

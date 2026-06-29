@@ -19,6 +19,8 @@ export interface ActivityRowProps {
   subtitle?: string;
   amount?: {
     value: string;
+    /** Token symbol, rendered in the neutral heading color next to the value. */
+    symbol?: string;
     direction?: ActivityAmountDirection;
   };
   status: {
@@ -83,20 +85,16 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         </div>
 
         <div className="flex flex-col text-heading-gray leading-tight dark:text-pure-white">
-          <span className="text-sm font-bold">{title}</span>
-          {subtitle && <span className="text-xs opacity-50 font-medium leading-[100%]">{subtitle}</span>}
+          <span className="font-heading text-base font-bold">{title}</span>
+          {subtitle && <span className="font-heading text-xs opacity-50 font-medium leading-[100%]">{subtitle}</span>}
         </div>
       </div>
 
       <div className="flex flex-col items-end gap-0.5">
         {amount && (
-          <span
-            className={classNames(
-              'font-heading text-sm font-semibold leading-tight',
-              AMOUNT_COLOR[amount.direction ?? 'neutral']
-            )}
-          >
-            {amount.value}
+          <span className="font-heading text-sm font-bold leading-tight">
+            <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{amount.value}</span>
+            {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
           </span>
         )}
         <span

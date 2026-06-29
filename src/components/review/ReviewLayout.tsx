@@ -3,12 +3,15 @@ import React from 'react';
 import classNames from 'clsx';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { ScreenHeader } from 'components/ScreenHeader';
 
 export interface ReviewAction {
   label: string;
   onPress: () => void;
   /** Defaults to 'button'. Use 'submit' when the screen is inside a <form>. */
   type?: 'button' | 'submit';
+  /** Optional stable selector for E2E; set by the caller, not hardcoded here. */
+  'data-testid'?: string;
 }
 
 export interface ReviewLayoutProps {
@@ -16,6 +19,8 @@ export interface ReviewLayoutProps {
   title: string;
   /** Small date caption above the title, e.g. "06.06.26". */
   date?: string;
+  onBack?: () => void;
+  backLabel?: string;
   /** Hero block — a ReviewAmount (send) or a composed swap hero. */
   hero: React.ReactNode;
   /** Orange underline under the hero. Default true (send); pass false for swap (its hero owns its dividers). */
@@ -38,6 +43,8 @@ export interface ReviewLayoutProps {
 export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   title,
   date,
+  onBack,
+  backLabel,
   hero,
   heroDivider = true,
   dividers = true,
@@ -46,6 +53,8 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   secondary
 }) => (
   <div className="flex flex-col h-full min-h-0 bg-app-bg">
+    <ScreenHeader title={title} onBack={onBack} backLabel={backLabel} className="px-4" />
+
     <div className="flex flex-col flex-1 min-h-0 px-6">
       <div className="flex-1 overflow-y-auto no-scrollbar pt-8">
         {date && <p className="text-sm text-heading-gray/50">{date}</p>}
@@ -64,6 +73,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
           title={primary.label}
           variant={ButtonVariant.Primary}
           onClick={primary.onPress}
+          data-testid={primary['data-testid']}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
         {secondary && (

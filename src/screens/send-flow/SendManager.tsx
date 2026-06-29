@@ -224,6 +224,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     register('token');
   }, [register]);
 
+  // E2E-only hook: the per-send privacy toggle was removed from the UI, so the
+  // harness can't pick a PUBLIC send by clicking. Mirror the __TEST_STORE__ gate
+  // (process.env.MIDEN_E2E_TEST === 'true') and expose a setter that flips the
+  // react-hook-form `sharePrivately` field. Zero production impact.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    (globalThis as any).__TEST_SET_SHARE_PRIVATELY__ = (v: boolean) => setValue('sharePrivately', v);
+    return () => {
+      delete (globalThis as any).__TEST_SET_SHARE_PRIVATELY__;
+    };
+  }, [setValue]);
+
   const amount = watch('amount');
   const sharePrivately = watch('sharePrivately');
   const recipientAddress = watch('recipientAddress');

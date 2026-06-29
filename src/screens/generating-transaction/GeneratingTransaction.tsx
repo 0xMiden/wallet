@@ -368,7 +368,7 @@ const getTransactionStepState = (
   return 'pending';
 };
 
-const TransactionHeroIcon: React.FC<{ state: 'processing' | 'complete' | 'failed' }> = ({ state }) => {
+const TransactionHeroIcon: React.FC<{ state: 'processing' | 'failed' }> = ({ state }) => {
   const reduceMotion = useReducedMotion();
   const entranceTransition = useMotion(springs.standard);
 
@@ -390,12 +390,6 @@ const TransactionHeroIcon: React.FC<{ state: 'processing' | 'complete' | 'failed
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-        </svg>
-      ) : state === 'complete' ? (
-        <svg viewBox="0 0 142 142" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="71" cy="71" r="52" fill="rgba(56, 130, 74, 0.12)" />
-          <circle cx="71" cy="71" r="36" fill={SUCCESS_GREEN} />
-          <path d="M53 72L65 84L90 59" stroke="white" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ) : (
         <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -600,7 +594,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     : Math.min(targetStepIndex, TRANSACTION_STEPS.length - 1);
   const [visibleStepIndex, setVisibleStepIndex] = useState(transactionComplete ? TRANSACTION_STEPS.length : 0);
   const activeStepIndex = transactionComplete ? TRANSACTION_STEPS.length : visibleStepIndex;
-  const heroState = transactionComplete ? (hasErrors ? 'failed' : 'complete') : 'processing';
+  // The success path (transactionComplete && !hasErrors) early-returns
+  // <TransactionSuccess> below, so the only completed state that reaches this
+  // render is a failure.
+  const heroState = transactionComplete ? 'failed' : 'processing';
   const actionTitle = transactionComplete ? t('done') : t('hide');
 
   useEffect(() => {
@@ -684,32 +681,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               );
             })}
           </div>
-
-          {transactionComplete && !hasErrors && onViewExplorer && (
-            <button
-              type="button"
-              onClick={onViewExplorer}
-              className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-heading-gray/80 hover:text-heading-gray underline-offset-2 hover:underline"
-            >
-              {t('viewOnMidenscan')}
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
-              >
-                <path
-                  d="M4 2H10V8M10 2L3 9"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          )}
 
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

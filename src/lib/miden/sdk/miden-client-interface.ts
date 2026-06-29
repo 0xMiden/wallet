@@ -43,11 +43,16 @@ import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/type
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
+// guardian/native-http is cycle-safe (it only pulls constants + platform).
 import type { CreatedGuardianKeys } from '../guardian/account';
+import { registerGuardianOrigin } from '../guardian/native-http';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
   keys: CreatedGuardianKeys;
+  // Guardian operator endpoint the account was registered with — persisted onto
+  // the WalletAccount so runtime endpoint resolution is per-account.
+  guardianEndpoint: string;
 }
 
 /**
@@ -69,6 +74,10 @@ export interface RecoveredGuardianAccount {
 }
 
 const MAX_RECOVERY_HD_INDEX = 20;
+// Tolerate a few consecutive empty HD indices before concluding there are no
+// more accounts — handles a non-contiguous index set or a transient empty
+// guardian response, matching BIP-44 wallet gap-limit conventions.
+const RECOVERY_GAP_LIMIT = 3;
 
 // E2E-build only. The per-step prove-timing markers are useful for the
 // Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
@@ -261,8 +270,8 @@ export class MidenClientInterface {
    */
   async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
-    const { account, keys } = await createGuardianAccount(this.client, coldSeed);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys };
+    const { account, keys, guardianEndpoint } = await createGuardianAccount(this.client, coldSeed);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
@@ -292,8 +301,8 @@ export class MidenClientInterface {
   /**
    * Discover and adopt all Guardian accounts authorized by the cold keys
    * derived from `mnemonic` against `guardianEndpoint`. Iterates HD indices
-   * 0..MAX-1 and stops at the first miss (no accounts returned for that
-   * cold commitment).
+   * 0..MAX-1 and stops after RECOVERY_GAP_LIMIT consecutive empty indices (so a
+   * small gap doesn't silently drop later accounts).
    *
    * Each match is adopted locally only: the on-chain Account state is
    * decoded and inserted into the WASM client + the cold key registered in
@@ -324,7 +333,9 @@ export class MidenClientInterface {
     ]);
 
     const recovered: RecoveredGuardianAccount[] = [];
+    let consecutiveMisses = 0;
 
+    registerGuardianOrigin(guardianEndpoint);
     for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
       const coldSeed = deriveColdSeed(hdIndex);
       const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
@@ -336,9 +347,13 @@ export class MidenClientInterface {
       const matches = await lookupClient.recoverByKey(lookupSigner);
 
       if (matches.length === 0) {
-        // First miss — assume no further accounts under this seed at this endpoint.
-        break;
+        // Tolerate a small gap before giving up, so a non-contiguous index or a
+        // transient empty guardian response doesn't silently drop later accounts.
+        consecutiveMisses++;
+        if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
+        continue;
       }
+      consecutiveMisses = 0;
 
       for (const { state } of matches) {
         // Decode the on-chain account state and adopt it locally so subsequent

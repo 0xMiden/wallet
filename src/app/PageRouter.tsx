@@ -7,6 +7,8 @@ import CreateAccount from 'app/pages/CreateAccount';
 import Explore from 'app/pages/Explore';
 import Faucet from 'app/pages/Faucet';
 import ImportAccount from 'app/pages/ImportAccount';
+import OpenSidePanel from 'app/pages/OpenSidePanel';
+import { Pending } from 'app/pages/Pending';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
@@ -14,6 +16,10 @@ import Welcome from 'app/pages/Welcome';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import { ConsumingNotePage } from 'screens/consuming-note/ConsumingNote';
+import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
+import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
+import EarnPositions from 'screens/earn-flow/EarnPositions';
+import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
@@ -44,6 +50,12 @@ interface RouteContext {
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
 
 const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
+  // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
+  // catch-all so it renders regardless of Ready: creating the wallet flips the
+  // app to the wallet home, and this screen must survive that to let the user
+  // open the panel. Still defers to Unlock when locked (e.g. the wallet
+  // auto-locks while a tab is parked here) by SKIPping to the `*` catch-all.
+  ['/finish-side-panel', (_p, ctx) => (ctx.locked ? Woozie.Router.SKIP : <OpenSidePanel />)],
   ['/reset-required', () => <ResetRequired />],
   [
     '/reset-wallet',
@@ -167,6 +179,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
+    '/pending',
+    onlyReady(() => (
+      <FullScreenPage>
+        <Pending />
+      </FullScreenPage>
+    ))
+  ],
+  [
     '/faucet',
     onlyReady(() => (
       <FullScreenPage>
@@ -220,6 +240,38 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <SwapFlow />
       </TabLayout>
+    ))
+  ],
+  [
+    '/earn/vaults/:vaultId/deposit',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnDepositAmount vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/vaults/:vaultId',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnVaultDetail vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions/:positionId',
+    onlyReady(({ positionId }) => (
+      <FullScreenPage>
+        <EarnPositionDetail positionId={positionId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions',
+    onlyReady(() => (
+      <FullScreenPage>
+        <EarnPositions />
+      </FullScreenPage>
     ))
   ],
   [

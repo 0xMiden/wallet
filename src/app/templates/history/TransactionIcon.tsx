@@ -1,10 +1,9 @@
 import React, { FC } from 'react';
 
-import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
-
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
+import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';

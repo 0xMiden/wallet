@@ -17,9 +17,9 @@ export interface ReviewRowProps {
  */
 export const ReviewRow: React.FC<ReviewRowProps> = ({ label, value, onEdit, editLabel, children }) => (
   <div className="flex items-start justify-between py-4">
-    <span className="text-sm text-heading-gray font-medium">{label}</span>
+    <span className="text-base text-heading-gray font-medium">{label}</span>
     <div className="flex flex-col items-end text-right">
-      {children ?? <span className="text-sm text-heading-gray font-semibold">{value}</span>}
+      {children ?? <span className="text-base text-heading-gray font-semibold">{value}</span>}
       {onEdit && (
         <button type="button" onClick={onEdit} className="text-xs text-primary-500 font-medium mt-1 cursor-pointer">
           {editLabel}

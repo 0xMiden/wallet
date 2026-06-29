@@ -27,7 +27,14 @@ test.describe('Fullpage UI', () => {
     expect(errors).toHaveLength(0);
   });
 
-  test('onboarding create flow completes and shows Explore page', async ({ extensionContext, extensionId }) => {
+  // SKIPPED for the v0 UI: the create flow is now Guardian-mandatory (no "Fully
+  // Private" option), so a wallet can't be created in this smoke build without a
+  // live guardian backend. The create → "Open wallet" → side-panel handoff path
+  // is covered by the blockchain E2E harness (which uses the onboarding bypass).
+  test.skip('onboarding create flow completes and hands off to the side panel', async ({
+    extensionContext,
+    extensionId
+  }) => {
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const page = await extensionContext.newPage();
 
@@ -78,12 +85,16 @@ test.describe('Fullpage UI', () => {
     await page.getByText(/fully private/i).first().click();
     await page.getByRole('button', { name: /continue/i }).click();
 
-    // Complete onboarding and verify we reach the Explore page
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible();
-    await page.getByRole('button', { name: /get started/i }).click();
-    // Verify Explore page by checking for Send, Receive, Faucet buttons
-    await expect(page.getByText('Send')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText('Receive')).toBeVisible({ timeout: 30000 });
+    // New-wallet onboarding hands the wallet off to the Chrome side panel: the
+    // wallet is created in the background ("Creating your wallet…"), then once
+    // it's ready an "Open wallet" CTA appears. Clicking it opens the side panel
+    // (a separate context) and closes this tab, so we assert the ready handoff
+    // screen here rather than driving the side panel. The "Open wallet" button
+    // is gated on the store reaching Ready, so seeing it confirms the wallet was
+    // created and is functional. (The classic in-tab "Get started" → Explore
+    // path is covered by the import flow test below.)
+    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
   test('onboarding import flow completes and shows Explore page', async ({ extensionContext, extensionId }) => {
@@ -97,7 +108,7 @@ test.describe('Fullpage UI', () => {
     if (page.isClosed()) {
       throw new Error('Page closed before onboarding');
     }
-    await welcome.getByRole('button', { name: /i already have a wallet/i }).click();
+    await page.locator('#import-link').click();
 
     const importType = page.getByTestId('import-select-type');
     await importType.waitFor({ timeout: 15000 });
@@ -122,13 +133,13 @@ test.describe('Fullpage UI', () => {
     await page.getByText(/import public account/i).click();
     await page.getByRole('button', { name: /continue/i }).click();
 
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible();
+    // Confirmation: the "Your Wallet is ready" heading is split by <Trans>, so
+    // assert the container testid instead of the text.
+    await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30000 });
 
-    // Complete onboarding and verify we reach the Explore page
-    await page.getByRole('button', { name: /get started/i }).click();
-    // Verify Explore page by checking for Send, Receive, Faucet buttons
-    await expect(page.getByText('Send')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText('Receive')).toBeVisible({ timeout: 30000 });
+    // Complete onboarding ("Open wallet") and verify we reach the Explore (home) page.
+    await page.getByTestId('onboarding-confirmation-submit').click();
+    await expect(page.getByTestId('explore-page')).toBeVisible({ timeout: 30000 });
   });
 
 
@@ -143,7 +154,7 @@ test.describe('Fullpage UI', () => {
     if (page.isClosed()) {
       throw new Error('Page closed before onboarding');
     }
-    await welcome.getByRole('button', { name: /i already have a wallet/i }).click();
+    await page.locator('#import-link').click();
 
     const importType = page.getByTestId('import-select-type');
     await importType.waitFor({ timeout: 15000 });

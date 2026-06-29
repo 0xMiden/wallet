@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
 
 import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';

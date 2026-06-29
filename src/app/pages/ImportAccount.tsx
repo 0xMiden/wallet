@@ -10,9 +10,7 @@ import NoSpaceField from 'app/atoms/NoSpaceField';
 import TabSwitcher from 'app/atoms/TabSwitcher';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import PageLayout from 'app/layouts/PageLayout';
-import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext, useAllAccounts } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
 import { clearClipboard } from '../../lib/ui/util';
@@ -134,12 +132,6 @@ const ByPrivateKeyForm: FC = () => {
     [importAccount, updateCurrentAccount, isSubmitting, setError]
   );
 
-  useNativeNavbarAction({
-    label: t('importAccount'),
-    onTap: handleSubmit(onSubmit),
-    enabled: !isSubmitting
-  });
-
   return (
     <form className="w-full max-w-sm mx-auto my-8" onSubmit={handleSubmit(onSubmit)} style={{ minHeight: '325px' }}>
       {error && <Alert type="error" title={t('error')} autoFocus description={error} className="mb-6" />}
@@ -179,22 +171,20 @@ const ByPrivateKeyForm: FC = () => {
         errorCaption={errors.name?.message}
         containerClassName="mb-6"
       />
-      {!isMobile() && (
-        <FormSubmitButton
-          className="capitalize w-full justify-center"
-          style={{
-            fontSize: '18px',
-            lineHeight: '24px',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-            paddingTop: '12px',
-            paddingBottom: '12px'
-          }}
-          loading={isSubmitting}
-        >
-          {t('importAccount')}
-        </FormSubmitButton>
-      )}
+      <FormSubmitButton
+        className="capitalize w-full justify-center"
+        style={{
+          fontSize: '18px',
+          lineHeight: '24px',
+          paddingLeft: '0.5rem',
+          paddingRight: '0.5rem',
+          paddingTop: '12px',
+          paddingBottom: '12px'
+        }}
+        loading={isSubmitting}
+      >
+        {t('importAccount')}
+      </FormSubmitButton>
     </form>
   );
 };
@@ -245,12 +235,6 @@ const WatchOnlyForm: FC = () => {
     [importWatchOnlyAccount, isSubmitting, setError]
   );
 
-  useNativeNavbarAction({
-    label: t('importAccount'),
-    onTap: handleSubmit(onSubmit),
-    enabled: !isSubmitting
-  });
-
   return (
     <form className="w-full max-w-sm mx-auto my-8" onSubmit={handleSubmit(onSubmit)} style={{ minHeight: '325px' }}>
       {error && <Alert type="error" title={t('error')} description={error} autoFocus className="mb-6" />}
@@ -287,22 +271,20 @@ const WatchOnlyForm: FC = () => {
         {t('viewKeyInputDescription')}
       </div>
 
-      {!isMobile() && (
-        <FormSubmitButton
-          className="capitalize w-full justify-center"
-          style={{
-            fontSize: '18px',
-            lineHeight: '24px',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-            paddingTop: '12px',
-            paddingBottom: '12px'
-          }}
-          loading={isSubmitting}
-        >
-          {t('importAccount')}
-        </FormSubmitButton>
-      )}
+      <FormSubmitButton
+        className="capitalize w-full justify-center"
+        style={{
+          fontSize: '18px',
+          lineHeight: '24px',
+          paddingLeft: '0.5rem',
+          paddingRight: '0.5rem',
+          paddingTop: '12px',
+          paddingBottom: '12px'
+        }}
+        loading={isSubmitting}
+      >
+        {t('importAccount')}
+      </FormSubmitButton>
     </form>
   );
 };

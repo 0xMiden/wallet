@@ -52,13 +52,19 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
           className="text-primary-500 border border-border-card self-start mb-4"
         />
         <h1 className="font-heading text-2xl font-bold text-[#808080] mb-4">{t('selectAToken')}</h1>
-        <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder={t('searchForTokens')} />
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder={t('searchForTokens')}
+          data-testid="send-token-search"
+        />
         <div className="flex flex-col divide-y divide-rule-default">
           {filteredBalances.map(b => (
             <AssetRow
               key={b.tokenId}
               asset={b}
               tokenPrices={tokenPrices}
+              data-testid={`send-token-${b.metadata.symbol}`}
               onClick={() =>
                 onSelectToken({
                   id: b.tokenId,

@@ -8,9 +8,7 @@ import FormField from 'app/atoms/FormField';
 import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { NavigationHeader } from 'components/NavigationHeader';
-import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext, useAllAccounts } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
 import { goBack, navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -103,15 +101,6 @@ const CreateAccount: FC = () => {
     [isSubmitting, clearErrors, setError, createAccount, selectedWalletType]
   );
 
-  // Hoist the Create Account CTA into the native navbar on mobile. The
-  // navbar tap fires `handleSubmit(onSubmit)` which runs form validation
-  // identically to the React submit button's click path.
-  useNativeNavbarAction({
-    label: t('createAccount'),
-    onTap: handleSubmit(onSubmit),
-    enabled: !isSubmitting
-  });
-
   return (
     <div className="text-heading-gray">
       <NavigationHeader title={t('createAccount')} showBorder className="bg-gray-25" onBack={goBack} />
@@ -151,14 +140,12 @@ const CreateAccount: FC = () => {
             ))}
           </div>
 
-          {!isMobile() && (
-            <FormSubmitButton
-              className="capitalize w-full justify-center rounded-[10px] text-base font-semibold"
-              loading={isSubmitting}
-            >
-              {t('createAccount')}
-            </FormSubmitButton>
-          )}
+          <FormSubmitButton
+            className="capitalize w-full justify-center rounded-[10px] text-base font-semibold"
+            loading={isSubmitting}
+          >
+            {t('createAccount')}
+          </FormSubmitButton>
         </form>
       </div>
     </div>

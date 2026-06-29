@@ -14,6 +14,7 @@ import {
   initiateSendTransaction,
   initiateConsumeTransaction,
   initiateConsumeTransactionFromId,
+  initiateUpdateProcedureThresholdTransaction,
   cancelStuckTransactions,
   cancelStaleQueuedTransactions,
   generateTransaction,
@@ -195,7 +196,11 @@ describe('transactions utilities', () => {
       const tx = { id: 'tx-1' };
       const mockModify = jest.fn();
       mockTransactionsWhere
+        // 1) cancelTransactionById's own lookup
         .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(tx) })
+        // 2) cancelTransaction's finalized-guard lookup (non-finalized → falls through)
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(undefined) })
+        // 3) cancelTransaction's actual .modify()
         .mockReturnValueOnce({ modify: mockModify });
 
       await cancelTransactionById('tx-1', 'Test cancellation');
@@ -222,7 +227,9 @@ describe('transactions utilities', () => {
   describe('cancelTransaction', () => {
     it('marks transaction as failed with completedAt timestamp', async () => {
       const mockModify = jest.fn();
-      mockTransactionsWhere.mockReturnValueOnce({ modify: mockModify });
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(undefined) })
+        .mockReturnValueOnce({ modify: mockModify });
 
       const tx = { id: 'tx-1' } as Transaction;
       await cancelTransaction(tx, 'Test error');
@@ -609,6 +616,22 @@ describe('transactions utilities', () => {
     });
   });
 
+  describe('initiateUpdateProcedureThresholdTransaction', () => {
+    it('rejects when the account is not a Guardian account', async () => {
+      // Empty getAccounts() → isGuardianAccount short-circuits to false, so the
+      // procedure-threshold hardening tx is rejected up front.
+      const guardianProvider = {
+        getAccounts: async () => [],
+        getPublicKeyForCommitment: async () => '',
+        signWord: async () => ''
+      } as never;
+
+      await expect(
+        initiateUpdateProcedureThresholdTransaction('acc-x', 'update_guardian', 2, false, guardianProvider)
+      ).rejects.toThrow('only supported for Guardian accounts');
+    });
+  });
+
   describe('cancelStuckTransactions', () => {
     it('cancels transactions that exceed MAX_WAIT_BEFORE_CANCEL', async () => {
       const nowInSeconds = Math.floor(Date.now() / 1000);
@@ -630,7 +653,7 @@ describe('transactions utilities', () => {
       });
 
       const mockModify = jest.fn();
-      mockTransactionsWhere.mockReturnValue({ modify: mockModify });
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
@@ -661,7 +684,7 @@ describe('transactions utilities', () => {
       });
 
       const mockModify = jest.fn();
-      mockTransactionsWhere.mockReturnValue({ modify: mockModify });
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStuckTransactions();
 
@@ -688,7 +711,7 @@ describe('transactions utilities', () => {
       });
 
       const mockModify = jest.fn();
-      mockTransactionsWhere.mockReturnValue({ modify: mockModify });
+      mockTransactionsWhere.mockReturnValue({ first: jest.fn().mockResolvedValue(undefined), modify: mockModify });
 
       await cancelStaleQueuedTransactions();
 
@@ -720,7 +743,9 @@ describe('transactions utilities', () => {
         fn(dbTx);
         return dbTx;
       });
-      mockTransactionsWhere.mockReturnValueOnce({ modify: mockModify });
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(undefined) })
+        .mockReturnValueOnce({ modify: mockModify });
 
       const tx = { id: 'tx-1' } as Transaction;
       await cancelTransaction(tx, new Error('Network failure'));
@@ -738,7 +763,9 @@ describe('transactions utilities', () => {
 
     it('serializes plain string errors with String()', async () => {
       const mockModify = jest.fn();
-      mockTransactionsWhere.mockReturnValueOnce({ modify: mockModify });
+      mockTransactionsWhere
+        .mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce(undefined) })
+        .mockReturnValueOnce({ modify: mockModify });
 
       const tx = { id: 'tx-1' } as Transaction;
       await cancelTransaction(tx, 'simple error string');

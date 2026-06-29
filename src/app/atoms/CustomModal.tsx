@@ -3,7 +3,7 @@ import React, { FC } from 'react';
 import classNames from 'clsx';
 import Modal from 'react-modal';
 
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isExtension } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 
@@ -12,7 +12,7 @@ export type CustomModalProps = Modal.Props & Partial<PropsWithChildren>;
 const CustomModal: FC<CustomModalProps> = props => {
   const { className, overlayClassName, isOpen, ...restProps } = props;
 
-  useHideNavbarWhileOpen(!!isOpen);
+  useHideDappBubblesWhileOpen(!!isOpen);
 
   const rootElement = document.getElementById('root');
 

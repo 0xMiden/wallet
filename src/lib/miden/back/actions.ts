@@ -187,6 +187,10 @@ export function unlock(password?: string) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       const vault = await Vault.setup(password);
+      // Bring any pre-3-key Guardian accounts into the 3-key model in place
+      // (best-effort, never throws) so they surface the Activate Device Key
+      // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
+      await vault.migrateLegacyGuardianAccounts();
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
       const currentAccount = await vault.getCurrentAccount();
@@ -249,6 +253,12 @@ export function revealGuardianKeys(accountPublicKey: string, password?: string) 
 
 export function revealPublicKey(_accPublicKey: string) {}
 
+// NOTE: account removal is not implemented (no-op since the aleo port). The
+// "Remove Account" UI therefore currently does nothing. When this is wired up,
+// it MUST, for Guardian accounts, release the hardware-backed hot key via
+// `secureHotKey.deleteHotKey(<hot ciphertext>)` and remove the cold-key blob
+// (`accColdSecretKeyStrgKey`) in addition to the account record/keys — otherwise
+// the SE/Keystore entry and cold key material outlive the deleted account.
 export function removeAccount(_accPublicKey: string, _password: string) {}
 
 export function editAccount(accPublicKey: string, name: string) {

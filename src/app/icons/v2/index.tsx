@@ -73,6 +73,7 @@ import { ReactComponent as Lock } from './lock.svg';
 import { ReactComponent as MidenLogoWhite } from './miden-logo-white.svg';
 import { ReactComponent as MidenLogo } from './miden-logo.svg';
 import { ReactComponent as More } from './more.svg';
+import { ReactComponent as PendingNotes } from './pending-notes.svg';
 import { ReactComponent as QrScan } from './qr-scan.svg';
 import { ReactComponent as Receive } from './receive-new.svg';
 import { ReactComponent as Refresh } from './refresh.svg';
@@ -164,6 +165,7 @@ export enum IconName {
   Loader = 'loader',
   Lock = 'lock',
   More = 'more',
+  PendingNotes = 'pending-notes',
   QrScan = 'qr-scan',
   Refresh = 'refresh',
   Rocket = 'rocket',
@@ -292,6 +294,8 @@ const IconSwitch = (props: IconProps) => {
       return <Faucet {...props} />;
     case IconName.FileCopy:
       return <FileCopy {...props} />;
+    case IconName.PendingNotes:
+      return <PendingNotes {...props} />;
     case IconName.FileSettings:
       return <FileSettings {...props} />;
     case IconName.File:

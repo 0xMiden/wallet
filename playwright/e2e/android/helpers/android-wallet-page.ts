@@ -1,5 +1,5 @@
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
 
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
@@ -230,10 +230,17 @@ export class AndroidWalletPage implements WalletPage {
   async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
-    await this.navigateTo('/receive');
+    // Claimable notes live on their own /pending page (mounts the claim UI
+    // directly).
+    await this.navigateTo('/pending');
     await sleep(3_000);
 
-    await this.triggerNavbarAction(60_000);
+    await this.pollForCondition(
+      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+        `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
+        `btn.click(); return true;`,
+      60_000
+    );
 
     let lastProveTimingIdx = 0;
     const pumpProveTimings = async () => {
@@ -295,46 +302,46 @@ export class AndroidWalletPage implements WalletPage {
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
-    await this.cdp.eval(
-      `var f = document.querySelector('[data-testid="send-flow"]'); ` +
-        `if (!f) return false; ` +
-        `var item = f.querySelector('div.cursor-pointer'); ` +
-        `if (!item) return false; item.click(); return true;`
-    );
-    await sleep(800);
+    await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
+    await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
-    await this.fillInputAny(
-      [
-        '[data-testid="send-flow"] input[placeholder*="wallet address"]',
-        '[data-testid="send-flow"] input[placeholder*="address"]',
-        '[data-testid="send-flow"] textarea',
-      ],
-      params.recipientAddress
-    );
+    await this.pollForSelector('[data-testid="send-token-selector"]', 15_000);
+    await this.click('[data-testid="send-token-selector"]');
 
-    await this.fillInputAny(
-      [
-        '[data-testid="send-flow"] input[type="text"]',
-        '[data-testid="send-flow"] input[type="number"]',
-        '[data-testid="send-flow"] input[inputmode="decimal"]',
-      ],
-      params.amount
+    if (params.tokenSymbol) {
+      await this.pollForSelector(`[data-testid="send-token-${params.tokenSymbol}"]`, 30_000);
+    } else {
+      await this.pollForCondition(`return !!document.querySelector('[data-testid^="send-token-"]');`, 15_000);
+    }
+    const clickedToken = await this.cdp.eval<boolean>(
+      `var symbol = ${JSON.stringify(params.tokenSymbol ?? '')}; ` +
+        `if (symbol) { ` +
+        `  var want = document.querySelector('[data-testid="send-token-' + symbol + '"]'); ` +
+        `  if (want) { want.click(); return true; } ` +
+        `} ` +
+        `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
+        `if (!pick) pick = rows[0]; ` +
+        `if (!pick) return false; pick.click(); return true;`
     );
-
-    if (!params.isPrivate) {
-      await this.cdp
-        .eval(
-          `var f = document.querySelector('[data-testid="send-flow"]'); ` +
-            `if (!f) return false; ` +
-            `var els = Array.from(f.querySelectorAll('*')).filter(function(el) { return (el.textContent || '').trim() === 'Off'; }); ` +
-            `if (els.length === 0) return false; els[0].click(); return true;`
-        )
-        .catch(() => false);
+    if (!clickedToken) {
+      throw new Error('AndroidWalletPage.sendTokens: no token row to select');
     }
 
-    await this.triggerNavbarAction(15_000);
-    await sleep(500);
-    await this.triggerNavbarAction(15_000);
+    await this.pollForSelector('[data-testid="send-amount-input"]', 30_000);
+    await this.fillInput('[data-testid="send-amount-input"]', params.amount);
+    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 45_000);
+
+    await this.pollForCondition(`return typeof window.__TEST_SET_SHARE_PRIVATELY__ === 'function';`, 15_000);
+    await this.cdp.eval(`window.__TEST_SET_SHARE_PRIVATELY__(${params.isPrivate ? 'true' : 'false'}); return null;`);
+
+    await this.pollForSelector('[data-testid="send-review-submit"]', 45_000);
+    await this.click('[data-testid="send-review-submit"]');
+
+    await this.pollForCondition(`return !document.querySelector('[data-testid="send-review-submit"]');`, 120_000).catch(
+      () => {}
+    );
     await sleep(2_000);
 
     await this.pollForCondition(
@@ -409,21 +416,37 @@ export class AndroidWalletPage implements WalletPage {
     );
   }
 
-  private async triggerNavbarAction(timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const fired = await this.cdp
-        .eval<boolean>(
-          `if (typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ !== 'function') return false; ` +
-            `return window.__TEST_TRIGGER_NAVBAR_ACTION__() === true;`
-        )
-        .catch(() => false);
-      if (fired) return;
-      await sleep(POLL_INTERVAL_MS);
-    }
-    throw new Error(
-      `triggerNavbarAction: no action registered within ${timeoutMs}ms — ` +
-        `is the wallet on the right page and is MIDEN_E2E_TEST=true baked into the build?`
+  /**
+   * Read a Guardian account's on-chain auth structure (overall threshold,
+   * signer commitments, per-procedure thresholds). Same contract and body as
+   * the iOS POM — the __TEST_GUARDIAN_AUTH__ hook is async (awaits
+   * getOrCreateMultisigService + a time-bounded sync), so it runs under the
+   * async CDP atom whose callback convention matches iOS
+   * (`arguments[arguments.length - 1]`).
+   */
+  async getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo> {
+    return this.cdp.evalAsync<GuardianAuthInfo>(
+      `var cb = arguments[arguments.length - 1];
+       var fn = globalThis.__TEST_GUARDIAN_AUTH__;
+       if (typeof fn !== 'function') {
+         cb({
+           threshold: NaN,
+           signerCommitments: [],
+           procedureThresholds: {},
+           error: '__TEST_GUARDIAN_AUTH__ unavailable (needs MIDEN_E2E_TEST build)'
+         });
+         return;
+       }
+       Promise.resolve(fn(${JSON.stringify(accountPublicKey)}))
+         .then(function (r) { cb(r); })
+         .catch(function (e) {
+           cb({
+             threshold: NaN,
+             signerCommitments: [],
+             procedureThresholds: {},
+             error: String(e && e.message ? e.message : e)
+           });
+         });`
     );
   }
 
@@ -481,6 +504,21 @@ export class AndroidWalletPage implements WalletPage {
         `if (!target) return false; target.click(); return true;`
     );
     if (!ok) throw new Error(`clickByText: no <${tag}> matched ${pattern}`);
+  }
+
+  private async clickWhenEnabled(selector: string, timeoutMs: number): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const state = await this.cdp.eval<string>(
+        `var el = document.querySelector(${JSON.stringify(selector)}); ` +
+          `if (!el) return 'missing'; ` +
+          `if (el.disabled || el.getAttribute('aria-disabled') === 'true') return 'disabled'; ` +
+          `el.click(); return 'clicked';`
+      );
+      if (state === 'clicked') return;
+      await sleep(POLL_INTERVAL_MS);
+    }
+    throw new Error(`AndroidWalletPage.clickWhenEnabled: ${selector} not present+enabled within ${timeoutMs}ms`);
   }
 
   private async fillInput(selector: string, value: string): Promise<void> {

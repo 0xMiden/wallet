@@ -12,7 +12,7 @@ import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled, isValidGuardianUrl } from 'lib/settings/helpers';
+import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 

@@ -30,7 +30,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
       className={classNames(
         'flex items-center gap-8 justify-center',
         'bg-white rounded-3xl px-13.5 py-2',
-        'shadow-[0_8px_24px_rgba(0,0,0,0.08)]',
+        'shadow-[0_1px_2px_rgba(0,0,0,0.03),0_4px_8px_rgba(0,0,0,0.04),0_10px_20px_rgba(0,0,0,0.04),0_20px_40px_rgba(0,0,0,0.04)]',
         className
       )}
     >

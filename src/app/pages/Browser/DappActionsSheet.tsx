@@ -7,9 +7,9 @@
  *
  *   [ Copy link ]  [ Add to My Dapps ]  [ Reopen ]
  *
- * Reuses the same `Drawer` primitive that Settings uses so the morph
- * machinery that slides the native bottom navbar out of view is
- * already wired up via `DappActive`'s `data-drawer-open` effect.
+ * Reuses the same `Drawer` primitive that Settings uses. `DappActive`
+ * handles the webview visibility and parked-tray movement while this
+ * sheet is open.
  */
 
 import React, { type FC, useCallback, useEffect, useState } from 'react';

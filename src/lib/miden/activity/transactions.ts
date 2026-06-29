@@ -17,10 +17,10 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { withGuardianAccountLock, withGuardianConflictRetry } from 'lib/miden/guardian/serialize';
 import * as Repo from 'lib/miden/repo';
 import { DEFAULT_NETWORK, MIDEN_NETWORK_ENDPOINTS } from 'lib/miden-chain/constants';
 import { isExtension, isMobile } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -36,9 +36,9 @@ import {
   SwapTransaction,
   SwitchGuardianTransaction,
   Transaction,
-  TransactionOutput
+  TransactionOutput,
+  UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { putToStorage } from '../front';
 import { toNoteTypeString } from '../helpers';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -217,9 +217,12 @@ export const initiateConsumeTransactionFromId = async (
 export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  // Background/auto-consume: routed through the cold key on Guardian accounts so
+  // a silent claim doesn't trigger a biometric prompt (see generateGuardianTransaction).
+  background?: boolean
 ): Promise<string> => {
-  const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
+  const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction, background);
   // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
   // Reason: getConsumableNotes() can still return a note for a short window after a local
   // consume completes (chain-sync lag). Without this, auto-consume polling creates a new
@@ -466,9 +469,9 @@ export const initiateSendTransaction = async (
 };
 
 /**
- * Queue a switch-guardian transaction for a Guardian account. The local
- * `GUARDIAN_URL_STORAGE_KEY` is NOT updated here — it's written only after
- * the on-chain proposal lands, in `completeSwitchGuardianTransaction`.
+ * Queue a switch-guardian transaction for a Guardian account. The per-account
+ * `guardianEndpoint` is NOT updated here — it's persisted only after the
+ * on-chain proposal lands, in `completeSwitchGuardianTransaction`.
  */
 export const initiateSwitchGuardianTransaction = async (
   accountId: string,
@@ -506,11 +509,14 @@ export const initiateReplaceHotKeyTransaction = async (
 
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
-  result: TransactionResult,
-  guardianProvider: GuardianAccountProvider
+  result: TransactionResult | undefined,
+  guardianProvider: GuardianAccountProvider,
+  // The cold MultisigService used to drive the rotation. Supplied on the normal
+  // path so we can push the rotated state to the guardian below; absent on the
+  // apply-after-submit-failed reconcile path (runSync self-heals that case).
+  service?: MultisigService
 ) => {
   try {
-    const executedTx = result.executedTransaction();
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
     if (!newHotPublicKey) {
       throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
@@ -519,6 +525,22 @@ export const completeReplaceHotKeyTransaction = async (
     if (!guardianProvider.swapHotKey) {
       throw new Error('swapHotKey not implemented in this provider');
     }
+
+    // The OZ lib submitted `update_signers` on-chain but did NOT re-register the
+    // rotated state on the guardian (it only does that for switch_guardian). Push
+    // it now — BEFORE `swapHotKey`, which sets `hotPublicKey` and thereby arms the
+    // ~3s guardian hot-sync. If we let the hot-sync start with the guardian's blob
+    // still pre-rotation, every tick throws on the guardian-vs-on-chain mismatch
+    // until a reinstall. Best-effort: an on-chain-successful rotation must not be
+    // failed by a guardian blip — runSync re-registers on a later tick if this slips.
+    if (service) {
+      try {
+        await service.reRegisterCurrentStateOnGuardian();
+      } catch (e) {
+        console.warn('Failed to re-register rotated state on guardian post-replace-hot-key (non-fatal):', e);
+      }
+    }
+
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
@@ -528,28 +550,128 @@ export const completeReplaceHotKeyTransaction = async (
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Device key rotated',
-      transactionId: executedTx.id().toHex(),
       completedAt: Math.floor(Date.now() / 1000),
-      resultBytes: result.serialize()
+      // `result` is absent on the apply-after-submit-failed reconcile path: the
+      // rotation is already on chain, we just lack the local TransactionResult.
+      ...(result && {
+        transactionId: result.executedTransaction().id().toHex(),
+        resultBytes: result.serialize()
+      })
     });
+
+    // The account now has both signers on-chain, so bring it up to the same
+    // hardening a freshly-created 3-key account has (update_guardian threshold
+    // 2 — which the update_signers rotation above can't carry). Best-effort and
+    // idempotent; never affects the rotation's success.
+    await ensureGuardianProcedureThresholds(tx.accountId, tx.delegateTransaction, guardianProvider);
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Failed to rotate device key',
       completedAt: Math.floor(Date.now() / 1000),
-      resultBytes: result.serialize(),
+      ...(result && { resultBytes: result.serialize() }),
       error: error instanceof Error ? error.message : String(error)
     });
   }
 };
 
+// The on-chain hardening a freshly-created 3-key Guardian account gets (see
+// createGuardianAccount): changing the guardian requires both device keys.
+const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 2 } as const;
+
+/**
+ * Ensure a Guardian account carries the `update_guardian` threshold-2 hardening
+ * that fresh 3-key accounts have. Migrated legacy accounts lack it; recovered /
+ * fresh accounts already have it (so this no-ops). Enqueues a cold-signed
+ * `update_procedure_threshold` when missing. Best-effort — never throws.
+ *
+ * Idempotent (gated on the on-chain threshold already being 2), so besides the
+ * post-rotation call it's also invoked self-healingly from the guardian sync —
+ * closing the window where a migrated account is 3-key but `update_guardian` is
+ * still threshold-1 because the original hardening tx was dropped.
+ */
+export const ensureGuardianProcedureThresholds = async (
+  accountId: string,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<void> => {
+  try {
+    // Loading the service fetches the on-chain account config, including its
+    // procedure thresholds.
+    const service = await getOrCreateMultisigService(accountId, guardianProvider);
+    if (
+      service.getProcedureThreshold(GUARDIAN_PROCEDURE_HARDENING.procedure) === GUARDIAN_PROCEDURE_HARDENING.threshold
+    ) {
+      return;
+    }
+    await initiateUpdateProcedureThresholdTransaction(
+      accountId,
+      GUARDIAN_PROCEDURE_HARDENING.procedure,
+      GUARDIAN_PROCEDURE_HARDENING.threshold,
+      delegateTransaction,
+      guardianProvider
+    );
+    // Nudge the processor to pick up the freshly-queued tx. Dynamic import to
+    // avoid a static cycle with the activity barrel.
+    const { requestSWTransactionProcessing } = await import('lib/miden/activity');
+    requestSWTransactionProcessing();
+  } catch (e) {
+    console.warn('[guardian] procedure-threshold hardening skipped (non-fatal):', e);
+  }
+};
+
+export const initiateUpdateProcedureThresholdTransaction = async (
+  accountId: string,
+  procedure: string,
+  threshold: number,
+  delegateTransaction: boolean | undefined,
+  guardianProvider: GuardianAccountProvider
+): Promise<string> => {
+  if (!(await isGuardianAccount(accountId, guardianProvider))) {
+    throw new Error('update-procedure-threshold is only supported for Guardian accounts');
+  }
+  const dbTransaction = new UpdateProcedureThresholdTransaction(accountId, procedure, threshold, delegateTransaction);
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+export const completeUpdateProcedureThresholdTransaction = async (
+  tx: UpdateProcedureThresholdTransaction,
+  result: TransactionResult,
+  // The cold MultisigService used to drive the threshold change, so we can push
+  // the new state to the guardian (the OZ lib doesn't re-register it).
+  service?: MultisigService
+) => {
+  const executedTx = result.executedTransaction();
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Account secured',
+    transactionId: executedTx.id().toHex(),
+    completedAt: Math.floor(Date.now() / 1000),
+    resultBytes: result.serialize()
+  });
+  // The cached service's procedureThresholds are now stale — drop it.
+  clearGuardianServiceFor(tx.accountId);
+
+  // Same gap as replace-hot-key: the OZ lib submitted `update_procedure_threshold`
+  // on-chain but never re-registered the new state on the guardian. Push it so the
+  // guardian's blob tracks the new threshold and the next sync doesn't diverge.
+  // Best-effort; runSync self-heals if this slips.
+  if (service) {
+    try {
+      await service.reRegisterCurrentStateOnGuardian();
+    } catch (e) {
+      console.warn('Failed to re-register state on guardian post-update-procedure-threshold (non-fatal):', e);
+    }
+  }
+};
+
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
-  result: TransactionResult,
-  multisigService: MultisigService
+  result: TransactionResult | undefined,
+  multisigService: MultisigService,
+  guardianProvider: GuardianAccountProvider
 ) => {
   try {
-    const executedTx = result.executedTransaction();
     const { newGuardianEndpoint } = tx.extraInputs;
 
     // Mirror upstream `multisig.executeProposal`'s post-submit block for
@@ -560,25 +682,56 @@ export const completeSwitchGuardianTransaction = async (
     await setTransactionStage(tx.id, 'registering-guardian');
     await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
 
-    await putToStorage(GUARDIAN_URL_STORAGE_KEY, newGuardianEndpoint);
+    // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
+    // Guardian accounts on different operators aren't clobbered. Backend
+    // providers implement setGuardianEndpoint; the optional-call guard keeps a
+    // frontend provider without it from throwing.
+    await guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint);
     clearGuardianServiceFor(tx.accountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Guardian switched',
-      transactionId: executedTx.id().toHex(),
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      resultBytes: result.serialize()
+      // `result` is absent on the apply-after-submit-failed reconcile path: the
+      // switch is already on chain, we just lack the local TransactionResult.
+      ...(result && {
+        transactionId: result.executedTransaction().id().toHex(),
+        resultBytes: result.serialize()
+      })
     });
   } catch (error) {
     console.error('Error completing switch guardian transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Failed to switch guardian',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      resultBytes: result.serialize(),
+      ...(result && { resultBytes: result.serialize() }),
       error: error instanceof Error ? error.message : String(error)
     });
   }
 };
+
+/**
+ * Run the structural side effects a structural Guardian op needs after its
+ * submit landed on chain but the LOCAL apply failed (`ApplyTransactionAfterSubmitFailed`).
+ * Without this the generic apply-failure handler would mark the tx Completed and
+ * skip reconciliation, stranding the account.
+ *
+ * replace-hot-key → swap the vault hot pointer (idempotent).
+ * switch-guardian → rebuild a service to drive `finalizeGuardianSwitch` (which
+ *   re-syncs the post-switch account state itself) + persist the per-account
+ *   endpoint. Both completion handlers tolerate a missing TransactionResult.
+ */
+async function reconcileStructuralApplyFailure(
+  tx: ITransaction,
+  guardianProvider: GuardianAccountProvider
+): Promise<void> {
+  if (tx.type === 'replace-hot-key') {
+    await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider);
+    return;
+  }
+  const service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
+  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
+}
 
 const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
@@ -948,8 +1101,32 @@ export const generateTransaction = async (
   // Route Guardian accounts through Guardian service
   if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
     try {
-      await generateGuardianTransaction(transaction, signCallback, guardianProvider);
+      // Serialize guardian transactions per account: the guardian co-signs one
+      // delta per account at a time, and concurrent same-account txs make its
+      // expected commitment diverge from on-chain, stalling canonicalization
+      // for minutes (see guardian/serialize.ts and OpenZeppelin/guardian#303).
+      await withGuardianAccountLock(transaction.accountId, () =>
+        generateGuardianTransaction(transaction, signCallback, guardianProvider)
+      );
     } catch (error) {
+      // Submit-succeeded-but-local-apply-failed on a structural op (replace-hot-key
+      // / switch-guardian) is special: the change IS on chain, but the failure
+      // happened before generateGuardianTransaction's completion handler ran, so
+      // the vault hot pointer / guardian re-registration are un-reconciled. Cancelling
+      // would strand the account (signing with a rotated-out key, or talking to the
+      // old guardian). Run the same finalization the happy path would; only cancel if
+      // that reconcile itself fails.
+      if (
+        extractSdkErrorCode(error) === 'ApplyTransactionAfterSubmitFailed' &&
+        (transaction.type === 'replace-hot-key' || transaction.type === 'switch-guardian')
+      ) {
+        try {
+          await reconcileStructuralApplyFailure(transaction, guardianProvider);
+          return;
+        } catch (reconcileError) {
+          console.error('Structural-op apply-failure reconcile failed; cancelling', reconcileError);
+        }
+      }
       // Guardian canonicalization is eventually-consistent: the SDK can throw
       // "Refusing to overwrite local state: incoming nonce N is not greater
       // than local nonce M" when the guardian's view lags the local client.
@@ -1031,6 +1208,29 @@ export const generateTransaction = async (
 };
 
 /**
+ * Build a transient cold-bound MultisigService for `accountId`. Cold signing
+ * goes through the SDK keystore (not the SE/StrongBox-wrapped hot key), so it
+ * never triggers a biometric prompt — used for background/auto-consume.
+ */
+const buildColdServiceForAccount = async (
+  accountId: string,
+  guardianProvider: GuardianAccountProvider
+): Promise<MultisigService> => {
+  const walletAccount = (await guardianProvider.getAccounts()).find(a => a.publicKey === accountId);
+  if (!walletAccount) {
+    throw new Error(`Guardian account ${accountId} not found in provider`);
+  }
+  const sdkAccount = await withWasmClientLock(async () => {
+    const midenClient = await getMidenClient();
+    return midenClient.getAccount(accountId);
+  });
+  if (!sdkAccount) {
+    throw new Error(`Guardian account ${accountId} not found in local client`);
+  }
+  return MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+};
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -1048,33 +1248,46 @@ const generateGuardianTransaction = async (
 
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
-  // signAndCreateTransactionRequest. Hot-bound for every type except
-  // replace-hot-key, which is cold-bound because the hot key being replaced
-  // cannot authorize its own rotation. The hot-bound path is also the only
-  // one cached by guardian-manager; the cold service here is transient.
+  // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
+  // structural ops (replace-hot-key / update-procedure-threshold) and for
+  // background auto-consume. The hot-bound path is the only one cached by
+  // guardian-manager; cold services here are transient.
+  //
+  // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta
+  // (a prior delta still canonicalizing) instead of failing the tx. It wraps
+  // only side-effect-free proposal creation — NOT replace-hot-key, whose
+  // createReplaceHotKeyProposal mints a fresh hardware hot key, so retrying it
+  // would orphan SE/StrongBox keys.
   let service: MultisigService;
 
   switch (transaction.type) {
     case 'send': {
       const sendTx = transaction as SendTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createSendProposal(
-        sendTx.secondaryAccountId,
-        sendTx.faucetId,
-        BigInt(sendTx.amount)
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createSendProposal(sendTx.secondaryAccountId, sendTx.faucetId, BigInt(sendTx.amount))
       );
       break;
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createConsumeNotesProposal([consumeTx.noteId]);
+      // Background/auto-consume signs with the COLD key so it doesn't pop a
+      // biometric prompt: consuming a note is value-in (claims an incoming note
+      // into your own vault — it can't move funds out), so it needs no user
+      // presence, and threshold-1 means cold + guardian satisfies it on-chain.
+      // User-initiated claims stay hot-bound (tap-to-confirm biometric on mobile).
+      service = consumeTx.background
+        ? await buildColdServiceForAccount(transaction.accountId, guardianProvider)
+        : await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal([consumeTx.noteId]));
       break;
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      const { proposal } = await service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint);
+      const { proposal } = await withGuardianConflictRetry(() =>
+        service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint)
+      );
       proposalResult = proposal;
       break;
     }
@@ -1091,6 +1304,7 @@ const generateGuardianTransaction = async (
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
       service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
+      // NOT retry-wrapped — createReplaceHotKeyProposal mints a hot key.
       const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);
       if (!guardianProvider.persistNewHotKey) {
         throw new Error('persistNewHotKey not implemented in this provider');
@@ -1099,6 +1313,13 @@ const generateGuardianTransaction = async (
       // until the on-chain rotation lands so this is idempotent. If the app
       // dies between submit and complete, the new ciphertext is on disk and
       // complete reconciles against the on-chain state.
+      // KNOWN LEAK: if this rotation terminally fails (submit error → tx
+      // cancelled, never reconciled) and the user re-initiates, a fresh hardware
+      // key is minted while this one's SE/Keystore entry + ciphertext blob are
+      // left orphaned (inert). A blind delete-on-failure here is unsafe — the
+      // persist-before-submit design relies on this blob surviving for the
+      // reconcile path — so reaping orphaned pending keys belongs in a dedicated
+      // cleanup, not this hot path.
       await guardianProvider.persistNewHotKey(newHot.publicKeyHex, newHot.ciphertext);
       // Stash the new pubkey on the in-memory transaction AND in dexie so
       // complete (which may run after a process restart) can find it.
@@ -1142,14 +1363,30 @@ const generateGuardianTransaction = async (
       proposalResult = await service.createCustomProposal(transaction.requestBytes, 'swap');
       break;
     }
+    case 'update-procedure-threshold': {
+      // Cold-routed structural change (same class as switch-guardian /
+      // replace-hot-key): cold + guardian satisfies it on-chain.
+      const uptTx = transaction as UpdateProcedureThresholdTransaction;
+      service = await buildColdServiceForAccount(transaction.accountId, guardianProvider);
+      proposalResult = await withGuardianConflictRetry(() =>
+        service.createUpdateProcedureThresholdProposal(uptTx.extraInputs.procedure, uptTx.extraInputs.threshold)
+      );
+      break;
+    }
     case 'execute':
     default: {
-      // For custom transactions, build a custom proposal from the serialized request bytes.
-      if (!transaction.requestBytes) {
+      // For custom transactions, build a custom proposal from the serialized
+      // request bytes. Hot-routed (threshold-1). A custom proposal that embeds a
+      // structural op (e.g. update_guardian / add_signer) cannot bypass the
+      // hardening: the on-chain `procedureThresholds` map enforces per-procedure
+      // thresholds (update_guardian = 2 → needs cold + guardian) during proof
+      // verification regardless of which key signed the proposal here.
+      const requestBytes = transaction.requestBytes;
+      if (!requestBytes) {
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await service.createCustomProposal(transaction.requestBytes);
+      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
       break;
     }
   }
@@ -1179,11 +1416,14 @@ const generateGuardianTransaction = async (
       walletAccount,
       guardianProvider.signWord
     );
-    await coldService.signProposal(proposalResult.id);
+    // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
+    // otherwise a prior delta mid-canonicalization fails the whole switch even
+    // though the hot proposal already landed.
+    await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
   }
 
   const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
-  console.log('Created transaction request from proposal, submitting to Miden client', tr.authArg()?.toHex());
+  console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
       console.log('Signing transaction request with external callback');
@@ -1215,7 +1455,14 @@ const generateGuardianTransaction = async (
   // complete only happens once the on-chain rotation is final — otherwise a
   // resync could race with stale on-chain state and pick the wrong canonical
   // hot pubkey.
-  if (transaction.type === 'switch-guardian' || transaction.type === 'replace-hot-key') {
+  // For update-procedure-threshold, we wait so the post-completion guardian
+  // re-registration serializes the COMMITTED post-threshold state — otherwise it
+  // could push a pre-threshold blob and leave the guardian diverged again.
+  if (
+    transaction.type === 'switch-guardian' ||
+    transaction.type === 'replace-hot-key' ||
+    transaction.type === 'update-procedure-threshold'
+  ) {
     await setTransactionStage(transaction.id, 'confirming');
     await withWasmClientLock(async () => {
       const midenClient = await getMidenClient();
@@ -1231,13 +1478,29 @@ const generateGuardianTransaction = async (
       await completeConsumeTransaction(transaction.id, transactionResult);
       break;
     case 'switch-guardian':
-      await completeSwitchGuardianTransaction(transaction as SwitchGuardianTransaction, transactionResult, service);
+      console.log('Completing switch guardian transaction');
+      await completeSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        transactionResult,
+        service,
+        guardianProvider
+      );
       break;
     case 'replace-hot-key':
+      console.log('Completing replace-hot-key transaction');
       await completeReplaceHotKeyTransaction(
         transaction as ReplaceHotKeyTransaction,
         transactionResult,
-        guardianProvider
+        guardianProvider,
+        service
+      );
+      break;
+    case 'update-procedure-threshold':
+      console.log('Completing update-procedure-threshold transaction');
+      await completeUpdateProcedureThresholdTransaction(
+        transaction as UpdateProcedureThresholdTransaction,
+        transactionResult,
+        service
       );
       break;
     case 'swap':
@@ -1253,20 +1516,19 @@ const generateGuardianTransaction = async (
   // and the cached hot service was invalidated in completeReplaceHotKeyTransaction
   // via clearGuardianServiceFor — next access re-inits with the new hot pubkey.
   //
-  // NOTE: this sync runs AFTER the tx has already been marked Completed by
-  // the completeXxxTransaction call above. Guardian canonicalization is
-  // eventually-consistent, so a transient error here (e.g. "Refusing to
-  // overwrite local state: incoming nonce 0 is not greater than local nonce
-  // 1") doesn't mean the user's transaction failed — it just means the
-  // guardian's view hasn't caught up yet, and the next sync tick will
-  // reconcile. Swallow the error so the outer try/catch doesn't roll the
-  // already-Completed tx back to Failed.
-  if (transaction.type !== 'replace-hot-key') {
-    console.log('Transaction generation complete, syncing multisig service');
+  // Post-completion bookkeeping only: the transaction is already marked Completed
+  // and the on-chain submit succeeded, so a sync failure here must NOT propagate
+  // (it would flip a genuinely-successful transaction to Failed). The next sync
+  // tick reconciles.
+  // replace-hot-key and update-procedure-threshold both run on a transient cold
+  // service and invalidate the cached hot service in their completion handlers,
+  // so there's nothing useful to sync here.
+  if (transaction.type !== 'replace-hot-key' && transaction.type !== 'update-procedure-threshold') {
     try {
+      console.log('Transaction generation complete, syncing multisig service');
       await service.sync();
     } catch (error) {
-      console.warn('[Guardian] post-completion service.sync() failed (ignored):', error);
+      console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
     }
   }
 };
@@ -1420,6 +1682,11 @@ export const generateTransactionsLoop = async (
       logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
       const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
       if (tx && tx.status !== ITransactionStatus.Completed) {
+        // Structural Guardian ops never reach here — they're routed through the
+        // guardian branch of `generateTransaction`, whose own catch handles the
+        // apply-after-submit-failed reconcile (see `reconcileStructuralApplyFailure`).
+        // This generic path covers send/consume, whose note states the next sync
+        // reconciles via ConsumedExternal.
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
           displayMessage: 'Completed',
           completedAt: Math.floor(Date.now() / 1000)

@@ -33,6 +33,7 @@ export interface AmountInputProps {
   autoFocus?: boolean;
   disabled?: boolean;
   className?: string;
+  'data-testid'?: string;
 }
 
 /**
@@ -51,7 +52,8 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   tokenSelector,
   autoFocus,
   disabled,
-  className
+  className,
+  'data-testid': dataTestId
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -64,7 +66,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           label
         ))}
 
-      <div className="flex cursor-text items-baseline mt-2" onClick={() => inputRef.current?.focus()}>
+      <div className="flex cursor-text items-baseline mt-3" onClick={() => inputRef.current?.focus()}>
         <CurrencyInput
           ref={inputRef}
           className={classNames(
@@ -82,6 +84,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           maxLength={16}
           autoFocus={autoFocus}
           disabled={disabled}
+          data-testid={dataTestId}
         />
       </div>
 
@@ -95,7 +98,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       ) : null}
 
       {/* Orange underline divider */}
-      <div className="mt-1 h-2 rounded-full bg-primary-500 w-55" />
+      <div className="mt-3 h-2 rounded-full bg-primary-500 w-55" />
 
       {tokenSelector != null && <div className="mt-4">{tokenSelector}</div>}
     </div>

@@ -1,7 +1,9 @@
 import React from 'react';
 
+import { motion } from 'framer-motion';
+
 import { IconName } from 'app/icons/v2';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { IconOrComponent } from 'utils/icon-or-component';
 
@@ -10,8 +12,7 @@ import { Loader } from './Loader';
 export enum ButtonVariant {
   Primary = 'primary',
   Secondary = 'secondary',
-  Ghost = 'ghost',
-  Danger = 'danger'
+  Ghost = 'ghost'
 }
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -20,6 +21,8 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   iconLeft?: React.ReactNode | IconName;
   iconRight?: React.ReactNode | IconName;
   isLoading?: boolean;
+  /** Optional E2E hook, forwarded to the root <button>. Set by specific callers. */
+  'data-testid'?: string;
 }
 
 const propsPerButtonVariant = {
@@ -39,11 +42,11 @@ const propsPerButtonVariant = {
     fontWeight: 'font-medium',
     disabledColor: 'text-heading-gray',
     disabledFontWeight: 'font-semibold',
-    backgroundColor: 'bg-gray-25',
+    backgroundColor: 'bg-surface-interactive',
     hoverBackgroundColor: 'hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f]',
     disabledBackgroundColor: 'bg-surface-inactive',
     iconColor: 'black',
-    border: 'border-[0.5px] border-transparent'
+    border: 'border border-border-button'
   },
   [ButtonVariant.Ghost]: {
     color: 'text-heading-gray',
@@ -55,17 +58,6 @@ const propsPerButtonVariant = {
     disabledBackgroundColor: 'bg-gray-50',
     iconColor: 'black',
     border: 'border border-border-button'
-  },
-  [ButtonVariant.Danger]: {
-    color: 'text-pure-white',
-    fontWeight: 'font-semibold',
-    disabledColor: 'text-grey-400',
-    disabledFontWeight: 'font-semibold',
-    backgroundColor: 'bg-red-500',
-    hoverBackgroundColor: 'hover:bg-red-600',
-    disabledBackgroundColor: 'bg-gray-50',
-    iconColor: 'white',
-    border: 'border-[0.5px] border-transparent'
   }
 };
 
@@ -110,22 +102,21 @@ export const Button: React.FC<ButtonProps> = ({
 
   const onClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.currentTarget.blur();
-    // Medium haptic for destructive actions, light for everything else.
-    if (variant === ButtonVariant.Danger) {
-      hapticMedium();
-    } else {
-      hapticLight();
-    }
+    hapticLight();
     props.onClick?.(e);
   };
+  const motionButtonProps = props as Omit<
+    React.ComponentPropsWithoutRef<typeof motion.button>,
+    'children' | 'className' | 'onClick'
+  >;
 
   return (
-    <button
+    <motion.button
       className={cn(
         'flex justify-center items-center gap-x-2 font-heading',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
-        'h-14 px-4 rounded-3xl w-full',
-        'transition duration-300 ease-in-out text-base',
+        'max-w-92.5 h-14 px-4 rounded-3xl w-full',
+        'transition-colors duration-300 ease-in-out text-base',
         color,
         fontWeight,
         backgroundColor,
@@ -137,10 +128,12 @@ export const Button: React.FC<ButtonProps> = ({
       )}
       disabled={disabled}
       type="button"
-      {...props}
+      whileTap={!disabled && !isLoading ? { scale: 0.95, transition: { duration: 0.03 } } : undefined}
+      transition={{ type: 'spring', stiffness: 800, damping: 35 }}
+      {...motionButtonProps}
       onClick={onClick}
     >
       {renderContent()}
-    </button>
+    </motion.button>
   );
 };

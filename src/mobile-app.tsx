@@ -13,10 +13,14 @@ import { createRoot } from 'react-dom/client';
 import App from 'app/App';
 import { WindowType } from 'app/env';
 import { getMobileIntercomAdapter } from 'lib/intercom/mobile-adapter';
+import { installGuardianCorsBypass } from 'lib/miden/guardian/native-http';
 import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { initTheme } from 'lib/settings/theme';
 
 initTheme();
+// Must run before the backend starts: guardian fetches CORS-fail in the
+// Capacitor WebView, so they're rerouted through native HTTP (see module doc).
+installGuardianCorsBypass();
 
 // Show error on screen for debugging
 function showError(message: string, error?: unknown) {

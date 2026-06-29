@@ -17,6 +17,13 @@ export interface SelectAmountProps {
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  /** Overrides the amount label (e.g. "Select Amount", "You Pay"). */
+  label?: React.ReactNode;
+  /** Overrides the Confirm button label in the page variant. */
+  confirmTitle?: string;
+  showNetworkPill?: boolean;
+  showBalanceHelper?: boolean;
+  children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
   /** Required in the default (page) variant, which renders its own Confirm CTA. */
@@ -28,8 +35,6 @@ export interface SelectAmountProps {
    * Confirm. Defaults to the standalone page layout used by the send flow.
    */
   embedded?: boolean;
-  /** Overrides the amount label (e.g. "You Pay"). Defaults to "Select Amount". */
-  label?: string;
   /** Token-logo symbol override (e.g. the DEX `logoSymbol`); defaults to `token.name`. */
   logoSymbol?: string;
 }
@@ -44,11 +49,15 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  label,
+  confirmTitle,
+  showNetworkPill = true,
+  showBalanceHelper = true,
+  children,
   onAmountChange,
   onSelectToken,
   onConfirm,
   embedded = false,
-  label,
   logoSymbol
 }) => {
   const { t } = useTranslation();
@@ -59,6 +68,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const tokenSelector = (
     <button
       type="button"
+      data-testid="send-token-selector"
       onClick={() => {
         hapticLight();
         onSelectToken();
@@ -79,16 +89,17 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     </button>
   );
 
-  const helper = token ? (
-    <>
-      <span className="font-heading text-[#808080] text-base font-bold">
-        {t('available')} {formatBalance(token.balance)} {token.name}
-      </span>
-      <span className="font-heading text-[#808080] text-base font-bold">
-        {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
-      </span>
-    </>
-  ) : null;
+  const helper =
+    token && showBalanceHelper ? (
+      <>
+        <span className="font-heading text-[#808080] text-base font-bold">
+          {t('available')} {formatBalance(token.balance)} {token.name}
+        </span>
+        <span className="font-heading text-[#808080] text-base font-bold">
+          {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
+        </span>
+      </>
+    ) : null;
 
   const amountField = (
     <AmountInput
@@ -97,6 +108,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       error={error ? t(error) : undefined}
       helper={embedded ? undefined : helper}
       tokenSelector={tokenSelector}
+      data-testid="send-amount-input"
       onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
     />
   );
@@ -106,20 +118,24 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   }
 
   return (
-    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
-        <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">
-          {t('miden')}
-        </span>
+        {showNetworkPill && (
+          <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">
+            {t('miden')}
+          </span>
+        )}
         {amountField}
+        {children}
       </div>
 
       <div className="shrink-0 pt-4 pb-24">
         <Button
-          title={t('confirm')}
+          title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}
+          data-testid="send-amount-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
