@@ -7,11 +7,21 @@
  * All external collaborators are stubbed; we don't exec any real WASM.
  */
 
-import { createGuardianAccount, getSignerDetailsFromAccount, MULTISIG_SLOT_NAMES } from './account';
+import {
+  createGuardianAccount,
+  getSignerDetailsFromAccount,
+  MULTISIG_SLOT_NAMES,
+  resolveGuardianEndpoint
+} from './account';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
+}));
+
+jest.mock('lib/miden-chain/constants', () => ({
+  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
+  GUARDIAN_OPTIONS: []
 }));
 
 jest.mock('lib/settings/constants', () => ({
@@ -45,6 +55,14 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     ...actual,
     AuthSecretKey: {
       ecdsaWithRNG: jest.fn((seed: Uint8Array) => buildStubKey(`s${Array.from(seed).join('-')}`))
+    },
+    // getSignerDetailsFromAccount builds `new Word(new BigUint64Array([i,0,0,0]))`
+    // as the signer map key; expose the index so the getMapItem mock can resolve it.
+    Word: class {
+      idx: number;
+      constructor(arr: BigUint64Array) {
+        this.idx = Number(arr?.[0] ?? 0n);
+      }
     }
   };
 });
@@ -54,6 +72,14 @@ jest.mock('@miden-sdk/miden-sdk', () => {
     ...actual,
     AuthSecretKey: {
       ecdsaWithRNG: jest.fn((seed: Uint8Array) => buildStubKey(`s${Array.from(seed).join('-')}`))
+    },
+    // getSignerDetailsFromAccount builds `new Word(new BigUint64Array([i,0,0,0]))`
+    // as the signer map key; expose the index so the getMapItem mock can resolve it.
+    Word: class {
+      idx: number;
+      constructor(arr: BigUint64Array) {
+        this.idx = Number(arr?.[0] ?? 0n);
+      }
     }
   };
 });
@@ -92,42 +118,70 @@ describe('getSignerDetailsFromAccount', () => {
     jest.clearAllMocks();
   });
 
-  const makeAccount = (entries: unknown) => ({
-    storage: () => ({ getMapEntries: jest.fn(() => entries) })
+  // Mock account whose storage().getMapItem resolves a signer commitment by the
+  // index encoded in the key word (the Word mock above sets `{ idx }`). This
+  // mirrors the real by-key read; positional order is irrelevant.
+  const makeAccount = (signersByIndex: Record<number, string>) => ({
+    storage: () => ({
+      getMapItem: jest.fn((_slot: string, key: { idx: number }) => {
+        const hex = signersByIndex[key.idx];
+        return hex === undefined ? undefined : { toHex: () => hex };
+      })
+    })
   });
 
-  it("reads the first signer commitment from storage (the hot signer's slot)", async () => {
-    const account = makeAccount([{ value: '0xcommit-first' }, { value: '0xcommit-second' }]);
+  it('reads the hot signer commitment from index 0', async () => {
+    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
 
-    const result = await getSignerDetailsFromAccount(account as never);
-
-    expect(result).toEqual({ commitment: 'commit-first' });
+    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'commit-hot' });
   });
 
-  it('throws when the signer-public-keys slot is missing', async () => {
-    const account = makeAccount(undefined);
+  it('reads the cold signer commitment from index 1 on a 3-key account', async () => {
+    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
+
+    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-cold' });
+  });
+
+  it('reads the cold signer commitment from index 0 on a legacy single-signer account', async () => {
+    // Legacy Guardian accounts (feature #153) have a single on-chain signer —
+    // the cold/HD key — at index 0. The cold lookup falls back to it (index 1 is
+    // absent) rather than throwing, which would brick activation of a migrated
+    // account.
+    const account = makeAccount({ 0: '0xcommit-legacy-cold' });
+
+    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
+  });
+
+  it('reads commitments by signer-index key, independent of storage iteration order', async () => {
+    // Regression guard for the SMT-order bug: getMapItem(signerMapKey(i)) resolves
+    // hot=0 / cold=1 correctly regardless of getMapEntries iteration order. A
+    // positional read would bind the wrong signer for ~half of accounts.
+    const account = makeAccount({ 0: '0xhotC', 1: '0xcoldC' });
+
+    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'hotC' });
+    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'coldC' });
+  });
+
+  it('throws when there is no signer at index 0', async () => {
+    const account = makeAccount({});
 
     await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
-      'No signer public keys found in account storage'
+      'No signer commitment found in account storage'
     );
   });
 
-  it('throws when the slot is present but empty', async () => {
-    const account = makeAccount([]);
+  it('treats an empty-word entry (0x / all-zeros) as no signer', async () => {
+    const account = makeAccount({ 0: '0x' });
 
     await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
-      'No signer commitments found in account storage'
+      'No signer commitment found in account storage'
     );
   });
 
-  it('throws when the stored value has no bytes after the 0x prefix', async () => {
-    // `.slice(2)` on '0x' yields an empty string — the `if (!commitment)` guard
-    // rejects instead of returning a malformed entry.
-    const account = makeAccount([{ value: '0x' }]);
+  it('accepts a commitment hex without a 0x prefix', async () => {
+    const account = makeAccount({ 0: 'beefcafe' });
 
-    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
-      'Commitment not found in account storage'
-    );
+    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'beefcafe' });
   });
 
   it('exposes the multisig storage slot names', () => {
@@ -149,9 +203,7 @@ describe('createGuardianAccount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     multisigClientConfig.getPubkey.mockResolvedValue({ commitment: 'g-commit', pubkey: 'g-pubkey' });
-    // Storage is the source of truth for the guardian endpoint now — return a
-    // sane value by default so the per-test override paths still work.
-    mockFetchFromStorage.mockResolvedValue('https://stored.guardian');
+    mockFetchFromStorage.mockResolvedValue(undefined);
     mockGenerateHotKey.mockResolvedValue({
       ciphertext: 'hot-ciphertext-hex',
       publicKeyHex: 'hot-pubkey-hex',
@@ -199,6 +251,9 @@ describe('createGuardianAccount', () => {
       hotCiphertext: 'hot-ciphertext-hex',
       coldSecretKeyHex: expect.any(String)
     });
+    // Endpoint is returned so vault can persist it per-account. No stored URL
+    // here (beforeEach stubs undefined), so it falls back to the default.
+    expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
   it('generates a random seed when none is provided', async () => {
@@ -229,12 +284,14 @@ describe('createGuardianAccount', () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
-    await createGuardianAccount(webClient as never, new Uint8Array(32));
+    const result = await createGuardianAccount(webClient as never, new Uint8Array(32));
 
     // When storage yields a URL, create still succeeds — the URL propagation
     // goes through MultisigClient's constructor which we stubbed, so the
     // useful signal is that fetchFromStorage was consulted.
     expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+    // And the stored URL is returned for per-account persistence.
+    expect(result.guardianEndpoint).toBe('https://stored.guardian');
   });
 
   it('prefers the explicit override over storage and default', async () => {
@@ -242,10 +299,16 @@ describe('createGuardianAccount', () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
-    await createGuardianAccount(webClient as never, new Uint8Array(32), false, 'https://override.guardian');
+    const result = await createGuardianAccount(
+      webClient as never,
+      new Uint8Array(32),
+      false,
+      'https://override.guardian'
+    );
 
     // Override short-circuits the storage lookup entirely.
     expect(mockFetchFromStorage).not.toHaveBeenCalled();
+    expect(result.guardianEndpoint).toBe('https://override.guardian');
   });
 
   it('wraps underlying errors in a readable message', async () => {
@@ -255,5 +318,31 @@ describe('createGuardianAccount', () => {
     await expect(createGuardianAccount(webClient as never, new Uint8Array(32))).rejects.toThrow(
       'Failed to create Guardian account'
     );
+  });
+});
+
+describe('resolveGuardianEndpoint', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('prefers the per-account guardianEndpoint when present', async () => {
+    const endpoint = await resolveGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' } as never);
+    expect(endpoint).toBe('https://per-account.guardian');
+    // The per-account field short-circuits the global-key lookup.
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the legacy global key when the account has no endpoint', async () => {
+    mockFetchFromStorage.mockResolvedValueOnce('https://global.guardian');
+    const endpoint = await resolveGuardianEndpoint({} as never);
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+    expect(endpoint).toBe('https://global.guardian');
+  });
+
+  it('falls back to DEFAULT_GUARDIAN_ENDPOINT when neither field nor global key is set', async () => {
+    mockFetchFromStorage.mockResolvedValueOnce(undefined);
+    const endpoint = await resolveGuardianEndpoint({} as never);
+    expect(endpoint).toBe('https://default.guardian.test');
   });
 });

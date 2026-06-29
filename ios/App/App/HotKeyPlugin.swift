@@ -84,6 +84,14 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         // 4. Create the SE-backed P-256 key. .privateKeyUsage triggers Face ID
         //    only when the private key is used (i.e. SecKeyCreateDecryptedData
         //    in signWithHotKey), not at create time.
+        //    THREAT MODEL: we intentionally do NOT add `.biometryCurrentSet`.
+        //    That flag would invalidate the SE key whenever the biometric
+        //    enrollment changes (a face/finger added or re-enrolled), forcing the
+        //    user to re-activate the hot key. We accept "any enrolled biometric
+        //    can sign" in exchange for not bricking the hot key on an enrollment
+        //    change; the key never leaves the Secure Enclave either way. Switch
+        //    to `.biometryCurrentSet` (with a re-activation migration) if a
+        //    stricter "enrollment change = re-activate" posture is required.
         var accessError: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
@@ -221,6 +229,16 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             return
         }
+        // Conditional cast: a corrupted/foreign Keychain item at this tag would
+        // crash the app process on a force-cast.
+        // `as? SecKey` is a no-op for CoreFoundation types — it always succeeds,
+        // so the conditional cast never actually guarded against a foreign item
+        // (and Xcode 26+ rejects it as an error). Validate the CF type id, then
+        // force-cast, which is the correct way to defensively downcast to SecKey.
+        guard CFGetTypeID(foundKey) == SecKeyGetTypeID() else {
+            call.reject("Hot-key Keychain item is not a SecKey")
+            return
+        }
         let sePrivateKey = foundKey as! SecKey
 
         // 4. SecKeyCreateDecryptedData triggers Face ID via .privateKeyUsage
@@ -320,6 +338,15 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 call.reject("Hot-key SE key not found: \(lookupStatus)")
             }
+            return
+        }
+        // Conditional cast: avoid crashing on a corrupted/foreign Keychain item.
+        // `as? SecKey` is a no-op for CoreFoundation types — it always succeeds,
+        // so the conditional cast never actually guarded against a foreign item
+        // (and Xcode 26+ rejects it as an error). Validate the CF type id, then
+        // force-cast, which is the correct way to defensively downcast to SecKey.
+        guard CFGetTypeID(foundKey) == SecKeyGetTypeID() else {
+            call.reject("Hot-key Keychain item is not a SecKey")
             return
         }
         let sePrivateKey = foundKey as! SecKey

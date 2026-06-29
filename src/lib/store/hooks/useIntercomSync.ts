@@ -5,6 +5,7 @@ import { isExtension } from 'lib/platform';
 import { NoteClaimStarted, SyncData, WalletMessageType, WalletNotification } from 'lib/shared/types';
 
 import { getIntercom, useWalletStore } from '../index';
+import { selectStaleClaimingIds } from './claiming-reconcile';
 import { updateBalancesFromSyncData } from '../utils/updateBalancesFromSyncData';
 
 /**
@@ -175,20 +176,30 @@ export function useIntercomSync() {
 
     const accountPublicKey = currentAccount.publicKey;
     const store = useWalletStore.getState;
+    // Tracks when each claiming id was first observed, so a stalled consume can
+    // be expired by age. Closure-scoped (resets per account), persists across
+    // the 3s poll ticks below. See selectStaleClaimingIds.
+    const claimingFirstSeen = new Map<string, number>();
 
     const poll = () => {
       readSyncData(accountPublicKey, syncData => {
         const noteIds = syncData.notes.map(n => n.id);
 
-        // Drop claiming IDs for notes that are no longer consumable (the SW has
-        // confirmed the consume). A blanket reset here would defeat the
-        // isBeingClaimed gate used by Explore's auto-consume, because
-        // NoteClaimStarted broadcasts fire once while this poll ticks every 3s.
+        // Reconcile the isBeingClaimed gate: drop claiming IDs for notes whose
+        // consume committed (no longer consumable) OR whose claim has stalled
+        // past the safety timeout. The timeout matters because a consume that
+        // never commits (slow/flaky networks like testnet, or an outright
+        // failure) would otherwise hide the note's Claim button forever. This
+        // is NOT a blanket reset — it preserves the gate used by Explore's
+        // auto-consume for in-flight claims, since NoteClaimStarted broadcasts
+        // fire once while this poll ticks every 3s.
         const consumableIds = new Set(noteIds);
-        const staleClaimingIds: string[] = [];
-        for (const id of store().extensionClaimingNoteIds) {
-          if (!consumableIds.has(id)) staleClaimingIds.push(id);
-        }
+        const staleClaimingIds = selectStaleClaimingIds(
+          store().extensionClaimingNoteIds,
+          consumableIds,
+          claimingFirstSeen,
+          Date.now()
+        );
         if (staleClaimingIds.length > 0) {
           store().removeExtensionClaimingNoteIds(staleClaimingIds);
         }

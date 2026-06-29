@@ -72,7 +72,12 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 
   // Same-chain (Miden) send: a single token chip with a dropdown chevron.
   const tokenChip = (
-    <button type="button" onClick={selectToken} className="flex items-center gap-1.25 cursor-pointer">
+    <button
+      type="button"
+      data-testid="send-token-selector"
+      onClick={selectToken}
+      className="flex items-center gap-1.25 cursor-pointer"
+    >
       {token && <TokenLogo symbol={token.name} size="md" />}
       <span className="font-heading text-2xl font-bold text-heading-gray">
         {token ? token.name : t('selectAToken')}
@@ -146,6 +151,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           error={error ? t(error) : undefined}
           helper={helper}
           tokenSelector={isBridge ? bridgeSelector : tokenChip}
+          data-testid="send-amount-input"
           onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
         />
       </div>
@@ -156,6 +162,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}
+          data-testid="send-amount-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>

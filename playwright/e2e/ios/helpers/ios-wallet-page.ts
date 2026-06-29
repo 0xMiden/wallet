@@ -1,10 +1,10 @@
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
 
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 
-const DEFAULT_PASSWORD = 'Password123!';
+const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
 const POLL_INTERVAL_MS = 500;
 
@@ -80,6 +80,29 @@ export class IosWalletPage implements WalletPage {
     if (!ok) throw new Error(`IosWalletPage.click: no element matched ${selector}`);
   }
 
+  /**
+   * Poll until `selector` is present AND enabled, then click it. On iOS, click()
+   * is a JS `el.click()` that silently no-ops on a disabled <button>, so clicking
+   * a form CTA before its validation has enabled it advances nothing (the next
+   * screen never renders). The single-threaded WASM lock held by the ~3s sync
+   * tick can delay that validation, so gated CTAs (recipient/amount confirm)
+   * must wait for the enabled state rather than fire-and-hope.
+   */
+  async clickWhenEnabled(selector: string, timeoutMs: number): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const state = await this.cdp.eval<string>(
+        `var el = document.querySelector(${JSON.stringify(selector)}); ` +
+          `if (!el) return 'missing'; ` +
+          `if (el.disabled || el.getAttribute('aria-disabled') === 'true') return 'disabled'; ` +
+          `el.click(); return 'clicked';`
+      );
+      if (state === 'clicked') return;
+      await sleep(500);
+    }
+    throw new Error(`IosWalletPage.clickWhenEnabled: ${selector} not present+enabled within ${timeoutMs}ms`);
+  }
+
   async waitFor(selector: string, opts: { timeoutMs?: number } = {}): Promise<void> {
     const timeoutMs = opts.timeoutMs ?? 15_000;
     await this.pollForSelector(selector, timeoutMs);
@@ -105,42 +128,66 @@ export class IosWalletPage implements WalletPage {
   // ── Onboarding ────────────────────────────────────────────────────────────
 
   /**
-   * Bypass the seed-phrase flow via the wallet's official test hook, then
-   * tap "Get started" on the confirmation screen and wait for the store to
-   * reach Ready. Mirrors the Chrome `createNewWallet` contract.
+   * Create a fully-private (OffChain) wallet via the wallet's official test
+   * hook, then tap "Get started" on the confirmation screen and wait for the
+   * store to reach Ready. Mirrors the Chrome `createNewWallet` contract.
    */
   async createNewWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createWalletViaBypass(password, 'private');
+  }
+
+  /**
+   * Create a Guardian (co-signed) wallet via the same onboarding bypass,
+   * passing `walletType=guardian` so `registerWallet` builds a guardian
+   * account. Uses the network-default guardian endpoint (devnet →
+   * guardian-stg). Mirrors the Chrome `createGuardianWallet` contract.
+   */
+  async createGuardianWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createWalletViaBypass(password, 'guardian');
+  }
+
+  /**
+   * Drive the v0-UI onboarding via the `__test_skip_onboarding` bypass baked
+   * into Welcome.tsx. Navigating with the bypass query params sets the
+   * onboarding state (Import when `seed` is present, random Create otherwise)
+   * and auto-advances to the Confirmation screen. The wallet type is selected
+   * via the `walletType` query param the bypass reads. After the navigation,
+   * the welcome screen auto-jumps to the confirmation step (seed already
+   * generated/imported, password set from the query param); tapping the
+   * confirmation submit button ("Open wallet") then runs `register()`.
+   */
+  private async createWalletViaBypass(
+    password: string,
+    recovery: 'private' | 'guardian',
+    seed?: string[]
+  ): Promise<{ address: string; seedPhrase: string[] }> {
     // Welcome screen must be visible (fixture guarantees this on cold launch).
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
-    // Trigger Welcome.tsx's official test bypass via URL params. After the
-    // navigation, the welcome screen auto-jumps to the confirmation step
-    // (random seed already generated, password set from the query param);
-    // tapping "Get started" then runs registerWallet().
     const passwordEnc = encodeURIComponent(password);
+    const seedEnc = seed && seed.length > 0 ? encodeURIComponent(seed.join(' ')) : '';
+    // Guardian account creation does extra HTTP round-trips to co-sign with the
+    // guardian, so it needs a wider readiness window than a private wallet.
+    const readyTimeoutMs = recovery === 'guardian' ? 180_000 : 120_000;
     await this.cdp.eval(
       `var u = new URL(location.href); ` +
         `u.searchParams.set('__test_skip_onboarding', '1'); ` +
         `u.searchParams.set('password', '${passwordEnc}'); ` +
+        (recovery === 'guardian' ? `u.searchParams.set('walletType', 'guardian'); ` : '') +
+        (seedEnc ? `u.searchParams.set('seed', '${seedEnc}'); ` : '') +
         `location.href = u.toString(); ` +
         `return null;`
     );
     // Page is reloading — give the WebView time to settle before next eval.
     await sleep(2_500);
 
-    // Wait for the "Get started" / confirmation button to be tappable.
-    await this.pollForCondition(
-      `var btns = Array.from(document.querySelectorAll('button')); ` +
-        `return btns.some(function(b) { return /get started/i.test(b.textContent || ''); });`,
-      120_000
-    );
+    // The bypass auto-navigates to the Confirmation screen once it has applied
+    // the onboarding state. Wait for the confirmation container to mount.
+    await this.pollForSelector('[data-testid="onboarding-confirmation"]', 120_000);
 
-    // Click "Get started"
-    await this.cdp.eval(
-      `var btns = Array.from(document.querySelectorAll('button')); ` +
-        `var target = btns.find(function(b) { return /get started/i.test(b.textContent || ''); }); ` +
-        `if (target) target.click(); return target ? true : false;`
-    );
+    // Click "Open wallet" — this triggers register() which creates the vault.
+    // The old "Get started" text is gone; the button is now keyed by testid.
+    await this.click('[data-testid="onboarding-confirmation-submit"]');
 
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
     await this.pollForCondition(
@@ -148,74 +195,73 @@ export class IosWalletPage implements WalletPage {
         `if (!s) return false; ` +
         `var st = s.getState(); ` +
         `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      120_000
+      readyTimeoutMs
     );
 
     const address = await this.cdp.eval<string>(
       `var s = window.__TEST_STORE__.getState(); ` + `return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
-    if (!address) throw new Error('IosWalletPage.createNewWallet: no currentAccount.publicKey after Ready');
+    if (!address) {
+      throw new Error(`IosWalletPage.createWalletViaBypass(${recovery}): no currentAccount.publicKey after Ready`);
+    }
 
-    // The bypass synthesizes the seed phrase internally — we don't read it
-    // back. Specs that need a real seed should use importWallet().
-    return { address, seedPhrase: [] };
+    // For created wallets the bypass synthesizes the seed phrase internally
+    // (we don't read it back); for imported wallets the caller already has it.
+    return { address, seedPhrase: seed ?? [] };
   }
 
   /**
-   * UI-driven import: same React components as Chrome, so the selectors are
-   * structurally identical. We rely on data-testid where the components
-   * expose it and fall back to placeholder/text matching otherwise.
+   * Import an existing wallet via the v0-UI `__test_skip_onboarding` bypass,
+   * passing the seed words through the `seed` query param. Mirrors the Chrome
+   * POM's `importWallet` (which routes through the same bypass) — no spec
+   * currently drives this, so keep it simple and robust rather than scripting
+   * the multi-step import UI.
    */
   async importWallet(seedPhrase: string[], password: string = DEFAULT_PASSWORD): Promise<{ address: string }> {
-    await this.navigateHome();
-    await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
-
-    await this.clickByText('button', /i already have a wallet/i);
-    await this.pollForSelector('[data-testid="import-select-type"]', 15_000);
-    await this.clickByText('*', /import with seed phrase/i);
-
-    for (let i = 0; i < seedPhrase.length; i++) {
-      await this.fillInput(`#seed-phrase-input-${i}`, seedPhrase[i] ?? '');
-    }
-    await this.clickByText('button', /continue/i);
-
-    await this.pollForCondition(`return location.hash.indexOf('create-password') >= 0;`, 15_000);
-    await this.fillInputByPlaceholder('Enter password', password);
-    await this.fillInputByPlaceholder('Enter password again', password);
-    await this.clickByText('button', /continue/i);
-
-    // Import-recovery-method step: pick "Import public account" so we don't
-    // need a guardian backend.
-    await this.pollForSelector('[data-testid="import-recovery-method"]', 15_000);
-    await this.clickByText('*', /import public account/i);
-    await this.clickByText('button', /continue/i);
-
-    await this.pollForCondition(
-      `var bd = document.body; return bd && /your wallet is ready/i.test(bd.textContent || '');`,
-      120_000
-    );
-    await this.clickByText('button', /get started/i);
-
-    await this.pollForCondition(
-      `var bd = document.body; return bd && /\\bSend\\b/.test(bd.textContent || '');`,
-      30_000
-    );
-
-    const address = await this.getAccountAddress();
+    const { address } = await this.createWalletViaBypass(password, 'private', seedPhrase);
     return { address };
   }
 
+  /**
+   * Extract the wallet account address.
+   *
+   * Primary path: read the canonical bech32 string from `__TEST_STORE__`
+   * (`mdev1…` on devnet, `mtst1…` on testnet, etc.).
+   *
+   * DOM fallback: navigate to /receive (lands on the Address tab) and read the
+   * untruncated address from the `receive-address-full` sr-only span — the
+   * visible address is now truncated, so scraping it would yield an ellipsis.
+   */
   async getAccountAddress(): Promise<string> {
+    const bechRe = /^m[a-z]{1,4}1[a-z0-9]+/i;
+
+    // Primary path: poll the Zustand store for the current account's publicKey.
+    const storeAddress = await this.cdp
+      .eval<string>(
+        `var s = window.__TEST_STORE__; ` +
+          `if (!s) return ''; ` +
+          `var pk = (s.getState().currentAccount && s.getState().currentAccount.publicKey) || ''; ` +
+          `return /^m[a-z]{1,4}1[a-z0-9]+/i.test(pk) ? pk : '';`
+      )
+      .catch(() => '');
+    if (storeAddress) return storeAddress.trim();
+
+    // DOM fallback: read the untruncated address from the sr-only span on the
+    // Receive page's Address tab.
     await this.navigateTo('/receive');
     await this.pollForSelector('[data-testid="receive-page"]', 15_000);
 
     const address = await this.cdp.eval<string>(
-      `var c = document.querySelector('[data-testid="receive-page"]'); ` +
+      `var full = document.querySelector('[data-testid="receive-address-full"]'); ` +
+        `if (full && (full.textContent || '').trim()) return (full.textContent || '').trim(); ` +
+        `var c = document.querySelector('[data-testid="receive-page"]'); ` +
         `if (!c) return ''; ` +
-        `var m = (c.textContent || '').match(/mtst\\S+/); ` +
+        `var m = (c.textContent || '').match(/m[a-z]{1,4}1[a-z0-9]+/i); ` +
         `return m ? m[0] : '';`
     );
-    if (!address) throw new Error('IosWalletPage.getAccountAddress: no mtst-prefixed address found');
+    if (!address || !bechRe.test(address)) {
+      throw new Error('IosWalletPage.getAccountAddress: no bech32 address found on Receive page');
+    }
     await this.navigateHome();
     return address.trim();
   }
@@ -281,7 +327,7 @@ export class IosWalletPage implements WalletPage {
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full
-    // sync cycle before we start polling for the navbar action.
+    // sync cycle before we start polling for the Claim All button.
     await sleep(10_000);
 
     // The wallet's `attachMetadataToNotes` (`src/lib/miden/front/claimable-notes.ts`)
@@ -289,8 +335,8 @@ export class IosWalletPage implements WalletPage {
     // fetched from the RPC. The test deploys a custom `basic-fungible-faucet`
     // whose on-chain procedures don't match what the SDK's
     // `BasicFungibleFaucetComponent.fromAccount` expects — so the wallet
-    // hides the note, "Claim All" never registers in the navbar, and
-    // triggerNavbarAction times out. Mirrors Chrome's claimAllNotes
+    // hides the note, "Claim All" never renders, and the claim button
+    // poll times out. Mirrors Chrome's claimAllNotes
     // workaround (`playwright/e2e/helpers/wallet-page.ts:762-792`): inject
     // synthetic metadata for any faucet we don't already have, so
     // `attachMetadataToNotes`'s `metadataByFaucetId[n.faucetId]` lookup
@@ -310,7 +356,14 @@ export class IosWalletPage implements WalletPage {
     // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
     // timeout (default 180s) still has ~50s left for balance polling
     // after this resolves.
-    await this.triggerNavbarAction(120_000);
+    await this.pollForCondition(
+      `var pending = document.querySelector('[data-testid="receive-tab-pending"]'); ` +
+        `if (pending) pending.click(); ` +
+        `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+        `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
+        `btn.click(); return true;`,
+      120_000
+    );
 
     // TEMPORARY (mobile-MT test): periodically dump
     // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
@@ -434,72 +487,101 @@ export class IosWalletPage implements WalletPage {
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
+  /**
+   * Execute the full v0-UI send flow: SelectRecipient → SelectAmount(+token) →
+   * ReviewTransaction. Every step is driven by React DOM buttons via CDP.
+   */
   async sendTokens(params: {
     recipientAddress: string;
     amount: string;
     isPrivate: boolean;
-    /** Optional token symbol — accepted for interface compatibility; iOS still uses first row. */
+    /**
+     * Optional token symbol (e.g. "TST"). When set, picks that token's row from
+     * the token sub-screen. Default: first non-MIDEN row — fine when only one
+     * fundable token exists.
+     */
     tokenSymbol?: string;
   }): Promise<void> {
+    // v0-UI order: recipient → amount(+token) → review.
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
-    // Click first token (CardItem with cursor-pointer inside send-flow)
-    await this.cdp.eval(
-      `var f = document.querySelector('[data-testid="send-flow"]'); ` +
-        `if (!f) return false; ` +
-        `var item = f.querySelector('div.cursor-pointer'); ` +
-        `if (!item) return false; item.click(); return true;`
-    );
-    await sleep(800);
+    // 1. SelectRecipient: fill the recipient address (textarea) and confirm.
+    // Confirm is gated on a valid address, so wait for it to enable.
+    await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
+    await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
-    await this.fillInputAny(
-      [
-        '[data-testid="send-flow"] input[placeholder*="wallet address"]',
-        '[data-testid="send-flow"] input[placeholder*="address"]',
-        '[data-testid="send-flow"] textarea'
-      ],
-      params.recipientAddress
-    );
+    // 2. SelectAmount: open the token sub-screen, pick a token, then fill the
+    // amount. The amount Confirm stays disabled until a token is picked.
+    await this.pollForSelector('[data-testid="send-token-selector"]', 15_000);
+    await this.click('[data-testid="send-token-selector"]');
 
-    await this.fillInputAny(
-      [
-        '[data-testid="send-flow"] input[type="text"]',
-        '[data-testid="send-flow"] input[type="number"]',
-        '[data-testid="send-flow"] input[inputmode="decimal"]'
-      ],
-      params.amount
+    // Pick the token row. Prefer the requested symbol; otherwise take the first
+    // token row that isn't the selector control, the search box, or MIDEN
+    // (which typically sits at 0 balance above the real fundable token).
+    const tokenSymbol = params.tokenSymbol;
+    if (tokenSymbol) {
+      // Wait for the FUNDED token row specifically — balance sync can lag, and
+      // if only the 0-balance MIDEN row has rendered, the fallback would grab it
+      // and the amount Confirm would never enable.
+      await this.pollForSelector(`[data-testid="send-token-${tokenSymbol}"]`, 30_000);
+    } else {
+      await this.pollForCondition(`return !!document.querySelector('[data-testid^="send-token-"]');`, 15_000);
+    }
+    const clickedToken = await this.cdp.eval<boolean>(
+      `var symbol = ${JSON.stringify(tokenSymbol ?? '')}; ` +
+        `if (symbol) { ` +
+        `  var want = document.querySelector('[data-testid="send-token-' + symbol + '"]'); ` +
+        `  if (want) { want.click(); return true; } ` +
+        `} ` +
+        `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
+        `if (!pick) pick = rows[0]; ` +
+        `if (!pick) return false; pick.click(); return true;`
     );
-
-    if (!params.isPrivate) {
-      await this.cdp
-        .eval(
-          `var f = document.querySelector('[data-testid="send-flow"]'); ` +
-            `if (!f) return false; ` +
-            `var els = Array.from(f.querySelectorAll('*')).filter(function(el) { return (el.textContent || '').trim() === 'Off'; }); ` +
-            `if (els.length === 0) return false; els[0].click(); return true;`
-        )
-        .catch(() => false);
+    if (!clickedToken) {
+      throw new Error('IosWalletPage.sendTokens: no token row to select');
     }
 
-    // Send flow's Continue (SendDetails) and Confirm (ReviewTransaction)
-    // are native navbar actions on mobile, not DOM buttons. Trigger via
-    // the same hook we use for Claim All. Poll because the action only
-    // registers after the page mounts and inputs validate.
-    await this.triggerNavbarAction(15_000);
-    await sleep(500);
-    await this.triggerNavbarAction(15_000);
-    await sleep(2_000);
+    // Back on SelectAmount after the sub-screen closes. Generous timeout: the
+    // single-threaded WASM lock (held by the ~3s sync tick on mobile) can queue
+    // the balance reads that gate each screen, so render can lag.
+    await this.pollForSelector('[data-testid="send-amount-input"]', 30_000);
+    await this.fillInput('[data-testid="send-amount-input"]', params.amount);
+    // Confirm is disabled until a token is picked AND the amount validates
+    // (both involve balance reads behind the WASM lock); clicking it while still
+    // disabled is a silent no-op, so wait for the enabled state.
+    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 45_000);
 
+    // 3. Force the note type. The public/private toggle was removed (private by
+    // default); the E2E hook persists the choice across the remaining steps.
     await this.pollForCondition(
-      `var bd = document.body; return bd && /transaction.*initiated|transaction.*success|successfully/i.test(bd.textContent || '');`,
+      `return typeof window.__TEST_SET_SHARE_PRIVATELY__ === 'function';`,
+      15_000
+    );
+    await this.cdp.eval(
+      `window.__TEST_SET_SHARE_PRIVATELY__(${params.isPrivate ? 'true' : 'false'}); return null;`
+    );
+
+    // 4. ReviewTransaction: submit. The Review screen recomputes the fee/summary
+    // on entry (a balance read behind the WASM lock), which can lag well past 15s
+    // when a sync tick holds the lock — so poll generously.
+    await this.pollForSelector('[data-testid="send-review-submit"]', 45_000);
+    await this.click('[data-testid="send-review-submit"]');
+
+    // 5. Treat the submit button detaching as the "submit accepted" signal — the
+    // send flow navigates away once the request is dispatched.
+    await this.pollForCondition(
+      `return !document.querySelector('[data-testid="send-review-submit"]');`,
       120_000
     ).catch(async () => {
       const body = await this.locatorText('body');
-      if (body && /error|failed/i.test(body)) {
+      if (body && /error|failed/i.test(body) && !/generating|processing|initiated|submitting|pending/i.test(body)) {
         throw new Error(`Send transaction appears to have failed. Page text: ${body.slice(0, 500)}`);
       }
     });
+    await sleep(2_000);
   }
 
   // ── Balance Waiting ───────────────────────────────────────────────────────
@@ -552,11 +634,51 @@ export class IosWalletPage implements WalletPage {
     await sleep(3_000);
   }
 
+  /**
+   * Unlock the wallet by entering the 6-digit passcode on the Numpad (the
+   * passcode IS the vault password). Entering 6 digits auto-submits.
+   *
+   * On mobile the Unlock screen first attempts hardware/biometric unlock
+   * automatically; when that path is taken there may be no numpad. So we poll
+   * for the numpad container with a short budget and, if it never appears,
+   * fall back to the legacy text-input unlock (covers the biometric-auto path
+   * and any non-numpad unlock surface). The numpad path is the primary one and
+   * mirrors the Chrome POM.
+   *
+   * NOTE: the numpad-vs-biometric branching on iOS is unverified here — it will
+   * be validated by a later simulator run. The fallback keeps the method robust
+   * either way.
+   */
   async unlockWallet(password: string = DEFAULT_PASSWORD): Promise<void> {
     await this.navigateHome();
-    await this.pollForSelector('input[type="password"], input', 15_000);
-    await this.fillInputAny(['input[type="password"]', 'input'], password);
-    await this.clickByText('button', /unlock|continue|submit/i);
+
+    // Primary path: 6-digit numpad. Poll briefly — if biometric auto-unlock
+    // took over there may be no numpad to drive.
+    const numpadReady = await this.pollForSelector('[data-testid="unlock-passcode"]', 10_000)
+      .then(() => true)
+      .catch(() => false);
+
+    if (numpadReady) {
+      for (const ch of password) {
+        await this.click(`[data-testid="numpad-${ch}"]`);
+        await sleep(150);
+      }
+      // Entering the final digit auto-submits; wait for the home surface.
+      await this.pollForCondition(
+        `if (document.querySelector('[data-testid="explore-page"]')) return true; ` +
+          `var s = window.__TEST_STORE__; ` +
+          `if (!s) return false; ` +
+          `var pk = (s.getState().currentAccount && s.getState().currentAccount.publicKey) || ''; ` +
+          `return /^m[a-z]{1,4}1[a-z0-9]+/i.test(pk);`,
+        30_000
+      );
+      return;
+    }
+
+    // Fallback: legacy text-input unlock (or biometric already unlocked us, in
+    // which case there's nothing to do and the fill/click no-op safely).
+    await this.fillInputAny(['input[type="password"]', 'input'], password).catch(() => {});
+    await this.clickByText('button', /unlock|continue|submit/i).catch(() => {});
     await sleep(3_000);
   }
 
@@ -567,84 +689,38 @@ export class IosWalletPage implements WalletPage {
   }
 
   /**
-   * Fire the currently-registered native navbar action on mobile. The
-   * wallet's native iOS overlay (MidenNavbarOverlayWindow) lives in a
-   * separate UIWindow outside the WebView that CDP sees, so a coordinate
-   * tap via simctl isn't an option. Instead, we call
-   * __TEST_TRIGGER_NAVBAR_ACTION__ (installed in E2E builds by
-   * lib/dapp-browser/use-native-navbar-action.ts) which invokes the same
-   * onTap the native button would dispatch. Poll until an action is
-   * registered (pages mount their action in useEffect — there's a small
-   * window where nothing is registered).
+   * Read a Guardian account's on-chain auth structure (overall threshold,
+   * signer commitments, per-procedure thresholds). Calls the same
+   * __TEST_GUARDIAN_AUTH__ hook the Chrome POM uses, but over the async CDP
+   * atom: the hook awaits getOrCreateMultisigService + a best-effort
+   * (time-bounded) sync, so it returns a Promise and must run under
+   * execute_async_script. The hook itself caps its internal sync at 8s, so the
+   * 30s evalAsync budget is comfortable even when the background sync holds the
+   * WASM lock.
    */
-  private async triggerNavbarAction(timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const fired = await this.cdp
-        .eval<boolean>(
-          `if (typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ !== 'function') return false; ` +
-            `return window.__TEST_TRIGGER_NAVBAR_ACTION__() === true;`
-        )
-        .catch(() => false);
-      if (fired) return;
-      await sleep(POLL_INTERVAL_MS);
-    }
-    // Timed out without firing. The bare "no action registered" error
-    // can't distinguish between "hook never installed" (MIDEN_E2E_TEST
-    // not baked into the build) and "hook installed but no page mounted
-    // a non-null action" (sync didn't surface claimable notes). Capture
-    // the diagnostic state from the WebView so the next CI failure
-    // pinpoints the cause instead of forcing a fresh investigation.
-    const diag = await this.cdp
-      .eval<{
-        hookInstalled: boolean;
-        hash: string;
-        status: unknown;
-        balanceFaucetIds: string[];
-        balanceAmounts: string[];
-        claimableNotesCount: number | null;
-        isSyncing: boolean | null;
-        hasCompletedInitialSync: boolean | null;
-        lastSyncedAt: number | null;
-        msSinceLastSync: number | null;
-      } | null>(
-        `try {` +
-          `  var s = window.__TEST_STORE__; ` +
-          `  var st = s ? s.getState() : null; ` +
-          `  var balances = (st && st.balances) || {}; ` +
-          `  var faucetIds = []; var amounts = []; ` +
-          `  for (var k in balances) { ` +
-          `    var list = balances[k]; ` +
-          `    if (!Array.isArray(list)) continue; ` +
-          `    for (var i = 0; i < list.length; i++) { ` +
-          `      var t = list[i]; ` +
-          `      faucetIds.push(String(t.faucetId || '')); ` +
-          `      amounts.push(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-          `    } ` +
-          `  } ` +
-          `  var notes = (st && st.claimableNotes) || (st && st.notes) || null; ` +
-          `  var lastSync = st && typeof st.lastSyncedAt === 'number' ? st.lastSyncedAt : null; ` +
-          `  return {` +
-          `    hookInstalled: typeof window.__TEST_TRIGGER_NAVBAR_ACTION__ === 'function',` +
-          `    hash: location.hash || '',` +
-          `    status: st ? st.status : null,` +
-          `    balanceFaucetIds: faucetIds,` +
-          `    balanceAmounts: amounts,` +
-          `    claimableNotesCount: Array.isArray(notes) ? notes.length : null,` +
-          `    isSyncing: st ? !!st.isSyncing : null,` +
-          `    hasCompletedInitialSync: st ? !!st.hasCompletedInitialSync : null,` +
-          `    lastSyncedAt: lastSync,` +
-          `    msSinceLastSync: lastSync ? Date.now() - lastSync : null` +
-          `  }; ` +
-          `} catch (e) { return null; }`
-      )
-      .catch(() => null);
-    throw new Error(
-      `triggerNavbarAction: no action registered within ${timeoutMs}ms. ` +
-        `diag=${JSON.stringify(diag)} — ` +
-        `hookInstalled=false ⇒ MIDEN_E2E_TEST not baked into the build; ` +
-        `hookInstalled=true + amounts all 0 ⇒ wallet sync hasn't surfaced the note yet; ` +
-        `hash != '#/receive' ⇒ navigation didn't take.`
+  async getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo> {
+    return this.cdp.evalAsync<GuardianAuthInfo>(
+      `var cb = arguments[arguments.length - 1];
+       var fn = globalThis.__TEST_GUARDIAN_AUTH__;
+       if (typeof fn !== 'function') {
+         cb({
+           threshold: NaN,
+           signerCommitments: [],
+           procedureThresholds: {},
+           error: '__TEST_GUARDIAN_AUTH__ unavailable (needs MIDEN_E2E_TEST build)'
+         });
+         return;
+       }
+       Promise.resolve(fn(${JSON.stringify(accountPublicKey)}))
+         .then(function (r) { cb(r); })
+         .catch(function (e) {
+           cb({
+             threshold: NaN,
+             signerCommitments: [],
+             procedureThresholds: {},
+             error: String(e && e.message ? e.message : e)
+           });
+         });`
     );
   }
 
@@ -715,10 +791,6 @@ export class IosWalletPage implements WalletPage {
         `el.dispatchEvent(new Event('change', { bubbles: true })); ` +
         `return true;`
     );
-  }
-
-  private async fillInputByPlaceholder(placeholder: string, value: string): Promise<void> {
-    await this.fillInput(`input[placeholder="${placeholder}"]`, value);
   }
 
   private async fillInputAny(selectors: string[], value: string): Promise<void> {

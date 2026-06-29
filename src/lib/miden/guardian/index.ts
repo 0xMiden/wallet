@@ -17,7 +17,7 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { getSignerDetailsFromAccount } from './account';
+import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
 import { registerGuardianOrigin } from './native-http';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { fetchFromStorage } from '../front/storage';
@@ -54,20 +54,19 @@ export class MultisigService {
 
   /**
    * Initialize a MultisigService for an existing Guardian account.
+   *
+   * `guardianEndpoint` is resolved per-account by the caller (see
+   * `resolveGuardianEndpoint`) so accounts on different operators don't collide.
    */
   static async init(
     account: Account,
     publicKey: string,
     signerCommitment: string,
-    signWordFn: SignWordFunction
+    signWordFn: SignWordFunction,
+    guardianEndpoint: string
   ): Promise<MultisigService> {
-    const guardianEndpoint = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
-    if (!guardianEndpoint) {
-      throw new Error('Guardian endpoint missing from storage — wallet must complete guardian onboarding first');
-    }
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
-      const guardianEndpoint = (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || DEFAULT_GUARDIAN_ENDPOINT;
 
       // Reuse the shared singleton client instead of spinning up a fresh
       // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
@@ -108,7 +107,14 @@ export class MultisigService {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
     }
     const { commitment } = await getSignerDetailsFromAccount(account, true);
-    return MultisigService.init(account, `0x${walletAccount.coldPublicKey}`, `0x${commitment}`, signWordFn);
+    const guardianEndpoint = await resolveGuardianEndpoint(walletAccount);
+    return MultisigService.init(
+      account,
+      `0x${walletAccount.coldPublicKey}`,
+      `0x${commitment}`,
+      signWordFn,
+      guardianEndpoint
+    );
   }
 
   static async importAccountFromGuardian(
@@ -168,6 +174,42 @@ export class MultisigService {
     return withWasmClientLock(() => this.multisig.createConsumeNotesProposal(noteIds));
   }
 
+  /** Current on-chain threshold for `procedure`, or undefined if none is set. */
+  getProcedureThreshold(procedure: string): number | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (this.multisig as any).procedureThresholds?.get(procedure);
+  }
+
+  /**
+   * The account's loaded on-chain auth structure: overall threshold, signer
+   * commitments, and per-procedure thresholds. Used by the E2E harness to
+   * assert the 3-key shape (e.g. that `update_guardian` is hardened to 2 and
+   * the signer set is `[hot, cold]`) — properties the balance-only checks miss.
+   */
+  getAuthInfo(): { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> } {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = this.multisig as any;
+    const procedureThresholds: Record<string, number> = {};
+    if (m.procedureThresholds instanceof Map) {
+      for (const [proc, threshold] of m.procedureThresholds.entries()) {
+        procedureThresholds[String(proc)] = threshold as number;
+      }
+    }
+    return {
+      threshold: typeof m.threshold === 'number' ? m.threshold : NaN,
+      signerCommitments: Array.isArray(m.signerCommitments) ? m.signerCommitments.map(String) : [],
+      procedureThresholds
+    };
+  }
+
+  /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
+  async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return withWasmClientLock(() =>
+      (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+    );
+  }
+
   async signAndExecuteProposal(id: string): Promise<void> {
     // `signProposal` is signing + guardian HTTP (no shared-client access); only
     // `executeProposal` touches the WASM client and needs the mutex.
@@ -225,23 +267,54 @@ export class MultisigService {
     // around each `syncState` attempt and release during the back-off wait so
     // other client operations can proceed between retries.
     this.syncRetryCount = 0;
+    // The guardian-realign self-heal below runs at most once per sync run so a
+    // genuinely stuck guardian doesn't loop re-registering every tick.
+    let realignAttempted = false;
     for (;;) {
       try {
         await withWasmClientLock(() => this.multisig.syncState());
         this.syncRetryCount = 0; // Reset retry count on successful sync
         return;
       } catch (error) {
-        const isNonceTooLow =
-          error instanceof Error && error.message.includes('nonce') && error.message.includes('too low');
-        if (!isNonceTooLow) {
-          throw error; // Rethrow if it's a different error
+        const message = error instanceof Error ? error.message : String(error);
+        const isNonceTooLow = message.includes('nonce') && message.includes('too low');
+        if (isNonceTooLow) {
+          if (this.syncRetryCount >= MAX_SYNC_RETRIES) {
+            throw new Error('Max sync retries reached: local state is ahead of on-chain state');
+          }
+          this.syncRetryCount++;
+          console.warn(
+            'Nonce is too low, local state is ahead of on-chain state, retrying sync...',
+            this.syncRetryCount
+          );
+          await delay(SYNC_RETRY_DELAY_MS);
+          continue;
         }
-        if (this.syncRetryCount >= MAX_SYNC_RETRIES) {
-          throw new Error('Max sync retries reached: local state is ahead of on-chain state');
+
+        // `multisig.syncState` refuses to overwrite local state when the guardian's
+        // stored blob lags the on-chain account ("Refusing to overwrite local
+        // state ..." / commitment-mismatch). The OZ lib only re-registers
+        // structural rotations on the guardian for `switch_guardian`; after a
+        // replace-hot-key (`update_signers`) or `update_procedure_threshold` the
+        // guardian's blob is never updated, so it diverges from on-chain and this
+        // throws every ~3s AutoSync tick — forever, until a full reinstall. Self-heal
+        // once per run: push our current on-chain state up to the guardian (see
+        // `reRegisterCurrentStateOnGuardian`) so it realigns, then retry the sync.
+        // Best-effort: if the realign itself fails, fall through to the original error.
+        if (!realignAttempted) {
+          realignAttempted = true;
+          try {
+            console.warn(
+              'Guardian sync failed; realigning guardian to current on-chain state, then retrying:',
+              message
+            );
+            await this.reRegisterCurrentStateOnGuardian();
+            continue;
+          } catch (realignError) {
+            console.warn('Guardian re-registration during sync failed (non-fatal):', realignError);
+          }
         }
-        this.syncRetryCount++;
-        console.warn('Nonce is too low, local state is ahead of on-chain state, retrying sync...', this.syncRetryCount);
-        await delay(SYNC_RETRY_DELAY_MS);
+        throw error; // Rethrow if it's a different error (caller logs per-account)
       }
     }
   }
@@ -303,25 +376,26 @@ export class MultisigService {
     const targetSignerCommitments = [ensure0x(newHot.commitmentHex), ensure0x(coldCommitRaw)];
     const targetThreshold = this.multisig.threshold;
 
-    const webClient = (await getMidenClient()).client;
-    const { request, salt } = await withWasmClientLock(async () =>
-      buildUpdateSignersTransactionRequest(webClient, targetThreshold, targetSignerCommitments, {
-        signatureScheme: 'ecdsa'
-      })
-    );
-    const summary = await withWasmClientLock(async () => executeForSummary(webClient, this.accountId, request));
-    const summaryBase64 = u8ToB64(summary.serialize());
-    console.log(
-      'Executed transaction for summary',
-      summaryBase64,
-      'with target signer commitments',
-      targetSignerCommitments
-    );
+    // Keep getMidenClient() and both WASM ops inside a single lock scope — the
+    // WASM client is single-threaded, so resolving the client outside the lock
+    // (or splitting the build/execute into two lock windows) leaves a gap where
+    // another holder can run and trigger "recursive use ... unsafe aliasing".
+    const { summaryBase64, saltHex } = await withWasmClientLock(async () => {
+      const webClient = (await getMidenClient()).client;
+      const { request, salt } = await buildUpdateSignersTransactionRequest(
+        webClient,
+        targetThreshold,
+        targetSignerCommitments,
+        { signatureScheme: 'ecdsa' }
+      );
+      const summary = await executeForSummary(webClient, this.accountId, request);
+      return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
+    });
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
       targetThreshold,
       targetSignerCommitments,
-      saltHex: salt.toHex(),
+      saltHex,
       requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
       description: 'Replace device (hot) signer'
     };
@@ -387,6 +461,34 @@ export class MultisigService {
       }
     }
     throw new Error('Failed to register account on the new guardian after switching', { cause: lastError });
+  }
+
+  /**
+   * Push this account's CURRENT on-chain state to its (unchanged) guardian, so the
+   * guardian's stored blob tracks structural rotations.
+   *
+   * Upstream `multisig.executeProposal` only re-registers the post-execution state
+   * on the guardian for `switch_guardian` proposals; for `update_signers`
+   * (replace-hot-key) and `update_procedure_threshold` it submits the tx on-chain
+   * but never updates the guardian. Without this push, the guardian's `getState`
+   * keeps serving the pre-rotation blob, so the next `multisig.syncState` sees
+   * guardian-commitment != on-chain-commitment and throws on
+   * `ensureSafeToOverwriteLocalState` every ~3s tick — permanently, until a full
+   * reinstall re-registers the account. Mirrors `finalizeGuardianSwitch`'s
+   * registration step but keeps the same guardian endpoint. Idempotent: if the
+   * guardian already has this state, re-registering is a no-op.
+   */
+  async reRegisterCurrentStateOnGuardian(): Promise<void> {
+    const updatedStateBase64 = await withWasmClientLock(async () => {
+      const client = await getMidenClient();
+      await client.syncState();
+      const account = await client.getAccount(this.accountId);
+      if (!account) {
+        throw new Error(`Account ${this.accountId} is missing from local client`);
+      }
+      return u8ToB64(account.serialize());
+    });
+    await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }
 

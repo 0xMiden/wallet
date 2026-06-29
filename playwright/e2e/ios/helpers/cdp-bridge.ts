@@ -233,11 +233,7 @@ export class CdpBridge {
     }
     if (!pages || pages.length === 0) {
       await rd.disconnect();
-      throw new Error(
-        `CdpBridge: no pages found for bundleId=${bundleId} on udid=${udid} ` +
-          `within ${SELECT_APP_TIMEOUT}ms. Is the app running and built with ` +
-          `isInspectable=true?`
-      );
+      throw new CdpNoPagesError(bundleId, udid, SELECT_APP_TIMEOUT);
     }
 
     // Page id is "<appKey>.<pageNum>" — selectPage takes them split.
@@ -344,4 +340,32 @@ async function detectIOSVersion(udid: string): Promise<string> {
   }
   // Fallback — recent default
   return '26.3';
+}
+
+// ── Errors ───────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown when webinspectord_sim never exposes the app's WebView within
+ * SELECT_APP_TIMEOUT after a fresh launch. On macos-26 CI runners this is a
+ * symptom of a wedged CoreSimulator / webinspectord subsystem — the same
+ * daemon-wedge that also hangs `simctl`. Callers catch this (alongside
+ * SimctlTimeoutError) to trigger `recoverSimSubsystem` and retry, rather than
+ * burning the whole test timeout.
+ */
+export class CdpNoPagesError extends Error {
+  constructor(
+    public readonly bundleId: string,
+    public readonly udid: string,
+    public readonly timeoutMs: number
+  ) {
+    super(
+      `CdpBridge: no pages found for bundleId=${bundleId} on udid=${udid} ` +
+        `within ${timeoutMs}ms. Is the app running and built with isInspectable=true?`
+    );
+    this.name = 'CdpNoPagesError';
+  }
+}
+
+export function isCdpNoPagesError(err: unknown): err is CdpNoPagesError {
+  return err instanceof CdpNoPagesError;
 }

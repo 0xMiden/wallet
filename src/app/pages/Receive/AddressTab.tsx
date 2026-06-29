@@ -70,6 +70,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
       <div className="min-h-full flex flex-col">
         <div className="flex flex-col items-center px-6 pt-8 pb-32">
           <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
+          {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
+          <span data-testid="receive-address-full" className="sr-only">
+            {address}
+          </span>
           <div className="flex flex-col items-center justify-center gap-8">
             <QRCode address={address} size={300} />
             <span className="w-full rounded-10 text-center text-sm text-heading-gray py-5 bg-surface-interactive">

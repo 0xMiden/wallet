@@ -2,6 +2,7 @@ import React from 'react';
 
 import { Trans, useTranslation } from 'react-i18next';
 
+import Spinner from 'app/atoms/Spinner/Spinner';
 import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation-illustrantion.svg';
 import { Button, ButtonVariant } from 'components/Button';
 
@@ -11,6 +12,12 @@ export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTML
   isLoading?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
+  /**
+   * Side panel handoff (Chrome): the wallet is being created in the background
+   * before the user opens it. While true, show a spinner instead of the
+   * ready-state success message + button.
+   */
+  creating?: boolean;
   onSubmit?: () => void;
   onSwitchToPassword?: () => void;
 }
@@ -20,6 +27,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   isLoading,
   biometricAttempts = 0,
   biometricError,
+  creating = false,
   onSubmit,
   onSwitchToPassword,
   ...props
@@ -29,12 +37,21 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   const showPasswordFallback = biometricAttempts >= MAX_BIOMETRIC_ATTEMPTS;
   const hasError = !!biometricError && biometricAttempts > 0;
 
+  if (creating) {
+    return (
+      <div className="w-full h-full pt-11.5">
+        <div {...props} className="flex flex-col items-center justify-center h-full gap-y-4 bg-app-bg w-full px-6">
+          <Spinner />
+          <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const primaryButtonTitle = hasError ? t('retry') : t('openWallet');
+
   return (
-    <div
-      {...props}
-      className="bg-app-bg max-w-full h-full overflow-hidden"
-      data-testid="onboarding-confirmation"
-    >
+    <div {...props} className="bg-app-bg max-w-full h-full overflow-hidden" data-testid="onboarding-confirmation">
       <div className="min-h-full flex flex-col items-center px-6 pb-8">
         <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
           <ConfirmationHero style={{ width: 240, height: 'auto' }} />
@@ -82,10 +99,11 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
           ) : (
             <Button
               tabIndex={0}
-              title={hasError ? t('retry') : t('openWallet')}
+              title={primaryButtonTitle}
               className="self-center w-full text-base"
               onClick={onSubmit}
               isLoading={isLoading}
+              data-testid="onboarding-confirmation-submit"
             />
           )}
         </div>

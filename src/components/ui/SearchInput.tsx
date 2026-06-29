@@ -8,6 +8,7 @@ export interface SearchInputProps {
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
+  'data-testid'?: string;
 }
 
 export const SearchInput: FC<SearchInputProps> = ({
@@ -15,7 +16,8 @@ export const SearchInput: FC<SearchInputProps> = ({
   onChange,
   placeholder = 'Search',
   className,
-  autoFocus
+  autoFocus,
+  'data-testid': dataTestId
 }) => {
   const hasValue = value.length > 0;
 
@@ -23,6 +25,7 @@ export const SearchInput: FC<SearchInputProps> = ({
     <div className={classNames('w-full bg-gray-25 rounded-3xl h-14', className)}>
       <input
         type="text"
+        data-testid={dataTestId}
         value={value}
         onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
         placeholder={placeholder}

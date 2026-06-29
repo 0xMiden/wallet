@@ -8,5 +8,6 @@ class AppViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(BarcodeScannerPlugin())
         bridge?.registerPluginInstance(HotKeyPlugin())
         bridge?.registerPluginInstance(ReownPlugin())
+        bridge?.registerPluginInstance(MidenNativeProverPlugin())
     }
 }

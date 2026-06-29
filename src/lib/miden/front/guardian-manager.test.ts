@@ -21,7 +21,11 @@ jest.mock('./storage', () => ({
 
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args)
+  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args),
+  // Mirror the real resolver: prefer the per-account endpoint, else the stored
+  // global key (driven by mockFetchFromStorage), else the default.
+  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+    acc.guardianEndpoint ?? (await mockFetchFromStorage('guardian_url_setting')) ?? 'https://default.guardian.test'
 }));
 
 const mockGetAccount = jest.fn();
@@ -36,6 +40,10 @@ jest.mock('lib/miden/guardian', () => ({
   MultisigService: {
     init: (...args: unknown[]) => mockMultisigServiceInit(...args)
   }
+}));
+
+jest.mock('lib/miden-chain/constants', () => ({
+  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
 }));
 
 jest.mock('lib/settings/constants', () => ({
@@ -87,7 +95,9 @@ describe('guardian-manager', () => {
         expect.anything(),
         `0x${HOT_PK}`,
         '0xabc',
-        provider.signWord
+        provider.signWord,
+        // The resolved per-account endpoint is now passed through to init.
+        'https://default.guardian.test'
       );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
@@ -97,26 +107,23 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
 
-    it('evicts the cached service when storage is empty on the cache-drift re-check', async () => {
+    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage is empty on the cache-drift re-check', async () => {
       // First call seeds the cache with a service pinned to the default endpoint.
       const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'cached' };
       mockMultisigServiceInit.mockResolvedValueOnce(service);
       const provider = makeProvider([guardianAccount]);
       await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
-      // Second call: storage returns `undefined`. With DEFAULT_GUARDIAN_ENDPOINT
-      // gone, the cache check requires storage to hold a value — empty storage
-      // is treated as drift, so the entry is evicted and the service is
-      // re-initialized.
-      const refreshed = { guardianEndpoint: 'https://default.guardian.test', tag: 'refreshed' };
+      // Second call: storage returns `undefined`, so the re-check computes the
+      // default endpoint via the `|| DEFAULT_GUARDIAN_ENDPOINT` fallback and
+      // the cached instance stays valid.
       mockFetchFromStorage.mockResolvedValueOnce(undefined);
       mockMultisigServiceInit.mockClear();
-      mockMultisigServiceInit.mockResolvedValueOnce(refreshed);
 
       const second = await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
-      expect(second).toBe(refreshed);
-      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
+      expect(second).toBe(service);
+      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
 
     it('evicts the cached service and reinitializes when the stored guardian URL drifts', async () => {
@@ -133,6 +140,27 @@ describe('guardian-manager', () => {
 
       expect(result).toBe(secondService);
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses the per-account guardianEndpoint over the global key (multi-account isolation)', async () => {
+      // Two Guardian accounts on different operators must not collide: the one
+      // carrying its own endpoint binds to it regardless of the global key.
+      const service = { guardianEndpoint: 'https://per-account.guardian', tag: 'isolated' };
+      mockMultisigServiceInit.mockResolvedValueOnce(service);
+      const provider = makeProvider([{ ...guardianAccount, guardianEndpoint: 'https://per-account.guardian' }]);
+
+      const result = await getOrCreateMultisigService(GUARDIAN_PK, provider);
+
+      expect(result).toBe(service);
+      expect(mockMultisigServiceInit).toHaveBeenCalledWith(
+        expect.anything(),
+        `0x${HOT_PK}`,
+        '0xabc',
+        provider.signWord,
+        'https://per-account.guardian'
+      );
+      // The per-account field short-circuits the global-key lookup.
+      expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });
 
     it('coalesces concurrent service initialization for the same account', async () => {
@@ -161,6 +189,16 @@ describe('guardian-manager', () => {
       const provider = makeProvider([onChainAccount]);
 
       await expect(getOrCreateMultisigService(OTHER_PK, provider)).rejects.toThrow('Account is not a Guardian account');
+    });
+
+    it('throws loudly when a Guardian account is missing its hot pubkey', async () => {
+      // A Guardian record without hotPublicKey is a pre-migration/half-written
+      // state — fail rather than silently bind to a missing signer.
+      const { hotPublicKey, ...noHotKey } = guardianAccount;
+      void hotPublicKey;
+      const provider = makeProvider([noHotKey]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toThrow('missing hotPublicKey');
     });
 
     it('throws when the public key is unknown to the provider', async () => {

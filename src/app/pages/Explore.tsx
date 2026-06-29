@@ -69,7 +69,10 @@ const Explore: FC = () => {
     }
 
     const promises = notesToClaim.map(async note => {
-      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+      // `background: true` — this is a silent auto-consume, so on Guardian
+      // accounts it's cold-signed (no biometric prompt). See initiateConsumeTransaction.
+      // (manualRetry stays false; the backoff gate must throttle auto-consume retries.)
+      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, false, true);
     });
     await Promise.all(promises);
     mutateClaimableNotes();
@@ -132,7 +135,7 @@ const Explore: FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-app-bg font-inter">
+    <div className="flex flex-col h-full overflow-hidden bg-app-bg font-inter" data-testid="explore-page">
       <div className="shrink-0">
         <ConnectivityIssueBanner />
       </div>

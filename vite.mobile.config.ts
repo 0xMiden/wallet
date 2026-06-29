@@ -14,6 +14,24 @@ const pkg = require('./package.json');
 
 export default defineConfig({
   plugins: [
+    {
+      name: 'miden-sdk-eager-to-lazy',
+      enforce: 'pre',
+      async resolveId(id, importer) {
+        // @openzeppelin/miden-multisig-client imports the bare @miden-sdk/miden-sdk,
+        // which @miden-sdk/vite-plugin's alias rewrites to the package DIRECTORY
+        // (→ exports['.'] = dist/st/eager.js, a top-level `await loadWasm()` that
+        // hangs at module init inside WKWebView/Capacitor — the app never mounts).
+        // That alias runs before this hook, so we match BOTH the bare specifier
+        // and the rewritten directory path, and redirect to the lazy entry
+        // (identical API, no top-level await; callers already await readiness).
+        // Mobile is single-threaded (no SAB), so /lazy (st), not /mt/lazy.
+        if (id === '@miden-sdk/miden-sdk' || /[\\/]node_modules[\\/]@miden-sdk[\\/]miden-sdk$/.test(id)) {
+          return this.resolve('@miden-sdk/miden-sdk/lazy', importer, { skipSelf: true });
+        }
+        return null;
+      }
+    },
     midenVitePlugin({
       rpcProxyTarget:
         process.env.MIDEN_NETWORK === 'devnet' ? 'https://rpc.devnet.miden.io' : 'https://rpc.testnet.miden.io'
@@ -146,14 +164,11 @@ export default defineConfig({
   },
 
   resolve: {
-    // The file-linked web-sdk (@miden-sdk/miden-sdk 0.14.10) and the multisig-client's
-    // nested @miden-sdk/miden-sdk (0.14.5) each INLINE their own dexie (4.4.2 vs 4.0.8)
-    // into their wasm-glue chunks. Two different dexie versions trip dexie's global guard
-    // ("Two different versions of Dexie loaded in the same app"). Dedupe @miden-sdk/miden-sdk
-    // so only the single root copy (0.14.10) is ever resolved — this also prevents two
-    // separate WebClient/WASM instances. Dedupe dexie too for any non-inlined imports
-    // (root dexie is pinned to 4.4.2 via package.json resolutions).
-    dedupe: ['dexie', '@miden-sdk/miden-sdk'],
+    // NOTE: the eager→lazy @miden-sdk/miden-sdk redirect is done by the
+    // `miden-sdk-eager-to-lazy` plugin above (resolveId), NOT here. A
+    // resolve.alias entry can't win: @miden-sdk/vite-plugin installs its own
+    // `^@miden-sdk/miden-sdk$` alias (→ package dir → eager) that takes
+    // precedence in the alias array.
     alias: {
       lib: resolve(__dirname, 'src/lib'),
       app: resolve(__dirname, 'src/app'),

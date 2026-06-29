@@ -214,6 +214,42 @@ export class SimulatorControl {
     }
     return out;
   }
+
+  /**
+   * Recover a wedged CoreSimulator subsystem mid-suite. On macos-26 CI runners
+   * the CoreSimulatorService daemon intermittently stops responding, after
+   * which every `simctl` call blocks until its timeout — and Playwright's retry
+   * fails identically because nothing restarts the daemon between attempts.
+   * Force launchd to respawn a fresh daemon, relaunch Simulator.app so
+   * webinspectord_sim re-exposes WebViews (CDP is blind otherwise), then
+   * re-boot the devices so the caller can retry. Mirrors the cold-boot
+   * `ensure_bootable` recovery in e2e-blockchain.yml, reachable per-test.
+   */
+  static async recoverSimSubsystem(udids: string[]): Promise<void> {
+    try {
+      // -9 because a wedged daemon won't honor a graceful signal; launchd
+      // respawns it on the next simctl/CoreSimulator call.
+      await execFileAsync('sudo', ['killall', '-9', 'com.apple.CoreSimulator.CoreSimulatorService'], {
+        timeout: 30_000,
+      });
+    } catch {
+      // Non-zero if the process was already gone (or sudo unavailable off CI) —
+      // the daemon respawns on the next simctl call regardless.
+    }
+    await sleep(5_000);
+    // webinspectord_sim only exposes WebViews while Simulator.app is running;
+    // killing the daemon tears it down, so bring it back before re-booting.
+    try {
+      await execFileAsync('open', ['-a', 'Simulator'], { timeout: 30_000 });
+    } catch {
+      // Best-effort — boot below still works for non-CDP simctl ops.
+    }
+    await sleep(5_000);
+    const sim = new SimulatorControl();
+    for (const udid of udids) {
+      await sim.ensureBooted(udid);
+    }
+  }
 }
 
 // ── Internals ───────────────────────────────────────────────────────────────
@@ -222,8 +258,25 @@ export class SimulatorControl {
 // `simctl install` / `launch` against an unhealthy simulator hangs
 // indefinitely, silently eating the whole 15-minute test timeout with no
 // attribution. Failing in 3 minutes with the command named turns that into
-// a diagnosable error (and lets the CI-level retry actually retry).
+// a diagnosable error (and lets the per-test recovery + CI retry actually
+// kick in — see SimulatorControl.recoverSimSubsystem).
 const SIMCTL_TIMEOUT_MS = 180_000;
+
+/**
+ * A `simctl` call that blocked until SIMCTL_TIMEOUT_MS. On macos-26 this is
+ * the signature of a wedged CoreSimulatorService daemon — callers catch this
+ * specific type to trigger recoverSimSubsystem rather than failing outright.
+ */
+export class SimctlTimeoutError extends Error {
+  constructor(public readonly command: string) {
+    super(`simctl timed out after ${SIMCTL_TIMEOUT_MS}ms: simctl ${command}`);
+    this.name = 'SimctlTimeoutError';
+  }
+}
+
+export function isSimctlTimeoutError(err: unknown): err is SimctlTimeoutError {
+  return err instanceof SimctlTimeoutError;
+}
 
 async function execSimctl(args: string[]): Promise<{ stdout: string; stderr: string }> {
   try {
@@ -231,7 +284,7 @@ async function execSimctl(args: string[]): Promise<{ stdout: string; stderr: str
   } catch (err) {
     const e = err as Error & { killed?: boolean; signal?: string };
     if (e.killed || e.signal === 'SIGTERM') {
-      throw new Error(`simctl timed out after ${SIMCTL_TIMEOUT_MS}ms: simctl ${args.join(' ')}`);
+      throw new SimctlTimeoutError(args.join(' '));
     }
     throw err;
   }

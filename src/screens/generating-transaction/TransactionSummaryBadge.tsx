@@ -1,10 +1,7 @@
 import React, { FC, ReactNode, useMemo } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
-import { TokenLogo } from 'components/TokenLogo';
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { formatAmount } from 'lib/shared/format';

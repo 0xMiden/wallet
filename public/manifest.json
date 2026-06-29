@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bread",
-  "version": "1.15.0",
+  "version": "1.15.2",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
@@ -13,18 +13,12 @@
   "__chrome|firefox|opera__homepage_url": "https://miden.fi",
   "short_name": "Bread",
 
-  "permissions": [
-    "storage",
-    "clipboardWrite",
-    "unlimitedStorage",
-    "activeTab",
-    "tabs",
-    "notifications",
-    "alarms",
-    "sidePanel",
-    "offscreen"
+  "permissions": ["storage", "clipboardWrite", "unlimitedStorage", "activeTab", "tabs", "notifications", "alarms", "sidePanel", "offscreen"],
+  "host_permissions": [
+    "http://localhost/*",
+    "https://*.miden.fi/*",
+    "https://*.miden.io/*"
   ],
-  "host_permissions": ["http://localhost/*", "https://*.miden.fi/*", "https://*.miden.io/*"],
 
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"

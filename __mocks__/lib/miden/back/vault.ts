@@ -43,6 +43,10 @@ export class Vault {
     return state.accounts;
   }
 
+  // Best-effort on-unlock migration of legacy single-key Guardian accounts to
+  // the 3-key model — a no-op in the mock (no real accounts/keys to migrate).
+  async migrateLegacyGuardianAccounts() {}
+
   async fetchSettings() {
     return state.settings;
   }

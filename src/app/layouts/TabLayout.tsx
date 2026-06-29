@@ -71,28 +71,6 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     prevPathnameRef.current = pathname;
   }, [pathname]);
 
-  // Stale compiled bundles (older mobile.js shipped in ios/android assets)
-  // still toggle `body[data-native-navbar]`, which legacy CSS used to hide
-  // the React footer. Those CSS rules are gone, but we also strip the
-  // attribute reactively so anything else that ever depends on it stays
-  // quiet. Watches body attributes; cheap, runs only when the attribute is
-  // mutated.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    document.body.removeAttribute('data-native-navbar');
-    const observer = new MutationObserver(mutations => {
-      for (const m of mutations) {
-        if (m.type === 'attributes' && m.attributeName === 'data-native-navbar') {
-          if (document.body.hasAttribute('data-native-navbar')) {
-            document.body.removeAttribute('data-native-navbar');
-          }
-        }
-      }
-    });
-    observer.observe(document.body, { attributes: true, attributeFilter: ['data-native-navbar'] });
-    return () => observer.disconnect();
-  }, []);
-
   const tabs = [
     {
       id: 'home',

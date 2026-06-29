@@ -14,6 +14,8 @@ export interface ReviewAction {
   loading?: boolean;
   /** Disable (without a spinner). */
   disabled?: boolean;
+  /** Optional stable selector for E2E; set by the caller, not hardcoded here. */
+  'data-testid'?: string;
 }
 
 export interface ReviewLayoutProps {
@@ -74,6 +76,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
           onClick={primary.onPress}
           isLoading={primary.loading}
           disabled={primary.disabled || primary.loading}
+          data-testid={primary['data-testid']}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
         {secondary && (

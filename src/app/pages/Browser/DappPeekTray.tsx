@@ -16,9 +16,9 @@
  *
  * Layout:
  *  - Fixed to the bottom of the viewport, sitting directly above the
- *    floating native navbar. Positioning is driven by a live measurement
+ *    floating React BottomNav. Positioning is driven by a live measurement
  *    of the React footer overlay (`[data-tabbar-footer="true"]`) so the
- *    tray adapts if the navbar gets taller or shorter.
+ *    tray adapts if the nav gets taller or shorter.
  *  - Up to `MAX_VISIBLE_CARDS` cards render inline. Each card behind the
  *    front one is offset CARD_STACK_OFFSET pixels to the left and
  *    scaled down slightly; the rightmost (frontmost) card is fully
@@ -46,11 +46,9 @@ import { DappExpanderOverlay, EXPAND_TOTAL_DURATION_MS } from './DappExpanderOve
 import { CARD_HEIGHT, CARD_STACK_OFFSET, CARD_WIDTH, DappPeekCard } from './DappPeekCard';
 
 // Fallback anchor distance from the bottom of the viewport. This
-// accounts for the native navbar pill (~76pt) + its bottom gutter
-// (~12pt) + the iPhone's home-indicator safe area inset (~34pt).
-// Bumped above the old 110 so the tray clears the navbar pill
-// comfortably; the old value sat with the card's bottom edge
-// overlapping the top of the pill by ~10pt.
+// accounts for the React BottomNav height plus the iPhone home-indicator
+// safe area. Bumped above the old 110 so the tray clears the nav
+// comfortably.
 const FOOTER_HEIGHT_FALLBACK = 130;
 // Minimum footer height we'll accept from a measurement. Below this
 // we're almost certainly measuring the React footer DURING its brief
@@ -102,13 +100,8 @@ const RESTORE_TRIGGER_DELAY_MS = 215;
 //   - FALLBACK_CAPSULE_HEIGHT (145): safe-area-inset-top (~62) + the
 //     capsule's drag handle + content row (83).
 //   - FALLBACK_BOTTOM_GUTTER (34): safe-area-inset-bottom on devices
-//     with a home indicator. The React footer gutter (88pt extra)
-//     does NOT apply in the post-foreground state — that gets reset
-//     by `body[data-native-navbar][data-dapp-foreground]` in main.css
-//     — but at the moment we're computing the fallback, that attr
-//     isn't set yet, so `document.body.clientHeight` still includes
-//     the 88pt gutter. Subtract the bottom safe area directly as a
-//     constant instead of trying to derive it from live CSS.
+//     with a home indicator. Subtract the bottom safe area directly as
+//     a constant instead of trying to derive it from live CSS.
 // These defaults are iPhone 17-class. Other devices differ slightly
 // but the cache (populated the moment a dApp is foregrounded) covers
 // every case after the first restore.
@@ -195,14 +188,9 @@ export const DappPeekTray: FC = () => {
   // snapshots swap in without unmounting their card.
   useEffect(() => subscribeSnapshots(() => setSnapshotTick(tick => tick + 1)), []);
 
-  // Measure the footer overlay so the tray sits just above it. On
-  // mobile the React footer is hidden (display:none) as soon as the
-  // native navbar UIWindow takes over, so the measured offsetHeight
-  // is 0 during steady state — we fall back to FOOTER_HEIGHT_FALLBACK
-  // in that case. We also reject any measurement below
-  // MIN_MEASURED_FOOTER because the React footer briefly renders at
-  // ~97pt before `display:none` kicks in, and that measurement would
-  // otherwise stick and leave the tray overlapping the native pill.
+  // Measure the footer overlay so the tray sits just above BottomNav.
+  // Fall back when the footer is not yet measured, and reject tiny
+  // transient measurements that would leave the tray too low.
   useEffect(() => {
     const measure = () => {
       const footer = document.querySelector('[data-tabbar-footer="true"]') as HTMLElement | null;

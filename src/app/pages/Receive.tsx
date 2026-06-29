@@ -8,10 +8,8 @@ import { useClaimNotes } from 'app/hooks/useClaimNotes';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { PendingTab } from 'app/pages/Receive/PendingTab';
 import { TabPicker } from 'components/TabPicker';
-import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useAccount } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
-import { useLocation } from 'lib/woozie';
 
 export interface ReceiveProps {}
 
@@ -23,25 +21,7 @@ type ReceiveTab = 'address' | 'pending';
  * tab is open — Receive is always mounted inside the home swipe carousel.
  */
 const PendingTabContent: React.FC = () => {
-  const { t } = useTranslation();
-  const { pathname } = useLocation();
   const claim = useClaimNotes();
-
-  // Receive is always mounted inside the home swipe carousel, so gate the
-  // native Claim All on Receive being the centered page (pathname is the
-  // carousel's source of truth) — otherwise it would leak onto Send/Overview.
-  const isReceiveActive = pathname.startsWith('/receive');
-
-  // Lift the Claim All button into the native navbar overlay on mobile.
-  useNativeNavbarAction(
-    isReceiveActive && claim.unclaimedNotes.length > 0
-      ? {
-          label: t('claimAll'),
-          onTap: claim.handleClaimAll,
-          enabled: claim.claimingNoteIds.size === 0
-        }
-      : null
-  );
 
   return (
     <PendingTab

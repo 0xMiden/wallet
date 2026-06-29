@@ -2,18 +2,11 @@ import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import {
-  initiateSwitchGuardianTransaction,
-  requestSWTransactionProcessing,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
-import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
-import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { isExtension } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled, isValidGuardianUrl } from 'lib/settings/helpers';
-import { useWalletStore } from 'lib/store';
-import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
+import { guardianOptionForEndpoint, useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
+import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
+import { Button } from 'components/Button';
+import { hapticLight } from 'lib/mobile/haptics';
+import { navigate } from 'lib/woozie';
 
 const GuardianSettings: FC = () => {
   const { t } = useTranslation();
@@ -36,16 +29,7 @@ const GuardianSettings: FC = () => {
         <h2 className="mt-3 text-xl font-bold font-heading text-heading-gray">{guardianName}</h2>
       </div>
 
-      <ChooseGuardianScreen
-        onSubmit={handleSubmit}
-        currentEndpoint={currentEndpoint}
-        hideHeader
-        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
-      />
-
       <hr className="my-4" />
-
-      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
 
       <div className="mt-6">
         <Button title={t('rotateGuardian')} onClick={handleRotate} />

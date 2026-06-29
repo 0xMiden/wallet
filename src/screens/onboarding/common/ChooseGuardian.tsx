@@ -2,7 +2,9 @@ import React, { useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
+import { ReactComponent as GatewayLogo } from 'app/icons/guardian-operator-logs/gateway.svg';
+import { ReactComponent as LambdaClassLogo } from 'app/icons/guardian-operator-logs/lambdaclass.svg';
+import { ReactComponent as OpenZeppelinLogo } from 'app/icons/guardian-operator-logs/open-zeppelin.svg';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
@@ -13,6 +15,15 @@ import { cn } from 'lib/ui/util';
 import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 
 export type { GuardianOption };
+
+// Brand wordmark per guardian option id. Paths are hardcoded brand-grey
+// (#484848); `[&_path]:fill-heading-gray` recolors them to the auto-flipping
+// heading token so they stay legible in both themes.
+const GUARDIAN_LOGOS: Record<string, ImportedSVGComponent> = {
+  'open-zeppelin': OpenZeppelinLogo,
+  gateway: GatewayLogo,
+  'lambda-class': LambdaClassLogo
+};
 
 export interface ChooseGuardianScreenProps {
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
@@ -96,45 +107,47 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 mt-4.5">
+        <div className="grid grid-cols-[repeat(2,177px)] justify-center gap-x-4 gap-y-3 mt-7">
           {options.map(option => {
             const isSelected = selectedId === option.id && !trimmedCustomEndpoint;
+            const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
+            const Logo = GUARDIAN_LOGOS[option.id];
             return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => handleSelect(option.id)}
-                className={cn(
-                  'flex flex-col items-start p-3 rounded-xl bg-surface-interactive text-left transition-all duration-150',
-                  'border-2',
-                  isSelected ? 'border-primary-500' : 'border-transparent'
-                )}
-              >
-                <div className="w-14 h-14 rounded-xl bg-grey-100 dark:bg-grey-800 flex items-center justify-center">
-                  <GuardianAvatar className="w-10 h-10" />
-                </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <h2 className="text-base font-semibold text-heading-gray">{option.name}</h2>
-                  {isCurrent && (
-                    <span className="text-[10px] uppercase tracking-wide font-semibold text-primary-500">
-                      {t('currentLabel')}
-                    </span>
+              <div key={option.id} className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => handleSelect(option.id)}
+                  className={cn(
+                    'relative flex h-30.5 w-44.25 flex-col overflow-hidden rounded-[20px] transition-all duration-150',
+                    'border-2',
+                    isSelected ? 'border-primary-500' : 'border-[#E3E3E3] dark:border-grey-800'
                   )}
+                >
+                  {(isCurrent || isDefault) && (
+                    <div
+                      className={cn(
+                        'flex h-8 w-full shrink-0 items-center justify-center',
+                        isCurrent ? 'bg-grey-200 text-heading-gray dark:bg-grey-700' : 'bg-primary-500 text-pure-white'
+                      )}
+                    >
+                      <span className="text-sm font-semibold">{isCurrent ? t('currentLabel') : t('default')}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-1 items-center justify-center">
+                    {Logo && <Logo className="[&_path]:fill-heading-gray" />}
+                  </div>
+                </button>
+                <div className="mt-2 px-1 text-center text-[#8E8E93] text-[10px] leading-tight">
+                  <p className="">
+                    {t('guardianOperatedBy')} <span className="font-bold">{option.operatedBy}</span>
+                  </p>
+                  <div className="w-18.75 mx-auto bg-[#E7753770] h-px" />
+                  <p className="mt-0.5">
+                    {t('guardianLocation')} <span className="font-bold">{option.location}</span>
+                  </p>
                 </div>
-                <div className="mt-2 flex items-center gap-1.5">
-                  <span className="block w-2 h-2 bg-primary-500" />
-                  <span className="text-xs text-text-tertiary-token">
-                    <span className="font-semibold">{t('guardianOperatedBy')}</span> {option.operatedBy}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center gap-1.5">
-                  <span className="block w-2 h-2 bg-primary-500" />
-                  <span className="text-xs text-text-tertiary-token">
-                    <span className="font-semibold">{t('guardianLocation')}</span> {option.location}
-                  </span>
-                </div>
-              </button>
+              </div>
             );
           })}
         </div>

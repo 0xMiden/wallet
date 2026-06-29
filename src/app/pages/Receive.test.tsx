@@ -69,6 +69,7 @@ jest.mock('components/SyncWaveBackground', () => ({
 
 jest.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  MotionConfig: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   motion: {
     div: React.forwardRef(({ children, ...props }: any, ref: any) => (
       <div ref={ref} {...props}>

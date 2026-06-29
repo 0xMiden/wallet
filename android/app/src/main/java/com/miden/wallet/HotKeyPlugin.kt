@@ -128,6 +128,14 @@ class HotKeyPlugin : Plugin() {
     fun signWithHotKey(call: PluginCall) {
         Log.d(TAG, "signWithHotKey called")
 
+        // The BiometricPrompt callback reads instance fields (pendingCall/
+        // pendingPayload/pendingDigest); a second concurrent call would clobber
+        // them, crossing signatures and responses. Reject while one is in flight.
+        if (pendingCall != null) {
+            call.reject("Another hot-key operation is in progress", "BIOMETRIC_BUSY")
+            return
+        }
+
         val ciphertext = call.getString("ciphertext")
         val digestHex = call.getString("digestHex")
         if (ciphertext == null || digestHex == null) {
@@ -183,6 +191,13 @@ class HotKeyPlugin : Plugin() {
     @PluginMethod
     fun revealHotKey(call: PluginCall) {
         Log.d(TAG, "revealHotKey called")
+
+        // See signWithHotKey: reject while a biometric op is already in flight so
+        // the shared pending* fields aren't clobbered.
+        if (pendingCall != null) {
+            call.reject("Another hot-key operation is in progress", "BIOMETRIC_BUSY")
+            return
+        }
 
         val ciphertext = call.getString("ciphertext")
         if (ciphertext == null) {
@@ -392,6 +407,11 @@ class HotKeyPlugin : Plugin() {
                 KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
             )
         } else {
+            // Pre-Android-11: every-use auth, but BIOMETRIC_STRONG cannot be
+            // enforced here — on API 23–29 a non-FIDO-certified (BIOMETRIC_WEAK)
+            // fingerprint sensor can satisfy the guard. Key strength is therefore
+            // hardware-dependent on these older devices (StrongBox below still
+            // applies when present). `-1` = authentication required on every use.
             @Suppress("DEPRECATION")
             builder.setUserAuthenticationValidityDurationSeconds(-1)
         }

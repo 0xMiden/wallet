@@ -18,6 +18,7 @@ export interface AssetListItemProps {
   };
   onClick?: () => void;
   className?: string;
+  'data-testid'?: string;
 }
 
 export const AssetListItem: FC<AssetListItemProps> = ({
@@ -28,7 +29,8 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   price,
   delta,
   onClick,
-  className
+  className,
+  'data-testid': dataTestId
 }) => {
   const handleClick = () => {
     if (!onClick) return;
@@ -45,6 +47,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 
   return (
     <div
+      data-testid={dataTestId}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
       className={classNames(

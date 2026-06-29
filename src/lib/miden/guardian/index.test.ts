@@ -18,6 +18,11 @@ jest.mock('../front/storage', () => ({
   fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
 }));
 
+jest.mock('lib/miden-chain/constants', () => ({
+  DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test',
+  GUARDIAN_OPTIONS: []
+}));
+
 jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
@@ -102,7 +107,11 @@ jest.mock('lib/secure-hot-key', () => ({
 
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('./account', () => ({
-  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a)
+  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  // Resolve to the per-account endpoint, falling back to the stored value the
+  // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
+  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
+    acc.guardianEndpoint ?? 'https://stored.guardian.test'
 }));
 
 // atob is globally available on Node 16+ but jsdom stubs can vary — provide
@@ -173,6 +182,34 @@ describe('MultisigService', () => {
       expect(service.accountId).toBe('acc-id');
       expect(service.guardianEndpoint).toBe('https://x');
     });
+
+    it('getAuthInfo reports threshold, signer set, and procedure thresholds', () => {
+      const multisig = makeMultisig({
+        threshold: 1,
+        signerCommitments: ['0xhot', '0xcold'],
+        procedureThresholds: new Map<string, number>([['update_guardian', 2]])
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const auth = service.getAuthInfo();
+      expect(auth.threshold).toBe(1);
+      expect(auth.signerCommitments).toEqual(['0xhot', '0xcold']);
+      expect(auth.procedureThresholds).toEqual({ update_guardian: 2 });
+    });
+
+    it('getAuthInfo degrades gracefully when the multisig lacks fields', () => {
+      const multisig = makeMultisig(); // no signerCommitments / procedureThresholds
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const auth = service.getAuthInfo();
+      expect(auth.signerCommitments).toEqual([]);
+      expect(auth.procedureThresholds).toEqual({});
+    });
+
+    it('getProcedureThreshold reads the procedure map', () => {
+      const multisig = makeMultisig({ procedureThresholds: new Map<string, number>([['update_guardian', 2]]) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      expect(service.getProcedureThreshold('update_guardian')).toBe(2);
+      expect(service.getProcedureThreshold('nope')).toBeUndefined();
+    });
   });
 
   describe('proposal builders', () => {
@@ -194,6 +231,29 @@ describe('MultisigService', () => {
 
       expect(multisig.createConsumeNotesProposal).toHaveBeenCalledWith(['n1', 'n2']);
       expect(proposal).toEqual({ kind: 'consume' });
+    });
+
+    it('createUpdateProcedureThresholdProposal forwards the procedure and threshold', async () => {
+      const createUpdateFn = jest.fn(async () => ({ kind: 'update-threshold' }));
+      const multisig = makeMultisig({ createUpdateProcedureThresholdProposal: createUpdateFn });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      const proposal = await service.createUpdateProcedureThresholdProposal('update_guardian', 2);
+
+      expect(createUpdateFn).toHaveBeenCalledWith('update_guardian', 2);
+      expect(proposal).toEqual({ kind: 'update-threshold' });
+    });
+
+    it('createCustomProposal forwards request bytes and proposal type', async () => {
+      const createCustomFn = jest.fn(async () => ({ kind: 'custom' }));
+      const multisig = makeMultisig({ createCustomProposal: createCustomFn });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const bytes = new Uint8Array([1, 2, 3]);
+
+      const proposal = await service.createCustomProposal(bytes, 'my-type');
+
+      expect(createCustomFn).toHaveBeenCalledWith(bytes, 'my-type');
+      expect(proposal).toEqual({ kind: 'custom' });
     });
   });
 
@@ -220,6 +280,17 @@ describe('MultisigService', () => {
       expect(multisig.signProposal).toHaveBeenCalledWith('p-2');
       expect(multisig.createTransactionProposalRequest).toHaveBeenCalledWith('p-2');
       expect(tx).toBe('tx-req');
+    });
+
+    it('signAndCreateTransactionRequest rejects a custom proposal with no request bytes', async () => {
+      const multisig = makeMultisig({
+        signProposal: jest.fn(async () => ({ metadata: { proposalType: 'custom' } }))
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await expect(service.signAndCreateTransactionRequest('p-custom')).rejects.toThrow(
+        'Request Bytes are required for custom execution'
+      );
     });
 
     it('getConsumableNotes forwards to the wrapped Multisig', async () => {
@@ -293,6 +364,60 @@ describe('MultisigService', () => {
         (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
       }
     });
+
+    it('self-heals a lagging guardian: re-registers current state, then the retried sync succeeds', async () => {
+      // The OZ lib refuses to overwrite local state when the guardian's blob lags
+      // on-chain; once we push the current state to the guardian, the retry passes.
+      const syncState = jest
+        .fn()
+        .mockRejectedValueOnce(
+          new Error('Refusing to overwrite local state: incoming commitment does not match on-chain commitment')
+        )
+        .mockResolvedValueOnce(undefined);
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ syncState, registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+
+      await service.sync();
+
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+      expect(syncState).toHaveBeenCalledTimes(2);
+    });
+
+    it('attempts the guardian realign only once per run, then propagates a persistent failure', async () => {
+      const syncState = jest.fn(async () => Promise.reject(new Error('Refusing to overwrite local state')));
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ syncState, registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
+
+      await expect(service.sync()).rejects.toThrow('Refusing to overwrite local state');
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1); // not looped
+      expect(syncState).toHaveBeenCalledTimes(2); // initial + one retry after realign
+    });
+  });
+
+  describe('reRegisterCurrentStateOnGuardian', () => {
+    it('syncs, serializes the current account, and re-registers it on the guardian', async () => {
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([0xaa, 0xbb]) });
+
+      await service.reRegisterCurrentStateOnGuardian();
+
+      expect(mockSyncState).toHaveBeenCalled();
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when the account is missing from the local client', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue(null);
+
+      await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
+    });
   });
 
   describe('importAccountFromGuardian', () => {
@@ -356,31 +481,26 @@ describe('MultisigService', () => {
   });
 
   describe('init', () => {
-    it('loads the Multisig for an existing account and returns a configured service', async () => {
+    it('loads the Multisig for an existing account and binds the passed endpoint', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       const loaded = makeMultisig();
       multisigClientConfig.load.mockResolvedValueOnce(loaded);
 
-      const svc = await MultisigService.init(account, 'pub', 'commit', async () => 'sig');
+      const svc = await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian');
 
       expect(svc).toBeInstanceOf(MultisigService);
       expect(svc.multisig).toBe(loaded);
+      // Endpoint is supplied by the caller (per-account), not read from storage.
+      expect(svc.guardianEndpoint).toBe('https://acct.guardian');
     });
 
     it('re-throws when MultisigClient.load rejects', async () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
       multisigClientConfig.load.mockRejectedValueOnce(new Error('load failed'));
 
-      await expect(MultisigService.init(account, 'pub', 'commit', async () => 'sig')).rejects.toThrow('load failed');
-    });
-
-    it('throws when storage has no guardian URL — onboarding must have written it first', async () => {
-      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
-      mockFetchFromStorage.mockResolvedValueOnce(undefined);
-
-      await expect(MultisigService.init(account, 'pub', 'commit', async () => 'sig')).rejects.toThrow(
-        /Guardian endpoint missing from storage/
-      );
+      await expect(
+        MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian')
+      ).rejects.toThrow('load failed');
     });
   });
 
@@ -511,6 +631,8 @@ describe('MultisigService', () => {
       // (each prefixed with 0x) to the WalletSigner. We can't introspect that
       // directly here, so we assert load was called — proving init proceeded.
       expect(multisigClientConfig.load).toHaveBeenCalledWith('acc-id', expect.anything());
+      // Endpoint is resolved per-account (here falling back to the stored value).
+      expect(svc.guardianEndpoint).toBe('https://stored.guardian.test');
     });
 
     it('throws when the WalletAccount has no coldPublicKey', async () => {

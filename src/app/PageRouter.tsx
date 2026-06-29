@@ -7,6 +7,7 @@ import CreateAccount from 'app/pages/CreateAccount';
 import Explore from 'app/pages/Explore';
 import Faucet from 'app/pages/Faucet';
 import ImportAccount from 'app/pages/ImportAccount';
+import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
@@ -47,6 +48,12 @@ interface RouteContext {
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
 
 const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
+  // Onboarding → side panel handoff (Chrome). Placed before the `!ready`
+  // catch-all so it renders regardless of Ready: creating the wallet flips the
+  // app to the wallet home, and this screen must survive that to let the user
+  // open the panel. Still defers to Unlock when locked (e.g. the wallet
+  // auto-locks while a tab is parked here) by SKIPping to the `*` catch-all.
+  ['/finish-side-panel', (_p, ctx) => (ctx.locked ? Woozie.Router.SKIP : <OpenSidePanel />)],
   ['/reset-required', () => <ResetRequired />],
   [
     '/reset-wallet',

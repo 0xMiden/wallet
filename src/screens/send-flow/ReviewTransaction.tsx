@@ -79,7 +79,13 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
         onBack={onGoBack}
         backLabel={t('back')}
         hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} fiat={fiatValue} />}
-        primary={{ label: t('sendPayment'), onPress: onSubmit, type: 'submit', loading: isSubmitting }}
+        primary={{
+          label: t('sendPayment'),
+          onPress: onSubmit,
+          type: 'submit',
+          loading: isSubmitting,
+          'data-testid': 'send-review-submit'
+        }}
         secondary={{ label: t('back'), onPress: onGoBack, disabled: isSubmitting }}
       >
         <ReviewRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
