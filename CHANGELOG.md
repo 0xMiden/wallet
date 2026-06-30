@@ -11,6 +11,7 @@
 
 * [CHANGE][all] **Guardian picker now shows operator brand logos.** `ChooseGuardianScreen` cards render each operator's wordmark (Open-Zeppelin, Gateway, Lambda Class) centered, with the "Operated by / Location" caption moved below the card, a "Default" banner on the recommended operator, and the selected card outlined in the brand color; logos recolor with the theme. The onboarding subtitle is shortened to "Select an option below". (#248)
 * [CHANGE][all] **Activity list restyled; pending notes moved to a dedicated screen.** Activity rows now reuse the home action-bar glyphs (Send / Receive / Earn / Swap) rendered white on each glyph's own brand hue, with pill-shaped filter chips and a new pending-notes button in the Activity header. Claimable ("pending") notes moved out of the Receive tab switcher onto their own `/pending` page — Receive is now address-only.
+* [CHANGE][all] **Transaction success screen is now per-type.** The post-transaction success receipt was split into a shared `TransactionSuccessLayout` shell plus per-type views (`DefaultSuccess`, `BridgeSuccess`, with `SwapSuccess`/`EarnSuccess` scaffolded) dispatched by `TransactionSuccess` on transaction type, so each type can render its own title, summary and rows. Bridged sends now also show a "Route" row naming the provider (Via Epoch / Via Agglayer). (#248)
 
 ### Fixes
 

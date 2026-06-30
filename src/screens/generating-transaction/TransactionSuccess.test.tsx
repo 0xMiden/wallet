@@ -155,6 +155,9 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('FAST');
     // Destination address comes from the bridged inputs.
     expect(container.textContent).toContain('to');
+    // Bridge sends carry a Route row naming the provider.
+    expect(container.textContent).toContain('Route');
+    expect(container.textContent).toContain('Via Epoch');
     act(() => root.unmount());
   });
 
@@ -169,6 +172,7 @@ describe('TransactionSuccess', () => {
       />
     );
     expect(container.textContent).toContain('SLOW');
+    expect(container.textContent).toContain('Via Agglayer');
     act(() => root.unmount());
   });
 
