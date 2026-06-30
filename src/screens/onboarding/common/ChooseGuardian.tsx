@@ -93,7 +93,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
   return (
     <div
-      className="flex-1 flex flex-col bg-transparent pt-6 h-full px-4 text-heading-gray"
+      className="flex-1 flex flex-col bg-transparent pt-6 h-full min-h-0 overflow-y-auto px-4 text-heading-gray"
       data-testid="onboarding-choose-guardian"
     >
       {!hideHeader && (

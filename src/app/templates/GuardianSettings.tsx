@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useState } from 'react';
+import React, { FC, useCallback, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -8,11 +8,9 @@ import {
   requestSWTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
-import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { isDelegateProofEnabled, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
@@ -23,7 +21,7 @@ type Props = {
 
 const GuardianSettings: FC<Props> = ({ onClose }) => {
   const { t } = useTranslation();
-  const { endpoint: currentEndpoint, refresh: refreshCurrentEndpoint } = useCurrentGuardianEndpoint();
+  const currentEndpoint = useCurrentGuardianEndpoint();
   const [submitSuccess, setSubmitSuccess] = useState(false);
   // Two-stage submit: first tap validates + enters confirming, second tap fires the tx.
   // switch_guardian requires the cold key (co-signed by the current guardian),
@@ -60,9 +58,9 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         setSubmitSuccess(true);
         setConfirming(false);
         setPendingEndpoint(null);
-        // Pull the new endpoint back from storage so the "Current guardian"
-        // display reflects the switch on platforms without storage-change events.
-        refreshCurrentEndpoint();
+        // No manual refresh needed: completing the switch persists the new endpoint
+        // and broadcasts `accountsUpdated`, so `useCurrentGuardianEndpoint` (a reactive
+        // store selector) re-renders the "Current guardian" display on its own.
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
@@ -70,7 +68,7 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         setSubmitting(false);
       }
     },
-    [currentAccount, refreshCurrentEndpoint]
+    [currentAccount]
   );
 
   const handleSubmit = useCallback(
@@ -134,36 +132,11 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
 
 export default GuardianSettings;
 
-function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void } {
-  const [endpoint, setEndpoint] = useState<string>('');
-  const [nonce, setNonce] = useState(0);
-  const refresh = useCallback(() => setNonce(n => n + 1), []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
-      .then(stored => {
-        if (cancelled) return;
-        setEndpoint(sanitizeGuardianUrl(stored || DEFAULT_GUARDIAN_ENDPOINT));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setEndpoint(DEFAULT_GUARDIAN_ENDPOINT);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [nonce]);
-
-  // Extension builds get storage-change events for free; on mobile/desktop this
-  // is a no-op and the explicit refresh() call after switch handles the update.
-  useEffect(
-    () =>
-      onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
-        setEndpoint(sanitizeGuardianUrl(next || DEFAULT_GUARDIAN_ENDPOINT));
-      }),
-    []
-  );
-
-  return { endpoint, refresh };
+// A wallet has a single Guardian account, so the current account's
+// `guardianEndpoint` IS the wallet's guardian. Read it straight off the store as
+// a reactive selector: when a switch persists the new endpoint and broadcasts
+// `accountsUpdated`, this re-renders on its own — no manual storage read/refresh.
+function useCurrentGuardianEndpoint(): string {
+  const guardianEndpoint = useWalletStore(s => s.currentAccount?.guardianEndpoint);
+  return sanitizeGuardianUrl(guardianEndpoint || DEFAULT_GUARDIAN_ENDPOINT);
 }
