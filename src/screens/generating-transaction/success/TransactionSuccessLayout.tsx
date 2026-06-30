@@ -7,6 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
@@ -16,14 +17,13 @@ import { useWalletStore } from 'lib/store';
  * The visual chrome (header, hero check, title, footer buttons) is identical
  * across every transaction type — only the body (summary pill, amount block,
  * receipt rows) and the footer copy/actions vary. Each per-type view
- * (`DefaultSuccess`, `BridgeSuccess`, future `SwapSuccess`/`EarnSuccess`)
+ * (`SendSuccess`, `BridgeSuccess`, future `SwapSuccess`/`EarnSuccess`)
  * composes these primitives rather than duplicating the layout. Mirrors the
  * `TransactionSummaryBadge` + `useTransactionSummaryBadgeContent` split used by
  * the in-progress screen.
  */
 
-const SUCCESS_GREEN = '#009B50';
-const SUCCESS_GREEN_ACCENT = '#0EAA51';
+const SUCCESS_HERO_BG = '#90BA89';
 
 /** Props shared by every per-type success view and the dispatcher. */
 export interface TransactionSuccessProps {
@@ -64,39 +64,32 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
 
 export const SuccessHero: FC = () => (
   <div
-    className="flex size-[124px] items-center justify-center rounded-[34px] border-2 border-[#44B474]"
-    style={{ backgroundColor: SUCCESS_GREEN }}
+    className="flex size-30 items-center justify-center rounded-full"
+    style={{ backgroundColor: SUCCESS_HERO_BG }}
     aria-hidden="true"
   >
-    <div
-      className="flex size-[68px] items-center justify-center rounded-full"
-      style={{ backgroundColor: SUCCESS_GREEN_ACCENT }}
-    >
-      <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path
-          d="M12 25.5L20.25 33.75L36 16.5"
-          stroke="white"
-          strokeWidth="5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
+    <svg width="57" height="43" viewBox="0 0 57 43" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M50.3513 6.00879L19.8658 36.4943L6.00879 22.6372"
+        stroke="white"
+        stroke-width="12.0176"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
   </div>
 );
 
 /** Full-width hairline shown under the title on the amount-led variants. */
-export const SuccessDivider: FC = () => (
-  <div className="mt-8 h-1 w-full max-w-[650px] rounded-full bg-[#EEEEF0]" />
-);
+export const SuccessDivider: FC = () => <div className="mt-4 h-1 w-full rounded-xs bg-[#F2F2F4]" />;
 
 /** Emphasized amount block ("12 MDN") with an optional sub-line below it. */
 export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }> = ({ amountText, subline }) => {
   if (!amountText) return null;
 
   return (
-    <div className="mt-10 flex w-full flex-col items-center">
-      <div className="font-heading text-center text-[32px] font-bold leading-none text-heading-gray">{amountText}</div>
+    <div className="mt-4 flex w-full flex-col items-center">
+      <div className="font-heading text-center text-3xl font-bold leading-none text-pure-black">{amountText}</div>
       {subline}
     </div>
   );
@@ -112,22 +105,22 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ ro
         <div
           key={row.label}
           className={classNames(
-            'flex min-h-[54px] items-center justify-between gap-4 py-3',
-            index < rows.length - 1 && 'border-b border-[#E4E4E6]'
+            'flex h-14 items-center justify-between',
+            index < rows.length - 1 && 'border-b border-[#00000014]'
           )}
         >
-          <span className="text-lg font-normal leading-tight text-[#8E8E93]">{row.label}</span>
+          <span className="text-sm font-normal leading-tight text-[#8E8E93]">{row.label}</span>
           {row.onClick ? (
             <button
               type="button"
               aria-label={row.actionLabel}
               onClick={row.onClick}
-              className="min-w-0 bg-transparent p-0 text-right text-lg font-bold leading-tight text-heading-gray underline-offset-2 hover:underline"
+              className="min-w-0 bg-transparent p-0 text-right text-sm font-bold leading-tight text-heading-gray underline-offset-2 hover:underline"
             >
               {row.value}
             </button>
           ) : (
-            <span className="min-w-0 text-right text-lg font-bold leading-tight text-heading-gray">{row.value}</span>
+            <span className="min-w-0 text-right text-sm font-bold leading-tight text-black">{row.value}</span>
           )}
         </div>
       ))}
@@ -179,24 +172,27 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
 }) => {
   const { t } = useTranslation();
 
+  // The success view owns the whole screen — keep the bottom tab navbar
+  // hidden for as long as it's mounted (no-op on full-screen routes that
+  // already render outside TabLayout).
+  useHideNavbarWhileOpen();
+
   return (
     <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
       <ScreenHeader title={headerTitle} closeLabel={t('close')} onClose={onClose} />
 
       <main className="flex min-h-0 flex-1 flex-col">
-        <section className="flex flex-1 flex-col items-center px-3 pt-[94px]">
+        <section className="flex flex-1 flex-col items-center px-3 pt-8">
           <SuccessHero />
 
-          <h2 className="mt-8 w-full text-center text-[32px] font-bold leading-[1.16] text-heading-gray">{title}</h2>
+          <h2 className="mt-4 w-full text-center text-3xl font-heading font-bold text-heading-gray">{title}</h2>
 
           {children}
         </section>
 
-        <div className="w-full shrink-0 px-1 pt-10">
+        <div className="w-full shrink-0 px-1 pt-10 flex flex-col items-center justify-center">
           {footerDescription && (
-            <p className="mb-8 text-center text-lg font-normal leading-[1.28] text-heading-gray/70">
-              {footerDescription}
-            </p>
+            <p className="mb-4 text-center text-base font-normal  text-[#808080]">{footerDescription}</p>
           )}
 
           {secondaryAction ? (

@@ -15,12 +15,12 @@ import {
 } from './TransactionSuccessLayout';
 
 /**
- * Generic "Transaction Complete!" receipt — the fallback for every transaction
- * type that doesn't have a bespoke success view (plain in-network send,
- * consume/claim, execute, guardian ops, …). Shows the amount, recipient,
+ * "Transaction Complete!" send receipt — and the fallback for every other
+ * transaction type that doesn't have a bespoke success view (plain in-network
+ * send, consume/claim, execute, guardian ops, …). Shows the amount, recipient,
  * total paid and source-tx rows where that data is available.
  */
-export const DefaultSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, onDoneClick, onViewExplorer }) => {
+export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, onDoneClick, onViewExplorer }) => {
   const { t } = useTranslation();
   const { amountText } = useReceiptAmount(transaction);
   const destinationAddress = transaction?.secondaryAccountId;
@@ -40,7 +40,7 @@ export const DefaultSuccess: FC<TransactionSuccessProps> = ({ transaction, txHas
     >
       <SuccessDivider />
       <SuccessAmountBlock amountText={amountText} />
-      <ReceiptRows rows={rows} className="mt-[68px]" />
+      <ReceiptRows rows={rows} className="mt-4" />
     </TransactionSuccessLayout>
   );
 };

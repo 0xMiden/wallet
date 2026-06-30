@@ -61,7 +61,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
       <SuccessAmountBlock
         amountText={amountText}
         subline={
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-base leading-none text-[#8E8E93]">
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-base leading-none text-[#8E8E93]">
             <span>{t('arrivingOnNetwork', { defaultValue: 'Arriving on Ethereum' })}</span>
             <span className="rounded-md bg-[#EEEEF0] px-2.5 py-1 text-sm font-bold leading-none text-heading-gray">
               {bridgeSpeedBadge(bridgedInputs.provider)}
@@ -69,7 +69,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
           </div>
         }
       />
-      <ReceiptRows rows={rows} className="mt-[68px]" />
+      <ReceiptRows rows={rows} className="mt-4" />
     </TransactionSuccessLayout>
   );
 };

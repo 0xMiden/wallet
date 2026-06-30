@@ -3,7 +3,7 @@ import React, { FC } from 'react';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 
 import { BridgeSuccess } from './success/BridgeSuccess';
-import { DefaultSuccess } from './success/DefaultSuccess';
+import { SendSuccess } from './success/SendSuccess';
 import { TransactionSuccessProps } from './success/TransactionSuccessLayout';
 
 export type { TransactionSuccessProps } from './success/TransactionSuccessLayout';
@@ -25,7 +25,7 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
  * Only the bridged-send discriminator routes away from the default today.
  * `SwapSuccess` / `EarnSuccess` exist as stubs but have no discriminator yet
  * (no `swap` / `earn` tx type or producer — see those files), so they're
- * unreachable; `DefaultSuccess` covers every other type.
+ * unreachable; `SendSuccess` covers send plus every other type.
  */
 export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
   const extraInputs = props.transaction?.extraInputs;
@@ -34,5 +34,5 @@ export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
     return <BridgeSuccess {...props} bridgedInputs={extraInputs} />;
   }
 
-  return <DefaultSuccess {...props} />;
+  return <SendSuccess {...props} />;
 };
