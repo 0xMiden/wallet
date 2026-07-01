@@ -4,12 +4,15 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { ReviewLabel } from 'components/review/ReviewRow';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
+
+import { TransactionSummaryBadge } from '../TransactionSummaryBadge';
 
 /**
  * Shared presentational kit for the post-transaction success screens.
@@ -43,6 +46,8 @@ export interface SuccessAction {
 export interface ReceiptRow {
   label: string;
   value: ReactNode;
+  /** Optional secondary line under the value (e.g. "No fee", a fee breakdown). */
+  subValue?: ReactNode;
   /** When set, the value renders as a button wired to this handler. */
   onClick?: () => void;
   /** Accessible label for the clickable value (e.g. "View on Midenscan"). */
@@ -81,7 +86,7 @@ export const SuccessHero: FC = () => (
 );
 
 /** Full-width hairline shown under the title on the amount-led variants. */
-export const SuccessDivider: FC = () => <div className="mt-4 h-1 w-full rounded-xs bg-[#F2F2F4]" />;
+export const SuccessDivider: FC = () => <div className="mt-6 h-1 w-full rounded-xs bg-[#F2F2F4]" />;
 
 /** Emphasized amount block ("12 MDN") with an optional sub-line below it. */
 export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }> = ({ amountText, subline }) => {
@@ -95,7 +100,20 @@ export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }
   );
 };
 
-/** Key/value receipt rows. Renders nothing when there are no rows. */
+/**
+ * Hero summary pill under the title — "{amount} {symbol} → {recipient}" in a
+ * rounded pill with the blue-circle arrow. Reuses the in-progress screen's
+ * `TransactionSummaryBadge`, so it renders `null` when either side is missing.
+ */
+export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode }> = ({ lhs, rhs }) => (
+  <TransactionSummaryBadge lhs={lhs} rhs={rhs} className="mt-1" />
+);
+
+/**
+ * Key/value receipt rows. The label is the shared grey `ReviewLabel` pill; the
+ * value is right-aligned and bold, with an optional smaller sub-line beneath it.
+ * Renders nothing when there are no rows.
+ */
 export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {
   if (rows.length === 0) return null;
 
@@ -105,23 +123,28 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ ro
         <div
           key={row.label}
           className={classNames(
-            'flex h-14 items-center justify-between',
+            'flex items-center justify-between gap-3 py-5',
             index < rows.length - 1 && 'border-b border-[#00000014]'
           )}
         >
-          <span className="text-sm font-normal leading-tight text-[#8E8E93]">{row.label}</span>
-          {row.onClick ? (
-            <button
-              type="button"
-              aria-label={row.actionLabel}
-              onClick={row.onClick}
-              className="min-w-0 bg-transparent p-0 text-right text-sm font-bold leading-tight text-heading-gray underline-offset-2 hover:underline"
-            >
-              {row.value}
-            </button>
-          ) : (
-            <span className="min-w-0 text-right text-sm font-bold leading-tight text-black">{row.value}</span>
-          )}
+          <ReviewLabel>{row.label}</ReviewLabel>
+          <div className="flex min-w-0 flex-col items-end text-right">
+            {row.onClick ? (
+              <button
+                type="button"
+                aria-label={row.actionLabel}
+                onClick={row.onClick}
+                className="min-w-0 bg-transparent p-0 font-heading text-base font-bold leading-tight text-heading-gray underline-offset-2 hover:underline"
+              >
+                {row.value}
+              </button>
+            ) : (
+              <span className="min-w-0 font-heading text-base font-bold leading-tight text-heading-gray">
+                {row.value}
+              </span>
+            )}
+            {row.subValue && <span className="mt-1 text-xs font-normal text-[#8E8E93]">{row.subValue}</span>}
+          </div>
         </div>
       ))}
     </div>
@@ -182,10 +205,10 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       <ScreenHeader title={headerTitle} closeLabel={t('close')} onClose={onClose} />
 
       <main className="flex min-h-0 flex-1 flex-col">
-        <section className="flex flex-1 flex-col items-center px-3 pt-8">
+        <section className="flex flex-1 flex-col items-center px-3 pt-6">
           <SuccessHero />
 
-          <h2 className="mt-4 w-full text-center text-3xl font-heading font-bold text-heading-gray">{title}</h2>
+          <h2 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h2>
 
           {children}
         </section>

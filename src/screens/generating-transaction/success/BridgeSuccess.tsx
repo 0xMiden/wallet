@@ -4,12 +4,14 @@ import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import { navigate } from 'lib/woozie';
+import { truncateAddress } from 'utils/string';
 
-import { bridgeRouteValue, bridgeSpeedBadge, buildReceiptRows } from './receipt';
+import { bridgeRouteValue, bridgeSpeedLabel, buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
-  SuccessAmountBlock,
   SuccessDivider,
+  SuccessSummaryPill,
   TransactionSuccessLayout,
   TransactionSuccessProps,
   useReceiptAmount
@@ -36,6 +38,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
   const { t } = useTranslation();
   const { amountText } = useReceiptAmount(transaction);
   const destinationAddress = bridgedInputs.destinationAddress ?? transaction?.secondaryAccountId;
+  const recipient = destinationAddress ? truncateAddress(destinationAddress, false, 8, 8) : undefined;
 
   const rows = useMemo(
     () =>
@@ -44,32 +47,27 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
         amountText,
         txHash,
         onViewExplorer,
-        route: bridgeRouteValue(t, bridgedInputs.provider)
+        route: bridgeSpeedLabel(t, bridgedInputs.provider),
+        routeSub: bridgeRouteValue(t, bridgedInputs.provider)
       }),
     [amountText, bridgedInputs.provider, destinationAddress, onViewExplorer, t, txHash]
   );
 
   return (
     <TransactionSuccessLayout
-      headerTitle={t('success', { defaultValue: 'Success!' })}
-      title={t('transactionComplete', { defaultValue: 'Transaction Complete!' })}
-      footerDescription={t('transactionSuccessDescription')}
+      headerTitle=""
+      title={t('paymentSent', { defaultValue: 'Payment Sent!' })}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
+      secondaryAction={{
+        label: t('viewInActivities'),
+        onClick: () => navigate('/history'),
+        variant: ButtonVariant.Secondary
+      }}
       onClose={onDoneClick}
     >
+      <SuccessSummaryPill lhs={amountText} rhs={recipient} />
       <SuccessDivider />
-      <SuccessAmountBlock
-        amountText={amountText}
-        subline={
-          <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-base leading-none text-[#8E8E93]">
-            <span>{t('arrivingOnNetwork', { defaultValue: 'Arriving on Ethereum' })}</span>
-            <span className="rounded-md bg-[#EEEEF0] px-2.5 py-1 text-sm font-bold leading-none text-heading-gray">
-              {bridgeSpeedBadge(bridgedInputs.provider)}
-            </span>
-          </div>
-        }
-      />
-      <ReceiptRows rows={rows} className="mt-4" />
+      <ReceiptRows rows={rows} className="mt-2" />
     </TransactionSuccessLayout>
   );
 };

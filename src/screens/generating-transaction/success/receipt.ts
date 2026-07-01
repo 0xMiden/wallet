@@ -15,8 +15,10 @@ interface BuildReceiptRowsArgs {
   txHash?: string | null;
   /** When provided, the source-tx value becomes a button. */
   onViewExplorer?: () => void;
-  /** Optional "Route" row value (e.g. "Via Epoch"); bridge sends only. */
+  /** Optional "Route" row value (e.g. "Slow"); bridge sends only. */
   route?: string;
+  /** Optional sub-line under the "Route" value (e.g. "Via Epoch"). */
+  routeSub?: string;
 }
 
 /**
@@ -27,7 +29,7 @@ interface BuildReceiptRowsArgs {
  */
 export const buildReceiptRows = (
   t: TFn,
-  { destinationAddress, amountText, txHash, onViewExplorer, route }: BuildReceiptRowsArgs
+  { destinationAddress, amountText, txHash, onViewExplorer, route, routeSub }: BuildReceiptRowsArgs
 ): ReceiptRow[] => {
   const rows: ReceiptRow[] = [];
 
@@ -41,7 +43,8 @@ export const buildReceiptRows = (
   if (route) {
     rows.push({
       label: t('transactionRoute', { defaultValue: 'Route' }),
-      value: route
+      value: route,
+      subValue: routeSub
     });
   }
 
@@ -70,6 +73,8 @@ export const bridgeRouteValue = (t: TFn, provider: IBridgeProvider): string =>
     ? t('bridgeRouteViaEpoch', { defaultValue: 'Via Epoch' })
     : t('bridgeRouteViaAgglayer', { defaultValue: 'Via Agglayer' });
 
-/** Arrival-speed badge shown next to "Arriving on Ethereum", by provider. */
-export const bridgeSpeedBadge = (provider: IBridgeProvider): 'FAST' | 'SLOW' =>
-  provider === 'epoch' ? 'FAST' : 'SLOW';
+/** Human speed label used as the "Route" row value, by provider. */
+export const bridgeSpeedLabel = (t: TFn, provider: IBridgeProvider): string =>
+  provider === 'epoch'
+    ? t('bridgeSpeedFast', { defaultValue: 'Fast' })
+    : t('bridgeSpeedSlow', { defaultValue: 'Slow' });
