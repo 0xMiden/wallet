@@ -126,7 +126,7 @@ export const SetupBiometricScreen: React.FC<SetupBiometricScreenProps> = ({ onSw
               <ScanFrame color="positive">
                 <div className="size-20 rounded-2xl bg-status-positive flex items-center justify-center">
                   <div className="size-14 rounded-full bg-pure-white/20 flex items-center justify-center">
-                    <Icon name={IconName.Checkmark} size="lg" className="text-pure-white" />
+                    <Icon name={IconName.Checkmark} size="lg" fill="currentColor" className="text-pure-white" />
                   </div>
                 </div>
               </ScanFrame>
