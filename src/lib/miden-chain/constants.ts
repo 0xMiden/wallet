@@ -13,11 +13,23 @@ export enum MIDEN_NETWORK_NAME {
 }
 
 /**
+ * Resolve a raw MIDEN_NETWORK build token to a wallet network enum.
+ * The E2E harness builds the localnet bundle with MIDEN_NETWORK=localhost
+ * (its network token), but the wallet enum key is 'localnet' — normalize it
+ * so the localhost E2E build resolves endpoints instead of throwing.
+ */
+export function resolveNetworkName(raw: string | undefined): MIDEN_NETWORK_NAME {
+  if (raw === 'localhost') return MIDEN_NETWORK_NAME.LOCALNET;
+  const values = Object.values(MIDEN_NETWORK_NAME) as string[];
+  return values.includes(raw ?? '') ? (raw as MIDEN_NETWORK_NAME) : MIDEN_NETWORK_NAME.TESTNET;
+}
+
+/**
  * The default network used throughout the app.
  * Driven by the MIDEN_NETWORK env variable at build time (default: testnet).
  * Use `yarn build:devnet` to build for devnet.
  */
-export const DEFAULT_NETWORK = (process.env.MIDEN_NETWORK as MIDEN_NETWORK_NAME) || MIDEN_NETWORK_NAME.TESTNET;
+export const DEFAULT_NETWORK = resolveNetworkName(process.env.MIDEN_NETWORK);
 
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',

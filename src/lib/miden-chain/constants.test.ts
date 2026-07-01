@@ -248,4 +248,27 @@ describe('miden-chain/constants', () => {
       });
     });
   });
+
+  describe('resolveNetworkName', () => {
+    it("maps the E2E 'localhost' token to the LOCALNET enum", () => {
+      jest.isolateModules(() => {
+        const { resolveNetworkName, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(resolveNetworkName('localhost')).toBe(MIDEN_NETWORK_NAME.LOCALNET);
+      });
+    });
+    it('passes through valid enum values', () => {
+      jest.isolateModules(() => {
+        const { resolveNetworkName, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(resolveNetworkName('devnet')).toBe(MIDEN_NETWORK_NAME.DEVNET);
+        expect(resolveNetworkName('localnet')).toBe(MIDEN_NETWORK_NAME.LOCALNET);
+      });
+    });
+    it('defaults to testnet for undefined or unknown', () => {
+      jest.isolateModules(() => {
+        const { resolveNetworkName, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(resolveNetworkName(undefined)).toBe(MIDEN_NETWORK_NAME.TESTNET);
+        expect(resolveNetworkName('bogus')).toBe(MIDEN_NETWORK_NAME.TESTNET);
+      });
+    });
+  });
 });

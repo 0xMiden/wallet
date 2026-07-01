@@ -8,6 +8,7 @@
 
 ### Fixes
 
+* [FIX][build] `MIDEN_NETWORK=localhost` (the E2E localnet build token) now resolves to the `localnet` wallet network instead of throwing in `getRpcEndpoint()`.
 * [FIX][all] Switching a Guardian operator now actually moves the account to the new endpoint (front-end persists the per-account endpoint through the backend, guardian sync waits out canonicalization instead of re-registering the old operator every ~3s, and the settings screen reads the current endpoint reactively).
 
 ## 1.15.3 (2026-06-27)
