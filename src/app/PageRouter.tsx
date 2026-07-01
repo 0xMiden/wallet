@@ -17,6 +17,7 @@ import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
 import { ConsumingNotePage } from 'screens/consuming-note/ConsumingNote';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
+import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
 import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
 import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
@@ -267,6 +268,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <></>
       </TabLayout>
+    ))
+  ],
+  [
+    '/earn/vaults/:vaultId/deposit/review',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnDepositReview vaultId={vaultId!} />
+      </FullScreenPage>
     ))
   ],
   [

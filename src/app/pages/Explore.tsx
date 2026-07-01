@@ -5,7 +5,7 @@ import { ActivateHotKeyBanner } from 'app/templates/ActivateHotKeyBanner';
 import Balance from 'app/templates/Balance';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
-import { BalanceCard, PromptCard, PromptCarousel, SearchInput } from 'components/ui';
+import { AccountsDrawer, BalanceCard, PromptCard, PromptCarousel, SearchInput } from 'components/ui';
 import {
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
@@ -165,47 +165,53 @@ interface HomeOverviewProps {
   onSearchChange: (v: string) => void;
 }
 
-const HomeOverview: FC<HomeOverviewProps> = ({ address, tokenPrices, filteredTokens, search, onSearchChange }) => (
-  <>
-    <Balance>
-      {balance => (
-        <BalanceCard
-          accountNumber={truncateAddress(address, false, 8)}
-          accountId={address}
-          amount={`$${balance.toFormat(2)}`}
-          currency="USD"
-          delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
-          onMore={() => undefined}
-          showDragHandle={false}
+const HomeOverview: FC<HomeOverviewProps> = ({ address, tokenPrices, filteredTokens, search, onSearchChange }) => {
+  const [accountsOpen, setAccountsOpen] = useState(false);
+
+  return (
+    <>
+      <Balance>
+        {balance => (
+          <BalanceCard
+            accountNumber={truncateAddress(address, false, 8)}
+            accountId={address}
+            amount={`$${balance.toFormat(2)}`}
+            currency="USD"
+            delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
+            onMore={() => setAccountsOpen(true)}
+            showDragHandle={false}
+          />
+        )}
+      </Balance>
+
+      <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
+
+      <PromptCarousel>
+        <PromptCard
+          title="Set up your Guardian"
+          body="Make sure to set up your Guardian to ensure your wallet back-up."
+          onClick={() => navigate('/settings')}
         />
-      )}
-    </Balance>
+        <ActivateHotKeyBanner />
+      </PromptCarousel>
 
-    <PromptCarousel>
-      <PromptCard
-        title="Set up your Guardian"
-        body="Make sure to set up your Guardian to ensure your wallet back-up."
-        onClick={() => navigate('/settings')}
-      />
-      <ActivateHotKeyBanner />
-    </PromptCarousel>
+      <div className="flex items-center justify-between pt-2">
+        <span className="text-2xl font-bold text-text-primary-token">Assets</span>
+        <span className="text-sm font-medium text-text-tertiary-token">All</span>
+      </div>
 
-    <div className="flex items-center justify-between pt-2">
-      <span className="text-2xl font-bold text-text-primary-token">Assets</span>
-      <span className="text-sm font-medium text-text-tertiary-token">All</span>
-    </div>
+      <SearchInput value={search} onChange={onSearchChange} placeholder="Search for tokens" />
 
-    <SearchInput value={search} onChange={onSearchChange} placeholder="Search for tokens" />
-
-    <div className="flex flex-col divide-y divide-rule-default">
-      {filteredTokens.map(asset => (
-        <AssetRow
-          key={asset.tokenId}
-          asset={asset}
-          tokenPrices={tokenPrices}
-          onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
-        />
-      ))}
-    </div>
-  </>
-);
+      <div className="flex flex-col divide-y divide-rule-default">
+        {filteredTokens.map(asset => (
+          <AssetRow
+            key={asset.tokenId}
+            asset={asset}
+            tokenPrices={tokenPrices}
+            onClick={() => navigate(`/token-detail/${asset.tokenId}`)}
+          />
+        ))}
+      </div>
+    </>
+  );
+};

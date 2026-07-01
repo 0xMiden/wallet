@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import PageLayout from 'app/layouts/PageLayout';
 import { PendingTab } from 'app/pages/Receive/PendingTab';
+import { ScreenHeader } from 'components/ScreenHeader';
 import {
   getFailedTransactions,
   initiateConsumeTransaction,
@@ -19,7 +20,7 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
-import { HistoryAction, navigate } from 'lib/woozie';
+import { goBack, HistoryAction, navigate } from 'lib/woozie';
 
 export interface PendingProps {}
 
@@ -258,20 +259,23 @@ export const Pending: React.FC<PendingProps> = () => {
   );
 
   return (
-    <PageLayout pageTitle={t('pendingNotes')} hasBackAction={true}>
-      <PendingTab
-        safeClaimableNotes={safeClaimableNotes}
-        unclaimedNotesCount={unclaimedNotes.length}
-        account={account}
-        mutateClaimableNotes={mutateClaimableNotes}
-        isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-        claimingNoteIds={claimingNoteIds}
-        failedNoteIds={failedNoteIds}
-        checkingNoteIds={checkingNoteIds}
-        onClaimingStateChange={handleClaimingStateChange}
-        onClaimAll={handleClaimAll}
-        onClaimGroup={handleClaimGroup}
-      />
+    <PageLayout hideToolbar>
+      <div className="flex flex-col flex-1 min-h-0 px-4">
+        <ScreenHeader title={t('pendingNotes')} backLabel={t('back')} onBack={goBack} />
+        <PendingTab
+          safeClaimableNotes={safeClaimableNotes}
+          unclaimedNotesCount={unclaimedNotes.length}
+          account={account}
+          mutateClaimableNotes={mutateClaimableNotes}
+          isDelegatedProvingEnabled={isDelegatedProvingEnabled}
+          claimingNoteIds={claimingNoteIds}
+          failedNoteIds={failedNoteIds}
+          checkingNoteIds={checkingNoteIds}
+          onClaimingStateChange={handleClaimingStateChange}
+          onClaimAll={handleClaimAll}
+          onClaimGroup={handleClaimGroup}
+        />
+      </div>
     </PageLayout>
   );
 };

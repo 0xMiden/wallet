@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 
 import { cn } from './util';
 
@@ -23,6 +24,8 @@ interface DrawerProps {
 
 function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
+  // Keep the bottom tab navbar hidden while any drawer is open.
+  useHideNavbarWhileOpen(open);
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
       <VaulDrawer.Root open={open} onOpenChange={onOpenChange} direction="bottom">
@@ -105,7 +108,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
   return (
     <VaulDrawer.Title
       data-slot="drawer-title"
-      className={cn('text-[28px] font-semibold leading-none text-heading-gray', className)}
+      className={cn('text-3xl font-bold font-heading leading-none text-heading-gray', className)}
       {...props}
     >
       {children}

@@ -673,6 +673,7 @@
   "yourAddress": "Your address",
   "errorClaiming": "Error Claiming: ",
   "addAccount": "Add Account",
+  "addAccountComingSoon": "Add Account (Coming Soon)",
   "faucetIdUpdated": "Faucet ID Updated",
   "connectivityIssueDetected": "Connectivity Issue Detected",
   "walletMayBeOffline": "Wallet may be offline or out of sync.",

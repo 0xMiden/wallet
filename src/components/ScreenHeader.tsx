@@ -35,7 +35,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
         className="shrink-0 border border-border-card text-primary-500"
       />
     )}
-    <h1 className="flex-1 text-[28px] font-bold leading-none text-heading-gray">{title}</h1>
+    <h1 className="flex-1 text-[1.75rem] font-semibold leading-none text-heading-gray">{title}</h1>
     {onClose && (
       <button
         type="button"
