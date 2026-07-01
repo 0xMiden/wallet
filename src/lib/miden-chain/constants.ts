@@ -1,6 +1,7 @@
 import { Endpoint, MidenClient, NetworkId } from '@miden-sdk/miden-sdk/lazy';
 
 import { MidenNetwork } from 'lib/miden/types';
+import type { GuardianOption } from 'lib/shared/types';
 
 export const NETWORK_STORAGE_ID = 'network_id';
 
@@ -89,10 +90,86 @@ export const MIDEN_NETWORKS: MidenNetwork[] = [
   { rpcBaseURL: 'http://localhost:57291', id: MIDEN_NETWORK_NAME.LOCALNET, name: 'Localnet', autoSync: true }
 ];
 
-export const MIDEN_GUARDIAN_ENDPOINTS = new Map<string, string>([
-  [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
-  [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com']
-]);
+/**
+ * The Guardian providers a user can choose from during onboarding or when
+ * switching their Guardian. Each provider maps the networks it supports to its
+ * endpoint on that network (OpenZeppelin runs on both testnet and devnet; the
+ * others currently expose a testnet endpoint only).
+ */
+export const GUARDIAN_OPTIONS: GuardianOption[] = [
+  {
+    id: 'open-zeppelin',
+    name: 'Open-Zeppelin',
+    operatedBy: 'Open-Zeppelin',
+    location: 'US-EAST',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([
+      [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
+      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com']
+    ])
+  },
+  {
+    id: 'gateway',
+    name: 'Gateway Operator',
+    operatedBy: 'Gateway',
+    location: 'EU-NORTH',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([
+      [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.dev.eu-north-3.gateway.fm']
+    ])
+  },
+  {
+    id: 'lambda-class',
+    name: 'Lambda Class',
+    operatedBy: 'Lambda Class',
+    location: 'EU-WEST',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([
+      [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.lambdaclass.com']
+    ])
+  }
+];
+
+/**
+ * A Guardian provider resolved to its endpoint on a specific network. Shared
+ * shape for the onboarding picker (ChooseGuardian) and the import-flow presets.
+ */
+export interface ResolvedGuardianOption {
+  id: string;
+  name: string;
+  operatedBy: string;
+  location: string;
+  endpoint: string;
+}
+
+/**
+ * Resolve GUARDIAN_OPTIONS to the providers that run a Guardian on `network`,
+ * each flattened to its endpoint on that network (in GUARDIAN_OPTIONS order).
+ * Single source of truth so the create picker and import presets can't drift.
+ */
+export function getGuardianOptionsForNetwork(network: MIDEN_NETWORK_NAME = DEFAULT_NETWORK): ResolvedGuardianOption[] {
+  return GUARDIAN_OPTIONS.filter(o => o.endpoint.has(network)).map(o => ({
+    id: o.id,
+    name: o.name,
+    operatedBy: o.operatedBy,
+    location: o.location,
+    endpoint: o.endpoint.get(network)!
+  }));
+}
+
+/**
+ * All Guardian endpoints available per network, derived from GUARDIAN_OPTIONS:
+ * each network maps to the list of provider endpoints that support it, in
+ * GUARDIAN_OPTIONS order (so index 0 is the default provider — OpenZeppelin).
+ */
+export const MIDEN_GUARDIAN_ENDPOINTS: Map<string, string[]> = (() => {
+  const byNetwork = new Map<string, string[]>();
+  for (const option of GUARDIAN_OPTIONS) {
+    for (const [network, endpoint] of option.endpoint) {
+      const existing = byNetwork.get(network) ?? [];
+      existing.push(endpoint);
+      byNetwork.set(network, existing);
+    }
+  }
+  return byNetwork;
+})();
 
 /**
  * Default Guardian endpoint for the active network, or '' when the network has
@@ -102,25 +179,25 @@ export const MIDEN_GUARDIAN_ENDPOINTS = new Map<string, string>([
  * UI default/placeholder; Guardian *operations* should call
  * `getDefaultGuardianEndpoint()` so an unsupported network fails loudly.
  */
-export const DEFAULT_GUARDIAN_ENDPOINT = MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK) ?? '';
+export const DEFAULT_GUARDIAN_ENDPOINT = MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK)?.[0] ?? '';
 
 /**
- * Whether the active network has a configured Guardian endpoint.
+ * Whether the active network has at least one configured Guardian endpoint.
  */
-export const IS_GUARDIAN_SUPPORTED = MIDEN_GUARDIAN_ENDPOINTS.has(DEFAULT_NETWORK);
+export const IS_GUARDIAN_SUPPORTED = (MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK)?.length ?? 0) > 0;
 
 /**
- * Resolve the Guardian endpoint for the active network, throwing a descriptive
- * error on networks without a configured Guardian. Use this at Guardian
- * account create/import entry points so the feature refuses to operate (rather
- * than silently targeting the wrong backend) on an unsupported network.
+ * Resolve the default Guardian endpoint for the active network, throwing a
+ * descriptive error on networks without a configured Guardian. Use this at
+ * Guardian account create/import entry points so the feature refuses to operate
+ * (rather than silently targeting the wrong backend) on an unsupported network.
  */
 export function getDefaultGuardianEndpoint(): string {
-  const endpoint = MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK);
-  if (!endpoint) {
+  const endpoints = MIDEN_GUARDIAN_ENDPOINTS.get(DEFAULT_NETWORK);
+  if (!endpoints || endpoints.length === 0) {
     throw new Error(`Guardian is not available on network "${DEFAULT_NETWORK}": no Guardian endpoint is configured.`);
   }
-  return endpoint;
+  return endpoints[0]!;
 }
 
 /**

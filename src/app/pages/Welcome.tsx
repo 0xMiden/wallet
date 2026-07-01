@@ -290,12 +290,21 @@ const Welcome: FC = () => {
         break;
       case 'select-recovery-method':
         setWalletType(action.payload);
+        // Guardian wallets get an extra step to pick which Guardian provider to
+        // use; other recovery methods go straight to confirmation.
+        if (action.payload === WalletType.Guardian) {
+          navigate('/#choose-guardian');
+        } else {
+          navigate('/#confirmation');
+        }
+        break;
+      case 'choose-guardian':
+        await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
         navigate('/#confirmation');
         break;
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
         if (action.payload.walletType === WalletType.Guardian && action.payload.guardianEndpoint) {
-          console.log('Putting guardian endpoint to storage:', action.payload.guardianEndpoint);
           await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
         }
         setGuardianLookupError(false);
@@ -363,6 +372,8 @@ const Welcome: FC = () => {
           } else {
             navigate('/#create-password');
           }
+        } else if (step === OnboardingStep.ChooseGuardian) {
+          navigate('/#select-recovery-method');
         } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
           if (password === '__HARDWARE_ONLY__') {
             navigate('/#import-from-seed');
@@ -411,6 +422,9 @@ const Welcome: FC = () => {
         break;
       case '#select-recovery-method':
         setStep(OnboardingStep.SelectRecoveryMethod);
+        break;
+      case '#choose-guardian':
+        setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#import-select-recovery-method':
         setStep(OnboardingStep.ImportSelectRecoveryMethod);

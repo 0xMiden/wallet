@@ -9,6 +9,7 @@ import { ProgressIndicator } from 'components/ProgressIndicator';
 import { isMobile } from 'lib/platform';
 import type { WalletAccount } from 'lib/shared/types';
 
+import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import { WelcomeScreen } from './common/Welcome';
@@ -58,6 +59,8 @@ const Header: React.FC<{
   } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
     currentStep = 2;
   } else if (step === OnboardingStep.SelectRecoveryMethod) {
+    currentStep = 4;
+  } else if (step === OnboardingStep.ChooseGuardian) {
     currentStep = 4;
   } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
     currentStep = 4;
@@ -152,6 +155,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onSelectRecoveryMethodSubmit = (walletType: WalletType) =>
       onForwardAction?.({ id: 'select-recovery-method', payload: walletType });
 
+    const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
+      onForwardAction?.({ id: 'choose-guardian', payload });
+
     const onSelectTransactionTypeSubmit = () =>
       onForwardAction?.({ id: 'select-transaction-type', payload: 'private' });
 
@@ -191,6 +197,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectRecoveryMethod:
         return <SelectRecoveryMethodScreen onSubmit={onSelectRecoveryMethodSubmit} />;
+      case OnboardingStep.ChooseGuardian:
+        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
       case OnboardingStep.ImportSelectRecoveryMethod:
         return (
           <ImportRecoveryMethodScreen

@@ -1,4 +1,5 @@
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -66,6 +67,8 @@ export enum WalletMessageType {
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
+  SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
+  SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -373,6 +376,17 @@ export interface WalletNetwork {
   autoSync: boolean;
 }
 
+/**
+ * A selectable Guardian provider shown in the Choose-Guardian picker.
+ */
+export interface GuardianOption {
+  id: string;
+  name: string;
+  operatedBy: string;
+  location: string;
+  endpoint: Map<MIDEN_NETWORK_NAME, string>; // endpoints for guardian
+}
+
 export interface LoadingResponse extends WalletMessageBase {
   type: WalletMessageType.LoadingResponse;
 }
@@ -618,6 +632,16 @@ export interface SwapHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.SwapHotKeyResponse;
 }
 
+export interface SetGuardianEndpointRequest extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianEndpointRequest;
+  accountPublicKey: string;
+  guardianEndpoint: string;
+}
+
+export interface SetGuardianEndpointResponse extends WalletMessageBase {
+  type: WalletMessageType.SetGuardianEndpointResponse;
+}
+
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.GetPublicKeyForCommitmentRequest;
   commitment: string;
@@ -832,6 +856,7 @@ export type WalletRequest =
   | SignWordRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
+  | SetGuardianEndpointRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -888,6 +913,7 @@ export type WalletResponse =
   | SignWordResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
+  | SetGuardianEndpointResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse

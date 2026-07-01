@@ -38,6 +38,9 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   const showPasswordFallback = biometricAttempts >= MAX_BIOMETRIC_ATTEMPTS;
   const hasError = biometricError && biometricAttempts > 0;
 
+  // Side-panel handoff (Chrome): the wallet is still being created in the
+  // background. Show a spinner rather than the ready-state success message,
+  // otherwise the user sees "Your wallet is ready" before it actually is.
   if (creating) {
     return (
       <div className="w-full h-full pt-11.5">

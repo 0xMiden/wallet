@@ -349,6 +349,15 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
     },
 
+    setGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianEndpointRequest,
+        accountPublicKey,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
+    },
+
     getPublicKeyForCommitment: async commitment => {
       const res = await request({
         type: WalletMessageType.GetPublicKeyForCommitmentRequest,

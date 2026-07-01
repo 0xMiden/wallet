@@ -178,6 +178,51 @@ describe('miden-chain/constants', () => {
     });
   });
 
+  describe('GUARDIAN_OPTIONS', () => {
+    it('offers more than one provider, each mapping networks to valid https endpoints', () => {
+      process.env.MIDEN_NETWORK = 'testnet';
+      jest.isolateModules(() => {
+        const { GUARDIAN_OPTIONS } = require('./constants');
+        expect(GUARDIAN_OPTIONS.length).toBeGreaterThan(1);
+        for (const option of GUARDIAN_OPTIONS) {
+          expect(option.id).toBeTruthy();
+          expect(option.endpoint.size).toBeGreaterThan(0);
+          for (const url of option.endpoint.values()) {
+            expect(() => new URL(url)).not.toThrow();
+            expect(url.startsWith('https://')).toBe(true);
+          }
+        }
+      });
+    });
+
+    it('exposes the OpenZeppelin endpoint per network', () => {
+      process.env.MIDEN_NETWORK = 'testnet';
+      jest.isolateModules(() => {
+        const { GUARDIAN_OPTIONS } = require('./constants');
+        const oz = GUARDIAN_OPTIONS.find((o: { id: string }) => o.id === 'open-zeppelin');
+        expect(oz?.endpoint.get('testnet')).toBe('https://guardian.openzeppelin.com');
+        expect(oz?.endpoint.get('devnet')).toBe('https://guardian-stg.openzeppelin.com');
+      });
+    });
+  });
+
+  describe('MIDEN_GUARDIAN_ENDPOINTS', () => {
+    it('collects every provider endpoint per network, OpenZeppelin first', () => {
+      process.env.MIDEN_NETWORK = 'testnet';
+      jest.isolateModules(() => {
+        const { MIDEN_GUARDIAN_ENDPOINTS } = require('./constants');
+        expect(MIDEN_GUARDIAN_ENDPOINTS.get('testnet')).toEqual([
+          'https://guardian.openzeppelin.com',
+          'https://miden-guardian.dev.eu-north-3.gateway.fm',
+          'https://miden-guardian.lambdaclass.com'
+        ]);
+        // Only OpenZeppelin runs a devnet Guardian.
+        expect(MIDEN_GUARDIAN_ENDPOINTS.get('devnet')).toEqual(['https://guardian-stg.openzeppelin.com']);
+        expect(MIDEN_GUARDIAN_ENDPOINTS.has('localnet')).toBe(false);
+      });
+    });
+  });
+
   describe('getNetworkId', () => {
     it('returns testnet for TESTNET network', () => {
       process.env.MIDEN_NETWORK = 'testnet';

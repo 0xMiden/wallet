@@ -328,6 +328,17 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
   });
 }
 
+export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
+  return withUnlocked(async ({ vault }) => {
+    const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
+    // Push the updated WalletAccount[] into the Effector store so the frontStore
+    // mapping fires StateUpdated. Without this the popup's Zustand snapshot keeps
+    // the old endpoint, so the Guardian Settings display stays stale and the next
+    // guardian sync rebuilds a service against the old operator.
+    accountsUpdated(updated);
+  });
+}
+
 export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {
   return withUnlocked(async ({ vault }) => {
     const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);

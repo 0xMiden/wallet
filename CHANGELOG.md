@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.15.4 (TBD)
+
+### Features
+
+* [FEATURE][all] Choose among multiple Guardian providers (OpenZeppelin, Gateway, or Lambda Class) during create onboarding, import, and Switch-Guardian settings, instead of always defaulting to OpenZeppelin.
+
+### Fixes
+
+* [FIX][all] Switching a Guardian operator now actually moves the account to the new endpoint (front-end persists the per-account endpoint through the backend, guardian sync waits out canonicalization instead of re-registering the old operator every ~3s, and the settings screen reads the current endpoint reactively).
+
 ## 1.15.3 (2026-06-27)
 
 ### Features

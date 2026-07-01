@@ -1,10 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
-import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import GuardianReplaceHotKey from 'app/templates/GuardianReplaceHotKey';
 import {
   initiateSwitchGuardianTransaction,
@@ -16,12 +13,9 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { isDelegateProofEnabled, isValidGuardianUrl } from 'lib/settings/helpers';
+import { isDelegateProofEnabled, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-
-type FormData = {
-  guardianEndpoint: string;
-};
+import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
 type Props = {
   onClose?: () => void;
@@ -29,45 +23,30 @@ type Props = {
 
 const GuardianSettings: FC<Props> = ({ onClose }) => {
   const { t } = useTranslation();
-  const { endpoint: currentEndpoint, refresh: refreshCurrentEndpoint } = useCurrentGuardianEndpoint();
+  const currentEndpoint = useCurrentGuardianEndpoint();
   const [submitSuccess, setSubmitSuccess] = useState(false);
-  // Two-stage submit: first click validates + enters confirming, second click fires the tx.
-  // Mirrors GuardianReplaceHotKey's cold-signing confirmation since switch_guardian also
-  // requires the cold key (co-signed by the current guardian).
-  const [confirming, setConfirming] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    setError,
-    clearErrors,
-    reset,
-    formState: { errors, isSubmitting }
-  } = useForm<FormData>({ defaultValues: { guardianEndpoint: '' } });
+  // Two-stage submit: first tap validates + enters confirming, second tap fires the tx.
+  // switch_guardian requires the cold key (co-signed by the current guardian),
+  // so the confirmation step mirrors the cold-signing acknowledgement pattern.
+  const [pendingEndpoint, setPendingEndpoint] = useState<string | null>(null);
+  // `confirming` is fully derived from `pendingEndpoint` — a pending endpoint IS
+  // the confirming state — so the two can never drift out of sync.
+  const confirming = pendingEndpoint !== null;
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const currentAccount = useWalletStore(s => s.currentAccount);
 
-  const onSubmit = useCallback<SubmitHandler<FormData>>(
-    async ({ guardianEndpoint }) => {
-      if (isSubmitting || !currentAccount) return;
-      const trimmed = guardianEndpoint.trim();
-      if (trimmed === currentEndpoint) {
-        setError('guardianEndpoint', { type: 'manual', message: t('guardianEndpointUnchanged') });
-        return;
-      }
-
-      clearErrors();
+  const runSwitch = useCallback(
+    async (newEndpoint: string) => {
+      if (!currentAccount) return;
+      setSubmitting(true);
+      setError(null);
       setSubmitSuccess(false);
-
-      if (!confirming) {
-        setConfirming(true);
-        return;
-      }
-
       try {
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
-          trimmed,
+          newEndpoint,
           isDelegateProofEnabled(),
           zustandProvider
         );
@@ -76,22 +55,46 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
 
         const result = await waitForTransactionCompletion(txId);
         if ('errorMessage' in result) {
-          setError('guardianEndpoint', { type: 'manual', message: result.errorMessage });
+          setError(result.errorMessage);
           return;
         }
 
         setSubmitSuccess(true);
-        setConfirming(false);
-        reset({ guardianEndpoint: '' });
-        // Pull the new endpoint back from storage so the "Current guardian"
-        // display reflects the switch on platforms without storage-change events.
-        refreshCurrentEndpoint();
+        setPendingEndpoint(null);
+        // No manual refresh needed: completing the switch persists the new endpoint
+        // and broadcasts `accountsUpdated`, so `useCurrentGuardianEndpoint` (a reactive
+        // store selector) re-renders the "Current guardian" display on its own.
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setError('guardianEndpoint', { type: 'manual', message });
+        setError(message);
+      } finally {
+        setSubmitting(false);
       }
     },
-    [clearErrors, confirming, currentAccount, currentEndpoint, isSubmitting, refreshCurrentEndpoint, reset, setError, t]
+    [currentAccount]
+  );
+
+  const handleSubmit = useCallback(
+    ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
+      if (submitting || !currentAccount) return;
+      setSubmitSuccess(false);
+
+      if (guardianEndpoint === currentEndpoint) {
+        setError(t('guardianEndpointUnchanged'));
+        setPendingEndpoint(null);
+        return;
+      }
+
+      setError(null);
+
+      if (!confirming || pendingEndpoint !== guardianEndpoint) {
+        setPendingEndpoint(guardianEndpoint);
+        return;
+      }
+
+      void runSwitch(guardianEndpoint);
+    },
+    [confirming, currentAccount, currentEndpoint, pendingEndpoint, runSwitch, submitting, t]
   );
 
   return (
@@ -101,54 +104,25 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         <p className="text-sm text-black break-all select-text">{currentEndpoint || t('loading')}</p>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)}>
-        <FormField
-          {...register('guardianEndpoint', {
-            required: t('required'),
-            validate: value => isValidGuardianUrl(value) || t('invalidUrl')
-          })}
-          label={t('newGuardianEndpoint')}
-          labelDescription={t('switchGuardianDescription')}
-          id="guardian-endpoint"
-          type="text"
-          placeholder="https://"
-          errorCaption={errors.guardianEndpoint?.message}
-          containerClassName="mb-4"
-          onChange={() => {
-            clearErrors();
-            if (submitSuccess) setSubmitSuccess(false);
-            // Editing the endpoint after confirming invalidates the confirmation:
-            // drop back to the form-entry stage so the user re-acknowledges the new value.
-            if (confirming) setConfirming(false);
-          }}
-        />
+      <ChooseGuardianScreen
+        onSubmit={handleSubmit}
+        currentEndpoint={currentEndpoint}
+        hideHeader
+        allowCustomEndpoint
+        submitLabel={submitting ? t('loading') : confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
+      />
 
-        {confirming && !isSubmitting && !submitSuccess && (
-          <div className="text-xs text-heading-gray mb-3 select-text">{t('switchGuardianConfirmation')}</div>
-        )}
+      {confirming && !submitting && !submitSuccess && (
+        <div className="text-xs text-heading-gray mt-3 select-text">{t('switchGuardianConfirmation')}</div>
+      )}
 
-        <FormSubmitButton
-          className="capitalize w-full justify-center mt-6"
-          loading={isSubmitting}
-          disabled={!currentAccount}
-          style={{
-            fontSize: '18px',
-            lineHeight: '24px',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-            paddingTop: '12px',
-            paddingBottom: '12px'
-          }}
-        >
-          {confirming ? t('confirmSwitchGuardian') : t('switchGuardian')}
-        </FormSubmitButton>
+      {error && <div className="mt-3 text-red-500 text-xs select-text">{error}</div>}
 
-        {submitSuccess && (
-          <div className="mt-4 text-green-600 text-sm font-medium" onAnimationEnd={() => onClose?.()}>
-            {t('guardianSwitched')}
-          </div>
-        )}
-      </form>
+      {submitSuccess && (
+        <div className="mt-4 text-green-600 text-sm font-medium" onAnimationEnd={() => onClose?.()}>
+          {t('guardianSwitched')}
+        </div>
+      )}
 
       <hr className="my-6" />
 
@@ -159,36 +133,45 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
 
 export default GuardianSettings;
 
-function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () => void } {
-  const [endpoint, setEndpoint] = useState<string>('');
-  const [nonce, setNonce] = useState(0);
-  const refresh = useCallback(() => setNonce(n => n + 1), []);
+// A wallet has a single Guardian account, so the current account's
+// `guardianEndpoint` IS the wallet's guardian. Read it straight off the store as
+// a reactive selector: when a switch persists the new endpoint and broadcasts
+// `accountsUpdated`, this re-renders on its own — no manual storage read/refresh.
+//
+// For accounts created before the per-account field existed, mirror
+// `resolveGuardianEndpoint`'s fallback to the legacy global
+// `GUARDIAN_URL_STORAGE_KEY`, otherwise the "Current guardian" display (and the
+// unchanged-endpoint guard) would misreport a legacy custom operator as the
+// default one.
+function useCurrentGuardianEndpoint(): string {
+  const accountEndpoint = useWalletStore(s => s.currentAccount?.guardianEndpoint);
+  const [legacyEndpoint, setLegacyEndpoint] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    // The per-account field always wins; only consult the legacy global key when
+    // the account predates it.
+    if (accountEndpoint) {
+      setLegacyEndpoint(null);
+      return;
+    }
+    let active = true;
     fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
       .then(stored => {
-        if (cancelled) return;
-        setEndpoint(stored || DEFAULT_GUARDIAN_ENDPOINT);
+        if (active) setLegacyEndpoint(stored ?? null);
       })
       .catch(() => {
-        if (cancelled) return;
-        setEndpoint(DEFAULT_GUARDIAN_ENDPOINT);
+        if (active) setLegacyEndpoint(null);
       });
+    // Extension builds get storage-change events for free; on mobile/desktop this
+    // is a no-op cleanup.
+    const unsubscribe = onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
+      setLegacyEndpoint(next ?? null);
+    });
     return () => {
-      cancelled = true;
+      active = false;
+      unsubscribe();
     };
-  }, [nonce]);
+  }, [accountEndpoint]);
 
-  // Extension builds get storage-change events for free; on mobile/desktop this
-  // is a no-op and the explicit refresh() call after switch handles the update.
-  useEffect(
-    () =>
-      onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
-        setEndpoint(next || DEFAULT_GUARDIAN_ENDPOINT);
-      }),
-    []
-  );
-
-  return { endpoint, refresh };
+  return sanitizeGuardianUrl(accountEndpoint || legacyEndpoint || DEFAULT_GUARDIAN_ENDPOINT);
 }
