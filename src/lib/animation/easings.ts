@@ -7,6 +7,8 @@
  */
 
 export const easings = {
+  /** Smooth acceleration for small state changes */
+  easeInCubic: [0.32, 0, 0.67, 0] as const,
   /** iOS soft-out — feels right for entering content */
   easeOutCubic: [0.16, 1, 0.3, 1] as const,
   /** Symmetrical, balanced */

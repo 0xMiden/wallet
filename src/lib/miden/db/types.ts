@@ -50,10 +50,10 @@ export type ITransactionType =
  * label so users see what the wallet is actually doing during the 3-8s
  * spinner window. Not all stages apply to all tx types:
  *   - syncing              : all types, before `syncState()`
- *   - sending              : non-Guardian types, during the SDK execute→prove→submit→apply
+ *   - sending              : all types, during the SDK execute→prove→submit→apply span
  *   - creating-proposal    : Guardian only, while building the multisig proposal
  *   - signing-proposal     : Guardian only, while the guardian signs the proposal
- *   - submitting           : Guardian only, while the signed tx is submitted to the network
+ *   - submitting           : Guardian only, after the signed tx submit span returns
  *   - confirming           : send-private + switch-guardian, during `waitForTransactionCommit`
  *   - registering-guardian : switch-guardian only, during post-commit guardian re-registration
  *   - delivering           : send-private only, during `sendPrivateNote`
@@ -67,6 +67,15 @@ export type ITransactionStage =
   | 'confirming'
   | 'registering-guardian'
   | 'delivering';
+
+export type ITransactionTimedStep = 'guardian-approving' | 'generating-proof';
+
+export interface ITransactionStepTiming {
+  startedAt: number;
+  endedAt?: number;
+}
+
+export type ITransactionStepTimings = Partial<Record<ITransactionTimedStep, ITransactionStepTiming>>;
 
 export interface ITransaction {
   id: string;
@@ -97,6 +106,8 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
+  /** Backend timings for transaction-progress rows, in epoch milliseconds. */
+  stepTimings?: ITransactionStepTimings;
 }
 
 export interface ISuccessTransactionOutput {
