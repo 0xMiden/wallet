@@ -2,7 +2,7 @@ diff --git a/node_modules/vaul/package.json b/node_modules/vaul/package.json
 index 0d6d331..3a9f0a1 100644
 --- a/node_modules/vaul/package.json
 +++ b/node_modules/vaul/package.json
-@@ -13,13 +13,16 @@
+@@ -10,14 +10,17 @@
      "style.css"
    ],
    "exports": {
@@ -32,7 +32,7 @@ diff --git a/node_modules/vaul/style.css b/node_modules/vaul/style.css
 index 8cbf3ab..8ee3ca4 100644
 --- a/node_modules/vaul/style.css
 +++ b/node_modules/vaul/style.css
-@@ -136,6 +136,6 @@
+@@ -174,7 +174,7 @@
  }
  
  @media (pointer: fine) {
