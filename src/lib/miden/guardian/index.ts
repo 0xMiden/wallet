@@ -25,6 +25,11 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 const MAX_SYNC_RETRIES = 20;
 const SYNC_RETRY_DELAY_MS = 3000;
+// The guardian typically re-canonicalizes an accepted delta within ~2-10 ticks,
+// so wait a bounded window (~36s) before the last-resort re-register. Kept well
+// below MAX_SYNC_RETRIES so a *genuine* (non-transient) blob divergence
+// self-heals sooner instead of stalling for the full nonce-retry ceiling.
+const MAX_GUARDIAN_CANONICALIZE_RETRIES = 12;
 const MAX_GUARDIAN_REGISTER_RETRIES = 5;
 const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
 
@@ -302,8 +307,9 @@ export class MultisigService {
           message.includes('Refusing to overwrite local state') ||
           (message.includes('commitment') && message.includes('match'));
         if (isGuardianCanonicalizing) {
-          // Stage 1: WAIT it out with a bounded back-off, exactly like nonce-too-low.
-          if (canonicalizeRetryCount < MAX_SYNC_RETRIES) {
+          // Stage 1: WAIT it out with a bounded back-off (its own, shorter ceiling
+          // so a real divergence doesn't stall for the full nonce-retry window).
+          if (canonicalizeRetryCount < MAX_GUARDIAN_CANONICALIZE_RETRIES) {
             canonicalizeRetryCount++;
             console.warn(
               'Guardian still canonicalizing (its state lags on-chain), retrying sync...',
