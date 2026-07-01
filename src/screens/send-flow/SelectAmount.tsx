@@ -21,6 +21,9 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
+  /** Padding classes for the confirm-button footer. Defaults to the send-flow
+   *  spacing (`pt-4 pb-24`); pass a snugger value to hug the bottom. */
+  footerClassName?: string;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
@@ -41,6 +44,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   confirmTitle,
   showNetworkPill = true,
   showBalanceHelper = true,
+  footerClassName = 'pt-4 pb-24',
   children,
   onAmountChange,
   onSelectToken,
@@ -101,7 +105,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div className="shrink-0 pt-4 pb-24">
+      <div className={clsx('shrink-0', footerClassName)}>
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
