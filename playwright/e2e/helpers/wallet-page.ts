@@ -461,6 +461,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         .click();
     }
     await this.page.getByRole('button', { name: /continue/i }).click();
+
+    if (options.recovery === 'guardian') {
+      // #303 inserted a "Choose your Guardian" step between the recovery-method
+      // screen and confirmation. The create flow is preset-only (no custom-URL
+      // field); the guardian E2E targets the OpenZeppelin endpoint, which is the
+      // default-selected provider, so accept the default and continue. Selecting
+      // the provider persists its endpoint to guardian_url_setting (the OZ
+      // endpoint here matches the seed above) before "Get Started" creates the
+      // account.
+      const chooseGuardian = this.page.getByTestId('onboarding-choose-guardian');
+      await chooseGuardian.waitFor({ timeout: 15_000 });
+      await chooseGuardian.getByRole('button', { name: /continue/i }).click();
+    }
   }
 
   /**
