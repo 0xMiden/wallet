@@ -43,7 +43,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const longDate = format(d, 'MMMM d, yyyy');
   const day = format(d, 'EEEE');
   return (
-    <div className="flex items-center justify-between font-extrabold text-heading-gray dark:text-pure-white text-xl leading-[100%]">
+    <div className="flex items-center justify-between font-heading font-extrabold text-heading-gray dark:text-pure-white text-base leading-[100%]">
       <span className="">{longDate}</span>
       <span className="text-accent-primary">{day}</span>
     </div>
@@ -84,32 +84,34 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
   let iconBg = 'bg-gray-50';
   let amountDirection: 'positive' | 'negative' | 'neutral' = 'neutral';
 
+  // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
+  // rendered white over their own hue (set as `iconBg`). The source SVGs ship
+  // with hardcoded fills/strokes, so force them white via `[&_path]:*` here.
   if (faucet) {
-    iconNode = <Icon name={IconName.Faucet} className="w-5 h-5" fill="currentColor" />;
-    iconBg = 'bg-tx-sent';
+    iconNode = <Icon name={IconName.Faucet} size="sm" className="[&_path]:fill-pure-white" fill="currentColor" />;
+    iconBg = 'bg-tx-faucet';
     amountDirection = 'positive';
   } else if (isFailed) {
-    iconNode = <Icon name={IconName.Close} className="w-5 h-5" fill="currentColor" />;
+    iconNode = <Icon name={IconName.Close} size="sm" fill="currentColor" />;
     iconBg = 'bg-status-negative';
   } else if (icon === 'RECEIVE') {
-    iconNode = <Icon name={IconName.Download} className="w-5 h-5" fill="currentColor" />;
+    iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-tx-received';
     amountDirection = 'positive';
   } else if (icon === 'SEND') {
-    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
-    iconNode = <Icon name={IconName.Send} size="xs" fill={isDark ? 'white' : 'currentColor'} />;
+    iconNode = <Icon name={IconName.Send} size="sm" className="[&_path]:fill-pure-white" />;
     iconBg = 'bg-tx-sent';
     amountDirection = 'negative';
   } else if (icon === 'SWAP') {
-    iconNode = <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />;
+    iconNode = <Icon name={IconName.Convert} size="sm" className="[&_path]:stroke-pure-white" />;
     iconBg = 'bg-tx-swap';
     amountDirection = 'neutral';
   } else if (icon === 'MINT') {
-    iconNode = <Icon name={IconName.Coins} className="w-5 h-5" fill="currentColor" />;
+    iconNode = <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />;
     iconBg = 'bg-tx-earn';
     amountDirection = 'positive';
   } else {
-    iconNode = <Icon name={IconName.More} className="w-5 h-5" fill="currentColor" />;
+    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
   }
 
   const title = faucet ? t('faucetRequestTitle') : entry.message || '';
@@ -117,11 +119,10 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
     ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
     : undefined;
 
-  let amount: { value: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
+  let amount: { value: string; symbol?: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
   if (entry.amount !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
-    const tokenSuffix = entry.token ? ` ${entry.token}` : '';
-    amount = { value: `${sign}${entry.amount.toString()}${tokenSuffix}`, direction: amountDirection };
+    amount = { value: `${sign}${entry.amount.toString()}`, symbol: entry.token, direction: amountDirection };
   }
 
   let statusTone: ActivityStatusTone = 'confirmed';
@@ -169,7 +170,7 @@ const HistoryView = memo<HistoryViewProps>(
         return (
           <div className="flex flex-col items-center justify-center flex-1 pt-16">
             <Icon name={IconName.ArrowUpDown} size="xl" fill="currentColor" className="mb-4 text-text-tertiary-token" />
-            <p className="text-sm text-center text-text-tertiary-token">{t('noOperationsFound')}</p>
+            <p className="font-heading text-sm text-center text-text-tertiary-token">{t('noOperationsFound')}</p>
           </div>
         );
       }

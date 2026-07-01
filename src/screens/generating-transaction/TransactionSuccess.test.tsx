@@ -84,8 +84,8 @@ describe('TransactionSuccess', () => {
   it('renders the bare success screen with no receipt rows when no transaction data', async () => {
     const { container, root } = await renderInto(<TransactionSuccess onDoneClick={() => {}} />);
 
+    // No transaction → generic title (send-typed transactions get "Payment Sent!").
     expect(container.textContent).toContain('Transaction Complete!');
-    expect(container.textContent).toContain('transactionSuccessDescription');
     // No amount, no destination, no txHash → no receipt rows, no amount block.
     expect(container.textContent).not.toContain('Total Paid');
     expect(container.textContent).not.toContain('Source TX');
@@ -141,7 +141,7 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  it('renders the bridged arrival line and a FAST badge for an epoch bridged send', async () => {
+  it('renders a Fast route row for an epoch bridged send', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess
         transaction={baseTransaction({
@@ -151,14 +151,16 @@ describe('TransactionSuccess', () => {
         onDoneClick={() => {}}
       />
     );
-    expect(container.textContent).toContain('Arriving on Ethereum');
-    expect(container.textContent).toContain('FAST');
     // Destination address comes from the bridged inputs.
     expect(container.textContent).toContain('to');
+    // Bridge sends carry a Route row: speed value + provider sub-line.
+    expect(container.textContent).toContain('Route');
+    expect(container.textContent).toContain('Fast');
+    expect(container.textContent).toContain('Via Epoch');
     act(() => root.unmount());
   });
 
-  it('renders a SLOW badge for an agglayer bridged send', async () => {
+  it('renders a Slow route row for an agglayer bridged send', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess
         transaction={baseTransaction({
@@ -168,7 +170,8 @@ describe('TransactionSuccess', () => {
         onDoneClick={() => {}}
       />
     );
-    expect(container.textContent).toContain('SLOW');
+    expect(container.textContent).toContain('Slow');
+    expect(container.textContent).toContain('Via Agglayer');
     act(() => root.unmount());
   });
 

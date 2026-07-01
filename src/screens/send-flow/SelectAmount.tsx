@@ -24,6 +24,11 @@ export interface SelectAmountProps {
   network?: BridgeNetwork;
   /** Token symbol every bridged send arrives as (USDC). */
   outputSymbol?: string;
+  label?: React.ReactNode;
+  confirmTitle?: string;
+  showNetworkPill?: boolean;
+  showBalanceHelper?: boolean;
+  children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
   onSelectNetwork?: () => void;
@@ -50,6 +55,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   isBridge = false,
   network,
   outputSymbol,
+  label,
+  confirmTitle,
+  showNetworkPill = true,
+  showBalanceHelper = true,
+  children,
   onAmountChange,
   onSelectToken,
   onSelectNetwork,
@@ -109,7 +119,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           <span className="font-heading text-2xl font-bold text-[#808080] flex items-center gap-1">
             {network ? (
               <>
-                <span className="text-[#808080]">{t('network')}</span> <p>{` ${network.name}`}</p>
+                <span className="text-[#808080]">{t('network')}</span>
+                <span>{network.name}</span>
               </>
             ) : (
               t('selectNetwork')
@@ -126,27 +137,28 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     </div>
   );
 
-  const helper = token ? (
-    <>
-      <span className="font-heading text-[#808080] text-base font-bold">
-        {t('available')} {formatBalance(token.balance)} {token.name}
-      </span>
-      <span className="font-heading text-[#808080] text-base font-bold">
-        {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
-      </span>
-    </>
-  ) : null;
+  const helper =
+    token && showBalanceHelper ? (
+      <>
+        <span className="font-heading text-[#808080] text-base font-bold">
+          {t('available')} {formatBalance(token.balance)} {token.name}
+        </span>
+        <span className="font-heading text-[#808080] text-base font-bold">
+          {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
+        </span>
+      </>
+    ) : null;
 
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
-        {!isBridge && (
+        {showNetworkPill && !isBridge && (
           <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">
             {t('miden')}
           </span>
         )}
         <AmountInput
-          label={t('selectAmount')}
+          label={label ?? t('selectAmount')}
           value={amount}
           error={error ? t(error) : undefined}
           helper={helper}
@@ -154,11 +166,12 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
           data-testid="send-amount-input"
           onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
         />
+        {children}
       </div>
 
       <div className="shrink-0 pt-4 pb-24">
         <Button
-          title={t('confirm')}
+          title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
           disabled={!canProceed}

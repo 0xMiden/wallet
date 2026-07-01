@@ -323,7 +323,9 @@ export class IosWalletPage implements WalletPage {
     // separate context. On mobile there's no SW; a reload would drop the
     // in-memory decryption key and kick the UI back to the password
     // screen, where no Claim button exists. Stay in-session instead.
-    await this.navigateTo('/receive');
+    // Claimable notes live on their own /pending page (mounts the claim UI
+    // directly).
+    await this.navigateTo('/pending');
     // The wallet's auto-sync runs every 3s (useSyncTrigger). On a freshly
     // installed app the first sync also pays a cold WASM init + IndexedDB
     // open + RPC cold-start cost. Give it ~10s to land at least one full
@@ -357,9 +359,7 @@ export class IosWalletPage implements WalletPage {
     // timeout (default 180s) still has ~50s left for balance polling
     // after this resolves.
     await this.pollForCondition(
-      `var pending = document.querySelector('[data-testid="receive-tab-pending"]'); ` +
-        `if (pending) pending.click(); ` +
-        `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
         `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
         `btn.click(); return true;`,
       120_000

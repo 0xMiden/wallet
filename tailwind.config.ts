@@ -11,6 +11,8 @@ const primaryPalette = {
   600: isDevnet ? '#5A6B80' : '#C95A21'
 };
 
+const successGreen = '#90BA89';
+
 export default {
   darkMode: 'class',
   content: ['./public/**/*.{html,js,mjs}', './src/**/*.{js,jsx,ts,tsx}'],
@@ -125,7 +127,7 @@ export default {
         'accent-orange': isDevnet ? '#5E7090' : '#E77537',
         'app-bg': 'var(--color-app-bg)',
         'send-blue': '#024073',
-        'receive-green': '#38824A',
+        'receive-green': successGreen,
         // Design system tokens (Foundations + Typography) — semantic namespace.
         // Light/dark values resolve from CSS vars in src/main.css.
         'accent-primary': 'var(--accent-primary)',
@@ -138,13 +140,14 @@ export default {
         'surface-input': 'var(--surface-input)',
         'surface-interactive': 'var(--surface-interactive)',
         'surface-inactive': 'var(--surface-inactive)',
-        'status-positive': 'var(--status-positive)',
+        'status-positive': `var(--status-positive, ${successGreen})`,
         'status-pending': 'var(--status-pending)',
         'status-negative': 'var(--status-negative)',
         'tx-received': 'var(--tx-received)',
         'tx-sent': 'var(--tx-sent)',
         'tx-swap': 'var(--tx-swap)',
         'tx-earn': 'var(--tx-earn)',
+        'tx-faucet': 'var(--tx-faucet)',
         'rule-default': 'var(--rule-default)',
         'rule-strong': 'var(--rule-strong)',
         'border-button': 'var(--color-border-button)',

@@ -121,7 +121,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                   className={cn(
                     'relative flex h-30.5 w-44.25 flex-col overflow-hidden rounded-[20px] transition-all duration-150',
                     'border-2',
-                    isSelected ? 'border-primary-500' : 'border-[#E3E3E3] dark:border-grey-800'
+                    isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
                   )}
                 >
                   {(isCurrent || isDefault) && (

@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 
-import { format, formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { truncateAddress } from 'utils/string';
 
 import { BridgeNetwork } from './bridge-networks';
 import { RecallCalendarDrawer } from './RecallCalendarDrawer';
@@ -55,9 +54,8 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   const { t } = useTranslation();
   const [showCalendar, setShowCalendar] = useState(false);
 
-  const fiatValue = token ? parseFloat(amount || '0') * token.fiatPrice : 0;
-  const today = format(new Date(), 'dd.MM.yy');
-
+  const parsedAmount = Number.parseFloat(amount || '0');
+  const fiatValue = token && Number.isFinite(parsedAmount) ? parsedAmount * token.fiatPrice : undefined;
   const expirationLabel = recallDate
     ? (() => {
         const rel = formatDistanceToNow(recallDate, { addSuffix: true });
@@ -70,15 +68,14 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
   const youReceiveLoading = isBridge && route !== 'agglayer' && !!quote?.loading;
   const youReceiveAmount = route === 'agglayer' ? amount : quote?.amount;
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+  const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
+  const youReceiveLabel =
+    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${outputSymbol ?? ''}`.trim() : (outputSymbol ?? '');
 
   return (
     <>
       <ReviewLayout
-        title={t('reviewDetails')}
-        date={today}
-        onBack={onGoBack}
-        backLabel={t('back')}
-        hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} fiat={fiatValue} />}
+        hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} fiat={fiatValue} label={t('youAreSending')} />}
         primary={{
           label: t('sendPayment'),
           onPress: onSubmit,
@@ -88,36 +85,34 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
         }}
         secondary={{ label: t('back'), onPress: onGoBack, disabled: isSubmitting }}
       >
-        <ReviewRow label={t('to')} value={truncateAddress(recipientAddress || '')} />
+        <ReviewRow label={t('to')} value={recipientAddress || ''} />
 
         <ReviewRow label={t('network')}>
-          <span className="flex items-center gap-2 text-base text-black font-medium">
-            <span className="w-2 h-2 rounded-full bg-primary-500" />
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
             {isBridge ? (network?.name ?? t('ethereum')) : t('miden')}
           </span>
         </ReviewRow>
 
         {isBridge ? (
           <>
-            <ReviewRow label={t('route')}>
-              <span className="flex items-center gap-2 text-base text-black font-semibold">
-                {route === 'agglayer' ? t('slow') : t('fast')}
-                <span className="text-heading-gray/50 font-medium">{arrivalLabel}</span>
-              </span>
-            </ReviewRow>
+            <ReviewRow label={t('route')} value={`${routeLabel} ${arrivalLabel}`} />
             <ReviewRow label={t('youReceive')}>
               {youReceiveLoading ? (
-                <div className="h-4 w-20 animate-pulse rounded bg-heading-gray/10" />
+                <div className="h-7 w-32 animate-pulse rounded bg-heading-gray/10" />
               ) : (
-                <span className="text-base text-black font-semibold">
-                  {youReceiveAmount != null ? `≈ ${youReceiveAmount} ${outputSymbol}` : outputSymbol}
-                </span>
+                youReceiveLabel
               )}
             </ReviewRow>
           </>
         ) : (
-          <ReviewRow label={t('expirationDate')} onEdit={() => setShowCalendar(true)} editLabel={t('edit')}>
-            <span className="text-base text-black font-semibold">{expirationLabel}</span>
+          <ReviewRow
+            label={t('expirationDate')}
+            onEdit={() => setShowCalendar(true)}
+            editLabel={t('edit')}
+            note={recallDate ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
+          >
+            {expirationLabel}
           </ReviewRow>
         )}
       </ReviewLayout>
