@@ -4,11 +4,11 @@
 
 ### Features
 
-* [FEATURE][all] **Choose among multiple Guardian providers.** A new "Choose your Guardian" picker lets you select which Guardian operator (OpenZeppelin, Gateway, or Lambda Class) co-signs your account — during create onboarding (after picking Guardian recovery), in the import flow (as quick presets alongside the custom-URL field), and in the Switch-Guardian settings screen. Previously the wallet defaulted to a single OpenZeppelin endpoint.
+* [FEATURE][all] Choose among multiple Guardian providers (OpenZeppelin, Gateway, or Lambda Class) during create onboarding, import, and Switch-Guardian settings, instead of always defaulting to OpenZeppelin.
 
 ### Fixes
 
-* [FIX][all] **Switching a Guardian operator now actually moves the account to the new endpoint.** Three problems compounded: (1) the guardian sync treated every "Refusing to overwrite local state" as a divergence and immediately re-registered on-chain state on the guardian — right after a switch the cached service is still bound to the old endpoint, so it re-`configure`d the old operator every ~3s and "healed" its blob, masking the switch; that error is normally just the guardian briefly lagging while it canonicalizes the accepted delta, so the sync now silently waits it out (bounded retry) and only re-registers as a last resort. (2) The per-account `guardianEndpoint` was only persisted by the service-worker provider, so when the frontend processed the switch the persist call silently no-op'd and the endpoint never moved — the frontend provider now persists it through the backend like the other guardian actions. (3) The Guardian Settings "Current guardian" value read a one-shot storage snapshot and never refreshed; it now reads the account's endpoint reactively so it updates the moment the switch lands.
+* [FIX][all] Switching a Guardian operator now actually moves the account to the new endpoint (front-end persists the per-account endpoint through the backend, guardian sync waits out canonicalization instead of re-registering the old operator every ~3s, and the settings screen reads the current endpoint reactively).
 
 ## 1.15.3 (2026-06-27)
 

@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
-import { DEFAULT_NETWORK, GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
@@ -17,8 +17,9 @@ export type { GuardianOption };
 
 export interface ChooseGuardianScreenProps {
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
-  // Highlight (and default-skip) the option matching this endpoint — used by
-  // GuardianSettings to mark the user's currently-active guardian.
+  // Highlight and pre-select the option matching this endpoint — used by
+  // GuardianSettings to mark (and default to) the user's currently-active
+  // guardian, so switching requires a deliberate pick of a different operator.
   currentEndpoint?: string;
   title?: string;
   description?: string;
@@ -45,32 +46,34 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const [customUrl, setCustomUrl] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
 
-  // Resolve each provider to its endpoint on the active network, dropping any
-  // provider that doesn't run a Guardian on this network.
-  const options = useMemo(
-    () =>
-      GUARDIAN_OPTIONS.filter(o => o.endpoint.has(DEFAULT_NETWORK)).map(o => ({
-        id: o.id,
-        name: o.name,
-        operatedBy: o.operatedBy,
-        location: o.location,
-        endpoint: o.endpoint.get(DEFAULT_NETWORK)!
-      })),
-    []
-  );
+  // Providers that run a Guardian on the active network, resolved to their
+  // endpoint on it.
+  const options = useMemo(() => getGuardianOptionsForNetwork(), []);
 
+  // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
+  // the CURRENT operator, so the user has to deliberately pick a different one to
+  // switch — never nudge them onto another operator by default. In the create
+  // flow (no `currentEndpoint`) default to the first provider.
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
-      const other = options.find(o => o.endpoint !== currentEndpoint);
-      if (other) return other.id;
+      const current = options.find(o => o.endpoint === currentEndpoint);
+      if (current) return current.id;
     }
     return options[0]?.id ?? '';
   }, [currentEndpoint, options]);
 
   const [selectedId, setSelectedId] = useState<string>(defaultId);
+  // Until the user makes an explicit choice, keep the selection in sync with
+  // `defaultId` so a `currentEndpoint` that resolves after mount (async store
+  // hydration) still updates the highlighted card.
+  const userSelectedRef = useRef(false);
+  useEffect(() => {
+    if (!userSelectedRef.current) setSelectedId(defaultId);
+  }, [defaultId]);
 
   const handleSelect = (id: string) => {
     hapticLight();
+    userSelectedRef.current = true;
     setSelectedId(id);
     setIsCustom(false);
   };
@@ -90,6 +93,11 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     if (!selected) return;
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
+
+  // Nothing to submit when the active network has no Guardian providers and the
+  // user isn't entering a custom URL — disable Continue rather than silently
+  // no-op'ing the tap on an empty provider grid.
+  const canContinue = isCustom || options.length > 0;
 
   return (
     <div
@@ -187,7 +195,12 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       )}
 
       <div className="w-full flex flex-col gap-4 pt-6 mt-auto shrink-0">
-        <Button title={submitLabel ?? t('continue')} onClick={handleContinue} className="w-full text-base" />
+        <Button
+          title={submitLabel ?? t('continue')}
+          onClick={handleContinue}
+          disabled={!canContinue}
+          className="w-full text-base"
+        />
       </div>
 
       <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />

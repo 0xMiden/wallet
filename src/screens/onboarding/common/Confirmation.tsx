@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import Spinner from 'app/atoms/Spinner/Spinner';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Message } from 'components/Message';
@@ -36,6 +37,20 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
 
   const showPasswordFallback = biometricAttempts >= MAX_BIOMETRIC_ATTEMPTS;
   const hasError = biometricError && biometricAttempts > 0;
+
+  // Side-panel handoff (Chrome): the wallet is still being created in the
+  // background. Show a spinner rather than the ready-state success message,
+  // otherwise the user sees "Your wallet is ready" before it actually is.
+  if (creating) {
+    return (
+      <div className="w-full h-full pt-11.5">
+        <div {...props} className="flex flex-col items-center justify-center h-full gap-y-4 bg-app-bg w-full px-6">
+          <Spinner />
+          <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
+        </div>
+      </div>
+    );
+  }
 
   const primaryButtonTitle = hasError ? t('retry') : t('getStarted');
 
@@ -85,7 +100,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
               title={primaryButtonTitle}
               className="self-center w-full text-base"
               onClick={onSubmit}
-              isLoading={isLoading || creating}
+              isLoading={isLoading}
             />
           )}
         </div>

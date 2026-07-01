@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
-import { DEFAULT_GUARDIAN_ENDPOINT, DEFAULT_NETWORK, GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { DEFAULT_GUARDIAN_ENDPOINT, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { Badge } from 'lib/ui/badge';
 import { cn } from 'lib/ui/util';
@@ -64,16 +64,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
   // Guardian providers that run on the active network, resolved to their
   // endpoint on it.
-  const guardianPresets = useMemo(
-    () =>
-      GUARDIAN_OPTIONS.filter(o => o.endpoint.has(DEFAULT_NETWORK)).map(o => ({
-        id: o.id,
-        name: o.name,
-        location: o.location,
-        endpoint: o.endpoint.get(DEFAULT_NETWORK)!
-      })),
-    []
-  );
+  const guardianPresets = useMemo(() => getGuardianOptionsForNetwork(), []);
 
   const options = useMemo(
     () => [
@@ -132,7 +123,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
                 <div className="mt-4 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
                   <div className="grid grid-cols-3 gap-2">
                     {guardianPresets.map(provider => {
-                      const isActive = !isCustomizing && endpointInput.trim() === provider.endpoint;
+                      const isActive = !isCustomizing && sanitizedEndpoint === provider.endpoint;
                       return (
                         <button
                           key={provider.id}

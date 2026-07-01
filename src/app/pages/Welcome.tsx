@@ -305,7 +305,6 @@ const Welcome: FC = () => {
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
         if (action.payload.walletType === WalletType.Guardian && action.payload.guardianEndpoint) {
-          console.log('Putting guardian endpoint to storage:', action.payload.guardianEndpoint);
           await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
         }
         setGuardianLookupError(false);

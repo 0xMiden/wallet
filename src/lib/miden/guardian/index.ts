@@ -457,7 +457,6 @@ export class MultisigService {
       this.multisig.setGuardianClient(nextGuardian);
       this.multisig.guardianPublicKey = commitment;
       this.guardianEndpoint = newGuardianEndpoint;
-      console.log('new class', this.guardianEndpoint, this.multisig.guardianPublicKey);
       await this.registerOnGuardianWithRetry(updatedStateBase64);
     } catch (error) {
       console.error('Error finalizing guardian switch:', error);
@@ -470,7 +469,6 @@ export class MultisigService {
     for (let attempt = 1; attempt <= MAX_GUARDIAN_REGISTER_RETRIES; attempt++) {
       try {
         await this.multisig.registerOnGuardian(stateBase64);
-        console.log('registred on guardian');
         return;
       } catch (error) {
         lastError = error;

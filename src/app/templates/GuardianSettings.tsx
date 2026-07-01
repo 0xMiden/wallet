@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -8,9 +8,11 @@ import {
   requestSWTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
+import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isExtension } from 'lib/platform';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { isDelegateProofEnabled, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
@@ -26,8 +28,10 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
   // Two-stage submit: first tap validates + enters confirming, second tap fires the tx.
   // switch_guardian requires the cold key (co-signed by the current guardian),
   // so the confirmation step mirrors the cold-signing acknowledgement pattern.
-  const [confirming, setConfirming] = useState(false);
   const [pendingEndpoint, setPendingEndpoint] = useState<string | null>(null);
+  // `confirming` is fully derived from `pendingEndpoint` — a pending endpoint IS
+  // the confirming state — so the two can never drift out of sync.
+  const confirming = pendingEndpoint !== null;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,7 +60,6 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
         }
 
         setSubmitSuccess(true);
-        setConfirming(false);
         setPendingEndpoint(null);
         // No manual refresh needed: completing the switch persists the new endpoint
         // and broadcasts `accountsUpdated`, so `useCurrentGuardianEndpoint` (a reactive
@@ -78,7 +81,6 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
 
       if (guardianEndpoint === currentEndpoint) {
         setError(t('guardianEndpointUnchanged'));
-        setConfirming(false);
         setPendingEndpoint(null);
         return;
       }
@@ -86,7 +88,6 @@ const GuardianSettings: FC<Props> = ({ onClose }) => {
       setError(null);
 
       if (!confirming || pendingEndpoint !== guardianEndpoint) {
-        setConfirming(true);
         setPendingEndpoint(guardianEndpoint);
         return;
       }
@@ -136,7 +137,41 @@ export default GuardianSettings;
 // `guardianEndpoint` IS the wallet's guardian. Read it straight off the store as
 // a reactive selector: when a switch persists the new endpoint and broadcasts
 // `accountsUpdated`, this re-renders on its own — no manual storage read/refresh.
+//
+// For accounts created before the per-account field existed, mirror
+// `resolveGuardianEndpoint`'s fallback to the legacy global
+// `GUARDIAN_URL_STORAGE_KEY`, otherwise the "Current guardian" display (and the
+// unchanged-endpoint guard) would misreport a legacy custom operator as the
+// default one.
 function useCurrentGuardianEndpoint(): string {
-  const guardianEndpoint = useWalletStore(s => s.currentAccount?.guardianEndpoint);
-  return sanitizeGuardianUrl(guardianEndpoint || DEFAULT_GUARDIAN_ENDPOINT);
+  const accountEndpoint = useWalletStore(s => s.currentAccount?.guardianEndpoint);
+  const [legacyEndpoint, setLegacyEndpoint] = useState<string | null>(null);
+
+  useEffect(() => {
+    // The per-account field always wins; only consult the legacy global key when
+    // the account predates it.
+    if (accountEndpoint) {
+      setLegacyEndpoint(null);
+      return;
+    }
+    let active = true;
+    fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)
+      .then(stored => {
+        if (active) setLegacyEndpoint(stored ?? null);
+      })
+      .catch(() => {
+        if (active) setLegacyEndpoint(null);
+      });
+    // Extension builds get storage-change events for free; on mobile/desktop this
+    // is a no-op cleanup.
+    const unsubscribe = onStorageChanged<string>(GUARDIAN_URL_STORAGE_KEY, next => {
+      setLegacyEndpoint(next ?? null);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [accountEndpoint]);
+
+  return sanitizeGuardianUrl(accountEndpoint || legacyEndpoint || DEFAULT_GUARDIAN_ENDPOINT);
 }

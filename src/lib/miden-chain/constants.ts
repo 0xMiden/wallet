@@ -128,6 +128,33 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
 ];
 
 /**
+ * A Guardian provider resolved to its endpoint on a specific network. Shared
+ * shape for the onboarding picker (ChooseGuardian) and the import-flow presets.
+ */
+export interface ResolvedGuardianOption {
+  id: string;
+  name: string;
+  operatedBy: string;
+  location: string;
+  endpoint: string;
+}
+
+/**
+ * Resolve GUARDIAN_OPTIONS to the providers that run a Guardian on `network`,
+ * each flattened to its endpoint on that network (in GUARDIAN_OPTIONS order).
+ * Single source of truth so the create picker and import presets can't drift.
+ */
+export function getGuardianOptionsForNetwork(network: MIDEN_NETWORK_NAME = DEFAULT_NETWORK): ResolvedGuardianOption[] {
+  return GUARDIAN_OPTIONS.filter(o => o.endpoint.has(network)).map(o => ({
+    id: o.id,
+    name: o.name,
+    operatedBy: o.operatedBy,
+    location: o.location,
+    endpoint: o.endpoint.get(network)!
+  }));
+}
+
+/**
  * All Guardian endpoints available per network, derived from GUARDIAN_OPTIONS:
  * each network maps to the list of provider endpoints that support it, in
  * GUARDIAN_OPTIONS order (so index 0 is the default provider — OpenZeppelin).
