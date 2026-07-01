@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
@@ -7,7 +8,7 @@ import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { ButtonVariant, Button } from 'components/Button';
-import { QRCode } from 'components/QRCode';
+import { QRCode, type QRCodeHandle } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -19,11 +20,30 @@ interface AddressTabProps {
   address: string;
 }
 
+const QR_FILE_NAME = 'miden-address.png';
+
+/** Reads a Blob as raw base64 (without the `data:*;base64,` prefix) for Capacitor Filesystem. */
+const blobToBase64 = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        resolve(result.slice(result.indexOf(',') + 1));
+      } else {
+        reject(new Error('Unexpected FileReader result'));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read QR image'));
+    reader.readAsDataURL(blob);
+  });
+
 export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
   const { t } = useTranslation();
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
+  const qrRef = useRef<QRCodeHandle>(null);
 
   const openBridgeDeposit = useCallback(() => {
     navigate('/bridge/deposit');
@@ -46,12 +66,36 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
 
   const handleShare = useCallback(async () => {
     hapticLight();
+
+    let qrBlob: Blob | null = null;
+    try {
+      qrBlob = (await qrRef.current?.getImageBlob()) ?? null;
+    } catch (e) {
+      console.warn('[Receive] failed to render QR image for share:', e);
+    }
+
     try {
       if (isMobile()) {
-        await Share.share({ text: address, dialogTitle: t('receive') });
+        if (qrBlob) {
+          const { uri } = await Filesystem.writeFile({
+            path: QR_FILE_NAME,
+            data: await blobToBase64(qrBlob),
+            directory: Directory.Cache
+          });
+          await Share.share({ text: address, files: [uri], dialogTitle: t('receive') });
+        } else {
+          await Share.share({ text: address, dialogTitle: t('receive') });
+        }
         return;
       }
       if (typeof navigator !== 'undefined' && navigator.share) {
+        if (qrBlob && typeof navigator.canShare === 'function') {
+          const file = new File([qrBlob], QR_FILE_NAME, { type: 'image/png' });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], text: address });
+            return;
+          }
+        }
         await navigator.share({ text: address });
         return;
       }
@@ -75,7 +119,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
             {address}
           </span>
           <div className="flex flex-col items-center justify-center gap-8">
-            <QRCode address={address} size={300} />
+            <QRCode ref={qrRef} address={address} size={300} />
             <span className="w-full rounded-10 text-center text-sm text-heading-gray py-5 bg-surface-interactive">
               {truncateAddress(address, false, 16, 8)}
             </span>
