@@ -1,0 +1,54 @@
+name: Local E2E (Chrome)
+on:
+  pull_request:
+concurrency:
+  group: local-e2e-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  chrome-local:
+    name: local-e2e (chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      E2E_NETWORK: localhost
+      MIDEN_NTX_AUTH: e2e-ntx-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo (cli + note-transport)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          key: local-e2e-cargo-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+      - run: yarn install --frozen-lockfile
+      - name: Bring up node + prover
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env -f docker-compose.local.yml up --wait --timeout 300
+      - name: Start note-transport
+        run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Build extension (localnet)
+        run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run core specs
+        run: E2E_NETWORK=localhost yarn test:e2e:blockchain:run
+      - name: Dump stack logs on failure
+        if: failure()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose -f docker-compose.local.yml logs --no-color | tail -400
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: local-e2e-report
+          path: test-results/
+      - name: Tear down
+        if: always()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose -f docker-compose.local.yml down -v || true
