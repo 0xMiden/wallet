@@ -2,7 +2,19 @@
 
 **Date:** 2026-07-01
 **Branch:** `feat/local-e2e-ci`
-**Status:** Approved design — pending implementation plan
+**Status:** Implemented in PR #305 (Tier-1 + Tier-2 both shipped in one PR).
+
+> **Implementation deltas** (this spec was written before the build; the code is authoritative):
+> - **Guardian needs Postgres.** The published `ghcr.io/openzeppelin/guardian:v0.15.0`
+>   image is postgres-backed, so the stack runs a `guardian-postgres` service — §9's
+>   "no genesis/Postgres" is wrong for the published image.
+> - **Prover host port is `:50052`, not `:50051`.** The host-network guardian binds
+>   host `:50051` for its gRPC, so the prover's host publish moved to `:50052` and the
+>   wallet's localnet proving endpoint points there (§5/§8 say `:50051`; container port
+>   is still `:50051`).
+> - **Playwright `--retries=1`** on the two CI spec steps (base config is `retries:0`);
+>   §7 said `retries: 1` as the budget, which matches.
+> - **Tier-2 guardian was folded into this PR**, not deferred to a separate "PR C" (§12).
 
 ## 1. Problem & motivation
 
@@ -126,7 +138,9 @@ Each is closed by **one green localhost run**; none blocks *starting* Tier-1:
 The "0.14-only guardian image" premise is **stale**: `ghcr.io/openzeppelin/guardian:v0.15.0`
 exists (anonymously pullable), supports `NetworkType::MidenLocal`
 (`GUARDIAN_NETWORK_TYPE=MidenLocal` → `localhost:57291`), self-generates its
-Falcon+ECDSA keystore on first boot (no genesis/Postgres). Fast-follow work:
+Falcon+ECDSA keystore on first boot (no genesis needed). **Correction (post-build):**
+the published image is postgres-backed, so a `guardian-postgres` service IS required
+(via `DATABASE_URL`) — the "no Postgres" premise below is wrong. Fast-follow work:
 
 - Add the guardian service (`--network host`, started **after** the node — eager
   connect at `.build()`), extend the gate to `guardian-send-consume`.

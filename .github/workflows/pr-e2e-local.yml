@@ -20,7 +20,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: yarn }
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned exact (NOT @stable): a required gate must not drift with upstream
+      # rustc — a newer stable can reject the pinned older CLI/transport crates and
+      # go red on unrelated PRs. Bump this deliberately (and the cache key below).
+      - uses: dtolnay/rust-toolchain@1.96.1
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
@@ -28,7 +31,9 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/registry
             ${{ runner.temp }}/note-transport/target
-          key: local-e2e-cargo-v2-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+          # rustc pin is in the key so a toolchain bump forces a clean rebuild
+          # (a binary built with a different rustc must not be reused).
+          key: local-e2e-cargo-v3-rust1.96.1-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
       - run: yarn install --frozen-lockfile
       - name: Pre-install miden-client-cli (off the per-test clock)
         run: |
@@ -46,7 +51,17 @@ jobs:
           miden-client --version
       - name: Bring up node + prover
         working-directory: playwright/e2e/local-stack
-        run: docker compose --env-file versions.env -f docker-compose.local.yml up --wait --timeout 300
+        run: |
+          # --wait-timeout caps how long --wait blocks on readiness (--timeout is the
+          # unrelated shutdown timeout). Retry the bring-up so a transient GHCR image
+          # pull failure/rate-limit doesn't fail this (to-be-required) gate.
+          for attempt in 1 2 3; do
+            docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300 && exit 0
+            echo "bring-up attempt $attempt failed; tearing down and retrying" >&2
+            docker compose --env-file versions.env -f docker-compose.local.yml down -v || true
+            sleep 10
+          done
+          exit 1
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |
@@ -70,16 +85,19 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: Run core specs
-        # --retries=2 (base config is retries:0, shared with the live E2E): the
-        # local runner is loaded, so the balance->send-UI sync occasionally
-        # exceeds the token-selector wait. A fresh retry clears the timing flake.
-        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=2
+        # --retries=1 (spec §7 budget; base config is retries:0, shared with the live
+        # E2E): a small margin for a rare balance->send-UI sync hiccup on a loaded
+        # runner. Deliberately NOT 2 -- kept at 1 so a genuine regression still fails
+        # the (to-be-required) gate rather than passing on a lucky third attempt.
+        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1
       - name: Wait for guardian (Tier-2)
         working-directory: playwright/e2e/local-stack
         run: |
-          probe() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+          # HTTP probe, not a bare TCP connect: requires the guardian to actually
+          # answer, so a momentarily-bound socket during a restart:on-failure loop
+          # can't satisfy readiness before the specs run.
           for _ in $(seq 1 120); do
-            probe 3000 && echo "guardian(3000) ready" && exit 0
+            curl -s -o /dev/null -m 2 http://127.0.0.1:3000 && echo "guardian(3000) ready" && exit 0
             sleep 2
           done
           echo "guardian HTTP (3000) not ready in time" >&2
@@ -88,9 +106,8 @@ jobs:
       - name: Run guardian specs (Tier-2)
         env:
           GUARDIAN_URL: http://localhost:3000
-        # --retries=2: the guardian test runs last on the most-loaded runner and
-        # is the most timing-sensitive (guardian co-signing before the send).
-        run: xvfb-run -a yarn test:e2e:guardian:run --retries=2
+        # --retries=1 (see core-specs note): a small margin, not a flake-masker.
+        run: xvfb-run -a yarn test:e2e:guardian:run --retries=1
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack

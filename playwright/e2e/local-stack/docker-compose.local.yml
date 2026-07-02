@@ -1,14 +1,21 @@
-# Local E2E stack — node topology (validator + sequencer + ntx-builder) + remote prover.
+# Local E2E stack — node topology (validator + sequencer + ntx-builder) + remote
+# prover, plus a Tier-2 `guardian` profile (OpenZeppelin guardian + postgres).
 #
 # Usage:
-#   docker compose --env-file versions.env -f docker-compose.local.yml up --wait --timeout 300
+#   docker compose --env-file versions.env -f docker-compose.local.yml up --wait --wait-timeout 300
+#   # Tier-2 guardian (after the node is up):
+#   docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian
 #
 # Ports exposed on 127.0.0.1 only:
 #   - node RPC (sequencer):  127.0.0.1:57291
-#   - remote prover:         127.0.0.1:50051
+#   - remote prover:         127.0.0.1:50052 (container :50051)
+# Guardian profile (network_mode: host — binds directly on the host, see below):
+#   - guardian HTTP:         :3000
+#   - guardian-postgres:     127.0.0.1:5432
 #
 # Environment variables consumed (from versions.env or the job env):
 #   NODE_IMAGE_TAG      — exact ghcr.io/0xmiden/* image tag (e.g. v0.15.0)
+#   GUARDIAN_IMAGE_TAG  — exact ghcr.io/openzeppelin/guardian tag (guardian profile)
 #   MIDEN_NTX_AUTH      — shared auth secret between sequencer ↔ ntx-builder
 #                         (defaults to 'e2e-ntx-secret'; must match on both sides)
 #
@@ -20,6 +27,9 @@
 #   4. ntx-builder: auth header from MIDEN_NTX_AUTH (must match sequencer).
 #   5. tx-prover: host :50052 -> container :50051 (guardian owns host :50051), --capacity=16.
 #   6. sequencer depends_on tx-prover:service_started so --wait blocks correctly.
+#   7. Tier-2 `guardian` profile: OpenZeppelin guardian (network_mode: host, HTTP
+#      :3000) + postgres:16 backend (:5432), gated behind the profile so the base
+#      `up --wait` skips them; started explicitly after the node is ready.
 
 services:
   bootstrap-validator:
@@ -180,6 +190,9 @@ services:
   # Both live in the `guardian` profile so the base `up --wait` (node stack) skips
   # them; the workflow starts the guardian after the node is ready.
   guardian-postgres:
+    # Floating patch tag is intentional here: this is throwaway per-run guardian
+    # state, not a Miden component — it does not need the exact-digest pinning the
+    # node/prover/CLI (versions.env) require for reproducibility.
     image: postgres:16-alpine
     profiles: ["guardian"]
     environment:
@@ -198,6 +211,11 @@ services:
     image: ghcr.io/openzeppelin/guardian:${GUARDIAN_IMAGE_TAG}
     pull_policy: if_not_present
     profiles: ["guardian"]
+    # NOTE: unlike every other service (published on 127.0.0.1 only), host networking
+    # means the guardian's HTTP :3000 and gRPC :50051 listeners bind on ALL host
+    # interfaces for the run's lifetime. Host mode is required (MidenLocal hardcodes
+    # localhost:57291 and host mode ignores `ports:`), so run the `guardian` profile
+    # only on trusted/ephemeral hosts (CI runners), not an untrusted LAN.
     network_mode: host
     restart: on-failure
     depends_on:

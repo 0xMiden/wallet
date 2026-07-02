@@ -53,20 +53,30 @@ describe('miden-chain/constants', () => {
   });
 
   describe('getGuardianOptionsForNetwork', () => {
-    it('resolves providers that run on the given network to their endpoint', () => {
+    it('resolves providers to their endpoint on the network, OpenZeppelin first', () => {
       jest.isolateModules(() => {
         const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
         const opts = getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.TESTNET);
-        expect(opts.length).toBeGreaterThan(0);
-        expect(opts[0]).toEqual(
-          expect.objectContaining({
-            id: expect.any(String),
-            name: expect.any(String),
-            operatedBy: expect.any(String),
-            location: expect.any(String),
-            endpoint: expect.stringMatching(/^https?:\/\//)
-          })
-        );
+        // More than one provider runs on testnet; opts[0] is the default (OpenZeppelin),
+        // resolved to its TESTNET endpoint (pins provider identity + per-network endpoint).
+        expect(opts.length).toBeGreaterThan(1);
+        expect(opts[0]).toMatchObject({ id: 'open-zeppelin', endpoint: 'https://guardian.openzeppelin.com' });
+      });
+    });
+
+    it('filters to the subset running on the network and resolves that network endpoint', () => {
+      jest.isolateModules(() => {
+        const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+        // Only OpenZeppelin runs a devnet guardian -> exactly one option, its devnet endpoint.
+        expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.DEVNET)).toEqual([
+          {
+            id: 'open-zeppelin',
+            name: 'Open-Zeppelin',
+            operatedBy: 'Open-Zeppelin',
+            location: 'US-EAST',
+            endpoint: 'https://guardian-stg.openzeppelin.com'
+          }
+        ]);
       });
     });
 

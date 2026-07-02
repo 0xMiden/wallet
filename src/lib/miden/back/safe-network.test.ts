@@ -28,4 +28,13 @@ describe('getCurrentMidenNetwork', () => {
     const result = await getCurrentMidenNetwork();
     expect(result?.id).toBe(DEFAULT_NETWORK);
   });
+
+  it('resolves a stored id that matches a custom network from the snapshot', async () => {
+    // Exercises the [...NETWORKS, ...customNetworksSnapshot] merge + find-by-stored-id
+    // on a network that only exists in the custom snapshot, not the built-in list.
+    const custom = { id: 'custom-net-1', name: 'Custom' };
+    mockGet.mockResolvedValue({ [NETWORK_STORAGE_ID]: 'custom-net-1', custom_networks_snapshot: [custom] });
+    const result = await getCurrentMidenNetwork();
+    expect(result?.id).toBe('custom-net-1');
+  });
 });
