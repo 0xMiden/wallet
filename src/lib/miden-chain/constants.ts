@@ -116,7 +116,9 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     location: 'US-EAST',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
-      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com']
+      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com'],
+      // Localnet dev/E2E: the OpenZeppelin guardian image run locally (HTTP :3000).
+      [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:3000']
     ])
   },
   {
@@ -185,7 +187,7 @@ export const MIDEN_GUARDIAN_ENDPOINTS: Map<string, string[]> = (() => {
 
 /**
  * Default Guardian endpoint for the active network, or '' when the network has
- * no configured Guardian (e.g. mainnet, localnet). Intentionally does NOT fall
+ * no configured Guardian (e.g. mainnet). Intentionally does NOT fall
  * back to the staging endpoint: a mainnet build silently signing Guardian
  * requests against staging would be a real security problem. Safe to use as a
  * UI default/placeholder; Guardian *operations* should call

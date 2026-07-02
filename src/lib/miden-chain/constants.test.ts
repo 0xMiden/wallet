@@ -177,7 +177,7 @@ describe('miden-chain/constants', () => {
     });
 
     it('does NOT fall back to staging on networks with no mapping (mainnet safety)', () => {
-      process.env.MIDEN_NETWORK = 'localnet';
+      process.env.MIDEN_NETWORK = 'mainnet';
       jest.isolateModules(() => {
         const { DEFAULT_GUARDIAN_ENDPOINT, IS_GUARDIAN_SUPPORTED } = require('./constants');
         expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('');
@@ -215,7 +215,8 @@ describe('miden-chain/constants', () => {
           expect(option.endpoint.size).toBeGreaterThan(0);
           for (const url of option.endpoint.values()) {
             expect(() => new URL(url)).not.toThrow();
-            expect(url.startsWith('https://')).toBe(true);
+            // https everywhere, except the localnet dev guardian (http on localhost).
+            expect(url.startsWith('https://') || url.startsWith('http://localhost:')).toBe(true);
           }
         }
       });
@@ -244,7 +245,8 @@ describe('miden-chain/constants', () => {
         ]);
         // Only OpenZeppelin runs a devnet Guardian.
         expect(MIDEN_GUARDIAN_ENDPOINTS.get('devnet')).toEqual(['https://guardian-stg.openzeppelin.com']);
-        expect(MIDEN_GUARDIAN_ENDPOINTS.has('localnet')).toBe(false);
+        // OpenZeppelin also exposes a localnet endpoint (the local guardian image).
+        expect(MIDEN_GUARDIAN_ENDPOINTS.get('localnet')).toEqual(['http://localhost:3000']);
       });
     });
   });
