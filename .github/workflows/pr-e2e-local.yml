@@ -46,10 +46,12 @@ jobs:
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: Run core specs
-        run: E2E_NETWORK=localhost yarn test:e2e:blockchain:run
+        run: xvfb-run -a yarn test:e2e:blockchain:run
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
