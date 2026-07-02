@@ -36,7 +36,7 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 
 export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
   const { t } = useTranslation();
-  const { fieldRef, copy, copied } = useCopyToClipboard();
+  const { fieldRef, copy } = useCopyToClipboard();
   const qrRef = useRef<QRCodeHandle>(null);
 
   const handleShare = useCallback(async () => {
@@ -87,38 +87,31 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
       data-testid="receive-page"
     >
       <div className="min-h-full flex flex-col">
-        <div className="flex flex-col items-center px-6 pt-8 pb-32">
+        <div className="flex flex-col items-center px-6 pt-6 pb-32">
           <FormField ref={fieldRef} value={address} style={{ display: 'none' }} />
           {/* Hidden, untruncated address for E2E DOM fallback (visible address below is truncated). */}
           <span data-testid="receive-address-full" className="sr-only">
             {address}
           </span>
-          <div className="flex flex-col items-center justify-center gap-8">
+          <div className="w-full flex flex-col items-center justify-center gap-6">
             <QRCode ref={qrRef} address={address} size={300} />
-            <span className="w-full rounded-10 text-center text-sm text-heading-gray py-5 bg-surface-interactive">
+            <span className="w-full rounded-full text-center text-base font-heading font-bold text-heading-gray py-5 bg-[#F6F4F2]">
               {truncateAddress(address, false, 16, 8)}
             </span>
           </div>
-          <div className="flex items-center gap-12 pt-4 pb-4">
-            <button
-              type="button"
-              onClick={handleShare}
-              className="flex flex-col items-center gap-4 text-accent-primary"
-            >
-              <Icon name={IconName.Share} className="w-6 h-6" />
-              <span className="text-base font-semibold text-heading-gray">{t('share')}</span>
+          <div className="w-full flex flex-col items-start gap-8 pt-6">
+            <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">
+              <Icon name={IconName.Share} size="lg" className="shrink-0" />
+              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">{t('share')}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                hapticLight();
-                copy();
-              }}
-              className="flex flex-col items-center gap-4 text-accent-primary"
-            >
-              <Icon name={IconName.Copy} className="w-6 h-6 text-accent-primary" />
-              <span className="text-base font-semibold text-heading-gray">{copied ? t('copied') : t('copy')}</span>
-            </button>
+            {/* <div className="flex items-center gap-4 text-accent-primary">
+              <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
+              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
+            </div> */}
+            <div className="flex items-center gap-4 text-accent-primary">
+              <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
+              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Cross-chain</span>
+            </div>
           </div>
         </div>
       </div>
