@@ -2,7 +2,6 @@ import React, { FC, ReactNode, useMemo } from 'react';
 
 import classNames from 'clsx';
 
-import { TokenLogo } from 'components/TokenLogo';
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { AssetMetadata } from 'lib/miden/metadata/types';
@@ -46,10 +45,10 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
       </div>
       <span className="shrink-0" aria-hidden="true">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="24" height="24" rx="12" fill="#91ACC1" />
-          <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
+          <rect width="24" height="24" rx="12" fill="#BEACD2" />
+          <path d="M6.22266 12.0879H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
           <path
-            d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
+            d="M14.6582 9.77734L17.0849 12.0885L14.6582 14.3996"
             stroke="white"
             stroke-width="2.20995"
             stroke-linecap="round"
@@ -65,17 +64,26 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
 interface ResolvedAsset {
   symbol: string;
   decimals?: number;
-  /** Symbol understood by TokenLogo (MIDEN/ETH/USDC/BTC). */
-  logoSymbol: string;
 }
 
 /**
- * Resolve a swap-side faucet to a display symbol/decimals/logo. The DEX token
+ * Two-tone swap-side amount — dark amount immediately followed by the grey
+ * symbol (".15ETH"), matching the mock's logo-less pill.
+ */
+const SwapAmountText: FC<{ amount: string; symbol: string }> = ({ amount, symbol }) => (
+  <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
+    <span className="text-heading-gray">{amount}</span>
+    <span className="text-[#808080]">{symbol}</span>
+  </span>
+);
+
+/**
+ * Resolve a swap-side faucet to a display symbol/decimals. The DEX token
  * registry is the source of truth for the fixed swap tokens (whose faucets may
  * not be present in `assetsMetadata`); fall back to wallet metadata, then to
  * the native asset.
  */
-const resolveSwapAsset = (
+export const resolveSwapAsset = (
   faucetId: string | undefined,
   assetsMetadata: Record<string, AssetMetadata> | undefined
 ): ResolvedAsset => {
@@ -83,8 +91,7 @@ const resolveSwapAsset = (
   const metadata = faucetId ? assetsMetadata?.[faucetId] : undefined;
   return {
     symbol: swapToken?.symbol ?? metadata?.symbol ?? MIDEN_METADATA.symbol,
-    decimals: swapToken?.decimals ?? metadata?.decimals,
-    logoSymbol: swapToken?.logoSymbol ?? metadata?.symbol ?? MIDEN_METADATA.symbol
+    decimals: swapToken?.decimals ?? metadata?.decimals
   };
 };
 
@@ -117,22 +124,8 @@ export const useTransactionSummaryBadgeContent = (
       if (!offeredAmount || !requestedAmount) return undefined;
 
       return {
-        lhs: (
-          <>
-            <TokenLogo symbol={offered.logoSymbol} size="sm" />
-            <span className="whitespace-nowrap">
-              {offeredAmount} {offered.symbol}
-            </span>
-          </>
-        ),
-        rhs: (
-          <>
-            <TokenLogo symbol={requested.logoSymbol} size="sm" />
-            <span className="min-w-0 truncate">
-              {requestedAmount} {requested.symbol}
-            </span>
-          </>
-        )
+        lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
+        rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />
       };
     }
 

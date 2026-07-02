@@ -11,6 +11,10 @@ export interface IHistoryEntry {
   // Optional properties
   token?: string;
   amount?: bigint;
+  /** Swap only: formatted requested-side amount, shown on the row's right. */
+  requestedAmount?: string;
+  /** Swap only: requested-side token symbol. */
+  requestedToken?: string;
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;

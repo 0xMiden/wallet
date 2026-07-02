@@ -70,12 +70,6 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   onSubmit
 }) => {
   const { t } = useTranslation();
-  const rate = (
-    <p className="font-bold text-[#9B968D] text-sm">
-      {formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice)}
-    </p>
-  );
-
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
 
   const hero = (
@@ -110,7 +104,10 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       primary={{ label: t('sendPayment'), onPress: onSubmit }}
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
-      <ReviewRow label={t('rate')}>{rate}</ReviewRow>
+      <ReviewRow
+        label={t('rate')}
+        value={formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice)}
+      />
       <ReviewRow label={t('usuallyFillsIn')} value={t('swapUsuallyFillsInValue')} />
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
