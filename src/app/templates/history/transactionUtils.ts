@@ -53,10 +53,6 @@ export const isFaucetRequest = (entry: IHistoryEntry): boolean => {
   );
 };
 
-export const isCompletedTransaction = (message: string): boolean => {
-  return message === 'Sent' || message === 'Received' || message === 'Reclaimed' || message === 'Executed';
-};
-
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;
 };

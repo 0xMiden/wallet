@@ -2,6 +2,7 @@ import React, { FC } from 'react';
 
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 
@@ -48,6 +49,13 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
           style={{ backgroundColor: TRANSACTION_COLORS.send }}
         >
           <SendIcon className={config.sendIcon} />
+        </div>
+      );
+    case 'SWAP':
+      // Purple square + white swap arrows, matching the ActivityRow treatment.
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-tx-swap`}>
+          <Icon name={IconName.Convert} size={size === 'lg' ? 'lg' : 'sm'} className="[&_path]:stroke-pure-white" />
         </div>
       );
     case 'RECEIVE':

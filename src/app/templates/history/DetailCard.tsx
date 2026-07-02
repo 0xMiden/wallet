@@ -4,8 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-
-import { isCompletedTransaction } from './transactionUtils';
+import { ITransactionStatus } from 'lib/miden/db/types';
 
 export { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 
@@ -21,13 +20,19 @@ export const ExternalLinkValue: FC<{
   </div>
 );
 
-export const StatusPill: FC<{ message: string }> = memo(({ message }) => {
+/**
+ * Confirmed / Failed / In Progress pill, driven by the transaction's actual
+ * `status` (message-string sniffing broke for types whose completion message
+ * wasn't in the known list — e.g. a completed swap's "Swapped").
+ */
+export const StatusPill: FC<{ status?: ITransactionStatus }> = memo(({ status }) => {
   const { t } = useTranslation();
-  const isCompleted = isCompletedTransaction(message);
+  const isCompleted = status === ITransactionStatus.Completed;
+  const isFailed = status === ITransactionStatus.Failed;
 
-  const dotColor = isCompleted ? 'bg-[#1A9C52]' : 'bg-blue-500';
-  const textColor = isCompleted ? 'text-[#1A9C52]' : 'text-blue-500';
-  const label = isCompleted ? t('confirmed') : t('inProgress');
+  const dotColor = isCompleted ? 'bg-[#1A9C52]' : isFailed ? 'bg-status-negative' : 'bg-blue-500';
+  const textColor = isCompleted ? 'text-[#1A9C52]' : isFailed ? 'text-status-negative' : 'text-blue-500';
+  const label = isCompleted ? t('confirmed') : isFailed ? t('failed') : t('inProgress');
 
   return (
     <div className="flex items-center gap-1 px-4 py-2 rounded-5 bg-white">

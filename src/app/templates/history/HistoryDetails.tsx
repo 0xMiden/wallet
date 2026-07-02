@@ -89,6 +89,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         key: `completed-${tx.id}`,
         timestamp: tx.completedAt,
         message: tx.displayMessage,
+        status: tx.status,
         transactionIcon: tx.displayIcon,
         amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
         token: tokenMetadata ? tokenMetadata.symbol : undefined,
@@ -211,7 +212,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               {entry.amount?.toString()} {entry.token}
             </p>
             <div className="mt-1">
-              <StatusPill message={entry.message} />
+              <StatusPill status={entry.status} />
             </div>
           </div>
 

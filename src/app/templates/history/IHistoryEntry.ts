@@ -1,4 +1,4 @@
-import { ITransactionIcon, ITransactionType } from 'lib/miden/db/types';
+import { ITransactionIcon, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
   key: string;
@@ -9,6 +9,8 @@ export interface IHistoryEntry {
   txType: ITransactionType;
 
   // Optional properties
+  /** Raw transaction status; set by the detail page for the status pill. */
+  status?: ITransactionStatus;
   token?: string;
   amount?: bigint;
   /** Swap only: formatted requested-side amount, shown on the row's right. */
