@@ -8,6 +8,7 @@
 
 ### Fixes
 
+* [FIX][all] **Custom (`execute`) dApp transactions work again.** The internal custom-proposal label defaulted to `'custom transaction'`, which the updated `@openzeppelin/miden-multisig-client` rejects (`proposalType '…' must be lowercase snake_case`), so every dApp custom transaction failed with a `WalletTransactionError`. The default is now the valid `'custom_transaction'`.
 * [FIX][build] `MIDEN_NETWORK=localhost` (the E2E localnet build token) now resolves to the `localnet` wallet network instead of throwing in `getRpcEndpoint()`.
 * [FIX][all] Switching a Guardian operator now actually moves the account to the new endpoint (front-end persists the per-account endpoint through the backend, guardian sync waits out canonicalization instead of re-registering the old operator every ~3s, and the settings screen reads the current endpoint reactively).
 
