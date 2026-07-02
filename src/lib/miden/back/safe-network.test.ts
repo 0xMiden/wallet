@@ -6,12 +6,12 @@ import { DEFAULT_NETWORK, NETWORK_STORAGE_ID } from 'lib/miden-chain/constants';
 
 import { NETWORKS } from '../networks';
 
+import { getCurrentMidenNetwork } from './safe-network';
+
 const mockGet = jest.fn();
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({ get: (keys: string[]) => mockGet(keys) })
 }));
-
-import { getCurrentMidenNetwork } from './safe-network';
 
 describe('getCurrentMidenNetwork', () => {
   beforeEach(() => {
@@ -27,6 +27,6 @@ describe('getCurrentMidenNetwork', () => {
   it('falls back to the default network when no id is stored', async () => {
     mockGet.mockResolvedValue({ [NETWORK_STORAGE_ID]: undefined, custom_networks_snapshot: undefined });
     const result = await getCurrentMidenNetwork();
-    expect(result.id).toBe(DEFAULT_NETWORK);
+    expect(result?.id).toBe(DEFAULT_NETWORK);
   });
 });
