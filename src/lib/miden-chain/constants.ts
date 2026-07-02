@@ -13,11 +13,23 @@ export enum MIDEN_NETWORK_NAME {
 }
 
 /**
+ * Resolve a raw MIDEN_NETWORK build token to a wallet network enum.
+ * The E2E harness builds the localnet bundle with MIDEN_NETWORK=localhost
+ * (its network token), but the wallet enum key is 'localnet' — normalize it
+ * so the localhost E2E build resolves endpoints instead of throwing.
+ */
+export function resolveNetworkName(raw: string | undefined): MIDEN_NETWORK_NAME {
+  if (raw === 'localhost') return MIDEN_NETWORK_NAME.LOCALNET;
+  const values = Object.values(MIDEN_NETWORK_NAME) as string[];
+  return values.includes(raw ?? '') ? (raw as MIDEN_NETWORK_NAME) : MIDEN_NETWORK_NAME.TESTNET;
+}
+
+/**
  * The default network used throughout the app.
  * Driven by the MIDEN_NETWORK env variable at build time (default: testnet).
  * Use `yarn build:devnet` to build for devnet.
  */
-export const DEFAULT_NETWORK = (process.env.MIDEN_NETWORK as MIDEN_NETWORK_NAME) || MIDEN_NETWORK_NAME.TESTNET;
+export const DEFAULT_NETWORK = resolveNetworkName(process.env.MIDEN_NETWORK);
 
 export enum MIDEN_TRANSPORT_LAYER_NAME {
   TESTNET = 'testnet',
@@ -34,7 +46,9 @@ export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
 export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://tx-prover.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://tx-prover.devnet.miden.io'],
-  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:50051']
+  // :50052, not :50051 — a locally-run guardian binds host :50051 for its gRPC,
+  // so the localnet remote prover is published on :50052 to avoid the collision.
+  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:50052']
 ]);
 
 export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
@@ -104,7 +118,9 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     location: 'US-EAST',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
       [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
-      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com']
+      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com'],
+      // Localnet dev/E2E: the OpenZeppelin guardian image run locally (HTTP :3000).
+      [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:3000']
     ])
   },
   {
@@ -173,7 +189,7 @@ export const MIDEN_GUARDIAN_ENDPOINTS: Map<string, string[]> = (() => {
 
 /**
  * Default Guardian endpoint for the active network, or '' when the network has
- * no configured Guardian (e.g. mainnet, localnet). Intentionally does NOT fall
+ * no configured Guardian (e.g. mainnet). Intentionally does NOT fall
  * back to the staging endpoint: a mainnet build silently signing Guardian
  * requests against staging would be a real security problem. Safe to use as a
  * UI default/placeholder; Guardian *operations* should call
