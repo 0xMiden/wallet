@@ -18,7 +18,7 @@
 #   2. Default genesis only — no --genesis-config-file fixture mounted.
 #   3. sequencer: ports 127.0.0.1:57291, auth header from MIDEN_NTX_AUTH, healthcheck.
 #   4. ntx-builder: auth header from MIDEN_NTX_AUTH (must match sequencer).
-#   5. tx-prover: ports 127.0.0.1:50051, --capacity=16 added.
+#   5. tx-prover: host :50052 -> container :50051 (guardian owns host :50051), --capacity=16.
 #   6. sequencer depends_on tx-prover:service_started so --wait blocks correctly.
 
 services:
@@ -103,8 +103,13 @@ services:
       - --kind=transaction
       - --port=50051
       - --capacity=16
-    # 50051 is reached only internally (node NTX -> tx-prover:50051 on the bridge);
-    # NOT published to the host, so the host-network guardian can bind host :50051.
+    # Published on host :50052 (NOT :50051): the host-network guardian binds host
+    # :50051 for its hardcoded gRPC listener, so the prover moves aside. Guardian
+    # transactions delegate proving to this endpoint, so the wallet's localnet
+    # proving URL (constants.ts) points at :50052 to match. NTX-builder still
+    # reaches the prover internally via tx-prover:50051 on the bridge.
+    ports:
+      - "127.0.0.1:50052:50051"
 
   validator:
     image: ghcr.io/0xmiden/miden-validator:${NODE_IMAGE_TAG}

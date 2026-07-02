@@ -46,7 +46,9 @@ export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
 export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://tx-prover.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://tx-prover.devnet.miden.io'],
-  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:50051']
+  // :50052, not :50051 — a locally-run guardian binds host :50051 for its gRPC,
+  // so the localnet remote prover is published on :50052 to avoid the collision.
+  [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:50052']
 ]);
 
 export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([

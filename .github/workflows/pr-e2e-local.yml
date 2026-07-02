@@ -52,10 +52,10 @@ jobs:
         run: |
           probe() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
           for _ in $(seq 1 90); do
-            probe 57291 && echo "node(57291) ready" && exit 0
+            probe 57291 && probe 50052 && echo "node(57291)+prover(50052) ready" && exit 0
             sleep 2
           done
-          echo "node RPC (57291) not ready in time" >&2
+          echo "node RPC (57291) / prover (50052) not ready in time" >&2
           docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
           exit 1
       - name: Bring up guardian (Tier-2)
