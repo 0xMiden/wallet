@@ -1,8 +1,0 @@
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"NODE_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"NODE_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"NODE_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"NODE_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"NODE_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"NODE_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"NODE_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
-time="2026-07-02T15:10:39+02:00" level=warning msg="The \"GUARDIAN_IMAGE_TAG\" variable is not set. Defaulting to a blank string."
