@@ -10,6 +10,7 @@
 
 * [FIX][build] `MIDEN_NETWORK=localhost` (the E2E localnet build token) now resolves to the `localnet` wallet network instead of throwing in `getRpcEndpoint()`.
 * [FIX][all] Switching a Guardian operator now actually moves the account to the new endpoint (front-end persists the per-account endpoint through the backend, guardian sync waits out canonicalization instead of re-registering the old operator every ~3s, and the settings screen reads the current endpoint reactively).
+* [FIX][ci] **Stress-test conservation check no longer reports phantom "notes lost".** The final balance was measured with the non-invasive `quickBalanceSnapshot()` (which never calls `fetchBalances`) while the initial baseline used `getBalance()` (which does). The settle loop's `triggerSync()` auto-consumes pending notes, moving their value out of `miden_sync_data.notes` and into the account vault — but the stale Zustand `balances` the snapshot reads never picked that value up, so every note consumed during settle dropped out of `totalReportable` and strict conservation failed with a negative whole-token delta (a harness accounting artifact, not a real loss). The settle loop now refreshes the balance projection (`refreshBalances()`) before snapshotting, matching how the initial baseline is measured.
 
 ## 1.15.3 (2026-06-27)
 
