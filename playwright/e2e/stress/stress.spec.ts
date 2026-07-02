@@ -179,6 +179,14 @@ test.describe('Stress - random send/claim', () => {
       const settleStart = Date.now();
       while (Date.now() - settleStart < SETTLE_DEADLINE_MS) {
         await Promise.all([walletA.triggerSync(), walletB.triggerSync()]);
+        // triggerSync's PROCESS_TRANSACTIONS_REQUEST auto-consumes pending
+        // notes, moving their value out of `miden_sync_data.notes` and into the
+        // account vault. Refresh the Zustand `balances` projection from that
+        // vault before snapshotting so consumed value lands in `totalReportable`
+        // — the initial baseline (getBalance) refreshes the same way. Without
+        // this, every note consumed during settle drops out of the total and
+        // strict conservation reports a phantom loss (see refreshBalances()).
+        await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
         // Read full snapshot so we can log *what's* pending if settle gets stuck.
         const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
         finalA = snapA.totalReportable;

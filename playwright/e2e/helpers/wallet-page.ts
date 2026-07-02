@@ -82,6 +82,12 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
     latestTxId?: string;
     error?: string;
   }>;
+  /**
+   * Refresh the Zustand `balances` projection from the account vault so a
+   * subsequent quickBalanceSnapshot() reflects freshly-consumed notes. See the
+   * implementation for why the stress settle loop needs this.
+   */
+  refreshBalances(): Promise<void>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
   // getGuardianAuthInfo is declared on the shared WalletPage interface (above)
@@ -554,12 +560,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    *   - does not require the Explore page to be visible
    *
    * Reads straight from the Zustand store + `chrome.storage.local`:
-   *   - `balance` = consumed vault assets (matches getBalance's first source)
+   *   - `balance` = consumed vault assets, as last projected into the store
    *   - `pendingNotes` = full list of claimable notes (id + amount)
-   *   - `totalReportable` = balance + Σ pendingNotes — matches getBalance()
+   *   - `totalReportable` = balance + Σ pendingNotes
    *   - `pendingTxCount` / `lastTxId` = wallet's recent outgoing transactions
    *
    * Safe to call every op: measured at ~50 ms per wallet.
+   *
+   * CAVEAT: because it skips `fetchBalances`, the `balance` half is only as
+   * fresh as the store's last projection. A note that has been consumed but
+   * not yet re-fetched into `state.balances` is in neither `balance` nor
+   * `pendingNotes`, so `totalReportable` transiently under-counts. Callers that
+   * need an authoritative total (e.g. a conservation assertion) must call
+   * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
   async quickBalanceSnapshot(): Promise<{
     balance: number;
@@ -853,6 +866,37 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     } catch (e) {
       console.log(`[WalletPage.getBalance] Error: ${e}`);
       return 0;
+    }
+  }
+
+  /**
+   * Refresh the Zustand `balances` projection from the account vault — the same
+   * `state.fetchBalances` call getBalance() makes, but without navigating or
+   * waiting, so it's cheap enough for the stress settle loop to call each poll.
+   *
+   * Why this exists: quickBalanceSnapshot() is deliberately non-invasive and
+   * never calls `fetchBalances`, so its `balance` half can be stale. The stress
+   * settle loop's triggerSync() fires PROCESS_TRANSACTIONS_REQUEST, which
+   * auto-consumes pending notes: a consumed note leaves `miden_sync_data.notes`
+   * (dropping out of the snapshot's fresh `pendingSum`) but its value only
+   * lands in `state.balances` after a `fetchBalances`. Without this refresh the
+   * consumed value is counted in neither bucket, so `totalReportable`
+   * under-counts and strict conservation reports a phantom loss. Calling this
+   * before the final snapshot makes it authoritative — matching the initial
+   * baseline, which uses getBalance() and so refreshes the same way.
+   */
+  async refreshBalances(): Promise<void> {
+    try {
+      await this.page.evaluate(async () => {
+        const store = (window as any).__TEST_STORE__;
+        const state = store?.getState?.();
+        if (state?.currentAccount?.publicKey && state.fetchBalances) {
+          await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
+        }
+      });
+    } catch {
+      // Best-effort: a failed refresh leaves the prior balance in place and the
+      // settle loop retries on its next poll.
     }
   }
 
