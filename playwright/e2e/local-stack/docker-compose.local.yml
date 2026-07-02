@@ -103,8 +103,8 @@ services:
       - --kind=transaction
       - --port=50051
       - --capacity=16
-    ports:
-      - "127.0.0.1:50051:50051"
+    # 50051 is reached only internally (node NTX -> tx-prover:50051 on the bridge);
+    # NOT published to the host, so the host-network guardian can bind host :50051.
 
   validator:
     image: ghcr.io/0xmiden/miden-validator:${NODE_IMAGE_TAG}
@@ -168,5 +168,45 @@ services:
       - --tx-prover.url=${MIDEN_REMOTE_PROVER_URL:-http://tx-prover:50051}
       - --data-directory=/data/ntx-builder
 
+  # --- Tier-2: local multisig guardian (HTTP :3000) ------------------------
+  # The published guardian image is postgres-backed, and MidenLocal hardcodes the
+  # node RPC to http://localhost:57291 — so the guardian shares the host network
+  # to reach the published node and to bind its HTTP :3000 (what the wallet uses).
+  # Both live in the `guardian` profile so the base `up --wait` (node stack) skips
+  # them; the workflow starts the guardian after the node is ready.
+  guardian-postgres:
+    image: postgres:16-alpine
+    profiles: ["guardian"]
+    environment:
+      - POSTGRES_USER=guardian
+      - POSTGRES_PASSWORD=guardian
+      - POSTGRES_DB=guardian
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guardian -d guardian"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  guardian:
+    image: ghcr.io/openzeppelin/guardian:${GUARDIAN_IMAGE_TAG}
+    pull_policy: if_not_present
+    profiles: ["guardian"]
+    network_mode: host
+    restart: on-failure
+    depends_on:
+      guardian-postgres:
+        condition: service_healthy
+    volumes:
+      - guardian-keystore:/var/guardian/keystore
+    environment:
+      - RUST_LOG=info
+      - GUARDIAN_ENV=dev
+      - GUARDIAN_NETWORK_TYPE=MidenLocal
+      - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
+      - DATABASE_URL=postgres://guardian:guardian@localhost:5432/guardian
+
 volumes:
   node-data:
+  guardian-keystore:
