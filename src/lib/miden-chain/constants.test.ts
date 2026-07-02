@@ -52,6 +52,32 @@ describe('miden-chain/constants', () => {
     expect(mockEndpoint.mock.calls[0][0]).toMatch(/^https?:\/\//);
   });
 
+  describe('getGuardianOptionsForNetwork', () => {
+    it('resolves providers that run on the given network to their endpoint', () => {
+      jest.isolateModules(() => {
+        const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+        const opts = getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.TESTNET);
+        expect(opts.length).toBeGreaterThan(0);
+        expect(opts[0]).toEqual(
+          expect.objectContaining({
+            id: expect.any(String),
+            name: expect.any(String),
+            operatedBy: expect.any(String),
+            location: expect.any(String),
+            endpoint: expect.stringMatching(/^https?:\/\//)
+          })
+        );
+      });
+    });
+
+    it('returns an empty list for a network with no guardian providers', () => {
+      jest.isolateModules(() => {
+        const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.MAINNET)).toEqual([]);
+      });
+    });
+  });
+
   describe('ensureSdkWasmReady', () => {
     it('delegates to MidenClient.ready()', async () => {
       await jest.isolateModulesAsync(async () => {
