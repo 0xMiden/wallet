@@ -1,35 +1,81 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 
 import classNames from 'clsx';
 
-import { useAppEnv } from 'app/env';
+import BridgeDeposit from 'app/pages/BridgeDeposit';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
+import { ReceiveStep } from 'app/pages/Receive/steps';
+import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { useAccount } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
 export interface ReceiveProps {}
+
+const ROUTES: Route[] = [
+  {
+    name: ReceiveStep.Default,
+    animationIn: 'push',
+    animationOut: 'pop'
+  },
+  {
+    // The bridge flow is a single outer card so BridgeDeposit (and the state it
+    // holds) mounts once. Its internal amount → route steps run on a nested
+    // Navigator inside EvmBridgeDepositScreen.
+    name: ReceiveStep.ShowBridgePage,
+    animationIn: 'push',
+    animationOut: 'pop'
+  }
+];
 
 /**
  * Receive surface — shows the account address (QR + copy/share). Pending
  * (claimable) notes live on their own `/pending` screen, reached from the
  * Activity header.
  */
-export const Receive: React.FC<ReceiveProps> = () => {
+const ReceiveManager: React.FC<ReceiveProps> = () => {
+  const { navigateTo, goBack, cardStack } = useNavigator();
   const account = useAccount();
   const address = account.publicKey;
-  const { fullPage, sidePanel } = useAppEnv();
 
-  // Match SendManager's container sizing - use h-full to inherit from parent (body has safe area padding).
-  const containerClass =
-    isMobile() || sidePanel
-      ? 'h-full w-full'
-      : fullPage
-        ? 'h-[640px] max-h-[640px] w-[600px] max-w-[600px]'
-        : 'h-[600px] max-h-[600px] w-[360px] max-w-[360px]';
+  useMobileBackHandler(() => {
+    if (cardStack.length > 1) {
+      goBack();
+      return true;
+    }
+    return false;
+  }, [cardStack.length, goBack]);
+
+  const openBridgeDeposit = useCallback(() => {
+    navigateTo(ReceiveStep.ShowBridgePage);
+  }, [navigateTo]);
+
+  const renderStep = useCallback(
+    (route: Route) => {
+      switch (route.name) {
+        case ReceiveStep.ShowBridgePage:
+          return <BridgeDeposit onClose={goBack} />;
+        case ReceiveStep.Default:
+        default:
+          return <AddressTab address={address} onBridgeDeposit={openBridgeDeposit} />;
+      }
+    },
+    [address, goBack, openBridgeDeposit]
+  );
 
   return (
-    <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg relative')}>
-      <AddressTab address={address} />
+    <div
+      className={classNames('h-full w-full mx-auto overflow-hidden flex flex-col bg-app-bg relative')}
+      data-testid="receive-flow"
+    >
+      <Navigator renderRoute={renderStep} />
     </div>
   );
 };
+
+const ReceiveNavigator: React.FC<ReceiveProps> = props => (
+  <NavigatorProvider routes={ROUTES} initialRouteName={ReceiveStep.Default}>
+    <ReceiveManager {...props} />
+  </NavigatorProvider>
+);
+
+export { ReceiveNavigator as Receive };

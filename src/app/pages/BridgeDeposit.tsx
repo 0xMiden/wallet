@@ -11,7 +11,11 @@ import { Button } from 'lib/ui/button';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
 
-export const BridgeDeposit: React.FC = () => {
+interface BridgeDepositProps {
+  onClose?: () => void;
+}
+
+export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const { t } = useTranslation();
   const currentMidenAccount = useWalletStore(s => s.currentAccount);
   const { open: connect } = useAppKit();
@@ -19,8 +23,12 @@ export const BridgeDeposit: React.FC = () => {
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
 
   const handleClose = useCallback(() => {
+    if (onClose) {
+      onClose();
+      return;
+    }
     navigate('/receive');
-  }, []);
+  }, [onClose]);
 
   const handleConnect = useCallback(async () => {
     hapticMedium();

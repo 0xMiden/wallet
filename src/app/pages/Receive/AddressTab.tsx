@@ -13,11 +13,11 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
-import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
   address: string;
+  onBridgeDeposit: () => void;
 }
 
 const QR_FILE_NAME = 'miden-address.png';
@@ -38,7 +38,7 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
     reader.readAsDataURL(blob);
   });
 
-export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
+export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
@@ -46,8 +46,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
   const qrRef = useRef<QRCodeHandle>(null);
 
   const openBridgeDeposit = useCallback(() => {
-    navigate('/bridge/deposit');
-  }, []);
+    onBridgeDeposit();
+  }, [onBridgeDeposit]);
 
   const handleOpenEvm = useCallback(() => {
     hapticLight();

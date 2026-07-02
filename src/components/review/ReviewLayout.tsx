@@ -27,6 +27,8 @@ export interface ReviewLayoutProps {
   children: React.ReactNode;
   primary: ReviewAction;
   secondary?: ReviewAction;
+  /** Optional message shown just above the CTAs — e.g. a failed bridge submit. */
+  error?: React.ReactNode;
 }
 
 /**
@@ -37,7 +39,14 @@ export interface ReviewLayoutProps {
  * (hero, rows) and callbacks are passed in, so each flow keeps its own confirm
  * logic while sharing one consistent layout. `pb-24` clears the floating BottomNav.
  */
-export const ReviewLayout: React.FC<ReviewLayoutProps> = ({ hero, dividers = true, children, primary, secondary }) => {
+export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
+  hero,
+  dividers = true,
+  children,
+  primary,
+  secondary,
+  error
+}) => {
   // Hide the bottom tab navbar while this review screen is mounted (no-op on
   // full-screen routes that render outside TabLayout).
   useHideNavbarWhileOpen();
@@ -53,6 +62,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({ hero, dividers = tru
       </div>
 
       <div className="shrink-0 pt-6 flex flex-col gap-y-2">
+        {error && <p className="text-center text-sm text-red-500">{error}</p>}
         <Button
           type={primary.type ?? 'button'}
           title={primary.label}

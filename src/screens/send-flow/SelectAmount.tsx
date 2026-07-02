@@ -24,6 +24,8 @@ export interface SelectAmountProps {
   network?: BridgeNetwork;
   /** Token symbol every bridged send arrives as (USDC). */
   outputSymbol?: string;
+  /** Optional custom header rendered above the amount (e.g. the bridge-deposit "wallet connected · Miden Bridge" title). */
+  title?: React.ReactNode;
   label?: React.ReactNode;
   confirmTitle?: string;
   showNetworkPill?: boolean;
@@ -58,6 +60,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   isBridge = false,
   network,
   outputSymbol,
+  title,
   label,
   confirmTitle,
   showNetworkPill = true,
@@ -156,13 +159,14 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
+        {title}
         {showNetworkPill && !isBridge && (
           <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">
             {t('miden')}
           </span>
         )}
         <AmountInput
-          label={label ?? t('selectAmount')}
+          label={label ?? (title ? undefined : t('selectAmount'))}
           value={amount}
           error={error ? t(error) : undefined}
           helper={helper}

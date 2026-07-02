@@ -16,6 +16,10 @@ export interface RouteStepProps {
   fastQuoteLoading: boolean;
   /** Whether the Slow (Agglayer) route can carry the selected token. */
   slowEnabled: boolean;
+  /** Extra message rendered below the cards (e.g. a route-specific notice). When set, it replaces the default slow-disabled hint. */
+  notice?: React.ReactNode;
+  /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
 }
 
@@ -60,6 +64,8 @@ export const Route: React.FC<RouteStepProps> = ({
   fastFeeUsd,
   fastQuoteLoading,
   slowEnabled,
+  notice,
+  confirmDisabled,
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -102,7 +108,11 @@ export const Route: React.FC<RouteStepProps> = ({
             fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
             eta={t('slowArrival')}
           />
-          {!slowEnabled && <p className="text-xs text-heading-gray/50">{t('onlyBridgeableTokenSupported')}</p>}
+          {notice ? (
+            <p className="text-xs text-heading-gray/60">{notice}</p>
+          ) : (
+            !slowEnabled && <p className="text-xs text-heading-gray/50">{t('onlyBridgeableTokenSupported')}</p>
+          )}
         </div>
       </div>
 
@@ -111,6 +121,7 @@ export const Route: React.FC<RouteStepProps> = ({
           title={t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
+          disabled={confirmDisabled}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>

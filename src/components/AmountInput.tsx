@@ -70,7 +70,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         <CurrencyInput
           ref={inputRef}
           className={classNames(
-            'w-full bg-transparent p-0 outline-none font-heading font-bold leading-none text-left text-[64px]',
+            'w-full bg-transparent p-0 outline-none font-heading font-bold leading-none text-left text-[4rem]',
             amountTextSize(value),
             error ? 'text-red-500 placeholder-red-500' : value ? 'text-black' : 'text-grey-300 placeholder-grey-300'
           )}

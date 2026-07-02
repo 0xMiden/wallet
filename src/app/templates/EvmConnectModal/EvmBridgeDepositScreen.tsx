@@ -6,21 +6,32 @@ import { useDebounce } from 'use-debounce';
 import { decodeFunctionResult, encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
 import { useWriteContract } from 'wagmi';
 
+import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
 import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
-import { BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from 'lib/epoch/bridgeable-token';
+import {
+  BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
+  BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
+  BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
+} from 'lib/epoch/bridgeable-token';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletAccount } from 'lib/shared/types';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
+import { Route as RouteStep } from 'screens/send-flow/Route';
+import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
-import { EvmBridgeDepositConfirm } from './EvmBridgeDepositConfirm';
-import { BridgeRoute, EvmBridgeDepositForm } from './EvmBridgeDepositForm';
+import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
+import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
+import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 
 const MIDEN_USDC_FAUCET_ID = '0x0a7d175ed63ec5200fb2ced86f6aa5';
-const MIDEN_USDC_FAUCET_DECIMALS = 6;
+
+/** Native-ETH source token symbol/decimals (the non-USDC deposit option). */
+const ETH_SYMBOL = 'ETH';
+const ETH_DECIMALS = 18;
 
 const MOCK_USDC_GET_BALANCE_ABI = [
   {
@@ -42,25 +53,7 @@ const ERC20_BALANCE_OF_ABI = [
   }
 ] as const;
 
-type BridgeTokenSymbol = 'USDC' | 'ETH';
 type SlowBridgeStatus = 'idle' | 'signing' | 'submitted' | 'failed';
-enum EvmBridgeDepositStep {
-  Form = 'form',
-  Confirm = 'confirm'
-}
-
-const ROUTES: Route[] = [
-  {
-    name: EvmBridgeDepositStep.Form,
-    animationIn: 'push',
-    animationOut: 'pop'
-  },
-  {
-    name: EvmBridgeDepositStep.Confirm,
-    animationIn: 'push',
-    animationOut: 'pop'
-  }
-];
 
 interface BridgeBalance {
   value: bigint | null;
@@ -82,15 +75,6 @@ interface RpcResponse {
 }
 
 const EMPTY_BALANCE: BridgeBalance = { value: null, formatted: '0', loading: true, error: null };
-
-const routeToken: Record<BridgeRoute, { symbol: BridgeTokenSymbol; decimals: number; address?: string }> = {
-  epoch: {
-    symbol: 'USDC',
-    decimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
-    address: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS
-  },
-  agglayer: { symbol: 'ETH', decimals: 18 }
-};
 
 async function rpcRequest(method: string, params: unknown[]): Promise<unknown> {
   const chain = getChain(DEFAULT_CHAIN_ID);
@@ -114,18 +98,6 @@ function formatBalance(value: bigint, decimals: number): string {
   const [whole = '0', rawFraction = ''] = formatUnits(value, decimals).split('.');
   const fraction = rawFraction.slice(0, 4).replace(/0+$/, '');
   return fraction ? `${whole}.${fraction}` : whole;
-}
-
-function formatQuoteAmount(raw: string | undefined, decimals: number): string | null {
-  if (!raw || raw === '0') return null;
-  try {
-    const human = /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
-    const [whole = '0', rawFraction = ''] = human.split('.');
-    const fraction = rawFraction.slice(0, decimals).replace(/0+$/, '');
-    return fraction ? `${whole}.${fraction}` : whole;
-  } catch {
-    return raw;
-  }
 }
 
 async function readMockUsdcBalance(evmAddress: string): Promise<bigint> {
@@ -170,14 +142,30 @@ function isValidAmount(amount: string): boolean {
   return Number.isFinite(parsed) && parsed > 0;
 }
 
-const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
-  evmAddress,
-  midenAccount,
-  onDisconnect,
-  onClose
-}) => {
-  const { navigateTo, goBack, cardStack } = useNavigator();
+// Bridge sub-flow steps. These run on a navigator nested inside this screen
+// (not the outer Receive navigator) so the manager below stays mounted across
+// the amount → route transition and keeps its state (amount, quote, route).
+const BRIDGE_ROUTES: Route[] = [
+  {
+    name: ReceiveStep.ShowBridgePageTakeAmount,
+    animationIn: 'push',
+    animationOut: 'pop'
+  },
+  {
+    name: ReceiveStep.ShowBridgePageRoute,
+    animationIn: 'push',
+    animationOut: 'pop'
+  },
+  {
+    name: ReceiveStep.ShowBridgePageReview,
+    animationIn: 'push',
+    animationOut: 'pop'
+  }
+];
+
+const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAddress, midenAccount, onClose }) => {
   const { t } = useTranslation();
+  const { navigateTo, goBack, cardStack } = useNavigator();
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
   const nativeReownAvailable = isNativeReownAvailable();
   const writeContract = useWriteContract();
@@ -191,6 +179,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const poll = useEpochStore(s => s.poll);
   const resetEpoch = useEpochStore(s => s.reset);
 
+  const [token, setToken] = useState<DepositToken>('USDC');
+  const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [route, setRoute] = useState<BridgeRoute>('epoch');
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
@@ -198,9 +188,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
   const [slowError, setSlowError] = useState<string | null>(null);
 
-  const token = routeToken[route];
-  const selectedBalance = route === 'epoch' ? usdcBalance : ethBalance;
-  const [debouncedAmount] = useDebounce(route === 'epoch' && isValidAmount(amount) ? amount.trim() : '', 500);
+  const selectedBalance = token === 'ETH' ? ethBalance : usdcBalance;
+  // Only USDC on the Fast (Epoch) route is quotable today; ETH-fast wraps to WETH
+  // (not implemented yet) and Slow (Agglayer) needs no quote.
+  const [debouncedAmount] = useDebounce(
+    token === 'USDC' && route === 'epoch' && isValidAmount(amount) ? amount.trim() : '',
+    500
+  );
 
   useMobileBackHandler(() => {
     if (cardStack.length > 1) {
@@ -252,7 +246,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [evmAddress]);
 
   useEffect(() => {
-    if (route !== 'epoch') return;
+    if (route !== 'epoch' || token !== 'USDC') return;
     if (!debouncedAmount) {
       resetEpoch();
       return;
@@ -272,7 +266,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       },
       evmAddress
     ).catch(err => console.error('[EvmBridgeDepositScreen] quote failed', err));
-  }, [debouncedAmount, evmAddress, midenAccount.publicKey, quoteEVMToMiden, resetEpoch, route]);
+  }, [debouncedAmount, evmAddress, midenAccount.publicKey, quoteEVMToMiden, resetEpoch, route, token]);
 
   useEffect(() => {
     if (epochStatus !== 'pending' || epochFlow !== 'evm-to-miden') return;
@@ -286,6 +280,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setAmount(value ?? '');
   }, []);
 
+  const handleTokenSelect = useCallback(
+    (next: DepositToken) => {
+      setToken(next);
+      setTokenDrawerOpen(false);
+      resetEpoch();
+      setSlowStatus('idle');
+      setSlowError(null);
+      // USDC can't use the native-only Slow (Agglayer) route — fall back to Fast.
+      if (next === 'USDC') setRoute('epoch');
+    },
+    [resetEpoch]
+  );
+
   const handleRouteChange = useCallback(
     (next: BridgeRoute) => {
       if (next === route) return;
@@ -297,12 +304,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [resetEpoch, route]
   );
-
-  const handleMax = useCallback(() => {
-    if (!selectedBalance.value) return;
-    hapticLight();
-    setAmount(formatUnits(selectedBalance.value, token.decimals));
-  }, [selectedBalance.value, token.decimals]);
 
   const handleSlowBridge = useCallback(async () => {
     if (!isValidAmount(amount)) return;
@@ -355,200 +356,201 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, walletProvider, writeContract]);
 
-  const fastReady = route === 'epoch' && epochFlow === 'evm-to-miden' && epochStatus === 'quoted' && !!epochQuote;
-  const slowReady = route === 'agglayer' && isValidAmount(amount) && slowStatus !== 'signing';
-  const canContinue = route === 'epoch' ? fastReady : slowReady;
-  const statusMessage = getStatusMessage(route, epochStatus, epochFlow, slowStatus);
+  const setupReady = isValidAmount(amount);
+  const setupToken: UIToken = useMemo(() => {
+    if (token === 'ETH') {
+      return {
+        id: ETH_SYMBOL,
+        name: ETH_SYMBOL,
+        decimals: ETH_DECIMALS,
+        balance: ethBalance.value === null ? 0 : Number(formatUnits(ethBalance.value, ETH_DECIMALS)),
+        // No reliable testnet ETH price; fiatPrice 0 keeps the review from showing a bogus ≈USD.
+        fiatPrice: 0
+      };
+    }
+    return {
+      id: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
+      name: BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+      decimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
+      balance:
+        usdcBalance.value === null ? 0 : Number(formatUnits(usdcBalance.value, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)),
+      fiatPrice: 1
+    };
+  }, [token, ethBalance.value, usdcBalance.value]);
+
+  // Route availability is token-driven: Fast (Epoch) only bridges USDC today
+  // (ETH-fast needs WETH wrapping — not built), and Slow (Agglayer) only bridges
+  // native ETH on testnet.
+  const slowEnabled = token === 'ETH';
+  const fastReady =
+    route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'quoted' && !!epochQuote;
+  const slowReady = route === 'agglayer' && token === 'ETH' && isValidAmount(amount) && slowStatus !== 'signing';
+  const canConfirmRoute = route === 'epoch' ? fastReady : slowReady;
+  const fastFeeUsd = useMemo(() => {
+    if (!amount || !epochQuote?.quoteResult.tokenOut) return undefined;
+    try {
+      const input = parseFloat(amount);
+      const output = parseFloat(
+        formatUnits(BigInt(epochQuote.quoteResult.tokenOut), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)
+      );
+      if (!Number.isFinite(input) || !Number.isFinite(output)) return undefined;
+      return Math.max(0, input - output);
+    } catch {
+      return undefined;
+    }
+  }, [amount, epochQuote?.quoteResult.tokenOut]);
   const error = route === 'epoch' && epochFlow === 'evm-to-miden' ? epochError : slowError;
-  const routeLabel = route === 'epoch' ? 'Instant' : 'Slow';
-  const epochReturnAmount = useMemo(() => {
-    if (route !== 'epoch' || epochFlow !== 'evm-to-miden') return null;
-    return formatQuoteAmount(String(epochQuote?.quoteResult.tokenOut ?? ''), MIDEN_USDC_FAUCET_DECIMALS);
-  }, [epochFlow, epochQuote?.quoteResult.tokenOut, route]);
-  const receiveLabel = epochReturnAmount ? `~${epochReturnAmount} USDC` : null;
-  const quoteHint =
-    route === 'epoch' && (epochStatus === 'quoting' || receiveLabel)
-      ? receiveLabel
-        ? `You receive ${receiveLabel}`
-        : 'Getting return quote...'
-      : null;
+
+  // Forward-quoted output the recipient receives on Miden, shown on the Review
+  // step. Fast (Epoch) reads the solver quote's tokenOut; Slow (Agglayer) bridges
+  // the dedicated token 1:1.
+  const outputAmount = useMemo(() => {
+    if (route === 'agglayer') return isValidAmount(amount) ? amount : undefined;
+    const raw = epochQuote?.quoteResult.tokenOut;
+    if (raw == null) return undefined;
+    try {
+      const human = formatUnits(BigInt(String(raw)), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
+      const n = Number(human);
+      return Number.isFinite(n) ? n.toFixed(2) : human;
+    } catch {
+      return undefined;
+    }
+  }, [route, amount, epochQuote?.quoteResult.tokenOut]);
+
+  const networkName = getChain(DEFAULT_CHAIN_ID)?.name ?? '';
+
+  // Route-screen hint below the cards: for USDC explain why Slow is disabled;
+  // for ETH+Fast inform that it wraps to WETH (and isn't available yet).
+  const routeNotice =
+    token === 'USDC' ? t('slowNeedsNativeEth') : route === 'epoch' ? t('fastEthWrapNotice') : undefined;
+
+  // Review-step confirm state: spin while the submit is signing, and block
+  // re-submits once it's in flight / done.
+  const submitting = route === 'epoch' ? epochStatus === 'signing' : slowStatus === 'signing';
+  const submitted =
+    route === 'epoch' ? epochStatus === 'pending' || epochStatus === 'done' : slowStatus === 'submitted';
+  const reviewCanConfirm = canConfirmRoute && !submitting && !submitted;
 
   const handleContinue = useCallback(() => {
-    if (!canContinue) return;
+    if (!setupReady) return;
     hapticMedium();
-    navigateTo(EvmBridgeDepositStep.Confirm);
-  }, [canContinue, navigateTo]);
+    navigateTo(ReceiveStep.ShowBridgePageRoute);
+  }, [navigateTo, setupReady]);
+
+  // From the Route step: proceed to Review (once the route is confirmable) rather
+  // than submitting directly. The Review step's Confirm runs handleConfirm.
+  const handleContinueToReview = useCallback(() => {
+    if (!canConfirmRoute) return;
+    hapticMedium();
+    navigateTo(ReceiveStep.ShowBridgePageReview);
+  }, [canConfirmRoute, navigateTo]);
 
   const handleConfirm = useCallback(() => {
-    if (!canContinue) return;
+    if (!canConfirmRoute) return;
     if (route === 'agglayer') {
       handleSlowBridge();
       return;
     }
     hapticMedium();
     executeEVMToMiden().catch(err => console.error('[EvmBridgeDepositScreen] execute failed', err));
-  }, [canContinue, executeEVMToMiden, handleSlowBridge, route]);
-
-  const subtitle = useMemo(
-    () =>
-      selectedBalance.loading
-        ? `~ $0.00 - Loading ${token.symbol} balance`
-        : `~ $0.00 - Available ${selectedBalance.formatted} ${token.symbol}`,
-    [selectedBalance.formatted, selectedBalance.loading, token.symbol]
-  );
+  }, [canConfirmRoute, executeEVMToMiden, handleSlowBridge, route]);
 
   const renderStep = useCallback(
     (activeRoute: Route) => {
       switch (activeRoute.name) {
-        case EvmBridgeDepositStep.Confirm:
+        case ReceiveStep.ShowBridgePageReview:
           return (
-            <EvmBridgeDepositConfirm
+            <EvmBridgeDepositReview
               amount={amount}
-              tokenSymbol={token.symbol}
-              midenAccountName={midenAccount.name}
-              routeLabel={routeLabel}
-              receiveLabel={receiveLabel}
-              statusMessage={statusMessage}
-              error={error}
-              confirmLabel={getConfirmLabel(route, epochStatus, epochFlow, slowStatus)}
-              confirmDisabled={!canContinue || slowStatus === 'submitted' || epochStatus === 'done'}
-              closeLabel={t('close')}
-              onBack={goBack}
-              onClose={onClose}
+              symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
+              fiat={token === 'USDC' ? Number(amount) : undefined}
+              route={route}
+              outputAmount={outputAmount}
+              networkName={networkName}
+              youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
+              isSubmitting={submitting}
+              canConfirm={reviewCanConfirm}
+              error={error ?? undefined}
               onConfirm={handleConfirm}
+              onBack={goBack}
             />
           );
-        case EvmBridgeDepositStep.Form:
+        case ReceiveStep.ShowBridgePageRoute:
+          return (
+            <RouteStep
+              route={route}
+              onRouteChange={handleRouteChange}
+              fastFeeUsd={fastFeeUsd}
+              fastQuoteLoading={route === 'epoch' && epochStatus === 'quoting'}
+              slowEnabled={slowEnabled}
+              notice={routeNotice}
+              confirmDisabled={!canConfirmRoute}
+              onConfirm={handleContinueToReview}
+            />
+          );
+        case ReceiveStep.ShowBridgePageTakeAmount:
         default:
           return (
             <EvmBridgeDepositForm
-              evmAddress={evmAddress}
+              token={setupToken}
               amount={amount}
-              tokenSymbol={token.symbol}
-              subtitle={subtitle}
-              route={route}
-              quoteHint={quoteHint}
-              statusMessage={statusMessage}
-              error={error}
-              balanceError={selectedBalance.error}
-              maxDisabled={!selectedBalance.value}
-              continueLabel={getContinueLabel(route, epochStatus, epochFlow, slowStatus)}
-              continueDisabled={!canContinue || slowStatus === 'submitted' || epochStatus === 'done'}
-              closeLabel={t('close')}
-              disconnectLabel={t('disconnect')}
+              isValidAmount={setupReady}
+              error={error ?? selectedBalance.error ?? undefined}
               onAmountChange={handleAmountChange}
-              onMax={handleMax}
-              onRouteChange={handleRouteChange}
+              onSelectToken={() => setTokenDrawerOpen(true)}
               onContinue={handleContinue}
-              onDisconnect={onDisconnect}
-              onClose={onClose}
             />
           );
       }
     },
     [
       amount,
-      canContinue,
       error,
-      epochFlow,
       epochStatus,
-      evmAddress,
-      goBack,
+      fastFeeUsd,
       handleAmountChange,
       handleConfirm,
       handleContinue,
-      handleMax,
+      handleContinueToReview,
       handleRouteChange,
-      midenAccount.name,
-      onClose,
-      onDisconnect,
-      quoteHint,
-      receiveLabel,
       route,
-      routeLabel,
+      token,
+      slowEnabled,
+      routeNotice,
+      canConfirmRoute,
+      outputAmount,
+      networkName,
+      submitting,
+      reviewCanConfirm,
+      goBack,
+      setupToken,
       selectedBalance.error,
-      selectedBalance.value,
-      slowStatus,
-      statusMessage,
-      subtitle,
-      t,
-      token.symbol
+      setupReady
     ]
   );
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-heading-gray">
       <Navigator renderRoute={renderStep} />
+      <EvmBridgeTokenDrawer
+        open={tokenDrawerOpen}
+        onOpenChange={setTokenDrawerOpen}
+        selected={token}
+        ethBalance={ethBalance.formatted}
+        usdcBalance={usdcBalance.formatted}
+        ethLoading={ethBalance.loading}
+        usdcLoading={usdcBalance.loading}
+        onSelect={handleTokenSelect}
+      />
     </div>
   );
 };
 
 export const EvmBridgeDepositScreen: React.FC<EvmBridgeDepositScreenProps> = props => (
-  <NavigatorProvider routes={ROUTES} initialRouteName={EvmBridgeDepositStep.Form}>
+  <NavigatorProvider routes={BRIDGE_ROUTES} initialRouteName={ReceiveStep.ShowBridgePageTakeAmount}>
     <EvmBridgeDepositManager {...props} />
   </NavigatorProvider>
 );
-
-function getStatusMessage(
-  route: BridgeRoute,
-  epochStatus: ReturnType<typeof useEpochStore.getState>['status'],
-  epochFlow: ReturnType<typeof useEpochStore.getState>['flow'],
-  slowStatus: SlowBridgeStatus
-): string | null {
-  if (route === 'agglayer') {
-    if (slowStatus === 'signing') return 'Approve the bridge in your wallet.';
-    if (slowStatus === 'submitted') return 'Bridge submitted. Track progress in Activity.';
-    return null;
-  }
-
-  if (epochFlow !== 'evm-to-miden') return null;
-  if (epochStatus === 'quoting') return 'Getting quote...';
-  if (epochStatus === 'signing') return 'Approve the bridge in your wallet.';
-  if (epochStatus === 'pending') return 'Bridge in progress...';
-  if (epochStatus === 'done') return 'Bridge complete.';
-  return null;
-}
-
-function getContinueLabel(
-  route: BridgeRoute,
-  epochStatus: ReturnType<typeof useEpochStore.getState>['status'],
-  epochFlow: ReturnType<typeof useEpochStore.getState>['flow'],
-  slowStatus: SlowBridgeStatus
-): string {
-  if (route === 'agglayer') {
-    if (slowStatus === 'signing') return 'Approving...';
-    if (slowStatus === 'submitted') return 'Submitted';
-    return 'Continue';
-  }
-
-  if (epochFlow === 'evm-to-miden') {
-    if (epochStatus === 'quoting') return 'Getting quote...';
-    if (epochStatus === 'signing') return 'Approving...';
-    if (epochStatus === 'pending') return 'Bridging...';
-    if (epochStatus === 'done') return 'Done';
-  }
-  return 'Continue';
-}
-
-function getConfirmLabel(
-  route: BridgeRoute,
-  epochStatus: ReturnType<typeof useEpochStore.getState>['status'],
-  epochFlow: ReturnType<typeof useEpochStore.getState>['flow'],
-  slowStatus: SlowBridgeStatus
-): string {
-  if (route === 'agglayer') {
-    if (slowStatus === 'signing') return 'Approving...';
-    if (slowStatus === 'submitted') return 'Submitted';
-    return 'Confirm & Bridge';
-  }
-
-  if (epochFlow === 'evm-to-miden') {
-    if (epochStatus === 'signing') return 'Approving...';
-    if (epochStatus === 'pending') return 'Bridging...';
-    if (epochStatus === 'done') return 'Done';
-  }
-  return 'Confirm & Bridge';
-}
 
 function errorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
