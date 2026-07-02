@@ -142,12 +142,10 @@ services:
       - --rpc.network-tx-auth-header-value=${MIDEN_NTX_AUTH:-e2e-ntx-secret}
     ports:
       - "127.0.0.1:57291:57291"
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 57291 || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 60
-      start_period: 15s
+    # No custom healthcheck: the miden-node image ships its own HEALTHCHECK
+    # (like the sibling validator/ntx-builder/prover images). Overriding it with
+    # `nc` fails because the minimal image has no netcat. Runner-side readiness
+    # is gated by the workflow's "Wait for node RPC" step.
 
   ntx-builder:
     image: ghcr.io/0xmiden/miden-ntx-builder:${NODE_IMAGE_TAG}
