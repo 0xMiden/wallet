@@ -70,7 +70,10 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: Run core specs
-        run: xvfb-run -a yarn test:e2e:blockchain:run
+        # --retries=2 (base config is retries:0, shared with the live E2E): the
+        # local runner is loaded, so the balance->send-UI sync occasionally
+        # exceeds the token-selector wait. A fresh retry clears the timing flake.
+        run: xvfb-run -a yarn test:e2e:blockchain:run --retries=2
       - name: Wait for guardian (Tier-2)
         working-directory: playwright/e2e/local-stack
         run: |
@@ -85,7 +88,9 @@ jobs:
       - name: Run guardian specs (Tier-2)
         env:
           GUARDIAN_URL: http://localhost:3000
-        run: xvfb-run -a yarn test:e2e:guardian:run
+        # --retries=2: the guardian test runs last on the most-loaded runner and
+        # is the most timing-sensitive (guardian co-signing before the send).
+        run: xvfb-run -a yarn test:e2e:guardian:run --retries=2
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
