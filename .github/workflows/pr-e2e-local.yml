@@ -26,8 +26,17 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/registry
             ${{ runner.temp }}/note-transport/target
-          key: local-e2e-cargo-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+          key: local-e2e-cargo-v2-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
       - run: yarn install --frozen-lockfile
+      - name: Pre-install miden-client-cli (off the per-test clock)
+        run: |
+          # The harness auto-installs the CLI lazily on first use, but that ~7min
+          # compile blows the 300s per-test timeout. Pre-install the SAME pinned
+          # rev here so the harness's `miden-client --version` check short-circuits.
+          url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
+          rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
+          cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          miden-client --version
       - name: Bring up node + prover
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml up --wait --timeout 300
