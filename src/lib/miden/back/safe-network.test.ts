@@ -5,7 +5,6 @@
 import { DEFAULT_NETWORK, NETWORK_STORAGE_ID } from 'lib/miden-chain/constants';
 
 import { NETWORKS } from '../networks';
-
 import { getCurrentMidenNetwork } from './safe-network';
 
 const mockGet = jest.fn();
