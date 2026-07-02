@@ -3,7 +3,7 @@ import React, { FC, ReactNode } from 'react';
 import classNames from 'clsx';
 import { motion } from 'framer-motion';
 
-import { springs } from 'lib/animation';
+import { easings } from 'lib/animation/easings';
 import { hapticSelection } from 'lib/mobile/haptics';
 
 export interface SegmentedActionBarItem {
@@ -20,6 +20,17 @@ export interface SegmentedActionBarProps {
   /** Shared layoutId namespace. Override if multiple bars mount simultaneously. */
   layoutId?: string;
 }
+
+const segmentedTransition = {
+  duration: 0.24,
+  ease: easings.easeInOut
+};
+
+const labelTransition = {
+  duration: 0.12,
+  delay: 0.1,
+  ease: easings.easeInOut
+};
 
 export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
   items,
@@ -57,14 +68,22 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
               <motion.span
                 layoutId={layoutId}
                 className="absolute inset-0 rounded-[22px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
-                transition={springs.pill}
+                transition={segmentedTransition}
               />
             )}
             <span className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
               {item.icon}
             </span>
             {isActive && (
-              <span className="relative whitespace-nowrap text-base font-bold leading-none">{item.label}</span>
+              <motion.span
+                key={`${item.id}-label`}
+                className="relative whitespace-nowrap text-base font-bold leading-none"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={labelTransition}
+              >
+                {item.label}
+              </motion.span>
             )}
           </button>
         );

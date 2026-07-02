@@ -37,25 +37,27 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
   return (
     <div
       className={classNames(
-        'flex w-full items-center justify-center gap-2 rounded-2xl border border-[#ECEBE8] bg-surface-solid py-4 text-base',
+        'flex w-full items-center justify-center gap-2 rounded-full bg-surface-interactive py-4 text-base',
         className
       )}
     >
-      <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap font-semibold text-heading-gray text-base">
+      <div className="flex shrink-0 font-heading items-center gap-1.5 whitespace-nowrap font-extrabold text-heading-gray text-xl">
         {lhs}
       </div>
-      <span className="shrink-0 text-[#8E8E93]" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <span className="shrink-0" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="24" height="24" rx="12" fill="#91ACC1" />
+          <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
           <path
-            d="M5 12h13M12.5 6l6 6-6 6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
+            stroke="white"
+            stroke-width="2.20995"
+            stroke-linecap="round"
+            stroke-linejoin="round"
           />
         </svg>
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-medium text-heading-gray text-base">{rhs}</div>
+      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading">{rhs}</div>
     </div>
   );
 };
@@ -141,7 +143,7 @@ export const useTransactionSummaryBadgeContent = (
     const amount =
       transaction.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
     const recipient = transaction.secondaryAccountId
-      ? truncateAddress(transaction.secondaryAccountId, true, 6, 4, 4)
+      ? truncateAddress(transaction.secondaryAccountId, false, 8, 8)
       : undefined;
 
     if (!amount || !recipient) return undefined;

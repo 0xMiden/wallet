@@ -29,8 +29,10 @@ import { logger } from 'shared/logger';
 import {
   ConsumeTransaction,
   ITransaction,
+  ITransactionStepTimings,
   ITransactionStage,
   ITransactionStatus,
+  ITransactionTimedStep,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -841,9 +843,69 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
 
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
+    if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
+      closeOpenStepTimings(t);
+    }
     t.status = status;
   });
 };
+
+const TIMED_TRANSACTION_STEPS: ITransactionTimedStep[] = ['guardian-approving', 'generating-proof'];
+
+const isFinalTransactionStatus = (status: ITransactionStatus) =>
+  status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
+
+const closeOpenStepTimings = (tx: ITransaction, endedAt = Date.now()) => {
+  if (!tx.stepTimings) return;
+
+  let nextStepTimings: ITransactionStepTimings | undefined;
+
+  for (const step of TIMED_TRANSACTION_STEPS) {
+    const timing = tx.stepTimings[step];
+    if (!timing || timing.endedAt !== undefined) continue;
+
+    nextStepTimings = nextStepTimings ?? { ...tx.stepTimings };
+    nextStepTimings[step] = { ...timing, endedAt };
+  }
+
+  if (nextStepTimings) {
+    tx.stepTimings = nextStepTimings;
+  }
+};
+
+export const createTransactionStepTimer = (id: string) => ({
+  startTime: async (step: ITransactionTimedStep) => {
+    const startedAt = Date.now();
+
+    await Repo.transactions.where({ id }).modify(tx => {
+      if (isFinalTransactionStatus(tx.status)) return;
+
+      const stepTimings = tx.stepTimings ?? {};
+      const current = stepTimings[step];
+      if (current?.startedAt && current.endedAt === undefined) return;
+
+      tx.stepTimings = {
+        ...stepTimings,
+        [step]: { startedAt }
+      };
+    });
+  },
+  endTime: async (step: ITransactionTimedStep) => {
+    const endedAt = Date.now();
+
+    await Repo.transactions.where({ id }).modify(tx => {
+      if (isFinalTransactionStatus(tx.status)) return;
+
+      const current = tx.stepTimings?.[step];
+      if (!current || current.endedAt !== undefined) return;
+
+      tx.stepTimings = {
+        ...(tx.stepTimings ?? {}),
+        [step]: { ...current, endedAt }
+      };
+    });
+  }
+});
 
 /**
  * Informational stage write. Called at phase boundaries inside
@@ -1169,25 +1231,33 @@ export const generateTransaction = async (
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply)
   dtag('about to acquire withWasmClientLock for tx dispatch');
-  const result = await withWasmClientLock(async () => {
-    dtag('acquired tx lock; calling midenClient dispatch');
-    const midenClient = await getMidenClient(options);
-    switch (transaction.type) {
-      case 'send':
-        return await midenClient.sendTransaction(transaction as SendTransaction);
-      case 'consume':
-        return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
-      case 'swap':
-        return await midenClient.swapTransaction(transaction as SwapTransaction);
-      case 'execute':
-      default:
-        return await midenClient.newTransaction(
-          transaction.accountId,
-          transaction.requestBytes!,
-          transaction.delegateTransaction
-        );
+  const stepTimer = createTransactionStepTimer(transaction.id);
+  await stepTimer.startTime('generating-proof');
+  const result = await (async () => {
+    try {
+      return await withWasmClientLock(async () => {
+        dtag('acquired tx lock; calling midenClient dispatch');
+        const midenClient = await getMidenClient(options);
+        switch (transaction.type) {
+          case 'send':
+            return await midenClient.sendTransaction(transaction as SendTransaction);
+          case 'consume':
+            return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
+          case 'swap':
+            return await midenClient.swapTransaction(transaction as SwapTransaction);
+          case 'execute':
+          default:
+            return await midenClient.newTransaction(
+              transaction.accountId,
+              transaction.requestBytes!,
+              transaction.delegateTransaction
+            );
+        }
+      });
+    } finally {
+      await stepTimer.endTime('generating-proof');
     }
-  });
+  })();
   dtag('tx dispatch completed');
 
   switch (transaction.type) {
@@ -1240,10 +1310,12 @@ const generateGuardianTransaction = async (
   guardianProvider: GuardianAccountProvider
 ): Promise<void> => {
   console.log('Generating Guardian transaction');
+  const stepTimer = createTransactionStepTimer(transaction.id);
   // Set the stage eagerly — `getOrCreateMultisigService` and the subsequent
   // `createXxxProposal` call can both hit the guardian over the network,
   // so surfacing "Creating proposal" immediately is more honest than
   // leaving the label stuck on "Sending transaction".
+  await stepTimer.startTime('guardian-approving');
   await setTransactionStage(transaction.id, 'creating-proposal');
 
   let proposalResult: Proposal;
@@ -1423,6 +1495,7 @@ const generateGuardianTransaction = async (
   }
 
   const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+  await stepTimer.endTime('guardian-approving');
   console.log('Created transaction request from proposal, submitting to Miden client');
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -1433,19 +1506,27 @@ const generateGuardianTransaction = async (
     }
   };
 
-  await setTransactionStage(transaction.id, 'submitting');
-  const transactionResult = await withWasmClientLock(async () => {
+  await setTransactionStage(transaction.id, 'sending');
+  await stepTimer.startTime('generating-proof');
+  const transactionResult = await (async () => {
     try {
-      const midenClient = await getMidenClient(options);
-      const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
-        prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+      return await withWasmClientLock(async () => {
+        try {
+          const midenClient = await getMidenClient(options);
+          const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
+            prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+          });
+          return result;
+        } catch (error) {
+          console.error('Error during transaction submission or execution', { error });
+          throw error;
+        }
       });
-      return result;
-    } catch (error) {
-      console.error('Error during transaction submission or execution', { error });
-      throw error;
+    } finally {
+      await stepTimer.endTime('generating-proof');
     }
-  });
+  })();
+  await setTransactionStage(transaction.id, 'submitting');
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
@@ -1549,6 +1630,7 @@ export const cancelTransaction = async (transaction: Transaction, error: any) =>
 
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
+    closeOpenStepTimings(dbTx);
     dbTx.status = ITransactionStatus.Failed;
     dbTx.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     dbTx.displayMessage = 'Failed';

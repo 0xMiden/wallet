@@ -1,6 +1,5 @@
 import React from 'react';
 
-import { format } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
@@ -71,7 +70,6 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   onSubmit
 }) => {
   const { t } = useTranslation();
-  const today = format(new Date(), 'dd.MM.yy');
   const rate = (
     <p className="font-bold text-[#9B968D] text-sm">
       {formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice)}
@@ -106,8 +104,6 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
 
   return (
     <ReviewLayout
-      title={t('reviewSwapDetails')}
-      date={today}
       hero={hero}
       heroDivider={false}
       dividers={false}

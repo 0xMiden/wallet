@@ -25,8 +25,12 @@ export const ReviewAmount: React.FC<ReviewAmountProps> = ({ symbol, amount, fiat
 
   return (
     <div>
-      {label && <div className="font-heading text-base font-medium text-[#808080]">{label}</div>}
-      <div className="flex items-center gap-2 mt-2">
+      {label && (
+        <div className="text-2xl text-[#808080] font-heading p-2 bg-[#F9F9F9] rounded-full font-bold w-fit">
+          {label}
+        </div>
+      )}
+      <div className="flex items-center gap-2 mt-3">
         <TokenLogo symbol={logoSymbol ?? symbol} size="md" />
         <span className="font-heading text-[40px] font-extrabold text-heading-gray leading-none">
           {amount} {symbol}

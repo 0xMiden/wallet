@@ -601,9 +601,10 @@ describe('GeneratingTransaction stage + state rendering', () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
     );
-    expect(container.textContent).toContain('success');
+    // No completed transaction data → the generic success title (send-typed
+    // transactions get "Payment Sent!"). The redesigned screen has no header
+    // title and no description paragraph.
     expect(container.textContent).toContain('transactionComplete');
-    expect(container.textContent).toContain('transactionSuccessDescription');
     act(() => root.unmount());
   });
 

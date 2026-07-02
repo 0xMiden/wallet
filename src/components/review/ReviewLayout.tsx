@@ -3,7 +3,7 @@ import React from 'react';
 import classNames from 'clsx';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 
 export interface ReviewAction {
   label: string;
@@ -15,12 +15,6 @@ export interface ReviewAction {
 }
 
 export interface ReviewLayoutProps {
-  /** Used for both the header and the in-content section label. */
-  title: string;
-  /** Small date caption above the title, e.g. "06.06.26". */
-  date?: string;
-  onBack?: () => void;
-  backLabel?: string;
   /** Hero block — a ReviewAmount (send) or a composed swap hero. */
   hero: React.ReactNode;
   /** Orange underline under the hero. Default true (send); pass false for swap (its hero owns its dividers). */
@@ -34,40 +28,36 @@ export interface ReviewLayoutProps {
 }
 
 /**
- * Shared shell for review/confirmation screens: header → date → title → hero →
- * orange divider → detail rows → primary/secondary CTAs. Flow-specific content
+ * Shared shell for review/confirmation screens: hero → orange divider → detail
+ * rows → primary/secondary CTAs, all in one scrolling column (the CTAs flow at
+ * the end of the content, not a sticky footer). There is no screen header; back
+ * is reached via the secondary CTA (or native mobile back). Flow-specific content
  * (hero, rows) and callbacks are passed in, so each flow keeps its own confirm
- * logic while sharing one consistent layout. CTA buttons clear the floating
- * BottomNav via pb-24.
+ * logic while sharing one consistent layout. `pb-24` clears the floating BottomNav.
  */
 export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
-  title,
-  date,
-  onBack,
-  backLabel,
   hero,
   heroDivider = true,
   dividers = true,
   children,
   primary,
   secondary
-}) => (
-  <div className="flex flex-col h-full min-h-0 bg-app-bg">
-    <ScreenHeader title={title} onBack={onBack} backLabel={backLabel} className="px-4" />
+}) => {
+  // Hide the bottom tab navbar while this review screen is mounted (no-op on
+  // full-screen routes that render outside TabLayout).
+  useHideNavbarWhileOpen();
 
-    <div className="flex flex-col flex-1 min-h-0 px-6">
-      <div className="flex-1 overflow-y-auto no-scrollbar pt-8">
-        {date && <p className="text-sm text-heading-gray/50">{date}</p>}
-        <p className="font-heading text-xl font-bold text-[#808080] mt-1">{title}</p>
-
+  return (
+    <div className="flex flex-col h-full min-h-0 bg-app-bg px-4 pt-6 pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
         {hero}
 
-        {heroDivider && <div className="my-4 h-1.75 w-full rounded-full bg-primary-500" />}
+        {heroDivider && <div className="mt-4 h-2 w-full rounded-full bg-primary-500" />}
 
-        <div className={classNames('pt-5', dividers && 'divide-y divide-border-light')}>{children}</div>
+        <div className={classNames(dividers && 'divide-y divide-[#F1F1F1]')}>{children}</div>
       </div>
 
-      <div className="shrink-0 pt-4 pb-24 flex flex-col gap-y-2">
+      <div className="shrink-0 pt-6 flex flex-col gap-y-2">
         <Button
           type={primary.type ?? 'button'}
           title={primary.label}
@@ -87,5 +77,5 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
         )}
       </div>
     </div>
-  </div>
-);
+  );
+};

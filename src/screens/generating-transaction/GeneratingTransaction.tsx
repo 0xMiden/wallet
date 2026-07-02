@@ -17,7 +17,14 @@ import {
   getFailedTransactions,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
-import { ITransaction, ITransactionStage, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
+import {
+  ITransaction,
+  ITransactionStage,
+  ITransactionStatus,
+  ITransactionStepTiming,
+  ITransactionTimedStep,
+  ITransactionType
+} from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
@@ -309,7 +316,7 @@ export interface GeneratingTransactionProps {
 
 type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
 
-const SUCCESS_GREEN = '#2BA84A';
+const SUCCESS_GREEN = '#90BA89';
 const PROCESSING_ORANGE = '#E77537';
 const PENDING_STEP_COLOR = '#C7C7CC';
 const STEP_ADVANCE_DELAY_MS = 1_250;
@@ -336,6 +343,19 @@ const TRANSACTION_STEPS = [
     defaultLabel: 'Syncing with Guardian'
   }
 ] as const;
+
+type TransactionStep = (typeof TRANSACTION_STEPS)[number];
+
+const isTransactionTimedStep = (stepId: TransactionStep['id']): stepId is ITransactionTimedStep =>
+  stepId === 'guardian-approving' || stepId === 'generating-proof';
+
+const formatTransactionStepDuration = (timing?: ITransactionStepTiming): string | undefined => {
+  if (!timing || timing.endedAt === undefined) return undefined;
+
+  const durationMs = Math.max(0, timing.endedAt - timing.startedAt);
+  const durationSeconds = Math.max(1, Math.ceil(durationMs / 1000));
+  return `${durationSeconds} sec`;
+};
 
 const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
   if (!stage || stage === 'syncing' || stage === 'creating-proposal' || stage === 'signing-proposal') {
@@ -416,7 +436,7 @@ const TransactionHeroIcon: React.FC<{ state: 'processing' | 'failed' }> = ({ sta
 
 const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) => {
   const reduceMotion = useReducedMotion();
-  const glyphTransition = useMotion({ duration: 0.2, ease: easings.easeOutCubic });
+  const glyphTransition = useMotion({ duration: 0.28, ease: easings.easeInCubic });
 
   return (
     <span className="relative flex size-5 shrink-0 items-center justify-center">
@@ -424,11 +444,11 @@ const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) =
         {state === 'complete' && (
           <motion.span
             key="complete"
-            className="flex size-5 items-center justify-center rounded-full"
+            className="absolute inset-0 flex items-center justify-center rounded-full"
             style={{ backgroundColor: SUCCESS_GREEN }}
-            initial={{ opacity: 0, scale: 0.68 }}
+            initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.72 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={glyphTransition}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -445,10 +465,10 @@ const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) =
         {state === 'active' && (
           <motion.span
             key="active"
-            className="flex size-5 items-center justify-center rounded-full"
-            initial={{ opacity: 0, scale: 0.68 }}
+            className="absolute inset-0 flex items-center justify-center rounded-full"
+            initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.72 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={glyphTransition}
           >
             <svg
@@ -467,21 +487,21 @@ const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) =
         {state === 'pending' && (
           <motion.span
             key="pending"
-            className="size-5 rounded-full border-2 bg-transparent"
+            className="absolute inset-0 rounded-full border-2 bg-transparent"
             style={{ borderColor: PENDING_STEP_COLOR }}
-            initial={{ opacity: 0, scale: 0.68 }}
+            initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.72 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={glyphTransition}
           />
         )}
         {state === 'failed' && (
           <motion.span
             key="failed"
-            className="flex size-5 items-center justify-center rounded-full bg-status-negative"
-            initial={{ opacity: 0, scale: 0.68 }}
+            className="absolute inset-0 flex items-center justify-center rounded-full bg-status-negative"
+            initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.72 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={glyphTransition}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -491,6 +511,47 @@ const StatusIndicator: React.FC<{ state: TransactionStepState }> = ({ state }) =
         )}
       </AnimatePresence>
     </span>
+  );
+};
+
+const TransactionStepRow: React.FC<{
+  step: TransactionStep;
+  state: TransactionStepState;
+  isLast: boolean;
+  label?: string;
+  extraInfo?: string;
+}> = ({ step, state, isLast, label, extraInfo }) => {
+  const { t } = useTranslation();
+  const rowTransition = useMotion(springs.snappy);
+  const resolvedLabel = label ?? t(step.labelKey, { defaultValue: step.defaultLabel });
+
+  return (
+    <motion.div
+      key={step.id}
+      className={classNames(
+        'flex items-center justify-between gap-3 mx-6 py-3.5',
+        !isLast && 'border-b border-[#ECEBE8]'
+      )}
+      data-transaction-step={step.id}
+      data-state={state}
+      layout
+      transition={rowTransition}
+    >
+      <div className="flex gap-3 items-center">
+        <StatusIndicator state={state} />
+        <span
+          className={classNames(
+            'min-w-0 truncate font-heading text-base font-bold leading-none',
+            state === 'pending' ? 'text-[#8E8A84]' : 'text-[#161513]'
+          )}
+        >
+          {resolvedLabel}
+        </span>
+      </div>
+      {extraInfo && (
+        <span className="text-right font-heading text-xs font-normal leading-none text-[#9B968D]">{extraInfo}</span>
+      )}
+    </motion.div>
   );
 };
 
@@ -507,7 +568,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   onViewExplorer
 }) => {
   const { t } = useTranslation();
-  const rowTransition = useMotion(springs.snappy);
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
 
   /**
@@ -599,6 +659,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // render is a failure.
   const heroState = transactionComplete ? 'failed' : 'processing';
   const actionTitle = transactionComplete ? t('done') : t('hide');
+  const getStepExtraInfo = useCallback(
+    (step: TransactionStep, state: TransactionStepState): string | undefined => {
+      if (state !== 'complete' || !isTransactionTimedStep(step.id)) return undefined;
+
+      return formatTransactionStepDuration(activeTransaction?.stepTimings?.[step.id]);
+    },
+    [activeTransaction?.stepTimings]
+  );
 
   useEffect(() => {
     if (transactionComplete) {
@@ -610,7 +678,11 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }, [targetVisibleStepIndex, transactionComplete]);
 
   useEffect(() => {
-    if (transactionComplete || visibleStepIndex >= targetVisibleStepIndex) {
+    if (transactionComplete) {
+      return;
+    }
+
+    if (visibleStepIndex >= targetVisibleStepIndex) {
       return;
     }
 
@@ -637,51 +709,36 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
       <ScreenHeader title={processingTitle} closeLabel={t('close')} onClose={onDoneClick} />
 
       <main className="flex flex-1 flex-col ">
-        <section className="flex w-full flex-1 flex-col items-center justify-center pt-11">
+        <section className="flex w-full flex-1 flex-col items-center pt-5">
           <TransactionHeroIcon state={heroState} />
 
-          <h2 className="mt-6 w-full px-1 text-center font-heading text-[32px] font-bold leading-[1.16] text-heading-gray">
+          <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray">
             {visibleTitle}
           </h2>
 
           {transactionSummaryBadgeContent && (
-            <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-6" />
+            <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-4" />
           )}
 
-          <div className="mt-6 w-full overflow-hidden rounded-2xl border border-border-faint bg-surface-solid">
+          <div className="mt-4 w-full overflow-hidden rounded-2xl border border-[#ECEBE8] bg-surface-solid">
             {TRANSACTION_STEPS.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
-                <motion.div
+                <TransactionStepRow
                   key={step.id}
-                  className={classNames(
-                    'flex items-center gap-3 px-4 py-3.5',
-                    index < TRANSACTION_STEPS.length - 1 && 'border-b border-border-faint'
-                  )}
-                  data-transaction-step={step.id}
-                  data-state={state}
-                  layout
-                  transition={rowTransition}
-                >
-                  <StatusIndicator state={state} />
-                  <span
-                    className={classNames(
-                      'min-w-0 flex-1 text-base font-semibold leading-none',
-                      state === 'pending' ? 'text-[#C7C7CC]' : 'text-heading-gray'
-                    )}
-                  >
-                    {t(step.labelKey, { defaultValue: step.defaultLabel })}
-                  </span>
-                  {/*
-                    Right-side meta slot (measured per-step duration / bridge
-                    provider — e.g. "2 sec" / "via Epoch") is intentionally
-                    deferred. See CLAUDE.md → "Transaction summary badge".
-                  */}
-                </motion.div>
+                  step={step}
+                  state={state}
+                  isLast={index === TRANSACTION_STEPS.length - 1}
+                  extraInfo={getStepExtraInfo(step, state)}
+                />
               );
             })}
           </div>
-
+          {footerDescription && (
+            <p className="w-full text-center text-sm font-heading text-heading-gray pt-4 font-bold">
+              {footerDescription}
+            </p>
+          )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>
             <p>{descriptionText()}</p>
@@ -690,7 +747,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         </section>
 
         <div className="w-full shrink-0 flex flex-col gap-5 items-center pt-16">
-          {footerDescription && <p className="w-full text-center text-base text-heading-gray">{footerDescription}</p>}
           <Button type="button" variant={ButtonVariant.Primary} onClick={onDoneClick} className="w-full">
             <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
           </Button>

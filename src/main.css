@@ -298,6 +298,13 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
   opacity: 0;
 }
 
+/* Surfaces that own the whole screen (e.g. the transaction success view)
+ * call `useHideNavbarWhileOpen`, which sets this flag. The `!important`
+ * beats the footer's inline `display: flex`. */
+body[data-hide-navbar] [data-tabbar-footer='true'] {
+  display: none !important;
+}
+
 @layer base {
   :root {
     --chart-1: oklch(0.646 0.222 41.116);

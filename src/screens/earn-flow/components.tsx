@@ -3,9 +3,35 @@ import React, { FC } from 'react';
 import classNames from 'clsx';
 
 import aaveLogoUrl from 'app/icons/earn-provider-logos/aave.svg?url';
+import { IconName } from 'app/icons/v2';
+import { CircleButton } from 'components/CircleButton';
 import { TokenLogo } from 'components/TokenLogo';
+import { goBack } from 'lib/woozie';
 
-import { EarnSummary } from './types';
+import { EarnSummary, EarnVault } from './types';
+
+/** Shared top bar for the vault deposit flow: back button, "{protocol} • {asset}"
+ *  title and the "{asset} on {network}" pill. Used by the deposit-amount and
+ *  deposit-review pages so their headers stay identical. */
+export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => (
+  <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
+    <div className="flex min-w-0 items-center gap-3">
+      <CircleButton
+        icon={IconName.ChevronLeft}
+        onClick={goBack}
+        className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
+        size="md"
+        aria-label="Back"
+      />
+      <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
+        {vault.protocol} &bull; {vault.asset}
+      </h1>
+      <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
+        {vault.asset} on {vault.network}
+      </span>
+    </div>
+  </header>
+);
 
 export const MetricCard: FC<{ label: string; value: string; valueClassName?: string; className?: string }> = ({
   label,
