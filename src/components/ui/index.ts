@@ -19,6 +19,9 @@ export type { SegmentedActionBarProps, SegmentedActionBarItem } from './Segmente
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
 
+export { TabHeader } from './TabHeader';
+export type { TabHeaderProps } from './TabHeader';
+
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
 

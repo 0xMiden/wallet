@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as GatewayLogo } from 'app/icons/guardian-operator-logs/gateway.svg';
@@ -18,10 +19,10 @@ export type { GuardianOption };
 // Brand wordmark per guardian option id. Paths are hardcoded brand-grey
 // (#484848); `[&_path]:fill-heading-gray` recolors them to the auto-flipping
 // heading token so they stay legible in both themes.
-const GUARDIAN_LOGOS: Record<string, ImportedSVGComponent> = {
-  'open-zeppelin': OpenZeppelinLogo,
-  gateway: GatewayLogo,
-  'lambda-class': LambdaClassLogo
+const GUARDIAN_LOGOS: Record<string, { Logo: ImportedSVGComponent; paddingXClass: string }> = {
+  'open-zeppelin': { Logo: OpenZeppelinLogo, paddingXClass: 'px-4' },
+  gateway: { Logo: GatewayLogo, paddingXClass: 'px-3' },
+  'lambda-class': { Logo: LambdaClassLogo, paddingXClass: 'px-5' }
 };
 
 export interface ChooseGuardianScreenProps {
@@ -75,7 +76,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       <div className="min-h-full flex flex-col px-6 pb-6">
         {!hideHeader && (
           <div className="pt-8 shrink-0">
-            <h1 className="text-[32px] font-semibold font-heading text-heading-gray leading-[105%] tracking-tight">
+            <h1 className="text-[2rem] font-semibold font-heading text-heading-gray leading-[105%] tracking-tight">
               {title ?? t('chooseYourGuardian')}
             </h1>
             <p className="text-lg font-medium text-heading-gray mt-2 leading-[130%]">
@@ -99,7 +100,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
-            const Logo = GUARDIAN_LOGOS[option.id];
+            const { Logo, paddingXClass } = GUARDIAN_LOGOS[option.id]!;
             return (
               <div key={option.id} className="flex flex-col">
                 <button
@@ -122,7 +123,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     </div>
                   )}
                   <div className="flex flex-1 items-center justify-center">
-                    {Logo && <Logo className="[&_path]:fill-heading-gray" />}
+                    <Logo className={clsx('[&_path]:fill-heading-gray', paddingXClass)} />
                   </div>
                 </button>
                 <div className="mt-2 px-1 text-center text-[#8E8E93] text-[10px] leading-tight">
