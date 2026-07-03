@@ -15,6 +15,7 @@ export { useDappConfirmation, type UseDappConfirmationResult } from './use-dapp-
 export {
   FEATURED_DAPPS,
   CAROUSEL_DAPPS,
+  EXPLORE_GRID_DAPPS,
   type FeaturedDapp,
   type FeaturedDappBadge,
   type FeaturedDappCategory
