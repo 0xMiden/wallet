@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.6 (TBD)
+
+### Fixes
+
+* [FIX][all] **`window.miden.signBytes` returns a full serialized `Signature` for Guardian accounts, so Guardian `/configure` accepts it.** 1.15.5 made `signBytes` produce a signature for Guardian accounts, but returned the ECDSA signature with its scheme-tag byte already stripped (`signWord`/`signHotDigest` slice it off). `@openzeppelin/miden-multisig-client`'s `MidenWalletSigner` strips the leading tag byte itself (`signBytes(...).slice(1)`), so it dropped a real signature byte and Guardian rejected the 64-byte result with `Authentication failed: Failed to deserialize ECDSA signature: unexpected end of file`. `signData` now re-prepends the ECDSA scheme tag so `signBytes` returns the full 66-byte serialized `Signature` — matching the plain-account path and what `MidenWalletSigner` expects (it re-strips the tag to the 65-byte raw signature Guardian verifies).
+
 ## 1.15.5 (2026-07-04)
 
 ### Fixes
