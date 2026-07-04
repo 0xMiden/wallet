@@ -9,7 +9,7 @@
  *   - `tryHardwareUnlock` success path (returns a Vault)
  */
 
-import { u8ToB64 } from 'lib/shared/helpers';
+import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import * as Passworder from 'lib/miden/passworder';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -237,9 +237,14 @@ describe('Vault instance signData — Guardian account (word kind)', () => {
 
     const sig = await vault.signData(commitment, data, 'word', GUARDIAN_ADDR);
 
-    // Hot path signs via secure-hot-key: mock sign() → [0xff,0xaa,0xbb,0xcc],
-    // slice(1) → [0xaa,0xbb,0xcc], returned as base64 (ECDSA sig, no scheme byte).
-    expect(sig).toBe(u8ToB64(new Uint8Array([0xaa, 0xbb, 0xcc])));
+    // signBytes must return the FULL serialized Signature (scheme tag + raw sig), matching the
+    // default path and what @openzeppelin's MidenWalletSigner expects — it strips the leading tag
+    // byte itself before handing the raw ECDSA signature to Guardian. `signWord`/`signHotDigest`
+    // strip that tag (mock sign() → [0xff,0xaa,0xbb,0xcc], slice(1) → [0xaa,0xbb,0xcc]); signData
+    // re-prepends the ECDSA scheme tag (0x01) so the returned bytes deserialize as a full Signature.
+    const returned = b64ToU8(sig);
+    expect(returned[0]).toBe(0x01); // ECDSA Signature scheme tag
+    expect(Array.from(returned.slice(1))).toEqual([0xaa, 0xbb, 0xcc]); // raw sig after MidenWalletSigner strips the tag
     // Signed the exact word it was handed, via the hot (secure-hot-key) path.
     expect(mockWordFromHex).toHaveBeenCalledWith(`0x${'ab'.repeat(32)}`);
   });

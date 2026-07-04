@@ -130,6 +130,12 @@ const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
 
+// Leading byte of a serialized SDK `Signature` for the ECDSA (secp256k1) scheme. Guardian hot
+// keys are always ECDSA, and `signHotDigest`/`signWord` strip this tag; signData re-prepends it so
+// `signBytes` returns a full serialized `Signature`. Verified against `@miden-sdk/miden-sdk` 0.15.2
+// (`AuthSecretKey.ecdsaWithRNG(...).sign(word).serialize()[0] === 0x01`).
+const ECDSA_SIGNATURE_SCHEME_TAG = 0x01;
+
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
     const pubKeyHex = Buffer.from(key).toString('hex');
@@ -1072,17 +1078,27 @@ export class Vault {
     // Guardian-signer registration use case. `signingInputs` (full transaction) for a
     // Guardian account goes through the multisig co-sign flow, not this path.
     //
-    // Note the return shape differs by account type: the default path below returns the
-    // full serialized `Signature` (with the 1-byte scheme tag); the Guardian path returns
-    // the raw ECDSA signature with the tag stripped (`signWord`/`signHotDigest` slice it),
-    // matching what the guardian client / `/configure` verify.
+    // `signBytes` returns the FULL serialized `Signature` (scheme tag + signature), exactly like
+    // the default path below (`signature.serialize()`). Consumers strip the tag themselves —
+    // notably @openzeppelin's `MidenWalletSigner.signWord`, which does `signBytes(...).slice(1)`
+    // before handing the raw ECDSA signature to Guardian's `/configure`. `signWord`/`signHotDigest`
+    // strip the tag, so re-prepend it here; otherwise the consumer strips a real signature byte and
+    // Guardian rejects the 64-byte result with "unexpected end of file". Guardian hot keys are
+    // always ECDSA (`secureHotKey.generateHotKey` → `AuthSecretKey.ecdsaWithRNG`), whose serialized
+    // `Signature` scheme tag is `0x01`. (On mobile the raw sig comes from the native SE/StrongBox
+    // plugin as `r||s||v`, not an SDK `serialize()`, so this reconstruction is valid for the
+    // tag-stripping consumer — Guardian — but isn't guaranteed to round-trip through the SDK's
+    // `Signature.deserialize`.)
     if (signKind === 'word' && accountId) {
       const account = (await this.fetchAccounts()).find(acc => acc.publicKey === accountId);
       if (account?.hotPublicKey) {
         const wordHex = `0x${bytesToHex(b64ToU8(data))}`;
         const sigHex = await this.signWord(account.hotPublicKey, wordHex);
-        const sigBytes = new Uint8Array(Buffer.from(sigHex.startsWith('0x') ? sigHex.slice(2) : sigHex, 'hex'));
-        return u8ToB64(sigBytes);
+        const rawEcdsaSig = new Uint8Array(Buffer.from(sigHex.startsWith('0x') ? sigHex.slice(2) : sigHex, 'hex'));
+        const fullSignature = new Uint8Array(rawEcdsaSig.length + 1);
+        fullSignature[0] = ECDSA_SIGNATURE_SCHEME_TAG;
+        fullSignature.set(rawEcdsaSig, 1);
+        return u8ToB64(fullSignature);
       }
       if (account?.coldPublicKey) {
         // Guardian account with no active hot key (e.g. recovered via seed phrase,
