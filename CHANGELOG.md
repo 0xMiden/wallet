@@ -1,11 +1,5 @@
 # Changelog
 
-## 1.15.5 (2026-07-04)
-
-### Fixes
-
-* [FIX][all] **`window.miden.signBytes` now works for Guardian accounts.** A Guardian account's signing key lives under the secure-hot-key facade (keyed by `hotPublicKey`), while `connect` hands the dApp the signer *commitment* — so the dApp sign path (`vault.signData`) looked the key up under the commitment, found nothing, and threw `INVALID_PARAMS: Some storage item not found` immediately after the user approved the signature. `signData` now routes `word`-kind requests for Guardian accounts through the hot (secure-hot-key) signing path, resolved via the request's `sourceAccountId`, so external-multisig / Guardian `/configure` signer registration can obtain the account's ECDSA signature. Plain (non-Guardian) accounts are unchanged.
-
 ## 1.15.4 (2026-07-04)
 
 ### Features
@@ -14,6 +8,7 @@
 
 ### Fixes
 
+* [FIX][all] **`window.miden.signBytes` now works for Guardian accounts.** A Guardian account's signing key lives under the secure-hot-key facade (keyed by `hotPublicKey`), while `connect` hands the dApp the signer *commitment* — so the dApp sign path (`vault.signData`) looked the key up under the commitment, found nothing, and threw `INVALID_PARAMS: Some storage item not found` immediately after the user approved the signature. `signData` now routes `word`-kind requests for Guardian accounts through the hot (secure-hot-key) signing path, resolved via the request's `sourceAccountId`, so external-multisig / Guardian `/configure` signer registration can obtain the account's ECDSA signature. Plain (non-Guardian) accounts are unchanged.
 * [FIX][all] **Custom (`execute`) dApp transactions work again.** The internal custom-proposal label defaulted to `'custom transaction'`, which the updated `@openzeppelin/miden-multisig-client` rejects (`proposalType '…' must be lowercase snake_case`), so every dApp custom transaction failed with a `WalletTransactionError`. The default is now the valid `'custom_transaction'`.
 * [FIX][build] `MIDEN_NETWORK=localhost` (the E2E localnet build token) now resolves to the `localnet` wallet network instead of throwing in `getRpcEndpoint()`.
 * [FIX][all] Switching a Guardian operator now actually moves the account to the new endpoint (front-end persists the per-account endpoint through the backend, guardian sync waits out canonicalization instead of re-registering the old operator every ~3s, and the settings screen reads the current endpoint reactively).
