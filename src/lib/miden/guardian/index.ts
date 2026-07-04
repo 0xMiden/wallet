@@ -223,8 +223,12 @@ export class MultisigService {
   /**
    * Create a custom transaction proposal from a serialized transaction request.
    * This is used for 'execute' type transactions.
+   *
+   * `proposalType` is a free-form label that @openzeppelin/miden-multisig-client
+   * validates as lowercase snake_case (`[a-z0-9_]`) and rejects if it collides
+   * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
-  async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom transaction'): Promise<Proposal> {
+  async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
     return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
   }
 
