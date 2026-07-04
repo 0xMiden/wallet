@@ -26,7 +26,7 @@ import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
+import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { AuthScheme, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -1058,7 +1058,42 @@ export class Vault {
 
   async authorize(_sendTransaction: SendTransaction) {}
 
-  async signData(publicKey: string, data: string, signKind: SignKind): Promise<string> {
+  async signData(publicKey: string, data: string, signKind: SignKind, accountId?: string): Promise<string> {
+    // Guardian accounts keep their (ECDSA) signing key under the secure-hot-key
+    // facade — stored by `hotPublicKey`, not under accAuthSecretKeyStrgKey(commitment)
+    // that the default path below reads. `resolvePublicKeyCommitments` hands the dApp
+    // the signer *commitment* at connect, so the default lookup misses and throws
+    // "Some storage item not found". Route word-signing for such accounts through
+    // signWord (hot path) so dApp `signBytes` works for Guardian signers. Keyed off
+    // `accountId` (the request's sourceAccountId) since the commitment alone can't be
+    // mapped back to the stored hotPublicKey.
+    //
+    // Only `word`-kind is routed here: signing a raw digest with the hot key is the
+    // Guardian-signer registration use case. `signingInputs` (full transaction) for a
+    // Guardian account goes through the multisig co-sign flow, not this path.
+    //
+    // Note the return shape differs by account type: the default path below returns the
+    // full serialized `Signature` (with the 1-byte scheme tag); the Guardian path returns
+    // the raw ECDSA signature with the tag stripped (`signWord`/`signHotDigest` slice it),
+    // matching what the guardian client / `/configure` verify.
+    if (signKind === 'word' && accountId) {
+      const account = (await this.fetchAccounts()).find(acc => acc.publicKey === accountId);
+      if (account?.hotPublicKey) {
+        const wordHex = `0x${bytesToHex(b64ToU8(data))}`;
+        const sigHex = await this.signWord(account.hotPublicKey, wordHex);
+        const sigBytes = new Uint8Array(Buffer.from(sigHex.startsWith('0x') ? sigHex.slice(2) : sigHex, 'hex'));
+        return u8ToB64(sigBytes);
+      }
+      if (account?.coldPublicKey) {
+        // Guardian account with no active hot key (e.g. recovered via seed phrase,
+        // `requiresHotKeyRotation`): there is no device key to sign a digest with yet.
+        // Surface that clearly instead of the opaque keystore-miss this fix removes.
+        throw new PublicError(
+          'This Guardian account has no active device key to sign with. Activate the device key in the wallet, then try again.'
+        );
+      }
+    }
+
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
       accAuthSecretKeyStrgKey(publicKey),
       this.vaultKey

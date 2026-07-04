@@ -441,7 +441,12 @@ const generatePromisifySign = async (
         if (confirmReq.confirmed) {
           try {
             let signature = await withUnlocked(async ({ vault }) => {
-              const signDataResult = await vault.signData(req.sourcePublicKey, req.payload, req.kind);
+              const signDataResult = await vault.signData(
+                req.sourcePublicKey,
+                req.payload,
+                req.kind,
+                req.sourceAccountId
+              );
               return signDataResult;
             });
             resolve({
