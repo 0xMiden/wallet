@@ -9,8 +9,8 @@
  *   - `tryHardwareUnlock` success path (returns a Vault)
  */
 
-import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import * as Passworder from 'lib/miden/passworder';
+import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
