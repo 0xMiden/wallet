@@ -1,16 +1,10 @@
 # Changelog
 
-## 1.15.6 (TBD)
-
-### Fixes
-
-* [FIX][all] **`window.miden.signBytes` returns a full serialized `Signature` for Guardian accounts, so Guardian `/configure` accepts it.** 1.15.5 made `signBytes` produce a signature for Guardian accounts, but returned the ECDSA signature with its scheme-tag byte already stripped (`signWord`/`signHotDigest` slice it off). `@openzeppelin/miden-multisig-client`'s `MidenWalletSigner` strips the leading tag byte itself (`signBytes(...).slice(1)`), so it dropped a real signature byte and Guardian rejected the 64-byte result with `Authentication failed: Failed to deserialize ECDSA signature: unexpected end of file`. `signData` now re-prepends the ECDSA scheme tag so `signBytes` returns the full 66-byte serialized `Signature` — matching the plain-account path and what `MidenWalletSigner` expects (it re-strips the tag to the 65-byte raw signature Guardian verifies).
-
 ## 1.15.5 (2026-07-04)
 
 ### Fixes
 
-* [FIX][all] **`window.miden.signBytes` now works for Guardian accounts.** A Guardian account's signing key lives under the secure-hot-key facade (keyed by `hotPublicKey`), while `connect` hands the dApp the signer *commitment* — so the dApp sign path (`vault.signData`) looked the key up under the commitment, found nothing, and threw `INVALID_PARAMS: Some storage item not found` immediately after the user approved the signature. `signData` now routes `word`-kind requests for Guardian accounts through the hot (secure-hot-key) signing path, resolved via the request's `sourceAccountId`, so external-multisig / Guardian `/configure` signer registration can obtain the account's ECDSA signature. Plain (non-Guardian) accounts are unchanged.
+* [FIX][all] **`window.miden.signBytes` now works for Guardian accounts** (external-multisig / Guardian `/configure` signer registration). A Guardian account's signing key lives under the secure-hot-key facade (keyed by `hotPublicKey`), while `connect` hands the dApp the signer *commitment* — so the dApp sign path (`vault.signData`) looked the key up under the commitment, found nothing, and threw `INVALID_PARAMS: Some storage item not found` immediately after the user approved the signature. `signData` now routes `word`-kind requests for Guardian accounts through the hot (secure-hot-key) ECDSA signing path, resolved via the request's `sourceAccountId`, and returns the full serialized `Signature` that Guardian `/configure` accepts — matching the plain-account path and `@openzeppelin/miden-multisig-client`'s `MidenWalletSigner`, which strips the leading scheme-tag byte itself to recover the raw ECDSA signature Guardian verifies. Plain (non-Guardian) accounts are unchanged.
 
 ## 1.15.4 (2026-07-04)
 

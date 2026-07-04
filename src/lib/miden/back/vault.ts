@@ -1085,7 +1085,10 @@ export class Vault {
     // strip the tag, so re-prepend it here; otherwise the consumer strips a real signature byte and
     // Guardian rejects the 64-byte result with "unexpected end of file". Guardian hot keys are
     // always ECDSA (`secureHotKey.generateHotKey` → `AuthSecretKey.ecdsaWithRNG`), whose serialized
-    // `Signature` scheme tag is `0x01`.
+    // `Signature` scheme tag is `0x01`. (On mobile the raw sig comes from the native SE/StrongBox
+    // plugin as `r||s||v`, not an SDK `serialize()`, so this reconstruction is valid for the
+    // tag-stripping consumer — Guardian — but isn't guaranteed to round-trip through the SDK's
+    // `Signature.deserialize`.)
     if (signKind === 'word' && accountId) {
       const account = (await this.fetchAccounts()).find(acc => acc.publicKey === accountId);
       if (account?.hotPublicKey) {
