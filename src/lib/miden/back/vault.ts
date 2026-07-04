@@ -1067,6 +1067,15 @@ export class Vault {
     // signWord (hot path) so dApp `signBytes` works for Guardian signers. Keyed off
     // `accountId` (the request's sourceAccountId) since the commitment alone can't be
     // mapped back to the stored hotPublicKey.
+    //
+    // Only `word`-kind is routed here: signing a raw digest with the hot key is the
+    // Guardian-signer registration use case. `signingInputs` (full transaction) for a
+    // Guardian account goes through the multisig co-sign flow, not this path.
+    //
+    // Note the return shape differs by account type: the default path below returns the
+    // full serialized `Signature` (with the 1-byte scheme tag); the Guardian path returns
+    // the raw ECDSA signature with the tag stripped (`signWord`/`signHotDigest` slice it),
+    // matching what the guardian client / `/configure` verify.
     if (signKind === 'word' && accountId) {
       const account = (await this.fetchAccounts()).find(acc => acc.publicKey === accountId);
       if (account?.hotPublicKey) {
@@ -1074,6 +1083,14 @@ export class Vault {
         const sigHex = await this.signWord(account.hotPublicKey, wordHex);
         const sigBytes = new Uint8Array(Buffer.from(sigHex.startsWith('0x') ? sigHex.slice(2) : sigHex, 'hex'));
         return u8ToB64(sigBytes);
+      }
+      if (account?.coldPublicKey) {
+        // Guardian account with no active hot key (e.g. recovered via seed phrase,
+        // `requiresHotKeyRotation`): there is no device key to sign a digest with yet.
+        // Surface that clearly instead of the opaque keystore-miss this fix removes.
+        throw new PublicError(
+          'This Guardian account has no active device key to sign with. Activate the device key in the wallet, then try again.'
+        );
       }
     }
 

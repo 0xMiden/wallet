@@ -244,6 +244,28 @@ describe('Vault instance signData — Guardian account (word kind)', () => {
     expect(mockWordFromHex).toHaveBeenCalledWith(`0x${'ab'.repeat(32)}`);
   });
 
+  it('throws a clear error for a Guardian account whose device (hot) key is not active yet', async () => {
+    const addr = 'mtst1-guardian-pending';
+    const vault = await seedVault('pw', {
+      accounts: [
+        {
+          publicKey: addr,
+          name: 'Guardian pending',
+          isPublic: false,
+          type: WalletType.Guardian,
+          // Recovered Guardian account pending device-key activation: cold key
+          // only, no hot key to sign arbitrary digests with yet.
+          coldPublicKey: 'coldpub-only',
+          requiresHotKeyRotation: true
+        } as any
+      ],
+      currentPk: addr
+    });
+    const data = u8ToB64(new Uint8Array(32).fill(0x22));
+
+    await expect(vault.signData('some-commitment', data, 'word', addr)).rejects.toThrow(/device key/i);
+  });
+
   it('still uses the default key path for a non-Guardian account when accountId is passed', async () => {
     const addr = 'mtst1-plain';
     const commitment = 'cafe'.repeat(16); // 32 bytes
