@@ -164,6 +164,12 @@ export default {
         'surface-balance-positive': 'var(--surface-balance-positive)',
         'surface-balance-handle': 'var(--surface-balance-handle)',
         'surface-balance-divider': '#FFFFFF4D',
+        // Balance-card color options (AccountsDrawer picker swatches).
+        'card-slate': 'var(--card-slate)',
+        'card-orange': 'var(--card-orange)',
+        'card-blue': 'var(--card-blue)',
+        'card-green': 'var(--card-green)',
+        'card-purple': 'var(--card-purple)',
         ...customColors,
         // Override primary from customColors with network-conditional values
         primary: primaryPalette

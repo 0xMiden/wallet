@@ -5,8 +5,21 @@ import classNames from 'clsx';
 import CopyButton from 'app/atoms/CopyButton';
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useCardColor } from 'lib/settings/card-color';
+import { CardColor } from 'lib/settings/constants';
 
 export type BalanceDeltaDirection = 'positive' | 'negative' | 'neutral';
+
+/* Card background per picked color — the card-* tokens resolve light/dark
+ * variants via CSS vars, so no dark: classes needed. Shared with the
+ * AccountsDrawer swatches. */
+export const CARD_COLOR_BG: Record<CardColor, string> = {
+  slate: 'bg-card-slate',
+  orange: 'bg-card-orange',
+  blue: 'bg-card-blue',
+  green: 'bg-card-green',
+  purple: 'bg-card-purple'
+};
 
 export interface BalanceCardProps {
   /** Truncated display label, e.g. `mtst1aqg...940z`. */
@@ -22,7 +35,6 @@ export interface BalanceCardProps {
   };
   onMore?: () => void;
   state?: 'default' | 'loading' | 'zero' | 'hidden';
-  showDragHandle?: boolean;
   className?: string;
 }
 
@@ -36,12 +48,12 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   delta,
   onMore,
   state = 'default',
-  showDragHandle = true,
   className
 }) => {
   const isLoading = state === 'loading';
   const isHidden = state === 'hidden';
   const isZero = state === 'zero';
+  const cardColor = useCardColor();
 
   const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-[#A8BBA3]';
 
@@ -53,7 +65,11 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
   return (
     <div
-      className={classNames('relative w-full bg-surface-balance text-surface-balance-fg rounded-lg-token ', className)}
+      className={classNames(
+        'relative w-full text-surface-balance-fg rounded-lg-token',
+        CARD_COLOR_BG[cardColor],
+        className
+      )}
     >
       <div className="px-3.5 pt-4 pb-3.5">
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">Total Balance</div>
@@ -107,12 +123,6 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           </button>
         )}
       </div>
-
-      {showDragHandle && (
-        <div className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="h-2 w-17.5 rounded-full bg-surface-balance-handle" />
-        </div>
-      )}
     </div>
   );
 };

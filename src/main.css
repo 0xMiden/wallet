@@ -389,6 +389,14 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
+
+    /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
+     * get lighter variants in dark mode; slate/orange stay fixed. */
+    --card-slate: #777386;
+    --card-orange: #e77537;
+    --card-blue: #607c92;
+    --card-green: #778c72;
+    --card-purple: #847595;
   }
 
   .dark {
@@ -452,5 +460,11 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
+
+    --card-slate: #777386;
+    --card-orange: #e77537;
+    --card-blue: #91acc1;
+    --card-green: #a8bba3;
+    --card-purple: #beacd2;
   }
 }
