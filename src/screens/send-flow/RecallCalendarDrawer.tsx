@@ -9,8 +9,6 @@ import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
 import { Calendar } from 'lib/ui/calendar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-import { SendFlowAction, SendFlowActionId } from './types';
-
 export const SECONDS_PER_BLOCK = 3;
 
 /** Block height that the given target date maps to, relative to `currentBlockNum`. */
@@ -34,7 +32,7 @@ export interface RecallCalendarDrawerProps {
   onOpenChange: (open: boolean) => void;
   recallDate?: Date;
   recallTime: string;
-  onAction: (action: SendFlowAction) => void;
+  onRecallBlocksChange: (blocks: string) => void;
   onRecallDateChange: (date: Date | undefined) => void;
   onRecallTimeChange: (time: string) => void;
 }
@@ -42,15 +40,15 @@ export interface RecallCalendarDrawerProps {
 /**
  * Calendar + preset picker for the send "Expiration Date" (reclaim height).
  * Self-contained: fetches the current block height and converts the chosen
- * date/time into `recallBlocks` via the SetFormValues action. Extracted from
- * the old SendDetails screen so the new Review screen can reuse it.
+ * date/time into `recallBlocks` via `onRecallBlocksChange`. Extracted from
+ * the old SendDetails screen so the Review page can reuse it.
  */
 export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
   open,
   onOpenChange,
   recallDate,
   recallTime,
-  onAction,
+  onRecallBlocksChange,
   onRecallDateChange,
   onRecallTimeChange
 }) => {
@@ -84,13 +82,10 @@ export const RecallCalendarDrawer: React.FC<RecallCalendarDrawerProps> = ({
       dateWithTime.setHours(hours ?? 0, minutes ?? 0, 0, 0);
       onRecallDateChange(date);
       onRecallTimeChange(time);
-      onAction({
-        id: SendFlowActionId.SetFormValues,
-        payload: { recallBlocks: String(dateTimeToRecallBlocks(dateWithTime, syncHeight)) }
-      });
+      onRecallBlocksChange(String(dateTimeToRecallBlocks(dateWithTime, syncHeight)));
       onOpenChange(false);
     },
-    [onAction, onOpenChange, onRecallDateChange, onRecallTimeChange, syncHeight]
+    [onRecallBlocksChange, onOpenChange, onRecallDateChange, onRecallTimeChange, syncHeight]
   );
 
   return (

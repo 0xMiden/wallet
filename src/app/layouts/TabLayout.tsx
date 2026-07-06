@@ -7,8 +7,9 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { BottomNav, SegmentedActionBar } from 'components/ui';
+import { BottomNav } from 'components/ui';
 import { springs } from 'lib/animation';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -18,8 +19,8 @@ import { navigate, useLocation } from 'lib/woozie';
  * Layout for tab-based pages (Home, History, Settings, Browser).
  * Provides a persistent footer and animated content area.
  *
- * The top SegmentedActionBar is mounted when the route is in the "home"
- * tab group (/, /send, /receive, /earn, /swap) — so it stays visible across
+ * The top action bar is mounted when the route is in the "home"
+ * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
  * Activity) hide it.
  */
@@ -136,8 +137,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   const handleActionChange = (id: string) => {
+    if (id === activeAction) return;
     const to = ACTION_ROUTES[id];
-    if (to && to !== pathname) navigate(to);
+    if (to && to !== pathname) {
+      hapticSelection();
+      navigate(to);
+    }
   };
 
   // Platform-specific sizing:
@@ -156,17 +161,52 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   return (
     <div className={classNames('relative m-auto bg-app-bg overflow-hidden flex flex-col')} style={containerStyles}>
-      {/* Top action bar — sits OUTSIDE the animated content tree so it
-          stays fixed across intra-home-group navigations. The framer-motion
-          pill inside handles the active-item transition. */}
+      {/* Top action bar — sits outside the animated content tree so it
+          stays fixed across intra-home-group navigations. */}
       {showActionBar && (
         <div className="shrink-0 relative z-10">
-          <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
+          {/* Temporary for this release: keep this inline until
+              we bring in another tabs and then use `SegmentedActionBar`. */}
+          <div role="tablist" className="flex h-16 items-center gap-1 bg-gray-25 px-3 py-3">
+            {actionItems.map(item => {
+              const isActive = item.id === activeAction;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-label={item.label}
+                  onClick={() => handleActionChange(item.id)}
+                  className={classNames(
+                    'relative flex h-12 min-w-0 flex-1 basis-0 items-center justify-center gap-1.5 overflow-hidden rounded-[22px] px-2',
+                    'text-text-primary-token transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30'
+                  )}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="tab-layout-action-fill"
+                      className="absolute inset-0 rounded-[22px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                      transition={springs.standard}
+                    />
+                  )}
+                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
+                    {item.icon}
+                  </span>
+                  <span className="relative min-w-0 whitespace-nowrap text-sm font-bold leading-none">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {/* Animated content. For home-group routes we mount the
-          HomeSwipeContainer once (a 4-page horizontal carousel) and let it
+          HomeSwipeContainer once (a five-page horizontal carousel) and let it
           drive intra-group transitions via drag — pathname is just the
           source of truth for which page is centered. For other routes
           (Browser, Activity, etc.) we still slide each new page in via

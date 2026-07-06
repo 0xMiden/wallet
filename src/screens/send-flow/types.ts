@@ -1,17 +1,13 @@
 export enum SendFlowStep {
   SelectRecipient = 'SelectRecipient',
   SelectAmount = 'SelectAmount',
-  SelectToken = 'SelectToken',
   AccountsList = 'AccountsList',
-  ReviewTransaction = 'ReviewTransaction',
   TransactionInitiated = 'TransactionInitiated'
 }
 
 export type SendFlowForm = {
   amount: string;
-  sharePrivately: boolean;
   recipientAddress: string;
-  recallBlocks?: string;
   token?: UIToken;
 };
 
@@ -19,7 +15,6 @@ export enum SendFlowActionId {
   GoBack = 'go-back',
   Navigate = 'navigate',
   SetFormValues = 'set-form-values',
-  GenerateTransaction = 'generate-transaction',
   Finish = 'finish'
 }
 
@@ -34,7 +29,7 @@ export type GoBack = {
 
 export type SetFormValues = {
   id: SendFlowActionId.SetFormValues;
-  payload: Partial<UIForm>;
+  payload: Partial<SendFlowForm>;
   triggerValidation?: boolean;
 };
 
@@ -42,11 +37,7 @@ export type Finish = {
   id: SendFlowActionId.Finish;
 };
 
-export type GenerateTransaction = {
-  id: SendFlowActionId.GenerateTransaction;
-};
-
-export type SendFlowAction = Navigate | GoBack | SetFormValues | Finish | GenerateTransaction;
+export type SendFlowAction = Navigate | GoBack | SetFormValues | Finish;
 
 export type Contact = {
   id: string;

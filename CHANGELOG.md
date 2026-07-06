@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.6 (TBD)
+
+### Changes
+
+* [CHANGE][all] **Send review moved to its own full-screen page.** The send flow's review step now lives at `/send/review` (FullScreenPage, like the earn deposit review) and owns the whole transaction-creation pipeline; the form (recipient → amount → token) stays at `/send`, hands the inputs over via query params, and restores them on the Amount step when backing out of review. Submitting now hands off straight to the `/generating-transaction` in-progress page (tracking the tx via `?txId=`) instead of waiting silently on review. The bottom tab navbar is also hidden on the send-flow steps past recipient selection so each step's Continue button sits at the bottom of the screen.
+
 ## 1.15.3 (TBD)
 
 ### Features

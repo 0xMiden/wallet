@@ -112,6 +112,8 @@ Two systems:
 
 Onboarding (`Welcome.tsx`) and `ForgotPassword.tsx` use hash-based state (`/#step-name`), NOT Navigator.
 
+Send flow: only recipient → amount → token remain Navigator steps inside `/send`; the review step is a routed full-screen page (`/send/review?amount=…&to=…&tokenId=…`, `ReviewTransaction.tsx`) that owns the transaction pipeline. Backing out restores the form via `send-flow/send-draft.ts` (SendManager reopens on the Amount step). Hardware back on review is covered by `MobileBackBridge` (history pop).
+
 Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. `PageLayout` registers a default that calls `goBack()` if `historyPosition > 0` else navigates home. Mobile hardware/swipe back requires `@capacitor/app` + explicit handlers — must be registered for global nav (`MobileBackBridge`), Navigator flows, state-based flows, and modals.
 
 When adding screens/routes, keep this section accurate so mobile back stays correct.

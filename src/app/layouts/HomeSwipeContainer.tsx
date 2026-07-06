@@ -16,9 +16,8 @@ import { SendFlow } from 'screens/send-flow/SendManager';
  * time and snaps to the next/previous index on release if dragged or
  * flicked past a threshold; otherwise it snaps back.
  *
- * Pathname is the source of truth for which page is centered — the
- * SegmentedActionBar in TabLayout reads the same path and stays in sync
- * via its framer-motion layoutId pill.
+ * Pathname is the source of truth for which page is centered; TabLayout's
+ * top action bar reads the same path and stays in sync.
  */
 
 interface HomePage {

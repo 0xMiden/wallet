@@ -38,7 +38,7 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
         className
       )}
     >
-      <div className="flex shrink-0 font-heading items-center gap-1.5 whitespace-nowrap font-extrabold text-heading-gray text-xl">
+      <div className="flex shrink-0 font-heading items-center gap-1.5 whitespace-nowrap font-extrabold text-heading-gray text-xl dark:text-pure-white">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
@@ -54,7 +54,9 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
           />
         </svg>
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading">{rhs}</div>
+      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
+        {rhs}
+      </div>
     </div>
   );
 };

@@ -7,8 +7,8 @@ import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletAccount } from 'lib/shared/types';
 
-import { fetchFromStorage } from '../front/storage';
 import { registerGuardianOrigin } from './native-http';
+import { fetchFromStorage } from '../front/storage';
 
 /**
  * Resolve the guardian operator endpoint for a Guardian account.

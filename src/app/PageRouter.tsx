@@ -23,6 +23,7 @@ import EarnPositions from 'screens/earn-flow/EarnPositions';
 import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
+import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 
 import RootSuspenseFallback from './a11y/RootSuspenseFallback';
@@ -223,6 +224,16 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ assetType }) => (
       <FullScreenPage>
         <ManageAssets assetType={assetType!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    // Full-screen review page — registered before /send (earn convention).
+    // The send form hands off here via query params; see send-flow/send-draft.ts.
+    '/send/review',
+    onlyReady(() => (
+      <FullScreenPage>
+        <ReviewTransaction />
       </FullScreenPage>
     ))
   ],

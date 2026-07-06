@@ -1,22 +1,27 @@
-import React, { HTMLAttributes, useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
 import { AssetRow } from 'components/AssetRow';
-import { CircleButton } from 'components/CircleButton';
 import { SearchInput } from 'components/ui';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useWalletStore } from 'lib/store';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-import { SendFlowAction, SendFlowActionId, UIToken } from './types';
+import { UIToken } from './types';
 
-export interface SelectTokenScreenProps extends HTMLAttributes<HTMLDivElement> {
-  onAction?: (action: SendFlowAction) => void;
+export interface SelectTokenDrawerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (token: UIToken) => void;
 }
 
-export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAction, ...props }) => {
+/**
+ * Token picker for the send flow, presented as a bottom sheet (vaul) over the
+ * Amount step instead of a pushed sub-screen. Fixed at a comfortable height
+ * even when the token list is short.
+ */
+export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOpenChange, onSelect }) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -34,50 +39,47 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
 
   const onSelectToken = useCallback(
     (token: UIToken) => {
-      onAction?.({ id: SendFlowActionId.SetFormValues, payload: { token } });
-      // Token selection is a sub-screen pushed from SelectAmount — pop back to it.
-      onAction?.({ id: SendFlowActionId.GoBack });
+      onSelect(token);
+      setSearchQuery('');
+      onOpenChange(false);
     },
-    [onAction]
+    [onSelect, onOpenChange]
   );
 
   return (
-    <div {...props} className={classNames('flex-1 flex flex-col bg-app-bg', className)}>
-      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-4 pb-32">
-        <CircleButton
-          icon={IconName.BackArrow}
-          color="currentColor"
-          size="sm"
-          onClick={() => onAction?.({ id: SendFlowActionId.GoBack })}
-          className="text-primary-500 border border-border-card self-start mb-4"
-        />
-        <h1 className="font-heading text-2xl font-bold text-gray mb-4">{t('selectAToken')}</h1>
-        <SearchInput
-          value={searchQuery}
-          onChange={setSearchQuery}
-          placeholder={t('searchForTokens')}
-          data-testid="send-token-search"
-        />
-        <div className="flex flex-col divide-y divide-rule-default">
-          {filteredBalances.map(b => (
-            <AssetRow
-              key={b.tokenId}
-              asset={b}
-              tokenPrices={tokenPrices}
-              data-testid={`send-token-${b.metadata.symbol}`}
-              onClick={() =>
-                onSelectToken({
-                  id: b.tokenId,
-                  name: b.metadata.symbol,
-                  decimals: b.metadata.decimals,
-                  balance: b.balance,
-                  fiatPrice: b.fiatPrice
-                })
-              }
-            />
-          ))}
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>{t('selectAToken')}</DrawerTitle>
+        </DrawerHeader>
+        <div className="flex flex-col min-h-0 px-4 pb-4 h-120">
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder={t('searchForTokens')}
+            data-testid="send-token-search"
+          />
+          <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar divide-y divide-rule-default">
+            {filteredBalances.map(b => (
+              <AssetRow
+                key={b.tokenId}
+                asset={b}
+                tokenPrices={tokenPrices}
+                data-testid={`send-token-${b.metadata.symbol}`}
+                onClick={() =>
+                  onSelectToken({
+                    id: b.tokenId,
+                    name: b.metadata.symbol,
+                    decimals: b.metadata.decimals,
+                    balance: b.balance,
+                    fiatPrice: b.fiatPrice
+                  })
+                }
+              />
+            ))}
+          </div>
         </div>
-      </div>
-    </div>
+      </DrawerContent>
+    </Drawer>
   );
 };

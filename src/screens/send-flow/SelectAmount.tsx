@@ -21,8 +21,8 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
-  /** Padding classes for the confirm-button footer. Defaults to the send-flow
-   *  spacing (`pt-4 pb-24`); pass a snugger value to hug the bottom. */
+  /** Padding classes for the confirm-button footer. The `pb-24` default clears
+   *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
   footerClassName?: string;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;

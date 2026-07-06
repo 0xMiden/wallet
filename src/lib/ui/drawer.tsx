@@ -28,7 +28,7 @@ function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
   useHideNavbarWhileOpen(open);
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
-      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} direction="bottom">
+      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground direction="bottom">
         {children}
       </VaulDrawer.Root>
     </DrawerContext.Provider>

@@ -1,39 +1,28 @@
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { yupResolver } from '@hookform/resolvers/yup';
-import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
-import { addDays, format } from 'date-fns';
-import { SubmitHandler, useForm } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
-import { useAppEnv } from 'app/env';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSpeculateInvalidate,
-  requestSpeculateSend,
-  requestSWTransactionProcessing,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
+import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { NoteTypeEnum } from 'lib/miden/types';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension, isMobile } from 'lib/platform';
+import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { AccountsList } from './AccountsList';
-import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
-import { ReviewTransaction } from './ReviewTransaction';
 import { SelectAmount } from './SelectAmount';
 import { SelectRecipient } from './SelectRecipient';
-import { SelectToken } from './SelectToken';
+import { SelectTokenDrawer } from './SelectToken';
+import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
 import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
 import { WalletType } from '../onboarding/types';
 
@@ -49,19 +38,9 @@ const ROUTES: Route[] = [
     animationOut: 'pop'
   },
   {
-    name: SendFlowStep.SelectToken,
-    animationIn: 'push',
-    animationOut: 'pop'
-  },
-  {
     name: SendFlowStep.AccountsList,
     animationIn: 'present',
     animationOut: 'dismiss'
-  },
-  {
-    name: SendFlowStep.ReviewTransaction,
-    animationIn: 'push',
-    animationOut: 'pop'
   }
 ];
 
@@ -72,12 +51,10 @@ const validations = {
     .test('is-greater-than-zero', 'Amount must be greater than 0', value => {
       return parseFloat(value) > 0;
     }),
-  sharePrivately: yup.boolean().required(),
   recipientAddress: yup
     .string()
     .required()
-    .test('is-valid-address', 'Invalid address', value => isValidMidenAddress(value)),
-  recallBlocks: yup.number()
+    .test('is-valid-address', 'Invalid address', value => isValidMidenAddress(value))
 };
 
 const validationSchema = yup.object().shape(validations).required();
@@ -85,18 +62,30 @@ const validationSchema = yup.object().shape(validations).required();
 export interface SendManagerProps {
   isLoading: boolean;
   preselectedTokenId?: string | null;
+  /** Values restored when the user backs out of the full-screen review page. */
+  draft?: SendDraft | null;
 }
 
-export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) => {
+export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, draft }) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
+  const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const { fullPage } = useAppEnv();
   const delegateEnabled = isDelegateProofEnabled();
-  const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
-  const [recallTime, setRecallTime] = useState('12:00');
 
   const { contacts: addressBookContacts } = useFilteredContacts();
+
+  // Token picker is a bottom sheet over the Amount step, not a Navigator step.
+  const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+
+  // Hide the floating BottomNav once the user moves past recipient selection,
+  // so the step CTAs can sit at the actual bottom of the screen. Gated on the
+  // pathname because SendManager stays mounted inside HomeSwipeContainer even
+  // when another home-group page is centered — without the gate, a send flow
+  // left mid-step would hide the navbar on Overview too.
+  const currentStep = cardStack[cardStack.length - 1]?.name;
+  const pastRecipientStep = pathname === '/send' && currentStep !== SendFlowStep.SelectRecipient;
+  useHideNavbarWhileOpen(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {
     const walletContacts: Contact[] = allAccounts
@@ -159,13 +148,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   // `transactionComplete` true via the Dexie queue going empty.
   //
   // Entering /send is a clear "I'm starting a new transaction" signal,
-  // equivalent to tapping Done on whatever was open. Close
-  // unconditionally on mount: in-flight modals can't reach this code
-  // path here because PR #217's `pathname`-watching effect in the modal
-  // already auto-dismisses non-terminal opens on navigation away from
-  // `settledPathname`, so the only `isTransactionModalOpen === true`
-  // state reachable at SendManager-mount time is terminal.
+  // equivalent to tapping Done on whatever was open. In-flight modals can't
+  // reach this code path here because PR #217's `pathname`-watching effect in
+  // the modal already auto-dismisses non-terminal opens on navigation away
+  // from `settledPathname`, so the only `isTransactionModalOpen === true`
+  // state reachable here is terminal.
+  //
+  // Gated on `/send` (not run-once-on-mount): submit now happens on the
+  // full-screen `/send/review` route where TabLayout is unmounted, so the
+  // post-success navigate('/') freshly mounts SendManager — a mount effect
+  // would instantly dismiss the "Done" modal and null the Midenscan hash.
   useEffect(() => {
+    if (pathname !== '/send') return;
     const state = useWalletStore.getState();
     if (state.isTransactionModalOpen) {
       state.closeTransactionModal(true);
@@ -173,44 +167,20 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     if (state.lastCompletedTxHash !== null) {
       state.setLastCompletedTxHash(null);
     }
-    // Intentionally empty deps — run once on send-flow entry.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const onGenerateTransaction = useCallback(async () => {
-    // On mobile, open the modal and go back to home
-    // The modal handles the entire transaction flow
-    if (isMobile()) {
-      useWalletStore.getState().openTransactionModal();
-      // Don't navigate - stay on page to see if modal appears
-      // navigate('/');
-      return;
-    }
-
-    if (fullPage) {
-      navigate('/generating-transaction-full');
-      return;
-    }
-
-    useWalletStore.getState().openTransactionModal();
-    navigate('/');
-  }, [fullPage]);
+  }, [pathname]);
 
   const {
     register,
     watch,
-    handleSubmit,
     setError,
     clearErrors,
     setValue,
     trigger,
-    formState: { errors, isSubmitting }
+    formState: { errors }
   } = useForm<SendFlowForm>({
     defaultValues: {
-      amount: undefined,
-      sharePrivately: true,
-      recipientAddress: undefined,
-      recallBlocks: undefined,
+      amount: draft?.amount,
+      recipientAddress: draft?.recipientAddress,
       token: undefined
     },
     resolver: yupResolver(validationSchema) as any
@@ -218,35 +188,13 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
 
   useEffect(() => {
     register('amount');
-    register('sharePrivately');
     register('recipientAddress');
-    register('recallBlocks');
     register('token');
   }, [register]);
 
-  // E2E-only hook: the per-send privacy toggle was removed from the UI, so the
-  // harness can't pick a PUBLIC send by clicking. Mirror the __TEST_STORE__ gate
-  // (process.env.MIDEN_E2E_TEST === 'true') and expose a setter that flips the
-  // react-hook-form `sharePrivately` field. Zero production impact.
-  useEffect(() => {
-    if (process.env.MIDEN_E2E_TEST !== 'true') return;
-    (globalThis as any).__TEST_SET_SHARE_PRIVATELY__ = (v: boolean) => setValue('sharePrivately', v);
-    return () => {
-      delete (globalThis as any).__TEST_SET_SHARE_PRIVATELY__;
-    };
-  }, [setValue]);
-
   const amount = watch('amount');
-  const sharePrivately = watch('sharePrivately');
   const recipientAddress = watch('recipientAddress');
-  const recallBlocks = watch('recallBlocks');
   const token = watch('token');
-  // delegateTransaction is now driven exclusively by the global setting in
-  // General Settings — the per-send toggle was removed because mt-wasm +
-  // offscreen-doc proving makes local proving fast enough that the per-tx
-  // escape hatch isn't worth the UI surface. Read fresh on each render so
-  // a settings change while the send flow is open takes effect.
-  const delegateTransaction = delegateEnabled;
 
   // Speculative pre-prove: kick off execute + offscreen prove in the SW
   // as soon as the SendDetails form is valid, so the proof can finish
@@ -274,15 +222,17 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
   //   - global setting must be local proving (delegate path is just an RPC)
   //   - form must be valid (recipient is a Miden address, amount > 0
   //     and <= balance)
-  //   - skip when recallBlocks is set (block-height drift between
-  //     speculate-time and commit-time would invalidate the cached
-  //     reclaim height — corner case, easier to skip than handle)
+  //
+  // Known gap: the review page always seeds a 7-day recallBlocks, while this
+  // speculation proves a no-recall tx — a guaranteed params-hash mismatch, so
+  // the cached prove goes unused (one wasted prove per send). The flag is off
+  // by default; carrying the seeded recallBlocks into the speculate request is
+  // the fix if it's ever enabled.
   useEffect(() => {
     if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
     if (!isExtension()) return;
     if (delegateEnabled) return; // delegated proving — no point speculating
     if (!publicKey || !recipientAddress || !token || !amount) return;
-    if (recallBlocks) return;
     if (!isValidMidenAddress(recipientAddress)) return;
     const amountFloat = parseFloat(amount);
     if (!(amountFloat > 0)) return;
@@ -298,7 +248,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         accountId: publicKey,
         recipientAccountId: recipientAddress,
         faucetId: token.id,
-        noteType: sharePrivately ? 'private' : 'public',
+        // Sends are private unless E2E flips the toggle — and that only
+        // happens on the review page, where a cache miss just falls back to
+        // a normal prove.
+        noteType: 'private',
         amount: amountBig
       });
     }, 500);
@@ -310,17 +263,21 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       // every keystroke would defeat the cache.
       clearTimeout(timer);
     };
-  }, [delegateEnabled, publicKey, recipientAddress, token, amount, sharePrivately, recallBlocks]);
+  }, [delegateEnabled, publicKey, recipientAddress, token, amount]);
 
   // One-time invalidation when the SendManager unmounts entirely (user
   // backs out of the send flow, or the tab closes). Drops any cached
   // completed entry and marks any active as stale so we don't carry
-  // speculative state into a future send.
+  // speculative state into a future send. Skipped when a draft is pending —
+  // that unmount is the handoff to /send/review, which consumes the cache on
+  // submit and owns invalidation from there.
   useEffect(() => {
     if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
     if (!isExtension()) return;
     return () => {
-      requestSpeculateInvalidate();
+      if (!hasSendDraft()) {
+        requestSpeculateInvalidate();
+      }
     };
   }, []);
 
@@ -340,33 +297,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     };
     setValue('token', uiToken);
   }, [preselectedTokenId, balanceData, setValue]);
-
-  // Default every send to a 7-day reclaim (expiration) height. Fetch the
-  // current block height once on flow entry and seed recallDate/recallBlocks.
-  // The user can override via the "Edit" link on the Review screen, which
-  // opens RecallCalendarDrawer; we skip seeding if a date is already set.
-  useEffect(() => {
-    if (recallDate) return;
-    let cancelled = false;
-    ensureSdkWasmReady()
-      .then(() => {
-        if (cancelled) return;
-        const rpc = new RpcClient(getRpcEndpoint());
-        return rpc.getBlockHeaderByNumber().then(header => {
-          if (cancelled) return;
-          const date = addDays(new Date(), 7);
-          setRecallDate(date);
-          setRecallTime(format(date, 'HH:mm'));
-          setValue('recallBlocks', String(dateTimeToRecallBlocks(date, header.blockNum())));
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // Run once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Re-validate the amount whenever the selected token changes. In the new
   // flow the user can type an amount before picking a token, so the balance
@@ -406,82 +336,25 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
             trigger();
           }
           break;
-        case SendFlowActionId.GenerateTransaction:
-          onGenerateTransaction();
-          break;
         default:
           break;
       }
     },
-    [navigateTo, goBack, onClose, onGenerateTransaction, setValue, trigger]
+    [navigateTo, goBack, onClose, setValue, trigger]
   );
 
-  const onSubmit = useCallback<SubmitHandler<SendFlowForm>>(async () => {
-    if (isSubmitting) {
-      return;
-    }
-    try {
-      clearErrors('root');
-      // Drop any hash from a previous completed tx before starting a fresh one,
-      // so the completion modal can't briefly flash a stale "View on Midenscan"
-      // button pointing at the previous hash.
-      useWalletStore.getState().setLastCompletedTxHash(null);
-
-      // Step 1: Create the transaction (same as Receive's initiateConsumeTransaction)
-      const txId = await initiateSendTransaction(
-        publicKey!,
-        recipientAddress!,
-        token!.id,
-        sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
-        stringToBigInt(amount!, token!.decimals),
-        recallBlocks ? parseInt(recallBlocks) : undefined,
-        delegateTransaction
-      );
-
-      // Step 2: Open the loading modal
-      useWalletStore.getState().openTransactionModal();
-
-      if (isExtension()) {
-        // On extension: tell SW to process, then wait for Dexie updates
-        requestSWTransactionProcessing();
-      }
-
-      // Step 3: Wait for transaction completion (Dexie liveQuery works cross-context)
-      const result = await waitForTransactionCompletion(txId);
-
-      if ('errorMessage' in result) {
-        setError('root', { type: 'manual', message: result.errorMessage });
-      } else {
-        // Stash the on-chain tx hash so the completion modal can render a
-        // "View on Midenscan" button. Set before navigation so the modal
-        // transitions to its complete state with the hash already present.
-        useWalletStore.getState().setLastCompletedTxHash(result.txHash);
-        // Success - navigate to home on mobile, or completion screen on desktop
-        if (isMobile()) {
-          navigate('/');
-        } else {
-          onAction({ id: SendFlowActionId.GenerateTransaction });
-        }
-      }
-    } catch (e: any) {
-      if (e.message) {
-        setError('root', { type: 'manual', message: e.message });
-      }
-      console.error(e);
-    }
-  }, [
-    isSubmitting,
-    clearErrors,
-    onAction,
-    publicKey,
-    recipientAddress,
-    sharePrivately,
-    delegateTransaction,
-    amount,
-    recallBlocks,
-    setError,
-    token
-  ]);
+  // Hand off to the full-screen review page, which owns the transaction
+  // pipeline. The draft lets SendManager restore the form (on the Amount
+  // step) when the user backs out of review — see send-draft.ts.
+  const onConfirmAmount = useCallback(() => {
+    if (!token || !amount || !recipientAddress) return;
+    setSendDraft({ amount, recipientAddress, tokenId: token.id });
+    navigate(
+      `/send/review?amount=${encodeURIComponent(amount)}&to=${encodeURIComponent(
+        recipientAddress
+      )}&tokenId=${encodeURIComponent(token.id)}`
+    );
+  }, [amount, recipientAddress, token]);
 
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -558,13 +431,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
+              footerClassName="pt-4 pb-6"
               onAmountChange={onAmountChange}
-              onSelectToken={() => goToStep(SendFlowStep.SelectToken)}
-              onConfirm={() => goToStep(SendFlowStep.ReviewTransaction)}
+              onSelectToken={() => setShowTokenDrawer(true)}
+              onConfirm={onConfirmAmount}
             />
           );
-        case SendFlowStep.SelectToken:
-          return <SelectToken onAction={onAction} />;
         case SendFlowStep.AccountsList:
           return (
             <AccountsList
@@ -572,21 +444,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               accounts={allContactsList}
               onClose={goBack}
               onSelectContact={onSelectContact}
-            />
-          );
-        case SendFlowStep.ReviewTransaction:
-          return (
-            <ReviewTransaction
-              amount={amount || ''}
-              token={token}
-              recipientAddress={recipientAddress}
-              recallTime={recallTime}
-              recallDate={recallDate}
-              onAction={onAction}
-              onGoBack={goBack}
-              onSubmit={handleSubmit(onSubmit)}
-              onRecallDateChange={setRecallDate}
-              onRecallTimeChange={setRecallTime}
             />
           );
         default:
@@ -604,12 +461,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       onSelectContact,
       amount,
       onAmountChange,
-      onAction,
       goToStep,
-      handleSubmit,
-      onSubmit,
-      recallDate,
-      recallTime
+      onConfirmAmount
     ]
   );
 
@@ -629,23 +482,34 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       )}
       data-testid="send-flow"
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 h-full min-h-0">
+      <div className="flex flex-col flex-1 h-full min-h-0">
         <Navigator renderRoute={renderStep} />
-      </form>
+      </div>
+
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        onSelect={selectedToken => onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } })}
+      />
     </div>
   );
 };
 
 const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   const { search } = useLocation();
-  const preselectedTokenId = new URLSearchParams(search).get('tokenId');
-  // Always start at recipient selection; a preselected token just pre-fills the
-  // token for the Amount step (see the preselect effect in SendManager).
-  const initialRoute = SendFlowStep.SelectRecipient;
+  // One-shot: a draft exists only when the user backed out of /send/review.
+  // Restore their values and reopen on the Amount step; the token restores
+  // through the preselect effect via its id.
+  const [draft] = useState(consumeSendDraft);
+  const preselectedTokenId = draft?.tokenId ?? new URLSearchParams(search).get('tokenId');
+  // Otherwise always start at recipient selection; a preselected token just
+  // pre-fills the token for the Amount step (see the preselect effect in
+  // SendManager).
+  const initialRoute = draft ? SendFlowStep.SelectAmount : SendFlowStep.SelectRecipient;
 
   return (
     <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
-      <SendManager {...props} preselectedTokenId={preselectedTokenId} />
+      <SendManager {...props} preselectedTokenId={preselectedTokenId} draft={draft} />
     </NavigatorProvider>
   );
 };
