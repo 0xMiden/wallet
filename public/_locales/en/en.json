@@ -279,7 +279,7 @@
   "addressBook": "Address Book",
   "addressBookDescription": "Manage your contacts here",
   "chooseRecipient": "Choose recipient",
-  "enterMidenOrEthereumAddress": "Enter Miden or Ethereum address",
+  "enterMidenOrEthereumAddress": "Enter Miden Address",
   "selectAmount": "Select Amount",
   "selectAToken": "Select a token",
   "searchForTokens": "Search for tokens",
