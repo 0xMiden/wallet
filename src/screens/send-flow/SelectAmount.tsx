@@ -30,12 +30,14 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
+  /** Whether the token chip opens a picker. Single-token flows (earn deposit) pass false to render a fixed, non-tappable chip. */
+  tokenSelectable?: boolean;
   /** Padding classes for the confirm-button footer. Defaults to the send-flow
    *  spacing (`pt-4 pb-24`); pass a snugger value to hug the bottom. */
   footerClassName?: string;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
-  onSelectToken: () => void;
+  onSelectToken?: () => void;
   onSelectNetwork?: () => void;
   onConfirm: () => void;
 }
@@ -65,6 +67,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   confirmTitle,
   showNetworkPill = true,
   showBalanceHelper = true,
+  tokenSelectable = true,
   footerClassName = 'pt-4 pb-24',
   children,
   onAmountChange,
@@ -79,7 +82,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 
   const selectToken = () => {
     hapticLight();
-    onSelectToken();
+    onSelectToken?.();
   };
 
   const selectNetwork = () => {
@@ -88,7 +91,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   };
 
   // Same-chain (Miden) send: a single token chip with a dropdown chevron.
-  const tokenChip = (
+  // Fixed-token flows render the same chip without the chevron or click affordance.
+  const tokenChip = tokenSelectable ? (
     <button
       type="button"
       data-testid="send-token-selector"
@@ -101,6 +105,13 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       </span>
       <Icon name={IconName.ChevronDown} size="sm" className="text-primary-500" fill="currentColor" />
     </button>
+  ) : (
+    <div data-testid="send-token-selector" className="flex items-center gap-1.25">
+      {token && <TokenLogo symbol={token.name} size="md" />}
+      <span className="font-heading text-2xl font-bold text-heading-gray">
+        {token ? token.name : t('selectAToken')}
+      </span>
+    </div>
   );
 
   // Cross-chain send: a token row connected to a destination-network row, so it

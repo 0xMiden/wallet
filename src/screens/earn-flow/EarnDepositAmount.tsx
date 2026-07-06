@@ -1,13 +1,15 @@
 import React, { FC, useMemo, useState } from 'react';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { MIDEN_USDC_DECIMALS } from 'lib/epoch';
+import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { navigate } from 'lib/woozie';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
 
 import { EarnFlowHeader } from './components';
-import { EARN_DATA } from './data';
-
-const DEFAULT_VAULT = EARN_DATA.vaults[0]!;
+import { placeholderVault } from './earn-mapping';
+import { useEarnPositions } from './useEarnPositions';
 
 interface EarnDepositAmountProps {
   vaultId: string;
@@ -17,16 +19,28 @@ const parseAmount = (value: string): number => Number(value.replace(/,/g, '')) |
 
 const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const [amount, setAmount] = useState('');
-  const vault = useMemo(() => EARN_DATA.vaults.find(item => item.id === vaultId) ?? DEFAULT_VAULT, [vaultId]);
+  const { vaults } = useEarnPositions();
+  const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
+  const { publicKey } = useAccount();
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  // The deposited asset is the native faucet — the discovered id is bech32,
+  // the same form the balance rows key on.
+  const midenFaucetId = useMidenFaucetId();
+  const nativeBalance = useMemo(
+    () => (midenFaucetId ? balanceData?.find(item => item.tokenId === midenFaucetId) : undefined),
+    [balanceData, midenFaucetId]
+  );
   const token = useMemo<UIToken>(
     () => ({
-      id: vault.asset.toLowerCase(),
-      name: vault.asset,
-      decimals: 6,
-      balance: 200,
-      fiatPrice: 1
+      id: midenFaucetId ?? '',
+      // Label the deposit token by its faucet id, not a symbol.
+      name: nativeBalance?.metadata.symbol ?? 'MDN',
+      decimals: nativeBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
+      balance: nativeBalance?.balance ?? 0,
+      fiatPrice: nativeBalance?.fiatPrice ?? 1
     }),
-    [vault.asset]
+    [midenFaucetId, nativeBalance]
   );
 
   const amountValue = parseAmount(amount);
@@ -47,11 +61,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           showNetworkPill={false}
           showBalanceHelper={!hasAmount}
           footerClassName="pt-4 pb-6"
+          tokenSelectable={false}
           onAmountChange={setAmount}
-          onSelectToken={() => undefined}
           onConfirm={() => {
             if (isValidAmount) {
-              navigate(`/earn/vaults/${vault.id}/deposit/review?amount=${encodeURIComponent(amount)}`);
+              navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);
             }
           }}
         />

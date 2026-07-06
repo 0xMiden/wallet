@@ -6,11 +6,11 @@ import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
-import { EARN_DATA } from 'screens/earn-flow/data';
 import { EarnPosition, EarnVault } from 'screens/earn-flow/types';
+import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
-  const { summary, positions, vaults } = EARN_DATA;
+  const { summary, positions, vaults } = useEarnPositions();
   const handleSeeAllClick = () => {
     hapticLight();
     navigate('/earn/positions');

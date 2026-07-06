@@ -7,6 +7,8 @@ export interface EarnSummary {
 
 export interface EarnPosition {
   id: string;
+  /** Id of the vault this position lives in — links "Deposit more" back into `/earn/vaults/{vaultId}/deposit`. */
+  vaultId: string;
   protocol: string;
   asset: string;
   network: string;

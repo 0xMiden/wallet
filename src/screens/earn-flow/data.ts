@@ -14,6 +14,7 @@ export const EARN_DATA: {
   positions: [
     {
       id: 'aave-usdc-1',
+      vaultId: 'aave-usdc-ethereum-1',
       protocol: 'Aave',
       asset: 'USDC',
       network: 'Ethereum',
@@ -51,6 +52,7 @@ export const EARN_DATA: {
     },
     {
       id: 'aave-usdc-2',
+      vaultId: 'aave-usdc-ethereum-1',
       protocol: 'Aave',
       asset: 'USDC',
       network: 'Ethereum',
