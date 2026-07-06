@@ -143,7 +143,7 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ ro
                 {row.value}
               </span>
             )}
-            {row.subValue && <span className="mt-1 text-xs font-normal text-[#8E8E93]">{row.subValue}</span>}
+            {row.subValue && <span className="mt-1 text-xs font-normal text-gray-secondary">{row.subValue}</span>}
           </div>
         </div>
       ))}
@@ -215,7 +215,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
 
         <div className="w-full shrink-0 px-1 pt-10 flex flex-col items-center justify-center">
           {footerDescription && (
-            <p className="mb-4 text-center text-base font-normal  text-[#808080]">{footerDescription}</p>
+            <p className="mb-4 text-center text-base font-normal  text-gray">{footerDescription}</p>
           )}
 
           {secondaryAction ? (

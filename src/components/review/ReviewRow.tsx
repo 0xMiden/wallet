@@ -11,7 +11,7 @@ import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 export const ReviewLabel: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
   <span
     className={classNames(
-      'inline-flex items-center rounded-full bg-[#F1F1F1] px-2 py-1 text-sm font-bold text-[#808080] font-heading',
+      'inline-flex items-center rounded-full bg-[#F1F1F1] px-2 py-1 text-sm font-bold text-gray font-heading',
       className
     )}
   >

@@ -76,10 +76,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const helper =
     token && showBalanceHelper ? (
       <>
-        <span className="font-heading text-[#808080] text-base font-bold">
+        <span className="font-heading text-gray text-base font-bold">
           {t('available')} {formatBalance(token.balance)} {token.name}
         </span>
-        <span className="font-heading text-[#808080] text-base font-bold">
+        <span className="font-heading text-gray text-base font-bold">
           {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
         </span>
       </>

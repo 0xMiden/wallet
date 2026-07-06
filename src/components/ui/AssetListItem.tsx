@@ -61,7 +61,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
 
         <div className="flex flex-col min-w-0 shrink-0 font-bold">
           <div className="text-base  leading-tight text-heading-gray truncate">{name}</div>
-          <div className="font-heading text-sm  leading-tight text-[#00000080]">{amount}</div>
+          <div className="font-heading text-sm leading-tight text-black opacity-50 ">{amount}</div>
         </div>
       </div>
 

@@ -25,8 +25,8 @@ export const StatusPill: FC<{ message: string }> = memo(({ message }) => {
   const { t } = useTranslation();
   const isCompleted = isCompletedTransaction(message);
 
-  const dotColor = isCompleted ? 'bg-[#1A9C52]' : 'bg-blue-500';
-  const textColor = isCompleted ? 'text-[#1A9C52]' : 'text-blue-500';
+  const dotColor = isCompleted ? 'bg-green-600' : 'bg-blue-500';
+  const textColor = isCompleted ? 'text-green-600' : 'text-blue-500';
   const label = isCompleted ? t('confirmed') : t('inProgress');
 
   return (

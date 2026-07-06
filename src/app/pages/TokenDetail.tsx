@@ -151,7 +151,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
             className={classNames(
               'font-heading text-xs font-semibold px-2 py-0.5 rounded-full',
               priceInfo.change24h >= 0
-                ? 'text-green-200 bg-green-50 dark:bg-green-500/15 dark:text-green-500'
+                ? 'text-green-600 bg-green-50 dark:bg-green-500/15 dark:text-green-500'
                 : 'text-red-600 bg-red-50 dark:bg-red-500/15 dark:text-red-500'
             )}
           >

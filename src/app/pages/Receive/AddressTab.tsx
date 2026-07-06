@@ -95,7 +95,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
           </span>
           <div className="w-full flex flex-col items-center justify-center gap-6">
             <QRCode ref={qrRef} address={address} size={300} />
-            <span className="w-full rounded-full text-center text-base font-heading font-bold text-heading-gray py-5 bg-[#F6F4F2]">
+            <span className="w-full rounded-full text-center text-base font-heading font-bold text-heading-gray py-5 bg-surface-interactive">
               {truncateAddress(address, false, 16, 8)}
             </span>
           </div>

@@ -73,7 +73,7 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
           <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight">
             {phase === 'enter' ? t('setUpYourPasscode') : t('confirmYourPasscode')}
           </h1>
-          <p className={`text-lg text-center mt-3 ${mismatch ? 'text-red-500' : 'text-[#8E8E93]'}`}>
+          <p className={`text-lg text-center mt-3 ${mismatch ? 'text-red-500' : 'text-gray-secondary'}`}>
             {mismatch
               ? t('passcodesDoNotMatch')
               : phase === 'enter'
@@ -98,7 +98,7 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
           </div>
         </div>
 
-        <div className="w-full pt-8">
+        <div className="w-full pt-13">
           <Numpad onDigit={handleDigit} onDelete={handleDelete} />
         </div>
       </div>

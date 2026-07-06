@@ -28,7 +28,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 const propsPerButtonVariant = {
   [ButtonVariant.Primary]: {
     color: 'text-pure-white',
-    fontWeight: 'font-semibold',
+    fontWeight: 'font-bold',
     disabledColor: 'text-heading-gray',
     disabledFontWeight: 'font-semibold',
     backgroundColor: 'bg-primary-500 focus:bg-primary-500',
@@ -42,15 +42,15 @@ const propsPerButtonVariant = {
     fontWeight: 'font-bold',
     disabledColor: 'text-heading-gray',
     disabledFontWeight: 'font-semibold',
-    backgroundColor: 'bg-[#F9F9F9]',
-    hoverBackgroundColor: 'hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f]',
+    backgroundColor: 'bg-button-secondary',
+    hoverBackgroundColor: 'hover:bg-button-secondary-hover',
     disabledBackgroundColor: 'bg-surface-inactive',
     iconColor: 'black',
     border: ''
   },
   [ButtonVariant.Ghost]: {
     color: 'text-heading-gray',
-    fontWeight: 'font-medium',
+    fontWeight: 'font-bold',
     disabledColor: 'text-grey-400',
     disabledFontWeight: 'font-semibold',
     backgroundColor: 'bg-transparent',

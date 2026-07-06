@@ -51,7 +51,7 @@ export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAct
           onClick={() => onAction?.({ id: SendFlowActionId.GoBack })}
           className="text-primary-500 border border-border-card self-start mb-4"
         />
-        <h1 className="font-heading text-2xl font-bold text-[#808080] mb-4">{t('selectAToken')}</h1>
+        <h1 className="font-heading text-2xl font-bold text-gray mb-4">{t('selectAToken')}</h1>
         <SearchInput
           value={searchQuery}
           onChange={setSearchQuery}

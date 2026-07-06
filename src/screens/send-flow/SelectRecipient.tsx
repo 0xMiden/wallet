@@ -53,7 +53,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
-        <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('chooseRecipient')}</span>
+        <span className="font-heading text-2xl leading-none font-bold text-gray">{t('chooseRecipient')}</span>
 
         <div className="relative mt-3">
           <textarea

@@ -126,7 +126,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     <Logo className={clsx('[&_path]:fill-heading-gray', paddingXClass)} />
                   </div>
                 </button>
-                <div className="mt-2 px-1 text-center text-[#8E8E93] text-[10px] leading-tight">
+                <div className="mt-2 px-1 text-center text-gray-secondary dark:text-pure-white text-[10px] leading-tight">
                   <p className="">
                     {t('guardianOperatedBy')} <span className="font-bold">{option.operatedBy}</span>
                   </p>

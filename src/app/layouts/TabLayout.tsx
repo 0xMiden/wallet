@@ -99,7 +99,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'overview',
       label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5" />
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-heading-gray" />
     },
     {
       id: 'send',
@@ -110,17 +110,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'receive',
       label: 'Receive',
       icon: <Icon name={IconName.Receive} className="w-5 h-5" />
-    },
-    {
-      id: 'earn',
-      label: 'Earn',
-      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
-    },
-    {
-      id: 'swap',
-      label: 'Swap',
-      icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
     }
+    // {
+    //   id: 'earn',
+    //   label: 'Earn',
+    //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+    // },
+    // {
+    //   id: 'swap',
+    //   label: 'Swap',
+    //   icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+    // }
   ];
 
   const activeTab = activeTabFromPath(pathname);
@@ -152,10 +152,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           : { height: '600px', width: '360px' };
 
   return (
-    <div
-      className={classNames('relative m-auto bg-app-bg overflow-hidden flex flex-col', fullPage && 'rounded-3xl')}
-      style={containerStyles}
-    >
+    <div className={classNames('relative m-auto bg-app-bg overflow-hidden flex flex-col')} style={containerStyles}>
       {/* Top action bar — sits OUTSIDE the animated content tree so it
           stays fixed across intra-home-group navigations. The framer-motion
           pill inside handles the active-item transition. */}

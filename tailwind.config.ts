@@ -33,6 +33,7 @@ export default {
         'border-subtle': 'var(--color-border-subtle)',
         'heading-gray': 'var(--color-text-secondary)',
         gray: {
+          DEFAULT: 'var(--text-gray)',
           25: 'var(--color-surface-secondary)',
           50: 'var(--color-surface-tertiary)',
           100: 'var(--color-hover-bg)',
@@ -140,6 +141,10 @@ export default {
         'surface-input': 'var(--surface-input)',
         'surface-interactive': 'var(--surface-interactive)',
         'surface-inactive': 'var(--surface-inactive)',
+        'button-secondary': 'var(--surface-button-secondary)',
+        'button-secondary-hover': 'var(--surface-button-secondary-hover)',
+        'gray-secondary': 'var(--text-gray-secondary)',
+        'placeholder-gray': 'var(--text-placeholder)',
         'status-positive': `var(--status-positive, ${successGreen})`,
         'status-pending': 'var(--status-pending)',
         'status-negative': 'var(--status-negative)',
