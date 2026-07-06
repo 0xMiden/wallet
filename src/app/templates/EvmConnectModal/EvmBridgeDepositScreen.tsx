@@ -27,7 +27,7 @@ import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 
-const MIDEN_USDC_FAUCET_ID = '0x0a7d175ed63ec5200fb2ced86f6aa5';
+const MIDEN_USDC_FAUCET_ID = '0x2458e5446128e6b150b75b8ebd9ce1';
 
 /** Native-ETH source token symbol/decimals (the non-USDC deposit option). */
 const ETH_SYMBOL = 'ETH';
