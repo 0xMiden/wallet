@@ -9,6 +9,8 @@ export interface BottomNavItem {
   label: string;
   icon: ReactNode;
   iconActive?: ReactNode;
+  /** Renders a small red notification dot on the icon (e.g. unclaimed notes). */
+  showDot?: boolean;
 }
 
 export interface BottomNavProps {
@@ -49,7 +51,12 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
               isActive ? 'text-accent-primary' : 'text-text-primary-token'
             )}
           >
-            <span className="flex items-center justify-center w-6 h-6">{iconNode}</span>
+            <span className="relative flex items-center justify-center w-6 h-6">
+              {iconNode}
+              {item.showDot && (
+                <span aria-hidden className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
+              )}
+            </span>
             <span className={classNames('text-xs leading-none', isActive ? 'font-bold' : 'font-semibold')}>
               {item.label}
             </span>

@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { motion } from 'framer-motion';
 
 import { useAppEnv } from 'app/env';
+import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
@@ -56,6 +57,7 @@ function activeActionFromPath(pathname: string): string {
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
+  const hasUnclaimedNotes = useHasUnclaimedNotes();
   const prevPathnameRef = useRef<string | null>(null);
 
   // During render `prevPathnameRef.current` still holds the previous path
@@ -91,7 +93,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'activity',
       label: 'Activity',
-      icon: <Icon name={IconName.Activity} className="w-6 h-6" />
+      icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
+      showDot: hasUnclaimedNotes
     }
   ];
 
