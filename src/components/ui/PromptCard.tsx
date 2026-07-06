@@ -16,26 +16,7 @@ export interface PromptCardProps {
   className?: string;
 }
 
-const VARIANT_TITLE: Record<PromptCardVariant, string> = {
-  default: 'text-text-primary-token',
-  warning: 'text-status-pending',
-  critical: 'text-status-negative'
-};
-
-const VARIANT_ACCENT_BORDER: Record<PromptCardVariant, string> = {
-  default: '',
-  warning: 'border-l-2 border-status-pending',
-  critical: 'border-l-2 border-status-negative'
-};
-
-export const PromptCard: FC<PromptCardProps> = ({
-  title,
-  body,
-  variant = 'default',
-  onClick,
-  onDismiss,
-  className
-}) => {
+export const PromptCard: FC<PromptCardProps> = ({ title, body, onClick, onDismiss, className }) => {
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
@@ -66,31 +47,11 @@ export const PromptCard: FC<PromptCardProps> = ({
     <div
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
-      className={classNames(
-        'w-full bg-gray-25 rounded-md-token',
-        'flex items-center gap-3 px-4 py-2',
-        onClick && 'cursor-pointer active:opacity-90 transition-opacity',
-        VARIANT_ACCENT_BORDER[variant],
-        className
-      )}
+      className={classNames('w-full bg-surface-input rounded-10', 'flex items-center gap-3 px-4 py-3', className)}
     >
-      <div className="flex flex-col gap-1 min-w-0 flex-1">
-        <div className={classNames('text-sm font-semibold leading-tight truncate', VARIANT_TITLE[variant])}>
-          {title}
-        </div>
-        {body && (
-          <div
-            className="text-sm font-normal leading-snug text-text-secondary-token"
-            style={{
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden'
-            }}
-          >
-            {body}
-          </div>
-        )}
+      <div className="flex flex-col gap-1 min-w-0 flex-1 text-black">
+        <div className={classNames('text-base font-bold font-heading leading-tight truncate')}>{title}</div>
+        {body && <div className="text-xs font-normal">{body}</div>}
       </div>
       {Trail}
     </div>

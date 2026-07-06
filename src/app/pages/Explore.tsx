@@ -188,7 +188,6 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             currency="USD"
             delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}
-            showDragHandle={false}
           />
         )}
       </Balance>

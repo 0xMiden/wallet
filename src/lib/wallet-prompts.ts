@@ -151,10 +151,7 @@ export function useWalletPromptStorage() {
     [setPromptStatus]
   );
 
-  const isPromptPending = useCallback(
-    (type: WalletPromptType) => isWalletPromptPending(storage, type),
-    [storage]
-  );
+  const isPromptPending = useCallback((type: WalletPromptType) => isWalletPromptPending(storage, type), [storage]);
 
   return {
     storage,
