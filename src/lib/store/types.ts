@@ -5,7 +5,7 @@ import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
-import { SerializedConsumableNote, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
+import { SerializedConsumableNote, SignEvmOperation, WalletAccount, WalletSettings, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 /**
@@ -146,6 +146,7 @@ export interface WalletActions {
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
   signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;

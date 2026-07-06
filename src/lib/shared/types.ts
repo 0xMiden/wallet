@@ -62,6 +62,8 @@ export enum WalletMessageType {
   SignTransactionResponse = 'SIGN_TRANSACTION_RESPONSE',
   SignWordRequest = 'SIGN_WORD_REQUEST',
   SignWordResponse = 'SIGN_WORD_RESPONSE',
+  SignEvmRequest = 'SIGN_EVM_REQUEST',
+  SignEvmResponse = 'SIGN_EVM_RESPONSE',
   PersistNewHotKeyRequest = 'PERSIST_NEW_HOT_KEY_REQUEST',
   PersistNewHotKeyResponse = 'PERSIST_NEW_HOT_KEY_RESPONSE',
   SwapHotKeyRequest = 'SWAP_HOT_KEY_REQUEST',
@@ -364,6 +366,16 @@ export interface WalletAccount {
    * the missing-on-read → `"falcon"` legacy interpretation.
    */
   authScheme?: AuthScheme;
+  /**
+   * Wallet-derived EVM address (BIP-44 m/44'/60'/0'/0/{hdIndex}), used as the
+   * Epoch lending position owner. Stamped at account creation and backfilled
+   * on unlock. Absent on imported accounts (hdIndex -1) and on records written
+   * before this field existed (until the unlock backfill runs). Public data —
+   * the matching private key lives AES-GCM-encrypted under the vault key at
+   * `accevmsecretkey_<address>` and is only ever decrypted transiently per
+   * signing operation.
+   */
+  evmAddress?: string;
 }
 
 export interface WalletNetwork {
@@ -606,6 +618,31 @@ export interface SignWordResponse extends WalletMessageBase {
   signature: string;
 }
 
+/**
+ * Signing operations for the wallet-derived EVM account. All fields are
+ * 0x-hex strings — BigInt-bearing structures are pre-serialized (transaction)
+ * or pre-hashed (typed data) on the frontend because BigInt does not survive
+ * intercom JSON. The three ops map 1:1 to the viem `toAccount` CustomSource
+ * callbacks that back the frontend WalletClient.
+ */
+export type SignEvmOperation =
+  | { op: 'transaction'; serializedTransaction: `0x${string}` }
+  | { op: 'typed-data'; digest: `0x${string}` }
+  | { op: 'message'; messageHex: `0x${string}` };
+
+export interface SignEvmRequest extends WalletMessageBase {
+  type: WalletMessageType.SignEvmRequest;
+  /** Miden bech32 WalletAccount.publicKey selecting whose EVM key signs. */
+  accountPublicKey: string;
+  operation: SignEvmOperation;
+}
+
+export interface SignEvmResponse extends WalletMessageBase {
+  type: WalletMessageType.SignEvmResponse;
+  /** Signed serialized tx (op 'transaction') or 65-byte signature hex. */
+  result: `0x${string}`;
+}
+
 export interface PersistNewHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.PersistNewHotKeyRequest;
   newHotPubKey: string;
@@ -838,6 +875,7 @@ export type WalletRequest =
   | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
+  | SignEvmRequest
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
   | GetPublicKeyForCommitmentRequest
@@ -894,6 +932,7 @@ export type WalletResponse =
   | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse
+  | SignEvmResponse
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
   | GetPublicKeyForCommitmentResponse

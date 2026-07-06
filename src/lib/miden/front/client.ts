@@ -4,7 +4,14 @@ import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wal
 import constate from 'constate';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
-import { WalletAccount, WalletRequest, WalletResponse, WalletSettings, WalletStatus } from 'lib/shared/types';
+import {
+  SignEvmOperation,
+  WalletAccount,
+  WalletRequest,
+  WalletResponse,
+  WalletSettings,
+  WalletStatus
+} from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -54,6 +61,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeUpdateSettings = useWalletStore(s => s.updateSettings);
   const storeSignData = useWalletStore(s => s.signData);
   const storeSignTransaction = useWalletStore(s => s.signTransaction);
+  const storeSignEvm = useWalletStore(s => s.signEvm);
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeConfirmDAppPermission = useWalletStore(s => s.confirmDAppPermission);
@@ -188,6 +196,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       return storeSignTransaction(publicKey, signingInputs);
     },
     [storeSignTransaction]
+  );
+
+  const signEvm = useCallback(
+    async (accountPublicKey: string, operation: SignEvmOperation) => {
+      return storeSignEvm(accountPublicKey, operation);
+    },
+    [storeSignEvm]
   );
 
   const getAuthSecretKey = useCallback(
@@ -331,6 +346,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     updateSettings,
     signData,
     signTransaction,
+    signEvm,
     getAuthSecretKey,
     getDAppPayload,
     confirmDAppPermission,
