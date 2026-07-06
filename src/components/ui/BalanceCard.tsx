@@ -21,6 +21,24 @@ export const CARD_COLOR_BG: Record<CardColor, string> = {
   purple: 'bg-card-purple'
 };
 
+/* Two-tone card: the top section is the primary tone — solid in light mode,
+ * 50% opacity in dark mode; the bottom strip is the solid second tone. */
+const CARD_COLOR_TOP: Record<CardColor, string> = {
+  slate: 'bg-card-slate dark:bg-card-slate/50',
+  orange: 'bg-card-orange dark:bg-card-orange/50',
+  blue: 'bg-card-blue dark:bg-card-blue/50',
+  green: 'bg-card-green dark:bg-card-green/50',
+  purple: 'bg-card-purple dark:bg-card-purple/50'
+};
+
+const CARD_COLOR_BOTTOM: Record<CardColor, string> = {
+  slate: 'bg-card-slate-deep',
+  orange: 'bg-card-orange-deep',
+  blue: 'bg-card-blue-deep',
+  green: 'bg-card-green-deep',
+  purple: 'bg-card-purple-deep'
+};
+
 export interface BalanceCardProps {
   /** Truncated display label, e.g. `mtst1aqg...940z`. */
   accountNumber: string;
@@ -64,14 +82,8 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   };
 
   return (
-    <div
-      className={classNames(
-        'relative w-full text-surface-balance-fg rounded-lg-token',
-        CARD_COLOR_BG[cardColor],
-        className
-      )}
-    >
-      <div className="px-3.5 pt-4 pb-3.5">
+    <div className={classNames('relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token', className)}>
+      <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">Total Balance</div>
 
         <div className="mt-2.5 flex items-end gap-1 leading-none">
@@ -102,7 +114,12 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2 py-3 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]">
+      <div
+        className={classNames(
+          'flex items-center justify-between gap-2 py-3 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          CARD_COLOR_BOTTOM[cardColor]
+        )}
+      >
         <CopyButton
           text={accountId ?? accountNumber}
           className={classNames(

@@ -397,6 +397,12 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --card-blue: #607c92;
     --card-green: #778c72;
     --card-purple: #847595;
+    /* Second tone — card bottom strip (same value in both themes). */
+    --card-slate-deep: #777386;
+    --card-orange-deep: #bd5d29;
+    --card-blue-deep: #405565;
+    --card-green-deep: #50634c;
+    --card-purple-deep: #5d5368;
   }
 
   .dark {
@@ -466,5 +472,10 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --card-blue: #91acc1;
     --card-green: #a8bba3;
     --card-purple: #beacd2;
+    --card-slate-deep: #777386;
+    --card-orange-deep: #bd5d29;
+    --card-blue-deep: #405565;
+    --card-green-deep: #50634c;
+    --card-purple-deep: #5d5368;
   }
 }

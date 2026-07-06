@@ -170,6 +170,11 @@ export default {
         'card-blue': 'var(--card-blue)',
         'card-green': 'var(--card-green)',
         'card-purple': 'var(--card-purple)',
+        'card-slate-deep': 'var(--card-slate-deep)',
+        'card-orange-deep': 'var(--card-orange-deep)',
+        'card-blue-deep': 'var(--card-blue-deep)',
+        'card-green-deep': 'var(--card-green-deep)',
+        'card-purple-deep': 'var(--card-purple-deep)',
         ...customColors,
         // Override primary from customColors with network-conditional values
         primary: primaryPalette
