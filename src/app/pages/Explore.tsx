@@ -1,11 +1,11 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { ActivateHotKeyBanner } from 'app/templates/ActivateHotKeyBanner';
 import Balance from 'app/templates/Balance';
+import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
-import { AccountsDrawer, BalanceCard, PromptCard, PromptCarousel, SearchInput } from 'components/ui';
+import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
 import {
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
@@ -25,6 +25,7 @@ import { MIDEN_NETWORK_NAME, MIDEN_FAUCET_ENDPOINTS } from 'lib/miden-chain/cons
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
+import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
@@ -147,6 +148,7 @@ const Explore: FC = () => {
             filteredTokens={filteredTokens}
             search={search}
             onSearchChange={setSearch}
+            account={account}
           />
         </div>
       </div>
@@ -162,9 +164,17 @@ interface HomeOverviewProps {
   filteredTokens: TokenBalanceData[];
   search: string;
   onSearchChange: (v: string) => void;
+  account: WalletAccount;
 }
 
-const HomeOverview: FC<HomeOverviewProps> = ({ address, tokenPrices, filteredTokens, search, onSearchChange }) => {
+const HomeOverview: FC<HomeOverviewProps> = ({
+  address,
+  tokenPrices,
+  filteredTokens,
+  search,
+  onSearchChange,
+  account
+}) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
 
   return (
@@ -185,14 +195,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({ address, tokenPrices, filteredTok
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 
-      <PromptCarousel>
-        <PromptCard
-          title="Set up your Guardian"
-          body="Make sure to set up your Guardian to ensure your wallet back-up."
-          onClick={() => navigate('/settings')}
-        />
-        <ActivateHotKeyBanner />
-      </PromptCarousel>
+      <HomePrompts account={account} />
 
       <div className="flex items-center justify-between pt-2">
         <span className="text-2xl font-bold text-text-primary-token">Assets</span>

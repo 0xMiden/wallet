@@ -13,6 +13,7 @@ export interface VerifySeedPhraseScreenProps extends React.ButtonHTMLAttributes<
   seedPhrase: string[];
   useBiometric?: boolean;
   isHardwareSecurityAvailable?: boolean;
+  showIntro?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onSubmit?: () => void;
 }
@@ -21,6 +22,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
   seedPhrase,
   useBiometric = true,
   isHardwareSecurityAvailable = false,
+  showIntro = true,
   onBiometricChange,
   className,
   onSubmit,
@@ -69,15 +71,17 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
       data-testid="verify-seed-phrase"
       {...props}
     >
-      <div className="flex flex-col items-center gap-2 text-heading-gray">
-        <header className="text-[28px] font-medium ">{t('verifySeedPhrase')}</header>
-        <div className="text-[10px] font-normal text-center">
-          <p>{t('verifyMessagePrefix')}</p>
-          <p>
-            <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold" /> }} />
-          </p>
+      {showIntro && (
+        <div className="flex flex-col items-center gap-2 text-heading-gray">
+          <header className="text-[28px] font-medium ">{t('verifySeedPhrase')}</header>
+          <div className="text-[10px] font-normal text-center">
+            <p>{t('verifyMessagePrefix')}</p>
+            <p>
+              <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold" /> }} />
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <article className="grid grid-cols-3 gap-2 w-full">
         {shuffledWords.map((word, index) => (

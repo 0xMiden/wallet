@@ -36,6 +36,7 @@ import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
+import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
@@ -246,6 +247,13 @@ const HIDDEN_TABS: Tab[] = [
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
     requiresActivatedHotKey: true
+  },
+  {
+    slug: 'verify-seed-phrase',
+    titleI18nKey: 'verifySeedPhrase',
+    Icon: SeedPhraseIcon,
+    Component: VerifySeedPhraseFlow,
+    hasOwnLayout: true
   },
   {
     slug: 'edit-miden-faucet-id',

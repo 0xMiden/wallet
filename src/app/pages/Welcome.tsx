@@ -15,6 +15,7 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletStatus, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
+import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -172,6 +173,9 @@ const Welcome: FC = () => {
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
       if (!importedWithFile) {
         await registerWallet(walletType, actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
+        if (onboardingType === OnboardingType.Create) {
+          await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
+        }
       } else {
         try {
           console.log('importing wallet from client');
