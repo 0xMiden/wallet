@@ -1,11 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-jest.mock('lib/platform', () => ({
-  isMobile: () => false,
-  isDesktop: () => true,
-  isExtension: () => false
-}));
-
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
   WalletPromptStatus,
@@ -19,6 +13,12 @@ import {
   setWalletPromptStatus,
   useWalletPromptStorage
 } from './wallet-prompts';
+
+jest.mock('lib/platform', () => ({
+  isMobile: () => false,
+  isDesktop: () => true,
+  isExtension: () => false
+}));
 
 describe('wallet prompts', () => {
   beforeEach(() => {
@@ -149,10 +149,7 @@ describe('wallet prompts', () => {
     });
 
     await waitFor(() => {
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[wallet-prompts] failed to persist prompt status:',
-        expect.any(Error)
-      );
+      expect(warnSpy).toHaveBeenCalledWith('[wallet-prompts] failed to persist prompt status:', expect.any(Error));
     });
 
     await waitFor(() => {

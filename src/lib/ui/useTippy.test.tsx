@@ -29,7 +29,7 @@ describe('useTippy', () => {
 
   it('creates, updates, and destroys an extension-safe tippy instance', () => {
     const instance = { setProps: jest.fn(), destroy: jest.fn() };
-    (tippy as jest.Mock).mockReturnValue(instance);
+    (tippy as unknown as jest.Mock).mockReturnValue(instance);
 
     const { rerender, unmount } = render(<Harness content="Copy" />);
 

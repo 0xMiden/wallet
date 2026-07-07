@@ -58,6 +58,14 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   default: jest.fn(() => 'miden-faucet-id')
 }));
 
+import React from 'react';
+
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+
+import { fetchTokenMetadata, onStorageChanged, usePassiveStorage } from 'lib/miden/front';
+import { useWalletStore } from 'lib/store';
+import { useRetryableSWR } from 'lib/swr';
+
 import {
   ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
   TokensMetadataProvider,
@@ -71,13 +79,8 @@ import {
   useGetTokenMetadata,
   useTokensMetadata
 } from './assets';
-import React from 'react';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { fetchTokenMetadata, onStorageChanged, usePassiveStorage } from 'lib/miden/front';
-import { useWalletStore } from 'lib/store';
-import { useRetryableSWR } from 'lib/swr';
 
-const mockUseWalletStore = useWalletStore as jest.Mock;
+const mockUseWalletStore = useWalletStore as unknown as jest.Mock;
 const mockUseRetryableSWR = useRetryableSWR as jest.Mock;
 const mockFetchTokenMetadata = fetchTokenMetadata as jest.Mock;
 const mockOnStorageChanged = onStorageChanged as jest.Mock;
@@ -186,13 +189,7 @@ describe('metadata hooks and provider', () => {
   it('syncs initial token metadata into the wallet store', async () => {
     mockUsePassiveStorage.mockReturnValue([{ 'asset-1': baseMetadata }, jest.fn()]);
 
-    render(
-      React.createElement(
-        TokensMetadataProvider,
-        null,
-        React.createElement('span', null, 'metadata child')
-      )
-    );
+    render(React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child')));
 
     expect(screen.getByText('metadata child')).toBeInTheDocument();
     await waitFor(() => {
@@ -208,11 +205,7 @@ describe('metadata hooks and provider', () => {
     });
 
     const { unmount } = render(
-      React.createElement(
-        TokensMetadataProvider,
-        null,
-        React.createElement('span', null, 'metadata child')
-      )
+      React.createElement(TokensMetadataProvider, null, React.createElement('span', null, 'metadata child'))
     );
 
     expect(mockOnStorageChanged).toHaveBeenCalledWith(ALL_TOKENS_BASE_METADATA_STORAGE_KEY, expect.any(Function));

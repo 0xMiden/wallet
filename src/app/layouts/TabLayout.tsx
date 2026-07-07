@@ -131,9 +131,15 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
 
+  // Fires for re-taps on the active tab too (BottomNav forwards them), so a
+  // Home tap from /send, /receive, etc. returns to Overview; a tap on the
+  // route we're already on stays a silent no-op.
   const handleTabChange = (id: string) => {
     const to = TAB_ROUTES[id];
-    if (to && to !== pathname) navigate(to);
+    if (to && to !== pathname) {
+      hapticSelection();
+      navigate(to);
+    }
   };
 
   const handleActionChange = (id: string) => {
@@ -160,7 +166,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           : { height: '600px', width: '360px' };
 
   return (
-    <div className={classNames('relative m-auto bg-app-bg overflow-hidden flex flex-col')} style={containerStyles}>
+    <div
+      // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
+      // the BottomNav shadow can fade into the body's safe-area padding
+      // strip below the container; fixed-size extension/desktop frames keep
+      // full overflow-hidden.
+      className={classNames(
+        'relative m-auto bg-app-bg flex flex-col',
+        isMobile() ? 'overflow-x-clip' : 'overflow-hidden'
+      )}
+      style={containerStyles}
+    >
       {/* Top action bar — sits outside the animated content tree so it
           stays fixed across intra-home-group navigations. */}
       {showActionBar && (
@@ -238,7 +254,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         data-tabbar-footer="true"
         style={{ display: 'flex' }}
       >
-        <div className="pointer-events-auto flex-1 px-4 pb-2">
+        {/* Mobile: the body's safe-area padding (max(16px, env(...)) in
+            mobile.html) already keeps the pill off the screen edge. */}
+        <div className={classNames('pointer-events-auto flex-1 px-4', !isMobile() && 'pb-2')}>
           <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>

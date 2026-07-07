@@ -1,5 +1,7 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { useTranslation } from 'react-i18next';
+
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
@@ -176,7 +178,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   account
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
-
+  const { t } = useTranslation();
   return (
     <>
       <Balance>
@@ -197,8 +199,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       <HomePrompts account={account} />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="text-2xl font-bold text-text-primary-token">Assets</span>
-        <span className="text-sm font-medium text-text-tertiary-token">All</span>
+        <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
       </div>
 
       <SearchInput value={search} onChange={onSearchChange} placeholder="Search for tokens" />
