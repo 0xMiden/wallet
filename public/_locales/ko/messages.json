@@ -2398,6 +2398,66 @@
     "message": "이 보호자에서 귀하의 계정을 찾을 수 없습니다. 대신 URL을 확인하거나 공개 계정으로 가져오세요.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "chooseYourGuardian": {
+    "message": "당신의 보호자를 선택하세요",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "마지막 단계에서는 Miden Guardian을 선택하세요. 보호층 역할을 하게 됩니다",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "가디언에 대해 더 알아보기",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "운영하는 사람:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "위치:",
+    "englishSource": "Location:"
+  },
+  "currentLabel": {
+    "message": "현재의",
+    "englishSource": "Current"
+  },
+  "whatIsAGuardian": {
+    "message": "가디언이란 무엇인가요?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian은 지갑에서 <b>모든 거래를 공동 서명</b>하여 자기 관리권을 포기하지 않고 안전망을 추가하는 독립적인 서비스입니다.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "기능",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "보안 정책에 따라 거래를 승인하거나 거부합니다. 장치를 분실한 경우 복구하는 데 도움이 됩니다.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "할 수 없는 일",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "자금을 스스로 이동하십시오. 비공개 상태에 액세스하세요. 공유하지 않는 한 잔액을 확인하세요.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "전환이 쉽습니다",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "복구 문구를 사용하여 언제든지 다른 Guardian으로 교체하거나 완전히 제거할 수 있습니다.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "useCustomGuardianUrl": {
+    "message": "맞춤 Guardian URL을 사용하세요.",
+    "englishSource": "Use a custom Guardian URL"
+  },
   "default": {
     "message": "기본",
     "englishSource": "Default"

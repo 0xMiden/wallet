@@ -30,7 +30,7 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
   localhost: {
     name: 'localhost',
     rpcUrl: 'http://localhost:57291',
-    provingUrl: 'http://localhost:50051',
+    provingUrl: 'http://localhost:50052', // :50051 is taken by the local guardian's gRPC
     transportUrl: 'http://127.0.0.1:57292',
     networkFlag: 'localhost',
     pollIntervalMs: 2_000,

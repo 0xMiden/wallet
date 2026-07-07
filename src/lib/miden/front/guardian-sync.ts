@@ -16,7 +16,9 @@ export const zustandProvider: GuardianAccountProvider = {
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>
-    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey)
+    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey),
+  setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
+    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
 };
 
 /**

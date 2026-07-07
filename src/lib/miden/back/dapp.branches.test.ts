@@ -248,8 +248,10 @@ describe('requestPermission — mobile branches', () => {
   });
 
   it('rejects when account has no public key commitments', async () => {
+    // Interface empty and guardian signer map empty: the resolver misses both.
     _g.__dappBranchMockGetAccount.mockResolvedValueOnce({
-      getPublicKeyCommitments: () => []
+      getPublicKeyCommitments: () => [],
+      storage: () => ({ getMapItem: () => undefined })
     });
     await expect(
       dapp.requestPermission(

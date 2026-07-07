@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
-import type { TimelineRecorder } from '../harness/timeline-recorder';
 import type { IdbDumpSource } from './idb-dump';
+import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 const PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -81,6 +81,12 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
     latestTxId?: string;
     error?: string;
   }>;
+  /**
+   * Refresh the Zustand `balances` projection from the account vault so a
+   * subsequent quickBalanceSnapshot() reflects freshly-consumed notes. See the
+   * implementation for why the stress settle loop needs this.
+   */
+  refreshBalances(): Promise<void>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
   /**
@@ -261,6 +267,66 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     return { address };
   }
 
+  /**
+   * Pick "Fully Private" on the create-wallet recovery-method screen and
+   * click Continue. Guardian-backed accounts need a live guardian endpoint
+   * which isn't part of the E2E harness.
+   */
+  private async selectCreateRecoveryMethod(
+    options: { recovery?: 'private' | 'guardian'; guardianUrl?: string } = {}
+  ): Promise<void> {
+    const heading = this.page.getByRole('heading', { name: /set up account recovery/i });
+    await heading.waitFor({ timeout: 15_000 });
+
+    if (options.recovery === 'guardian') {
+      if (!options.guardianUrl) {
+        throw new Error('selectCreateRecoveryMethod: guardianUrl is required for the guardian recovery method');
+      }
+      // The create-flow recovery screen has no custom-URL field, so seed the
+      // guardian endpoint directly. `createGuardianAccount` reads
+      // GUARDIAN_URL_STORAGE_KEY ('guardian_url_setting') from chrome.storage.local
+      // before falling back to the network default, and this runs before the
+      // account is created on "Get Started".
+      await this.page.evaluate(
+        ({ key, url }) => new Promise<void>(resolve => chrome.storage.local.set({ [key]: url }, () => resolve())),
+        { key: 'guardian_url_setting', url: options.guardianUrl }
+      );
+      // Guardian is the default selection; click it explicitly for robustness.
+      await this.page.getByText('Guardian', { exact: true }).first().click();
+    } else {
+      // Click the "Fully Private" card to switch selection away from the Guardian default.
+      await this.page
+        .getByText(/fully private/i)
+        .first()
+        .click();
+    }
+    await this.page.getByRole('button', { name: /continue/i }).click();
+
+    if (options.recovery === 'guardian') {
+      // #303 inserted a "Choose your Guardian" step between the recovery-method
+      // screen and confirmation. The create flow is preset-only (no custom-URL
+      // field); the guardian E2E targets the OpenZeppelin endpoint, which is the
+      // default-selected provider, so accept the default and continue. Selecting
+      // the provider persists its endpoint to guardian_url_setting (the OZ
+      // endpoint here matches the seed above) before "Get Started" creates the
+      // account.
+      const chooseGuardian = this.page.getByTestId('onboarding-choose-guardian');
+      await chooseGuardian.waitFor({ timeout: 15_000 });
+      await chooseGuardian.getByRole('button', { name: /continue/i }).click();
+    }
+  }
+
+  /**
+   * Pick "Import public account" on the import-recovery-method screen and
+   * click Continue.
+   */
+  private async selectImportRecoveryMethod(): Promise<void> {
+    const screen = this.page.getByTestId('import-recovery-method');
+    await screen.waitFor({ timeout: 15_000 });
+    await screen.getByText(/import public account/i).click();
+    await this.page.getByRole('button', { name: /continue/i }).click();
+  }
+
   // ── Address ───────────────────────────────────────────────────────────────
 
   /**
@@ -341,12 +407,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    *   - does not require the Explore page to be visible
    *
    * Reads straight from the Zustand store + `chrome.storage.local`:
-   *   - `balance` = consumed vault assets (matches getBalance's first source)
+   *   - `balance` = consumed vault assets, as last projected into the store
    *   - `pendingNotes` = full list of claimable notes (id + amount)
-   *   - `totalReportable` = balance + Σ pendingNotes — matches getBalance()
+   *   - `totalReportable` = balance + Σ pendingNotes
    *   - `pendingTxCount` / `lastTxId` = wallet's recent outgoing transactions
    *
    * Safe to call every op: measured at ~50 ms per wallet.
+   *
+   * CAVEAT: because it skips `fetchBalances`, the `balance` half is only as
+   * fresh as the store's last projection. A note that has been consumed but
+   * not yet re-fetched into `state.balances` is in neither `balance` nor
+   * `pendingNotes`, so `totalReportable` transiently under-counts. Callers that
+   * need an authoritative total (e.g. a conservation assertion) must call
+   * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
   async quickBalanceSnapshot(): Promise<{
     balance: number;
@@ -640,6 +713,37 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     } catch (e) {
       console.log(`[WalletPage.getBalance] Error: ${e}`);
       return 0;
+    }
+  }
+
+  /**
+   * Refresh the Zustand `balances` projection from the account vault — the same
+   * `state.fetchBalances` call getBalance() makes, but without navigating or
+   * waiting, so it's cheap enough for the stress settle loop to call each poll.
+   *
+   * Why this exists: quickBalanceSnapshot() is deliberately non-invasive and
+   * never calls `fetchBalances`, so its `balance` half can be stale. The stress
+   * settle loop's triggerSync() fires PROCESS_TRANSACTIONS_REQUEST, which
+   * auto-consumes pending notes: a consumed note leaves `miden_sync_data.notes`
+   * (dropping out of the snapshot's fresh `pendingSum`) but its value only
+   * lands in `state.balances` after a `fetchBalances`. Without this refresh the
+   * consumed value is counted in neither bucket, so `totalReportable`
+   * under-counts and strict conservation reports a phantom loss. Calling this
+   * before the final snapshot makes it authoritative — matching the initial
+   * baseline, which uses getBalance() and so refreshes the same way.
+   */
+  async refreshBalances(): Promise<void> {
+    try {
+      await this.page.evaluate(async () => {
+        const store = (window as any).__TEST_STORE__;
+        const state = store?.getState?.();
+        if (state?.currentAccount?.publicKey && state.fetchBalances) {
+          await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
+        }
+      });
+    } catch {
+      // Best-effort: a failed refresh leaves the prior balance in place and the
+      // settle loop retries on its next poll.
     }
   }
 

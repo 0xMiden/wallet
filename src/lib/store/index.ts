@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -346,6 +347,15 @@ export const useWalletStore = create<WalletStore>()(
         newHotPubKey
       });
       assertResponse(res.type === WalletMessageType.SwapHotKeyResponse);
+    },
+
+    setGuardianEndpoint: async (accountPublicKey, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.SetGuardianEndpointRequest,
+        accountPublicKey,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
     },
 
     getPublicKeyForCommitment: async commitment => {
@@ -723,29 +733,71 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
 
   // Guardian on-chain auth structure (overall threshold + signer set + procedure
   // thresholds) for E2E assertions — the harness's balance checks can't see the
-  // 3-key shape. Reads the cached front-end MultisigService; dynamic imports
-  // avoid a static cycle (guardian-sync pulls in this store module).
+  // 3-key shape. Dynamic imports avoid a static cycle.
   (globalThis as any).__TEST_GUARDIAN_AUTH__ = async (accountPublicKey: string) => {
-    try {
-      const [{ getOrCreateMultisigService }, { zustandProvider }] = await Promise.all([
-        import('lib/miden/front/guardian-manager'),
-        import('lib/miden/front/guardian-sync')
-      ]);
-      const service = await getOrCreateMultisigService(accountPublicKey, zustandProvider);
-      try {
-        // Best-effort refresh of on-chain state before reading. service.sync()
-        // takes the global WASM lock; on mobile the background sync can hold it
-        // for tens of seconds, which would blow the 30s execute_async_script
-        // budget the iOS bridge runs this under. Cap the wait — the auth
-        // structure (signers + procedure thresholds) is immutable during this
-        // assertion, so a slightly stale local read is still correct.
-        await Promise.race([service.sync(), new Promise<void>(resolve => setTimeout(resolve, 8_000))]);
-      } catch {
-        // best-effort — fall back to last-synced state
+    // Fast path: the balance poll (`fetchBalances`, which reliably completes in
+    // the wallet's own flow) stashes this account's auth structure on
+    // `__TEST_GUARDIAN_AUTH_STRUCTURE__`. Serving it here is a plain object read
+    // with NO WASM call, so it can't be starved by other main-thread WASM
+    // activity on the single-threaded iOS WASM (the live read below otherwise
+    // times out: the auth eval was observed taking 60s with the WebView main
+    // thread saturated even after all the wallet's own pollers were paused).
+    const stashStore = (
+      globalThis as {
+        __TEST_GUARDIAN_AUTH_STRUCTURE__?: Record<
+          string,
+          { threshold: number; signerCommitments: string[]; procedureThresholds: Record<string, number> }
+        >;
       }
-      return service.getAuthInfo();
+    ).__TEST_GUARDIAN_AUTH_STRUCTURE__;
+    // Prefer the exact-key match; fall back to the single stashed entry. The
+    // balance poll keys the stash by the address it's called with, which can be
+    // a different encoding of the same account than the publicKey the test
+    // passes here — and a wallet instance only ever has one Guardian account, so
+    // any stashed multisig structure on this page belongs to it.
+    const stashed = stashStore?.[accountPublicKey] ?? (stashStore ? Object.values(stashStore)[0] : undefined);
+    if (stashed) {
+      return stashed;
+    }
+
+    // Read the structure with a PURE storage parse (`AccountInspector.fromAccount`),
+    // not the transaction-oriented MultisigService. Going through
+    // `getOrCreateMultisigService` → `MultisigClient.load` drove a re-sign/realign
+    // loop (~48 `signWithHotKey` calls vs. 26 for a full consume) when loading
+    // against the post-consume state where the guardian's stored blob lags the
+    // on-chain account — on the single-threaded mobile WASM that loop hung the
+    // read past the eval budget. The inspector only reads the account's storage
+    // maps (signers, threshold_config, procedure_thresholds): no signing, no
+    // guardian HTTP, no load. A single `getAccount` (the same read the balance
+    // poll already does) plus the parse is cheap and correct — the structure is
+    // immutable.
+    // The read still needs one `getAccount`, and on the single-threaded mobile
+    // WASM even that lone call queues behind an in-flight background sync
+    // (`syncState` can hold the SDK's internal call-queue for tens of seconds).
+    // So quiesce the always-on frontend WASM pollers (`useSyncTrigger`, the
+    // balance poll — which bypasses the wallet mutex — and the claimable-notes
+    // SWR) via `__TEST_SYNC_PAUSED__` for the read, restored in `finally`. Gated
+    // on MIDEN_E2E_TEST, tree-shaken from production.
+    setTestSyncPaused(true);
+    try {
+      const [{ AccountInspector }, { getMidenClient }] = await Promise.all([
+        import('@openzeppelin/miden-multisig-client'),
+        import('lib/miden/sdk/miden-client')
+      ]);
+      const account = await (await getMidenClient()).getAccount(accountPublicKey);
+      if (!account) {
+        return { error: `Guardian account ${accountPublicKey} not found in local client` };
+      }
+      const config = AccountInspector.fromAccount(account);
+      return {
+        threshold: config.threshold,
+        signerCommitments: config.signerCommitments,
+        procedureThresholds: Object.fromEntries(config.procedureThresholds)
+      };
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      setTestSyncPaused(false);
     }
   };
 }

@@ -2398,6 +2398,66 @@
     "message": "このガーディアンであなたのアカウントが見つかりませんでした。 URL を確認するか、代わりにパブリック アカウントとしてインポートしてください。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "chooseYourGuardian": {
+    "message": "ガーディアンを選択してください",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "最後のステップでは、ミデン ガーディアンを選択します。これは保護層として機能します",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "ガーディアンについて詳しく知る",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "運営者:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "位置：",
+    "englishSource": "Location:"
+  },
+  "currentLabel": {
+    "message": "現在",
+    "englishSource": "Current"
+  },
+  "whatIsAGuardian": {
+    "message": "ガーディアンとは何ですか?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian は、 ウォレットからの<b>すべてのトランザクションに連署</b>し、自己管理を放棄することなくセーフティネットを追加する独立したサービスです。",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "何をするのか",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "セキュリティ ポリシーに基づいてトランザクションを承認または拒否します。デバイスを紛失した場合の回復に役立ちます。",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "できないこと",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "資金を勝手に移動させます。自分のプライベートな状態にアクセスします。残高を共有しない限り、残高を確認できます。",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "切り替えは簡単です",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "回復フレーズを使用していつでも別のガーディアンにローテーションしたり、ガーディアンを完全に削除したりできます。",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "useCustomGuardianUrl": {
+    "message": "カスタム Guardian URL を使用する",
+    "englishSource": "Use a custom Guardian URL"
+  },
   "default": {
     "message": "デフォルト",
     "englishSource": "Default"

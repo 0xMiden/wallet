@@ -2336,6 +2336,66 @@
     "message": "No pudimos encontrar su cuenta en este guardián. En su lugar, verifique la URL o importe como una cuenta pública.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "chooseYourGuardian": {
+    "message": "Elige tu tutor",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "Para el último paso, elige tu Miden Guardian. Esto servirá como capa protectora.",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Más información sobre el guardián",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "Operado por:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "Ubicación:",
+    "englishSource": "Location:"
+  },
+  "currentLabel": {
+    "message": "Actual",
+    "englishSource": "Current"
+  },
+  "whatIsAGuardian": {
+    "message": "¿Qué es un tutor?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Un Guardian es un servicio independiente que <b>avala cada transacción</b> desde su billetera, agregando una red de seguridad sin renunciar a la autocustodia.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "que hace",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Aprueba o rechaza transacciones según su política de seguridad. Le ayuda a recuperarse si pierde su dispositivo.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "lo que no puede hacer",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "Mueva sus fondos por sí solo. Accede a tu estado privado. Vea sus saldos a menos que los comparta.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "Cambiar es fácil",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Puedes cambiar a un Guardián diferente (o eliminar uno por completo) en cualquier momento usando tu frase de recuperación.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "useCustomGuardianUrl": {
+    "message": "Utilice una URL de tutor personalizada",
+    "englishSource": "Use a custom Guardian URL"
+  },
   "default": {
     "message": "Por defecto",
     "englishSource": "Default"

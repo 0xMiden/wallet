@@ -19,7 +19,8 @@ import {
   isHapticFeedbackEnabled,
   setThemeSetting,
   getThemeSetting,
-  isValidGuardianUrl
+  isValidGuardianUrl,
+  sanitizeGuardianUrl
 } from './helpers';
 
 describe('settings helpers', () => {
@@ -47,6 +48,18 @@ describe('settings helpers', () => {
       expect(isValidGuardianUrl('not-a-url')).toBe(false);
       expect(isValidGuardianUrl('ftp://guardian.example.com')).toBe(false);
       expect(isValidGuardianUrl('guardian.example.com')).toBe(false);
+    });
+  });
+
+  describe('sanitizeGuardianUrl', () => {
+    it('trims whitespace and strips trailing slashes', () => {
+      expect(sanitizeGuardianUrl('  https://guardian.example.com/  ')).toBe('https://guardian.example.com');
+      expect(sanitizeGuardianUrl('https://guardian.example.com///')).toBe('https://guardian.example.com');
+      expect(sanitizeGuardianUrl('https://guardian.example.com/path/')).toBe('https://guardian.example.com/path');
+    });
+
+    it('leaves an already-clean URL unchanged', () => {
+      expect(sanitizeGuardianUrl('https://guardian.example.com')).toBe('https://guardian.example.com');
     });
   });
 

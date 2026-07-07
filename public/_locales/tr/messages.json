@@ -2398,6 +2398,66 @@
     "message": "Bu velide hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine herkese açık bir hesap olarak içe aktarın.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "chooseYourGuardian": {
+    "message": "Vasinizi seçin",
+    "englishSource": "Choose your Guardian"
+  },
+  "chooseGuardianDescription": {
+    "message": "Son adım için Miden Guardian'ınızı seçin. Bu koruyucu bir tabaka görevi görecek",
+    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
+  },
+  "learnMoreAboutGuardian": {
+    "message": "Guardian hakkında daha fazla bilgi edinin",
+    "englishSource": "Learn more about the Guardian"
+  },
+  "guardianOperatedBy": {
+    "message": "Tarafından işletilmektedir:",
+    "englishSource": "Operated by:"
+  },
+  "guardianLocation": {
+    "message": "Konum:",
+    "englishSource": "Location:"
+  },
+  "currentLabel": {
+    "message": "Akım",
+    "englishSource": "Current"
+  },
+  "whatIsAGuardian": {
+    "message": "Koruyucu nedir?",
+    "englishSource": "What is a Guardian?"
+  },
+  "guardianInfoDescription": {
+    "message": "Guardian, cüzdanınızdaki <b>her işlemi birlikte imzalayan</b> bağımsız bir hizmettir ve kişisel gözetimden vazgeçmeden bir güvenlik ağı ekler.",
+    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+  },
+  "guardianInfoWhatItDoesTitle": {
+    "message": "Ne işe yarar",
+    "englishSource": "What it does"
+  },
+  "guardianInfoWhatItDoesDescription": {
+    "message": "Güvenlik politikanıza göre işlemleri onaylar veya reddeder. Cihazınızı kaybederseniz kurtarmanıza yardımcı olur.",
+    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+  },
+  "guardianInfoWhatItCannotDoTitle": {
+    "message": "Ne yapamaz",
+    "englishSource": "What it cannot do"
+  },
+  "guardianInfoWhatItCannotDoDescription": {
+    "message": "Paranızı kendi başına taşıyın. Özel durumunuza erişin. Paylaşmadığınız sürece bakiyelerinizi görün.",
+    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+  },
+  "guardianInfoSwitchingIsEasyTitle": {
+    "message": "Geçiş yapmak kolaydır",
+    "englishSource": "Switching is easy"
+  },
+  "guardianInfoSwitchingIsEasyDescription": {
+    "message": "Kurtarma ifadenizi kullanarak istediğiniz zaman farklı bir Gözetmen'e geçebilir veya birini tamamen kaldırabilirsiniz.",
+    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+  },
+  "useCustomGuardianUrl": {
+    "message": "Özel bir Veli URL'si kullanın",
+    "englishSource": "Use a custom Guardian URL"
+  },
   "default": {
     "message": "Varsayılan",
     "englishSource": "Default"

@@ -162,6 +162,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onSelectRecoveryMethodSubmit = (walletType: WalletType) =>
       onForwardAction?.({ id: 'select-recovery-method', payload: walletType });
 
+    const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
+      onForwardAction?.({ id: 'choose-guardian', payload });
+
     const onSelectTransactionTypeSubmit = () =>
       onForwardAction?.({ id: 'select-transaction-type', payload: 'private' });
 
@@ -224,6 +227,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectRecoveryMethod:
         return <SelectRecoveryMethodScreen onSubmit={onSelectRecoveryMethodSubmit} />;
+      case OnboardingStep.ChooseGuardian:
+        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
       case OnboardingStep.ImportSelectRecoveryMethod:
         return (
           <ImportRecoveryMethodScreen
