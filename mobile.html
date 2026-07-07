@@ -126,6 +126,15 @@
         background-color: #fbfbfb;
       }
 
+      /* Dark-mode splash: match --color-app-bg dark value in src/main.css.
+         The .dark class is set by the inline pre-paint script below (same
+         resolution logic as lib/settings/theme.ts) before first paint. */
+      html.dark,
+      html.dark body,
+      html.dark #miden-splash {
+        background-color: #191919;
+      }
+
       .miden-splash-brand {
         display: flex;
         flex-direction: column;
@@ -145,6 +154,24 @@
         object-fit: contain;
       }
     </style>
+    <script>
+      // Pre-paint theme resolution so the splash doesn't flash light in dark
+      // mode. Mirrors resolveTheme() in src/lib/settings/theme.ts: explicit
+      // 'dark'/'light' from localStorage wins; 'system' (or no value) follows
+      // prefers-color-scheme. React re-applies via initTheme() after mount.
+      (function () {
+        var setting = null;
+        try {
+          setting = localStorage.getItem('theme_setting');
+        } catch (e) {}
+        var dark =
+          setting === 'dark' ||
+          (setting !== 'light' &&
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('dark');
+      })();
+    </script>
   </head>
   <body>
     <!--
@@ -155,7 +182,6 @@
     <div id="miden-splash">
       <div class="miden-splash-brand" aria-hidden="true">
         <img class="miden-splash-mark" src="misc/brand/new-bread.svg" alt="" />
-        <img class="miden-splash-wordmark" src="misc/brand/bread-text.svg" alt="" />
       </div>
     </div>
     <div id="root"></div>

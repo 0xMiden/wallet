@@ -82,7 +82,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             title={t('addressBook')}
             iconLeft={<AddressBookIcon />}
             onClick={onAddressBook}
-            className="rounded-full text-base font-bold w-39.25"
+            className="rounded-full text-base font-bold w-fit!"
           />
         </div>
       </div>
