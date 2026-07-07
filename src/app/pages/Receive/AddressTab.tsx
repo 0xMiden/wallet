@@ -4,6 +4,7 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
+import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
@@ -95,11 +96,16 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
           </span>
           <div className="w-full flex flex-col items-center justify-center gap-6">
             <QRCode ref={qrRef} address={address} size={300} />
-            <span className="w-full rounded-full text-center text-base font-heading font-bold text-heading-gray py-5 bg-surface-interactive">
-              {truncateAddress(address, false, 16, 8)}
-            </span>
+            <CopyButton
+              text={address}
+              className="w-full rounded-full! text-center py-5 bg-surface-interactive hover:bg-surface-interactive"
+            >
+              <span className="text-base font-heading font-bold text-heading-gray">
+                {truncateAddress(address, false, 16, 8)}
+              </span>
+            </CopyButton>
           </div>
-          <div className="w-full flex flex-col items-start gap-8 pt-6">
+          <div className="w-full flex flex-col items-center gap-8 pt-6">
             <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">
               <Icon name={IconName.Share} size="lg" className="shrink-0" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">{t('share')}</span>
@@ -108,10 +114,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
               <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
             </div> */}
-            <div className="flex items-center gap-4 text-accent-primary">
+            {/* <div className="flex items-center gap-4 text-accent-primary">
               <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Cross-chain</span>
-            </div>
+            </div> */}
           </div>
         </div>
       </div>

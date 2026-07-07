@@ -124,7 +124,8 @@ export const CardItem: React.FC<CardItemProps> = ({
       </div>
       {iconRight && (
         <div className="shrink-0">
-          <IconOrComponent icon={iconRight} color="black" />
+          {/* text-black auto-flips with theme; currentColor icons follow it */}
+          <IconOrComponent icon={iconRight} color="black" className="text-black" />
         </div>
       )}
     </div>

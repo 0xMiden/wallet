@@ -56,7 +56,8 @@ export const Alert: React.FC<AlertProps> = ({
   return (
     <div className={classNames(propsPerVariant[variant].backgroundColor, 'rounded-lg relative', className)}>
       <div className="flex flex-row items-center gap-2 p-4">
-        <Icon name={iconName} fill={iconColor} size="sm" />
+        {/* style.color drives currentColor-based icons; fill covers icons without path-level fills */}
+        <Icon name={iconName} fill={iconColor} style={{ color: iconColor }} size="sm" />
         <span className="flex-1 text-xs">{Title}</span>
       </div>
 

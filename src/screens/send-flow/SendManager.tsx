@@ -18,7 +18,7 @@ import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
-import { AccountsList } from './AccountsList';
+import { AccountsListDrawer } from './AccountsList';
 import { SelectAmount } from './SelectAmount';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -36,11 +36,6 @@ const ROUTES: Route[] = [
     name: SendFlowStep.SelectAmount,
     animationIn: 'push',
     animationOut: 'pop'
-  },
-  {
-    name: SendFlowStep.AccountsList,
-    animationIn: 'present',
-    animationOut: 'dismiss'
   }
 ];
 
@@ -77,6 +72,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
 
   // Token picker is a bottom sheet over the Amount step, not a Navigator step.
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  // Contact picker is likewise a bottom sheet over the recipient step.
+  const [showContactsDrawer, setShowContactsDrawer] = useState(false);
 
   // Hide the floating BottomNav once the user moves past recipient selection,
   // so the step CTAs can sit at the actual bottom of the screen. Gated on the
@@ -114,8 +111,17 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     navigate('/');
   }, []);
 
-  // Handle mobile back button/gesture
+  // Handle mobile back button/gesture. Open bottom sheets close first;
+  // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
+    if (showContactsDrawer) {
+      setShowContactsDrawer(false);
+      return true;
+    }
+    if (showTokenDrawer) {
+      setShowTokenDrawer(false);
+      return true;
+    }
     if (cardStack.length > 1) {
       goBack(); // Go to previous step
       return true;
@@ -123,7 +129,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [cardStack.length, goBack, onClose]);
+  }, [showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Dismiss any stale completion modal on send-flow entry.
   //
@@ -379,9 +385,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: contact.id }
       });
-      setTimeout(() => goBack(), 300);
     },
-    [onAction, goBack, clearErrors]
+    [onAction, clearErrors]
   );
 
   const onAmountChange = useCallback(
@@ -420,7 +425,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
               error={errors.recipientAddress?.message?.toString()}
               onAddressChange={onAddressChange}
-              onAddressBook={() => goToStep(SendFlowStep.AccountsList)}
+              onAddressBook={() => setShowContactsDrawer(true)}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );
@@ -437,15 +442,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onConfirm={onConfirmAmount}
             />
           );
-        case SendFlowStep.AccountsList:
-          return (
-            <AccountsList
-              recipientAccountId={recipientAddress}
-              accounts={allContactsList}
-              onClose={goBack}
-              onSelectContact={onSelectContact}
-            />
-          );
         default:
           return <></>;
       }
@@ -453,12 +449,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [
       token,
       recipientAddress,
-      allContactsList,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
-      goBack,
-      onSelectContact,
       amount,
       onAmountChange,
       goToStep,
@@ -490,6 +483,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
         onSelect={selectedToken => onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } })}
+      />
+
+      <AccountsListDrawer
+        open={showContactsDrawer}
+        onOpenChange={setShowContactsDrawer}
+        recipientAccountId={recipientAddress}
+        accounts={allContactsList}
+        onSelectContact={onSelectContact}
       />
     </div>
   );
