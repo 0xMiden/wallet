@@ -78,6 +78,10 @@
     "message": "アカウント",
     "englishSource": "Accounts"
   },
+  "cardColor": {
+    "message": "カードの色",
+    "englishSource": "Card Color"
+  },
   "lock": {
     "message": "ブロック",
     "englishSource": "Lock"
@@ -1211,8 +1215,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Miden または Ethereum アドレスを入力してください",
-    "englishSource": "Enter Miden or Ethereum address"
+    "message": "ミデンの住所を入力してください",
+    "englishSource": "Enter Miden Address"
   },
   "selectAmount": {
     "message": "金額を選択してください",
@@ -1243,9 +1247,22 @@
     "message": "レビューの詳細",
     "englishSource": "Review Details"
   },
+  "youAreSending": {
+    "message": "あなたが送っているのは",
+    "englishSource": "You are sending"
+  },
   "expirationDate": {
     "message": "有効期限",
     "englishSource": "Expiration Date"
+  },
+  "recallReturnsNote": {
+    "message": "それまでに請求されなかった場合、 $amount$ 自動的にウォレットに戻ります。資金が失われることはありません。",
+    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "edit": {
     "message": "編集",
@@ -1294,6 +1311,34 @@
   "verifySeedPhrase": {
     "message": "Seed Phraseの検証",
     "englishSource": "Verify Seed Phrase"
+  },
+  "verifySeedPhrasePromptTitle": {
+    "message": "リカバリフレーズを確認してください",
+    "englishSource": "Verify your recovery phrase"
+  },
+  "verifySeedPhrasePromptBody": {
+    "message": "後でこのウォレットを復元できるように、回復フレーズを保存したことを確認してください。",
+    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "verifySeedPhraseWarningBody": {
+    "message": "回復フレーズを確認する前に、それを公開します。誰もあなたの画面を見られないように注意してください。",
+    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+  },
+  "verifySeedPhrasePasswordBody": {
+    "message": "ウォレットのロックを解除して回復フレーズを表示し、検証を開始します。",
+    "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
+  },
+  "verifySeedPhraseReviewBody": {
+    "message": "これらの単語を順番に書き留めてください。次に最初と最後の単語を確認します。",
+    "englishSource": "Write down these words in order. You will verify the first and last words next."
+  },
+  "setupGuardianPromptTitle": {
+    "message": "ガーディアンを設定する",
+    "englishSource": "Set up your Guardian"
+  },
+  "setupGuardianPromptBody": {
+    "message": "ウォレットを確実にバックアップできるようにガーディアンを設定してください。",
+    "englishSource": "Make sure to set up your Guardian to ensure your wallet back-up."
   },
   "word": {
     "message": "言葉 $number$ ",
@@ -1398,8 +1443,8 @@
     "englishSource": "Private transactions anytime, anywhere."
   },
   "midenWallet": {
-    "message": "ミデンウォレット",
-    "englishSource": "Bread"
+    "message": "パン！",
+    "englishSource": "Bread!"
   },
   "privateTransactions": {
     "message": "プライベートな取引。",
@@ -1532,7 +1577,7 @@
     "englishSource": "What is a Guardian?"
   },
   "guardianInfoDescription": {
-    "message": "ガーディアンは、 ウォレットからの<b>すべてのトランザクションに連署</b>し、自己管理を放棄することなくセーフティネットを追加する独立したサービスです。",
+    "message": "Guardian は、 ウォレットからの<b>すべてのトランザクションに連署</b>し、自己管理を放棄することなくセーフティネットを追加する独立したサービスです。",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
@@ -2297,6 +2342,46 @@
     "message": "トランザクションの処理中にエラーが発生しました。もう一度試してください。",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
+  "transactionRoute": {
+    "message": "ルート",
+    "englishSource": "Route"
+  },
+  "paymentSent": {
+    "message": "支払いが送信されました!",
+    "englishSource": "Payment Sent!"
+  },
+  "bridgeRouteViaEpoch": {
+    "message": "エポック経由",
+    "englishSource": "Via Epoch"
+  },
+  "bridgeRouteViaAgglayer": {
+    "message": "アグラー経由",
+    "englishSource": "Via Agglayer"
+  },
+  "bridgeSpeedFast": {
+    "message": "速い",
+    "englishSource": "Fast"
+  },
+  "bridgeSpeedSlow": {
+    "message": "遅い",
+    "englishSource": "Slow"
+  },
+  "swapOrderCreated": {
+    "message": "スワップ注文が作成されました!",
+    "englishSource": "Swap Order Created!"
+  },
+  "youreEarning": {
+    "message": "儲かってますよ！",
+    "englishSource": "You're Earning!"
+  },
+  "viewInActivities": {
+    "message": "アクティビティで見る",
+    "englishSource": "View in Activities"
+  },
+  "viewDetails": {
+    "message": "詳細を見る",
+    "englishSource": "View Details"
+  },
   "multipleTransactionsFailed": {
     "message": "$count$ 個のトランザクションが失敗しました。もう一度試してください。",
     "englishSource": "$count$ transactions failed. Please try again.",
@@ -2397,62 +2482,6 @@
   "guardianAccountNotFound": {
     "message": "このガーディアンであなたのアカウントが見つかりませんでした。 URL を確認するか、代わりにパブリック アカウントとしてインポートしてください。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "chooseYourGuardian": {
-    "message": "ガーディアンを選択してください",
-    "englishSource": "Choose your Guardian"
-  },
-  "chooseGuardianDescription": {
-    "message": "最後のステップでは、ミデン ガーディアンを選択します。これは保護層として機能します",
-    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "ガーディアンについて詳しく知る",
-    "englishSource": "Learn more about the Guardian"
-  },
-  "guardianOperatedBy": {
-    "message": "運営者:",
-    "englishSource": "Operated by:"
-  },
-  "guardianLocation": {
-    "message": "位置：",
-    "englishSource": "Location:"
-  },
-  "currentLabel": {
-    "message": "現在",
-    "englishSource": "Current"
-  },
-  "whatIsAGuardian": {
-    "message": "ガーディアンとは何ですか?",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Guardian は、 ウォレットからの<b>すべてのトランザクションに連署</b>し、自己管理を放棄することなくセーフティネットを追加する独立したサービスです。",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
-  "guardianInfoWhatItDoesTitle": {
-    "message": "何をするのか",
-    "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "セキュリティ ポリシーに基づいてトランザクションを承認または拒否します。デバイスを紛失した場合の回復に役立ちます。",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
-  },
-  "guardianInfoWhatItCannotDoTitle": {
-    "message": "できないこと",
-    "englishSource": "What it cannot do"
-  },
-  "guardianInfoWhatItCannotDoDescription": {
-    "message": "資金を勝手に移動させます。自分のプライベートな状態にアクセスします。残高を共有しない限り、残高を確認できます。",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
-  },
-  "guardianInfoSwitchingIsEasyTitle": {
-    "message": "切り替えは簡単です",
-    "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "回復フレーズを使用していつでも別のガーディアンにローテーションしたり、ガーディアンを完全に削除したりできます。",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
   },
   "useCustomGuardianUrl": {
     "message": "カスタム Guardian URL を使用する",
@@ -2828,6 +2857,10 @@
   "addAccount": {
     "message": "アカウントの追加",
     "englishSource": "Add Account"
+  },
+  "addAccountComingSoon": {
+    "message": "アカウントを追加 (近日公開予定)",
+    "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
     "message": "FaucetIDが更新されました",
@@ -3419,6 +3452,10 @@
     "message": "活動",
     "englishSource": "Activity"
   },
+  "explore": {
+    "message": "探検する",
+    "englishSource": "Explore"
+  },
   "permissions": {
     "message": "権限",
     "englishSource": "Permissions"
@@ -3570,6 +3607,10 @@
   "pending": {
     "message": "保留中",
     "englishSource": "Pending"
+  },
+  "pendingNotes": {
+    "message": "保留中 notes",
+    "englishSource": "Pending notes"
   },
   "faucetRequestTitle": {
     "message": "Faucet リクエスト",

@@ -78,6 +78,10 @@
     "message": "Hesaplar",
     "englishSource": "Accounts"
   },
+  "cardColor": {
+    "message": "Kart Rengi",
+    "englishSource": "Card Color"
+  },
   "lock": {
     "message": "Engellemek",
     "englishSource": "Lock"
@@ -1211,8 +1215,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Miden veya Ethereum adresini girin",
-    "englishSource": "Enter Miden or Ethereum address"
+    "message": "Miden Adresini Girin",
+    "englishSource": "Enter Miden Address"
   },
   "selectAmount": {
     "message": "Tutar Seçin",
@@ -1243,9 +1247,22 @@
     "message": "Ayrıntıları İncele",
     "englishSource": "Review Details"
   },
+  "youAreSending": {
+    "message": "gönderiyorsun",
+    "englishSource": "You are sending"
+  },
   "expirationDate": {
     "message": "Son kullanma tarihi",
     "englishSource": "Expiration Date"
+  },
+  "recallReturnsNote": {
+    "message": "O zamana kadar talepte bulunulmaması durumunda, $amount$ otomatik olarak cüzdanınıza geri döner. Hiçbir fon kaybolmaz.",
+    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "edit": {
     "message": "Düzenlemek",
@@ -1294,6 +1311,34 @@
   "verifySeedPhrase": {
     "message": "Başlangıç ​​İfadesini Doğrulayın",
     "englishSource": "Verify Seed Phrase"
+  },
+  "verifySeedPhrasePromptTitle": {
+    "message": "Kurtarma ifadenizi doğrulayın",
+    "englishSource": "Verify your recovery phrase"
+  },
+  "verifySeedPhrasePromptBody": {
+    "message": "Bu cüzdanı daha sonra geri yükleyebilmeniz için kurtarma ifadenizi kaydettiğinizi onaylayın.",
+    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "verifySeedPhraseWarningBody": {
+    "message": "Doğrulamadan önce kurtarma ifadenizi açıklayacaksınız. Kimsenin ekranınızı göremediğinden emin olun.",
+    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+  },
+  "verifySeedPhrasePasswordBody": {
+    "message": "Kurtarma ifadenizi ortaya çıkarmak ve doğrulamayı başlatmak için cüzdanınızın kilidini açın.",
+    "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
+  },
+  "verifySeedPhraseReviewBody": {
+    "message": "Bu kelimeleri sırasıyla yazın. Daha sonra ilk ve son kelimeleri doğrulayacaksınız.",
+    "englishSource": "Write down these words in order. You will verify the first and last words next."
+  },
+  "setupGuardianPromptTitle": {
+    "message": "Gözetmeninizi kurun",
+    "englishSource": "Set up your Guardian"
+  },
+  "setupGuardianPromptBody": {
+    "message": "Cüzdanınızın yedeğini almak için Guardian'ınızı kurduğunuzdan emin olun.",
+    "englishSource": "Make sure to set up your Guardian to ensure your wallet back-up."
   },
   "word": {
     "message": "Kelime $number$ ",
@@ -1398,8 +1443,8 @@
     "englishSource": "Private transactions anytime, anywhere."
   },
   "midenWallet": {
-    "message": "Miden Cüzdan",
-    "englishSource": "Bread"
+    "message": "Ekmek!",
+    "englishSource": "Bread!"
   },
   "privateTransactions": {
     "message": "Özel işlemler.",
@@ -2297,6 +2342,46 @@
     "message": "İşleminiz gerçekleştirilirken bir hata oluştu. Lütfen tekrar deneyin.",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
+  "transactionRoute": {
+    "message": "Rota",
+    "englishSource": "Route"
+  },
+  "paymentSent": {
+    "message": "Ödeme Gönderildi!",
+    "englishSource": "Payment Sent!"
+  },
+  "bridgeRouteViaEpoch": {
+    "message": "Epoch aracılığıyla",
+    "englishSource": "Via Epoch"
+  },
+  "bridgeRouteViaAgglayer": {
+    "message": "Agglayer aracılığıyla",
+    "englishSource": "Via Agglayer"
+  },
+  "bridgeSpeedFast": {
+    "message": "Hızlı",
+    "englishSource": "Fast"
+  },
+  "bridgeSpeedSlow": {
+    "message": "Yavaş",
+    "englishSource": "Slow"
+  },
+  "swapOrderCreated": {
+    "message": "Takas Siparişi Oluşturuldu!",
+    "englishSource": "Swap Order Created!"
+  },
+  "youreEarning": {
+    "message": "Kazanıyorsun!",
+    "englishSource": "You're Earning!"
+  },
+  "viewInActivities": {
+    "message": "Etkinliklerde Görüntüle",
+    "englishSource": "View in Activities"
+  },
+  "viewDetails": {
+    "message": "Ayrıntıları Görüntüle",
+    "englishSource": "View Details"
+  },
   "multipleTransactionsFailed": {
     "message": "$count$ işlemleri başarısız oldu. Lütfen tekrar deneyin.",
     "englishSource": "$count$ transactions failed. Please try again.",
@@ -2397,62 +2482,6 @@
   "guardianAccountNotFound": {
     "message": "Bu velide hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine herkese açık bir hesap olarak içe aktarın.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "chooseYourGuardian": {
-    "message": "Vasinizi seçin",
-    "englishSource": "Choose your Guardian"
-  },
-  "chooseGuardianDescription": {
-    "message": "Son adım için Miden Guardian'ınızı seçin. Bu koruyucu bir tabaka görevi görecek",
-    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "Guardian hakkında daha fazla bilgi edinin",
-    "englishSource": "Learn more about the Guardian"
-  },
-  "guardianOperatedBy": {
-    "message": "Tarafından işletilmektedir:",
-    "englishSource": "Operated by:"
-  },
-  "guardianLocation": {
-    "message": "Konum:",
-    "englishSource": "Location:"
-  },
-  "currentLabel": {
-    "message": "Akım",
-    "englishSource": "Current"
-  },
-  "whatIsAGuardian": {
-    "message": "Koruyucu nedir?",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Guardian, cüzdanınızdaki <b>her işlemi birlikte imzalayan</b> bağımsız bir hizmettir ve kişisel gözetimden vazgeçmeden bir güvenlik ağı ekler.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
-  "guardianInfoWhatItDoesTitle": {
-    "message": "Ne işe yarar",
-    "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "Güvenlik politikanıza göre işlemleri onaylar veya reddeder. Cihazınızı kaybederseniz kurtarmanıza yardımcı olur.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
-  },
-  "guardianInfoWhatItCannotDoTitle": {
-    "message": "Ne yapamaz",
-    "englishSource": "What it cannot do"
-  },
-  "guardianInfoWhatItCannotDoDescription": {
-    "message": "Paranızı kendi başına taşıyın. Özel durumunuza erişin. Paylaşmadığınız sürece bakiyelerinizi görün.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
-  },
-  "guardianInfoSwitchingIsEasyTitle": {
-    "message": "Geçiş yapmak kolaydır",
-    "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Kurtarma ifadenizi kullanarak istediğiniz zaman farklı bir Gözetmen'e geçebilir veya birini tamamen kaldırabilirsiniz.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
   },
   "useCustomGuardianUrl": {
     "message": "Özel bir Veli URL'si kullanın",
@@ -2816,6 +2845,10 @@
   "addAccount": {
     "message": "Hesap Ekle",
     "englishSource": "Add Account"
+  },
+  "addAccountComingSoon": {
+    "message": "Hesap Ekle (Çok Yakında)",
+    "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
     "message": "Faucet Kimliği Güncellendi",
@@ -3407,6 +3440,10 @@
     "message": "Etkinlik",
     "englishSource": "Activity"
   },
+  "explore": {
+    "message": "Keşfetmek",
+    "englishSource": "Explore"
+  },
   "permissions": {
     "message": "İzinler",
     "englishSource": "Permissions"
@@ -3558,6 +3595,10 @@
   "pending": {
     "message": "Askıda olması",
     "englishSource": "Pending"
+  },
+  "pendingNotes": {
+    "message": "Beklemede notes",
+    "englishSource": "Pending notes"
   },
   "faucetRequestTitle": {
     "message": "Faucet İstek",

@@ -78,6 +78,10 @@
     "message": "Konten",
     "englishSource": "Accounts"
   },
+  "cardColor": {
+    "message": "Kartenfarbe",
+    "englishSource": "Card Color"
+  },
   "lock": {
     "message": "Block",
     "englishSource": "Lock"
@@ -1211,8 +1215,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Geben Sie die Miden- oder Ethereum-Adresse ein",
-    "englishSource": "Enter Miden or Ethereum address"
+    "message": "Geben Sie die Miden-Adresse ein",
+    "englishSource": "Enter Miden Address"
   },
   "selectAmount": {
     "message": "Wählen Sie Betrag aus",
@@ -1243,9 +1247,22 @@
     "message": "Überprüfen Sie Details",
     "englishSource": "Review Details"
   },
+  "youAreSending": {
+    "message": "Sie senden",
+    "englishSource": "You are sending"
+  },
   "expirationDate": {
     "message": "Verfallsdatum",
     "englishSource": "Expiration Date"
+  },
+  "recallReturnsNote": {
+    "message": "Wenn bis dahin kein Anspruch geltend gemacht wird, wird die $amount$ kehrt automatisch zu Ihrem Wallet zurück. Es gehen keine Gelder verloren.",
+    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "edit": {
     "message": "Bearbeiten",
@@ -1294,6 +1311,34 @@
   "verifySeedPhrase": {
     "message": "Überprüfen Sie die Seed Phrase",
     "englishSource": "Verify Seed Phrase"
+  },
+  "verifySeedPhrasePromptTitle": {
+    "message": "Überprüfen Sie Ihre Wiederherstellungsphrase",
+    "englishSource": "Verify your recovery phrase"
+  },
+  "verifySeedPhrasePromptBody": {
+    "message": "Bestätigen Sie, dass Sie Ihre Wiederherstellungsphrase gespeichert haben, damit Sie diese Wallet später wiederherstellen können.",
+    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "verifySeedPhraseWarningBody": {
+    "message": "Sie geben Ihren Wiederherstellungssatz bekannt, bevor Sie ihn überprüfen. Stellen Sie sicher, dass niemand Ihren Bildschirm sehen kann.",
+    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+  },
+  "verifySeedPhrasePasswordBody": {
+    "message": "Entsperren Sie Ihr Wallet, um Ihre Wiederherstellungsphrase anzuzeigen und mit der Verifizierung zu beginnen.",
+    "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
+  },
+  "verifySeedPhraseReviewBody": {
+    "message": "Schreiben Sie diese Wörter der Reihe nach auf. Als nächstes überprüfen Sie das erste und das letzte Wort.",
+    "englishSource": "Write down these words in order. You will verify the first and last words next."
+  },
+  "setupGuardianPromptTitle": {
+    "message": "Richten Sie Ihren Wächter ein",
+    "englishSource": "Set up your Guardian"
+  },
+  "setupGuardianPromptBody": {
+    "message": "Stellen Sie sicher, dass Sie Ihren Guardian so einrichten, dass die Sicherung Ihres Wallets gewährleistet ist.",
+    "englishSource": "Make sure to set up your Guardian to ensure your wallet back-up."
   },
   "word": {
     "message": "Wort $number$ ",
@@ -1398,8 +1443,8 @@
     "englishSource": "Private transactions anytime, anywhere."
   },
   "midenWallet": {
-    "message": "Miden-Geldbörse",
-    "englishSource": "Bread"
+    "message": "Brot!",
+    "englishSource": "Bread!"
   },
   "privateTransactions": {
     "message": "Private Transaktionen.",
@@ -2297,6 +2342,46 @@
     "message": "Bei der Verarbeitung Ihrer Transaktion ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
+  "transactionRoute": {
+    "message": "Route",
+    "englishSource": "Route"
+  },
+  "paymentSent": {
+    "message": "Zahlung gesendet!",
+    "englishSource": "Payment Sent!"
+  },
+  "bridgeRouteViaEpoch": {
+    "message": "Über Epoche",
+    "englishSource": "Via Epoch"
+  },
+  "bridgeRouteViaAgglayer": {
+    "message": "Über Agglayer",
+    "englishSource": "Via Agglayer"
+  },
+  "bridgeSpeedFast": {
+    "message": "Schnell",
+    "englishSource": "Fast"
+  },
+  "bridgeSpeedSlow": {
+    "message": "Langsam",
+    "englishSource": "Slow"
+  },
+  "swapOrderCreated": {
+    "message": "Tauschauftrag erstellt!",
+    "englishSource": "Swap Order Created!"
+  },
+  "youreEarning": {
+    "message": "Du verdienst!",
+    "englishSource": "You're Earning!"
+  },
+  "viewInActivities": {
+    "message": "In Aktivitäten anzeigen",
+    "englishSource": "View in Activities"
+  },
+  "viewDetails": {
+    "message": "Details anzeigen",
+    "englishSource": "View Details"
+  },
   "multipleTransactionsFailed": {
     "message": "$count$-Transaktionen sind fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "englishSource": "$count$ transactions failed. Please try again.",
@@ -2397,62 +2482,6 @@
   "guardianAccountNotFound": {
     "message": "Wir konnten Ihr Konto bei diesem Guardian nicht finden. Überprüfen Sie die URL oder importieren Sie stattdessen als öffentliches Konto.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "chooseYourGuardian": {
-    "message": "Wählen Sie Ihren Wächter",
-    "englishSource": "Choose your Guardian"
-  },
-  "chooseGuardianDescription": {
-    "message": "Wählen Sie im letzten Schritt Ihren Miden Guardian aus. Dies dient als Schutzschicht",
-    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "Erfahren Sie mehr über den Wächter",
-    "englishSource": "Learn more about the Guardian"
-  },
-  "guardianOperatedBy": {
-    "message": "Betrieben von:",
-    "englishSource": "Operated by:"
-  },
-  "guardianLocation": {
-    "message": "Standort:",
-    "englishSource": "Location:"
-  },
-  "currentLabel": {
-    "message": "Aktuell",
-    "englishSource": "Current"
-  },
-  "whatIsAGuardian": {
-    "message": "Was ist ein Wächter?",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Ein Guardian ist ein unabhängiger Dienst, der <b>jede Transaktion aus Ihrem Wallet mitsigniert</b> und so ein Sicherheitsnetz hinzufügt, ohne auf die Selbstverwahrung zu verzichten.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
-  "guardianInfoWhatItDoesTitle": {
-    "message": "Was es bewirkt",
-    "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "Genehmigt oder lehnt Transaktionen basierend auf Ihrer Sicherheitsrichtlinie ab. Hilft Ihnen bei der Wiederherstellung, wenn Sie Ihr Gerät verlieren.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
-  },
-  "guardianInfoWhatItCannotDoTitle": {
-    "message": "Was es nicht kann",
-    "englishSource": "What it cannot do"
-  },
-  "guardianInfoWhatItCannotDoDescription": {
-    "message": "Bewegen Sie Ihr Geld selbstständig. Greifen Sie auf Ihren privaten Status zu. Sehen Sie sich Ihre Guthaben an, es sei denn, Sie teilen sie.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
-  },
-  "guardianInfoSwitchingIsEasyTitle": {
-    "message": "Der Wechsel ist einfach",
-    "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Mit Ihrer Wiederherstellungsphrase können Sie jederzeit zu einem anderen Wächter wechseln oder ihn ganz entfernen.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
   },
   "useCustomGuardianUrl": {
     "message": "Verwenden Sie eine benutzerdefinierte Guardian-URL",
@@ -2828,6 +2857,10 @@
   "addAccount": {
     "message": "Konto hinzufügen",
     "englishSource": "Add Account"
+  },
+  "addAccountComingSoon": {
+    "message": "Konto hinzufügen (in Kürze erhältlich)",
+    "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
     "message": "Faucet-ID aktualisiert",
@@ -3419,6 +3452,10 @@
     "message": "Aktivität",
     "englishSource": "Activity"
   },
+  "explore": {
+    "message": "Erkunden",
+    "englishSource": "Explore"
+  },
   "permissions": {
     "message": "Berechtigungen",
     "englishSource": "Permissions"
@@ -3570,6 +3607,10 @@
   "pending": {
     "message": "Ausstehend",
     "englishSource": "Pending"
+  },
+  "pendingNotes": {
+    "message": "Ausstehend notes",
+    "englishSource": "Pending notes"
   },
   "faucetRequestTitle": {
     "message": "Faucet Anfrage",

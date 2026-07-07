@@ -78,6 +78,10 @@
     "message": "учетные записи",
     "englishSource": "Accounts"
   },
+  "cardColor": {
+    "message": "Цвет карты",
+    "englishSource": "Card Color"
+  },
   "lock": {
     "message": "Замок",
     "englishSource": "Lock"
@@ -1211,8 +1215,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "Введите адрес Miden или Ethereum",
-    "englishSource": "Enter Miden or Ethereum address"
+    "message": "Введите адрес Мидена",
+    "englishSource": "Enter Miden Address"
   },
   "selectAmount": {
     "message": "Выберите сумму",
@@ -1243,9 +1247,22 @@
     "message": "Подробности обзора",
     "englishSource": "Review Details"
   },
+  "youAreSending": {
+    "message": "Вы отправляете",
+    "englishSource": "You are sending"
+  },
   "expirationDate": {
     "message": "Дата окончания срока",
     "englishSource": "Expiration Date"
+  },
+  "recallReturnsNote": {
+    "message": "Если к тому времени он не будет востребован, $amount$ возвращается в ваш кошелек автоматически. Никакие средства не теряются.",
+    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "edit": {
     "message": "Редактировать",
@@ -1294,6 +1311,34 @@
   "verifySeedPhrase": {
     "message": "Проверьте исходную фразу",
     "englishSource": "Verify Seed Phrase"
+  },
+  "verifySeedPhrasePromptTitle": {
+    "message": "Подтвердите свою фразу восстановления",
+    "englishSource": "Verify your recovery phrase"
+  },
+  "verifySeedPhrasePromptBody": {
+    "message": "Подтвердите, что вы сохранили фразу восстановления, чтобы позже можно было восстановить этот кошелек.",
+    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "verifySeedPhraseWarningBody": {
+    "message": "Вы покажете свою фразу восстановления перед ее проверкой. Убедитесь, что никто не видит ваш эFaucet.",
+    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+  },
+  "verifySeedPhrasePasswordBody": {
+    "message": "Разблокируйте свой кошелек, чтобы увидеть фразу восстановления и начать проверку.",
+    "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
+  },
+  "verifySeedPhraseReviewBody": {
+    "message": "Запишите эти слова по порядку. Далее вы проверите первое и последнее слова.",
+    "englishSource": "Write down these words in order. You will verify the first and last words next."
+  },
+  "setupGuardianPromptTitle": {
+    "message": "Настройте своего Защитника",
+    "englishSource": "Set up your Guardian"
+  },
+  "setupGuardianPromptBody": {
+    "message": "Обязательно настройте Guardian, чтобы обеспечить резервное копирование вашего кошелька.",
+    "englishSource": "Make sure to set up your Guardian to ensure your wallet back-up."
   },
   "word": {
     "message": "Слово $number$ ",
@@ -1398,8 +1443,8 @@
     "englishSource": "Private transactions anytime, anywhere."
   },
   "midenWallet": {
-    "message": "Миден кошелек",
-    "englishSource": "Bread"
+    "message": "Хлеб!",
+    "englishSource": "Bread!"
   },
   "privateTransactions": {
     "message": "Частные сделки.",
@@ -2298,6 +2343,46 @@
     "message": "При обработке вашей транзакции произошла ошибка. Пожалуйста, попробуйте еще раз.",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
+  "transactionRoute": {
+    "message": "Маршрут",
+    "englishSource": "Route"
+  },
+  "paymentSent": {
+    "message": "Платеж отправлен!",
+    "englishSource": "Payment Sent!"
+  },
+  "bridgeRouteViaEpoch": {
+    "message": "Через эпоху",
+    "englishSource": "Via Epoch"
+  },
+  "bridgeRouteViaAgglayer": {
+    "message": "Через Агглейер",
+    "englishSource": "Via Agglayer"
+  },
+  "bridgeSpeedFast": {
+    "message": "Быстрый",
+    "englishSource": "Fast"
+  },
+  "bridgeSpeedSlow": {
+    "message": "Медленный",
+    "englishSource": "Slow"
+  },
+  "swapOrderCreated": {
+    "message": "Ордер на обмен создан!",
+    "englishSource": "Swap Order Created!"
+  },
+  "youreEarning": {
+    "message": "Вы зарабатываете!",
+    "englishSource": "You're Earning!"
+  },
+  "viewInActivities": {
+    "message": "Посмотреть в разделе «Действия»",
+    "englishSource": "View in Activities"
+  },
+  "viewDetails": {
+    "message": "Посмотреть детали",
+    "englishSource": "View Details"
+  },
   "multipleTransactionsFailed": {
     "message": "Не удалось провести $count$ транзакций. Пожалуйста, попробуйте еще раз.",
     "englishSource": "$count$ transactions failed. Please try again.",
@@ -2398,62 +2483,6 @@
   "guardianAccountNotFound": {
     "message": "Нам не удалось найти вашу учетную запись на этом опекуне. Вместо этого проверьте URL-адрес или импортируйте его как общедоступную учетную запись.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "chooseYourGuardian": {
-    "message": "Выберите своего Хранителя",
-    "englishSource": "Choose your Guardian"
-  },
-  "chooseGuardianDescription": {
-    "message": "На последнем шаге выберите своего стража Мидена. Это будет служить защитным слоем.",
-    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "Узнайте больше о Гардиане",
-    "englishSource": "Learn more about the Guardian"
-  },
-  "guardianOperatedBy": {
-    "message": "Управляется:",
-    "englishSource": "Operated by:"
-  },
-  "guardianLocation": {
-    "message": "Расположение:",
-    "englishSource": "Location:"
-  },
-  "currentLabel": {
-    "message": "Текущий",
-    "englishSource": "Current"
-  },
-  "whatIsAGuardian": {
-    "message": "Что такое Хранитель?",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Guardian – это независимая служба, которая <b>подписывает каждую транзакцию</b> из вашего кошелька, обеспечивая дополнительную безопасность, не отказываясь от самостоятельного хранения.",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
-  "guardianInfoWhatItDoesTitle": {
-    "message": "Что он делает",
-    "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "Утверждает или отклоняет транзакции на основе вашей политики безопасности. Поможет вам восстановиться, если вы потеряете устройство.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
-  },
-  "guardianInfoWhatItCannotDoTitle": {
-    "message": "Чего он не может сделать",
-    "englishSource": "What it cannot do"
-  },
-  "guardianInfoWhatItCannotDoDescription": {
-    "message": "Перемещайте свои средства самостоятельно. Получите доступ к своему личному состоянию. Просматривайте свои балансы, если вы ими не делитесь.",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
-  },
-  "guardianInfoSwitchingIsEasyTitle": {
-    "message": "Переключиться легко",
-    "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Вы можете в любой момент перейти к другому Стражу или полностью удалить его, используя фразу восстановления.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
   },
   "useCustomGuardianUrl": {
     "message": "Используйте собственный URL-адрес Guardian",
@@ -2829,6 +2858,10 @@
   "addAccount": {
     "message": "Добавить аккаунт",
     "englishSource": "Add Account"
+  },
+  "addAccountComingSoon": {
+    "message": "Добавить аккаунт (скоро)",
+    "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
     "message": "Идентификатор Faucet обновлен",
@@ -3420,6 +3453,10 @@
     "message": "Активность",
     "englishSource": "Activity"
   },
+  "explore": {
+    "message": "Исследовать",
+    "englishSource": "Explore"
+  },
   "permissions": {
     "message": "Разрешения",
     "englishSource": "Permissions"
@@ -3571,6 +3608,10 @@
   "pending": {
     "message": "В ожидании",
     "englishSource": "Pending"
+  },
+  "pendingNotes": {
+    "message": "Ожидание notes",
+    "englishSource": "Pending notes"
   },
   "faucetRequestTitle": {
     "message": "Faucet Запрос",

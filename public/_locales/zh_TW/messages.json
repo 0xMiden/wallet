@@ -78,6 +78,10 @@
     "message": "帳戶",
     "englishSource": "Accounts"
   },
+  "cardColor": {
+    "message": "卡牌颜色",
+    "englishSource": "Card Color"
+  },
   "lock": {
     "message": "堵塞",
     "englishSource": "Lock"
@@ -1220,8 +1224,8 @@
     "englishSource": "Choose recipient"
   },
   "enterMidenOrEthereumAddress": {
-    "message": "输入 Miden 或以太坊地址",
-    "englishSource": "Enter Miden or Ethereum address"
+    "message": "输入米登地址",
+    "englishSource": "Enter Miden Address"
   },
   "selectAmount": {
     "message": "选择金额",
@@ -1252,9 +1256,22 @@
     "message": "评论详情",
     "englishSource": "Review Details"
   },
+  "youAreSending": {
+    "message": "您正在发送",
+    "englishSource": "You are sending"
+  },
   "expirationDate": {
     "message": "截止日期",
     "englishSource": "Expiration Date"
+  },
+  "recallReturnsNote": {
+    "message": "如果届时无人认领， $amount$ 自动返回您的钱包。没有资金损失。",
+    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "edit": {
     "message": "编辑",
@@ -1303,6 +1320,34 @@
   "verifySeedPhrase": {
     "message": "验证Seed Phrase",
     "englishSource": "Verify Seed Phrase"
+  },
+  "verifySeedPhrasePromptTitle": {
+    "message": "验证您的恢复短语",
+    "englishSource": "Verify your recovery phrase"
+  },
+  "verifySeedPhrasePromptBody": {
+    "message": "确认您已保存恢复短语，以便稍后恢复此钱包。",
+    "englishSource": "Confirm you saved your recovery phrase so you can restore this wallet later."
+  },
+  "verifySeedPhraseWarningBody": {
+    "message": "在验证之前，您将显示您的恢复短语。确保没有人可以看到您的屏幕。",
+    "englishSource": "You will reveal your recovery phrase before verifying it. Make sure no one can see your screen."
+  },
+  "verifySeedPhrasePasswordBody": {
+    "message": "解锁您的钱包以显示您的恢复短语并开始验证。",
+    "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
+  },
+  "verifySeedPhraseReviewBody": {
+    "message": "按顺序写下这些单词。接下来您将验证第一个词和最后一个词。",
+    "englishSource": "Write down these words in order. You will verify the first and last words next."
+  },
+  "setupGuardianPromptTitle": {
+    "message": "设置您的监护人",
+    "englishSource": "Set up your Guardian"
+  },
+  "setupGuardianPromptBody": {
+    "message": "请务必设置您的监护人以确保您的钱包备份。",
+    "englishSource": "Make sure to set up your Guardian to ensure your wallet back-up."
   },
   "word": {
     "message": "单词 $number$ ",
@@ -1407,8 +1452,8 @@
     "englishSource": "Private transactions anytime, anywhere."
   },
   "midenWallet": {
-    "message": "米登钱包",
-    "englishSource": "Bread"
+    "message": "面包！",
+    "englishSource": "Bread!"
   },
   "privateTransactions": {
     "message": "私人交易。",
@@ -2306,6 +2351,46 @@
     "message": "处理您的交易时出错。请再试一次。",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
+  "transactionRoute": {
+    "message": "路线",
+    "englishSource": "Route"
+  },
+  "paymentSent": {
+    "message": "付款已发送！",
+    "englishSource": "Payment Sent!"
+  },
+  "bridgeRouteViaEpoch": {
+    "message": "通过纪元",
+    "englishSource": "Via Epoch"
+  },
+  "bridgeRouteViaAgglayer": {
+    "message": "通过阿格莱尔",
+    "englishSource": "Via Agglayer"
+  },
+  "bridgeSpeedFast": {
+    "message": "快速地",
+    "englishSource": "Fast"
+  },
+  "bridgeSpeedSlow": {
+    "message": "慢的",
+    "englishSource": "Slow"
+  },
+  "swapOrderCreated": {
+    "message": "互换订单已创建！",
+    "englishSource": "Swap Order Created!"
+  },
+  "youreEarning": {
+    "message": "你赚了！",
+    "englishSource": "You're Earning!"
+  },
+  "viewInActivities": {
+    "message": "在活动中查看",
+    "englishSource": "View in Activities"
+  },
+  "viewDetails": {
+    "message": "查看详情",
+    "englishSource": "View Details"
+  },
   "multipleTransactionsFailed": {
     "message": "$count$ 交易失败。请再试一次。",
     "englishSource": "$count$ transactions failed. Please try again.",
@@ -2406,62 +2491,6 @@
   "guardianAccountNotFound": {
     "message": "我们在该监护人上找不到您的帐户。请检查 URL 或导入为公共帐户。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
-  },
-  "chooseYourGuardian": {
-    "message": "选择您的监护人",
-    "englishSource": "Choose your Guardian"
-  },
-  "chooseGuardianDescription": {
-    "message": "最后一步，选择您的 Miden Guardian。这将作为保护层",
-    "englishSource": "For the last step, choose your Miden Guardian. This will serve as a protective layer"
-  },
-  "learnMoreAboutGuardian": {
-    "message": "了解有关卫报的更多信息",
-    "englishSource": "Learn more about the Guardian"
-  },
-  "guardianOperatedBy": {
-    "message": "经营者：",
-    "englishSource": "Operated by:"
-  },
-  "guardianLocation": {
-    "message": "地点：",
-    "englishSource": "Location:"
-  },
-  "currentLabel": {
-    "message": "当前的",
-    "englishSource": "Current"
-  },
-  "whatIsAGuardian": {
-    "message": "什么是监护人？",
-    "englishSource": "What is a Guardian?"
-  },
-  "guardianInfoDescription": {
-    "message": "Guardian 是一项独立服务，可以从您的钱包中<b>共同签署每笔交易</b>，在不放弃自我保管的情况下添加安全网。",
-    "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
-  },
-  "guardianInfoWhatItDoesTitle": {
-    "message": "它的作用",
-    "englishSource": "What it does"
-  },
-  "guardianInfoWhatItDoesDescription": {
-    "message": "根据您的安全策略批准或拒绝交易。如果您丢失设备，可帮助您恢复。",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
-  },
-  "guardianInfoWhatItCannotDoTitle": {
-    "message": "它不能做什么",
-    "englishSource": "What it cannot do"
-  },
-  "guardianInfoWhatItCannotDoDescription": {
-    "message": "自行转移资金。访问您的私有状态。除非您分享，否则请查看您的余额。",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
-  },
-  "guardianInfoSwitchingIsEasyTitle": {
-    "message": "切换很容易",
-    "englishSource": "Switching is easy"
-  },
-  "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您可以随时使用恢复短语轮换至其他监护人，或完全删除监护人。",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
   },
   "useCustomGuardianUrl": {
     "message": "使用自定义 Guardian URL",
@@ -2837,6 +2866,10 @@
   "addAccount": {
     "message": "添加账户",
     "englishSource": "Add Account"
+  },
+  "addAccountComingSoon": {
+    "message": "添加帐户（即将推出）",
+    "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
     "message": "Faucet ID 已更新",
@@ -3428,6 +3461,10 @@
     "message": "活动",
     "englishSource": "Activity"
   },
+  "explore": {
+    "message": "探索",
+    "englishSource": "Explore"
+  },
   "permissions": {
     "message": "权限",
     "englishSource": "Permissions"
@@ -3579,6 +3616,10 @@
   "pending": {
     "message": "待办的",
     "englishSource": "Pending"
+  },
+  "pendingNotes": {
+    "message": "待处理 notes",
+    "englishSource": "Pending notes"
   },
   "faucetRequestTitle": {
     "message": "Faucet 请求",
