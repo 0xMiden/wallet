@@ -30,7 +30,7 @@ export const StatusPill: FC<{ message: string }> = memo(({ message }) => {
   const label = isCompleted ? t('confirmed') : t('inProgress');
 
   return (
-    <div className="flex items-center gap-1 px-4 py-2 rounded-5 bg-white">
+    <div className="flex items-center gap-1 px-4 py-0.5 rounded-full bg-green-600/20">
       <div className={classNames('w-2 h-2 rounded-full', dotColor)} />
       <span className={classNames('text-[10px] font-medium text-heading-gray', textColor)}>{label}</span>
     </div>

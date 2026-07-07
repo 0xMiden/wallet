@@ -87,16 +87,16 @@ describe('BalanceCard amount fit-to-width', () => {
   });
 
   it('shrinks the font proportionally for a long amount', () => {
-    amountScrollWidth = 800; // needs 800px at 3.5rem; available is 358px
+    amountScrollWidth = 450; // needs 450px at 3.5rem; available is 358px
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$21,000,000.12" />);
-    // 3.5 * 358 / 800 = 1.566 (rounded to 3 decimals)
-    expect(getAmountSpan('$21,000,000.12').style.fontSize).toBe('1.566rem');
+    // 3.5 * 358 / 450 = 2.784 (rounded to 3 decimals)
+    expect(getAmountSpan('$21,000,000.12').style.fontSize).toBe('2.784rem');
   });
 
-  it('clamps at the 1.5rem floor for extreme lengths', () => {
+  it('clamps at the 2.5rem floor for extreme lengths', () => {
     amountScrollWidth = 3000;
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$1,234,567,890,123,456.78" />);
-    expect(getAmountSpan('$1,234,567,890,123,456.78').style.fontSize).toBe('1.5rem');
+    expect(getAmountSpan('$1,234,567,890,123,456.78').style.fontSize).toBe('2.5rem');
   });
 
   it('renders the hidden state at the max size', () => {

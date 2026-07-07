@@ -23,8 +23,8 @@ export const fontColorForType = (type: ITransactionType): string => {
 };
 
 export const TRANSACTION_COLORS = {
-  send: '#024073',
-  receive: '#38824A',
+  send: '#91ACC1',
+  receive: '#99AC94',
   faucet: '#891DB1'
 } as const;
 

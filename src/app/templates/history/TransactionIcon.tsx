@@ -17,8 +17,10 @@ interface TransactionIconProps {
 
 const sizeConfig = {
   sm: { container: 'w-8.5 h-8.5', icon: 'w-4.5 h-4.5', sendIcon: 'w-3.5 h-3.5', pending: 'w-6 h-6' },
-  lg: { container: 'w-16 h-16', icon: 'w-7 h-7', sendIcon: 'w-6 h-6', pending: 'w-8 h-8' }
+  lg: { container: 'w-18 h-18', icon: 'w-8 h-8', sendIcon: 'w-8 h-8', pending: 'w-8 h-8' }
 };
+
+const whiteIconClass = 'text-pure-white [&_path]:fill-pure-white';
 
 const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
@@ -26,16 +28,16 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
 
   if (isPending) {
-    return <PendingIcon className={`${config.pending} animate-spin text-black`} />;
+    return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
   }
 
   if (isFaucetRequest(entry)) {
     return (
       <div
-        className={`${config.container} rounded-10 flex items-center justify-center`}
+        className={`${config.container} flex items-center justify-center rounded-full`}
         style={{ backgroundColor: TRANSACTION_COLORS.faucet }}
       >
-        <FaucetIcon className={config.icon} />
+        <FaucetIcon className={`${config.icon} ${whiteIconClass}`} />
       </div>
     );
   }
@@ -44,20 +46,20 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     case 'SEND':
       return (
         <div
-          className={`${config.container} flex items-center justify-center`}
+          className={`${config.container} flex items-center justify-center rounded-full`}
           style={{ backgroundColor: TRANSACTION_COLORS.send }}
         >
-          <SendIcon className={config.sendIcon} />
+          <SendIcon className={`${config.sendIcon} ${whiteIconClass}`} />
         </div>
       );
     case 'RECEIVE':
     default:
       return (
         <div
-          className={`${config.container} flex items-center justify-center`}
+          className={`${config.container} flex items-center justify-center rounded-full`}
           style={{ backgroundColor: TRANSACTION_COLORS.receive }}
         >
-          <ReceiveIcon className={config.icon} />
+          <ReceiveIcon className={`${config.icon} ${whiteIconClass}`} />
         </div>
       );
   }

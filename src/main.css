@@ -345,7 +345,7 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --color-chip-bg: #eeeff2;
     --color-input-bg: #f9f9f9;
     --color-border-light: #e6e6e6;
-    --color-text-muted: rgba(63, 63, 63, 0.4);
+    --color-text-muted: #ababab;
     --color-border-subtle: rgba(63, 63, 63, 0.08);
     --color-hover-bg: #e1dbdb;
 
