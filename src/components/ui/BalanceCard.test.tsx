@@ -1,6 +1,8 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+
+import { hapticLight } from 'lib/mobile/haptics';
 
 import { BalanceCard } from './BalanceCard';
 
@@ -103,5 +105,114 @@ describe('BalanceCard amount fit-to-width', () => {
     amountScrollWidth = 150;
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="hidden" />);
     expect(getAmountSpan('••••••').style.fontSize).toBe('3.5rem');
+  });
+});
+
+describe('BalanceCard states, delta, and interactions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('renders the loading skeleton instead of the amount', () => {
+    const { container } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="loading" />);
+
+    expect(container.querySelector('.animate-pulse')).not.toBeNull();
+    expect(screen.queryByText('$123.45')).toBeNull();
+  });
+
+  it('renders the zero state as $0.00', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="zero" />);
+
+    expect(screen.getByText('$0.00')).toBeTruthy();
+  });
+
+  it('renders a positive delta pill with the neutral background', () => {
+    const { container } = render(
+      <BalanceCard
+        accountNumber="mtst1aqg...940z"
+        amount="$123.45"
+        delta={{ absolute: '+$12.34', percentage: '+2.5%', direction: 'positive' }}
+      />
+    );
+
+    const pill = container.querySelector('.rounded-full');
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toBe('+$12.34 (+2.5%)');
+    expect(pill?.className).toContain('bg-[#A8BBA3]');
+  });
+
+  it('renders a negative delta pill with the negative background', () => {
+    const { container } = render(
+      <BalanceCard
+        accountNumber="mtst1aqg...940z"
+        amount="$123.45"
+        delta={{ absolute: '-$5.00', percentage: '-1.0%', direction: 'negative' }}
+      />
+    );
+
+    expect(container.querySelector('.rounded-full')?.className).toContain('bg-status-negative');
+  });
+
+  it('hides the delta pill while loading', () => {
+    render(
+      <BalanceCard
+        accountNumber="mtst1aqg...940z"
+        amount="$123.45"
+        state="loading"
+        delta={{ absolute: '+$1.00', percentage: '+0.1%' }}
+      />
+    );
+
+    expect(screen.queryByText(/\+0\.1%/)).toBeNull();
+  });
+
+  it('fires haptic feedback and onMore when the more button is clicked', () => {
+    const onMore = jest.fn();
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Account options' }));
+
+    expect(onMore).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the more button when onMore is not provided', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+
+    expect(screen.queryByRole('button', { name: 'Account options' })).toBeNull();
+  });
+
+  it('renders a custom currency and the account label', () => {
+    render(
+      <BalanceCard
+        accountNumber="mtst1aqg...940z"
+        accountId="mtst1aqgfullaccountid940z"
+        amount="$123.45"
+        currency="EUR"
+      />
+    );
+
+    expect(screen.getByText('EUR')).toBeTruthy();
+    expect(screen.getByText(/Account #:/)).toBeTruthy();
+  });
+
+  it('observes row and text and disconnects on unmount when ResizeObserver exists', () => {
+    const observe = jest.fn();
+    const disconnect = jest.fn();
+    class MockResizeObserver {
+      observe = observe;
+      unobserve = jest.fn();
+      disconnect = disconnect;
+    }
+    const original = (global as any).ResizeObserver;
+    (global as any).ResizeObserver = MockResizeObserver;
+
+    const { unmount } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+    expect(observe).toHaveBeenCalledTimes(2);
+
+    unmount();
+    expect(disconnect).toHaveBeenCalledTimes(1);
+
+    (global as any).ResizeObserver = original;
   });
 });
