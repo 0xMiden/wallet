@@ -2,7 +2,6 @@ import React, { FC, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
 
-import { Button } from 'app/atoms/Button';
 import ColorIdenticon from 'app/atoms/ColorIdenticon';
 import Name from 'app/atoms/Name';
 import { openInFullPage, useAppEnv } from 'app/env';
@@ -11,8 +10,8 @@ import { ReactComponent as MinimiseIcon } from 'app/icons/minimise.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
 import AddressChip from 'app/templates/AddressChip';
+import { Button, ButtonVariant } from 'components/Button';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -113,10 +112,11 @@ const Control: FC = () => {
         <div className={classNames('flex', 'justify-start')}>
           <div className="flex items-center">
             <Button
+              variant={ButtonVariant.Ghost}
               className={classNames(
-                'flex',
-                'rounded-full items-center justify-center',
-                'transition ease-in-out duration-200',
+                'h-auto w-auto max-w-none p-0 border-0',
+                'rounded-full',
+                'hover:bg-transparent',
                 'cursor-pointer'
               )}
               onClick={() => navigate('/select-account')}
@@ -135,13 +135,13 @@ const Control: FC = () => {
           {showSpinner && <SyncSpinner visible={isSyncing} />}
           {compact && (
             <Button
+              variant={ButtonVariant.Ghost}
               className={classNames(
-                'flex items-center justify-center',
+                'h-7 w-7 max-w-none p-0 border-0',
                 'rounded-md',
-                'transition ease-in-out duration-200',
+                'hover:bg-transparent',
                 'cursor-pointer',
-                'opacity-90 hover:opacity-100',
-                'h-7 w-7'
+                'opacity-90 hover:opacity-100'
               )}
               onClick={handleMaximiseViewClick}
             >
@@ -153,11 +153,9 @@ const Control: FC = () => {
             </Button>
           )}
           <Button
-            className="flex items-center justify-center cursor-pointer h-7 w-7"
-            onClick={() => {
-              hapticLight();
-              navigate('/settings');
-            }}
+            variant={ButtonVariant.Ghost}
+            className="h-7 w-7 max-w-none p-0 border-0 rounded-none hover:bg-transparent cursor-pointer"
+            onClick={() => navigate('/settings')}
           >
             <Icon
               name={IconName.SettingsNew}

@@ -61,17 +61,20 @@ const propsPerButtonVariant = {
   }
 };
 
-export const Button: React.FC<ButtonProps> = ({
-  variant = ButtonVariant.Primary,
-  title = 'Button Title',
-  iconRight,
-  iconLeft,
-  disabled,
-  className,
-  isLoading,
-  children,
-  ...props
-}) => {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = ButtonVariant.Primary,
+    title = 'Button Title',
+    iconRight,
+    iconLeft,
+    disabled,
+    className,
+    isLoading,
+    children,
+    ...props
+  },
+  ref
+) {
   const variantProps = propsPerButtonVariant[variant];
   let color = variantProps.color;
   let fontWeight = variantProps.fontWeight;
@@ -112,6 +115,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <motion.button
+      ref={ref}
       className={cn(
         'flex justify-center items-center gap-x-2 font-heading',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
@@ -136,4 +140,4 @@ export const Button: React.FC<ButtonProps> = ({
       {renderContent()}
     </motion.button>
   );
-};
+});

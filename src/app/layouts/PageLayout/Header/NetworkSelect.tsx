@@ -3,10 +3,10 @@ import React, { FC, HTMLAttributes } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from 'app/atoms/Button';
 import DropdownWrapper from 'app/atoms/DropdownWrapper';
 import Name from 'app/atoms/Name';
 import { ReactComponent as SignalAltIcon } from 'app/icons/signal-alt.svg';
+import { Button, ButtonVariant } from 'components/Button';
 import { useNetwork } from 'lib/miden/front';
 import { NETWORKS } from 'lib/miden/networks';
 import Popper from 'lib/ui/Popper';
@@ -47,19 +47,18 @@ const NetworkSelect: FC<NetworkSelectProps> = () => {
       {({ ref, opened }) => (
         <Button
           ref={ref}
+          variant={ButtonVariant.Ghost}
           className={classNames(
-            'text-black',
-            'hover:bg-gray-100',
+            'h-auto w-auto max-w-none px-2',
+            'font-sans font-normal text-black',
             'active:bg-gray-50',
-            'transition ease-in-out duration-200',
-            'px-2',
             opened ? 'opacity-100' : 'opacity-90 hover:opacity-100 focus:opacity-100',
-            'flex items-center text-[10px] leading-4 gap-2',
+            'text-[10px] leading-4 gap-2',
             'select-none border border-border-light rounded-3xl'
           )}
           // Disabled until we redo screen & add more networks
           // onClick={toggleOpened}
-          testID={NetworkSelectSelectors.SelectedNetworkButton}
+          data-testid={NetworkSelectSelectors.SelectedNetworkButton}
         >
           <div className={classNames('h-2 w-2', 'rounded-full', 'shadow-xs', 'bg-green-500 border-none')} />
           <Name style={{ maxWidth: '7rem' }}>{uiNetwork.name}</Name>
