@@ -268,68 +268,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Pick "Fully Private" on the create-wallet recovery-method screen and
-   * click Continue. Guardian-backed accounts need a live guardian endpoint
-   * which isn't part of the E2E harness.
-   */
-  private async selectCreateRecoveryMethod(
-    options: { recovery?: 'private' | 'guardian'; guardianUrl?: string } = {}
-  ): Promise<void> {
-    const heading = this.page.getByRole('heading', { name: /set up account recovery/i });
-    await heading.waitFor({ timeout: 15_000 });
-
-    if (options.recovery === 'guardian') {
-      if (!options.guardianUrl) {
-        throw new Error('selectCreateRecoveryMethod: guardianUrl is required for the guardian recovery method');
-      }
-      // The create-flow recovery screen has no custom-URL field, so seed the
-      // guardian endpoint directly. `createGuardianAccount` reads
-      // GUARDIAN_URL_STORAGE_KEY ('guardian_url_setting') from chrome.storage.local
-      // before falling back to the network default, and this runs before the
-      // account is created on "Get Started".
-      await this.page.evaluate(
-        ({ key, url }) => new Promise<void>(resolve => chrome.storage.local.set({ [key]: url }, () => resolve())),
-        { key: 'guardian_url_setting', url: options.guardianUrl }
-      );
-      // Guardian is the default selection; click it explicitly for robustness.
-      await this.page.getByText('Guardian', { exact: true }).first().click();
-    } else {
-      // Click the "Fully Private" card to switch selection away from the Guardian default.
-      await this.page
-        .getByText(/fully private/i)
-        .first()
-        .click();
-    }
-    await this.page.getByRole('button', { name: /continue/i }).click();
-
-    if (options.recovery === 'guardian') {
-      // #303 inserted a "Choose your Guardian" step between the recovery-method
-      // screen and confirmation. The create flow is preset-only (no custom-URL
-      // field); the guardian E2E targets the OpenZeppelin endpoint, which is the
-      // default-selected provider, so accept the default and continue. Selecting
-      // the provider persists its endpoint to guardian_url_setting (the OZ
-      // endpoint here matches the seed above) before "Get Started" creates the
-      // account.
-      const chooseGuardian = this.page.getByTestId('onboarding-choose-guardian');
-      await chooseGuardian.waitFor({ timeout: 15_000 });
-      await chooseGuardian.getByRole('button', { name: /continue/i }).click();
-    }
-  }
-
-  /**
-   * Pick "Import public account" on the import-recovery-method screen and
-   * click Continue.
-   */
-  private async selectImportRecoveryMethod(): Promise<void> {
-    const screen = this.page.getByTestId('import-recovery-method');
-    await screen.waitFor({ timeout: 15_000 });
-    await screen.getByText(/import public account/i).click();
-    await this.page.getByRole('button', { name: /continue/i }).click();
-  }
-
-  // ── Address ───────────────────────────────────────────────────────────────
-
-  /**
    * Extract the wallet account address.
    *
    * Primary path: read from the Zustand `__TEST_STORE__` (which holds the
