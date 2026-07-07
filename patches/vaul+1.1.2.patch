@@ -1,0 +1,43 @@
+diff --git a/node_modules/vaul/package.json b/node_modules/vaul/package.json
+index 0d6d331..3a9f0a1 100644
+--- a/node_modules/vaul/package.json
++++ b/node_modules/vaul/package.json
+@@ -10,14 +10,17 @@
+     "style.css"
+   ],
+   "exports": {
+-    "import": {
+-      "types": "./dist/index.d.mts",
+-      "default": "./dist/index.mjs"
+-    },
+-    "require": {
+-      "types": "./dist/index.d.ts",
+-      "default": "./dist/index.js"
+-    }
++    ".": {
++      "import": {
++        "types": "./dist/index.d.mts",
++        "default": "./dist/index.mjs"
++      },
++      "require": {
++        "types": "./dist/index.d.ts",
++        "default": "./dist/index.js"
++      }
++    },
++    "./style.css": "./style.css"
+   },
+   "scripts": {
+     "type-check": "tsc --noEmit",
+diff --git a/node_modules/vaul/style.css b/node_modules/vaul/style.css
+index 8cbf3ab..8ee3ca4 100644
+--- a/node_modules/vaul/style.css
++++ b/node_modules/vaul/style.css
+@@ -174,7 +174,7 @@
+ }
+ 
+ @media (pointer: fine) {
+-  [data-vaul-handle-hitarea]: {
++  [data-vaul-handle-hitarea] {
+     width: 100%;
+     height: 100%;
+   }

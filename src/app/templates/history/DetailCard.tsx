@@ -25,12 +25,12 @@ export const StatusPill: FC<{ message: string }> = memo(({ message }) => {
   const { t } = useTranslation();
   const isCompleted = isCompletedTransaction(message);
 
-  const dotColor = isCompleted ? 'bg-[#1A9C52]' : 'bg-blue-500';
-  const textColor = isCompleted ? 'text-[#1A9C52]' : 'text-blue-500';
+  const dotColor = isCompleted ? 'bg-green-600' : 'bg-blue-500';
+  const textColor = isCompleted ? 'text-green-600' : 'text-blue-500';
   const label = isCompleted ? t('confirmed') : t('inProgress');
 
   return (
-    <div className="flex items-center gap-1 px-4 py-2 rounded-5 bg-white">
+    <div className="flex items-center gap-1 px-4 py-0.5 rounded-full bg-green-600/20">
       <div className={classNames('w-2 h-2 rounded-full', dotColor)} />
       <span className={classNames('text-[10px] font-medium text-heading-gray', textColor)}>{label}</span>
     </div>

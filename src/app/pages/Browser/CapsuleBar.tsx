@@ -5,7 +5,9 @@
  * - 24px drag affordance strip at the top (draggable for minimize)
  * - 56px content row with favicon, title, origin, action buttons
  *
- * Total height: 80px + safe-area-top.
+ * Total height: 81px (incl. bottom hairline). Rendered IN FLOW at the
+ * top of DappActive's column — the body's safe-area-inset-top padding
+ * (public/mobile.html) keeps it below the notch.
  *
  * Background: matches the existing Footer style — translucent white with
  * a heavy backdrop blur — so the dApp content peeks through subtly.
@@ -115,17 +117,16 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
 
   return (
     <header
-      className="fixed left-0 right-0 top-0 z-[60] flex flex-col"
+      // In-flow (NOT position:fixed) so the body's env(safe-area-inset-top)
+      // padding from mobile.html pushes it below the notch. A fixed header's
+      // containing block is the viewport — body padding never offsets it —
+      // so the previous fixed capsule rendered under the status bar.
+      className="shrink-0 flex flex-col"
       // PR-7: explicit landmark role so VoiceOver/TalkBack announces
       // the capsule as a banner region when the user swipes into it.
       role="banner"
       aria-label={t('dappBrowserCapsule') ?? 'dApp browser header'}
       style={{
-        // No paddingTop here — public/mobile.html already applies
-        // env(safe-area-inset-top) on the body, which becomes the
-        // containing block for this fixed header. Re-applying it
-        // would double-count the inset and leave an empty 50pt band
-        // above the drag handle on iPhone 17.
         background: 'rgba(255,255,255,0.85)',
         backdropFilter: 'blur(20px) saturate(1.6)',
         WebkitBackdropFilter: 'blur(20px) saturate(1.6)',

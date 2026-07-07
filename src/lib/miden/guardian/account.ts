@@ -7,6 +7,7 @@ import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletAccount } from 'lib/shared/types';
 
+import { registerGuardianOrigin } from './native-http';
 import { fetchFromStorage } from '../front/storage';
 
 /**
@@ -144,6 +145,8 @@ export async function createGuardianAccount(
       guardianEndpointOverride ??
       (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
       DEFAULT_GUARDIAN_ENDPOINT;
+
+    registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, { guardianEndpoint });
     const { commitment: guardianCommitment, pubkey: guardianPubkey } = await client.guardianClient.getPubkey('ecdsa');
     // Signer order is [hot, cold] by convention — the migration plan diagrams

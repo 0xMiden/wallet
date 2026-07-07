@@ -55,15 +55,7 @@ function makeInstance(id: string) {
 
 jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
-    addListener: (...args: unknown[]) => mockAddListener(...args),
-    showNativeNavbar: jest.fn(() => Promise.resolve()),
-    hideNativeNavbar: jest.fn(() => Promise.resolve()),
-    setNativeNavbarActive: jest.fn(() => Promise.resolve()),
-    setNavbarSecondaryRow: jest.fn(() => Promise.resolve()),
-    morphNavbarOut: jest.fn(() => Promise.resolve()),
-    morphNavbarIn: jest.fn(() => Promise.resolve()),
-    setNavbarAction: jest.fn(() => Promise.resolve()),
-    clearNavbarAction: jest.fn(() => Promise.resolve())
+    addListener: (...args: unknown[]) => mockAddListener(...args)
   },
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {

@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
+import { ReactComponent as GatewayLogo } from 'app/icons/guardian-operator-logs/gateway.svg';
+import { ReactComponent as LambdaClassLogo } from 'app/icons/guardian-operator-logs/lambdaclass.svg';
+import { ReactComponent as OpenZeppelinLogo } from 'app/icons/guardian-operator-logs/open-zeppelin.svg';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
 import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
@@ -15,11 +18,19 @@ import { GuardianInfoDrawer } from './GuardianInfoDrawer';
 
 export type { GuardianOption };
 
+// Brand wordmark per guardian option id. Paths are hardcoded brand-grey
+// (#484848); `[&_path]:fill-heading-gray` recolors them to the auto-flipping
+// heading token so they stay legible in both themes.
+const GUARDIAN_LOGOS: Record<string, { Logo: ImportedSVGComponent; paddingXClass: string }> = {
+  'open-zeppelin': { Logo: OpenZeppelinLogo, paddingXClass: 'px-4' },
+  gateway: { Logo: GatewayLogo, paddingXClass: 'px-3' },
+  'lambda-class': { Logo: LambdaClassLogo, paddingXClass: 'px-5' }
+};
+
 export interface ChooseGuardianScreenProps {
   onSubmit?: (payload: { guardianId: string; guardianEndpoint: string }) => void;
-  // Highlight and pre-select the option matching this endpoint — used by
-  // GuardianSettings to mark (and default to) the user's currently-active
-  // guardian, so switching requires a deliberate pick of a different operator.
+  // Highlight (and default-skip) the option matching this endpoint — used by
+  // GuardianSettings to mark the user's currently-active guardian.
   currentEndpoint?: string;
   title?: string;
   description?: string;
@@ -94,113 +105,108 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
 
-  // Nothing to submit when the active network has no Guardian providers and the
-  // user isn't entering a custom URL — disable Continue rather than silently
-  // no-op'ing the tap on an empty provider grid.
-  const canContinue = isCustom || options.length > 0;
-
   return (
-    <div
-      className="flex-1 flex flex-col bg-transparent pt-6 h-full min-h-0 overflow-y-auto px-4 text-heading-gray"
-      data-testid="onboarding-choose-guardian"
-    >
-      {!hideHeader && (
-        <div className="flex flex-col items-center gap-2 shrink-0">
-          <h1 className="font-semibold text-2xl lh-title text-center">{title ?? t('chooseYourGuardian')}</h1>
-          <p className="text-xs text-center lh-title px-4">{description ?? t('chooseGuardianDescription')}</p>
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              setIsInfoOpen(true);
-            }}
-            className="text-xs font-bold text-primary-500 underline underline-offset-4 decoration-2"
-          >
-            {t('learnMoreAboutGuardian')}
-          </button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3 mt-6">
-        {options.map(option => {
-          const isSelected = !isCustom && selectedId === option.id;
-          const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
-          return (
+    <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-choose-guardian">
+      <div className="min-h-full flex flex-col px-6 pb-6">
+        {!hideHeader && (
+          <div className="pt-8 shrink-0">
+            <h1 className="text-[2rem] font-semibold font-heading text-heading-gray leading-[105%] tracking-tight">
+              {title ?? t('chooseYourGuardian')}
+            </h1>
+            <p className="text-lg font-medium text-heading-gray mt-2 leading-[130%]">
+              {description ?? t('chooseGuardianDescription')}
+            </p>
             <button
-              key={option.id}
               type="button"
-              onClick={() => handleSelect(option.id)}
-              className={cn(
-                'flex flex-col items-start p-3 rounded-lg bg-white text-left transition-all duration-150',
-                'border-2',
-                isSelected ? 'border-primary-500' : 'border-transparent'
-              )}
+              onClick={() => {
+                hapticLight();
+                setIsInfoOpen(true);
+              }}
+              className="mt-2 text-base font-bold text-primary-500 underline underline-offset-4 decoration-2"
             >
-              <div className="w-14 h-14 rounded-xl bg-gray-50 flex items-center justify-center">
-                <GuardianAvatar className="w-10 h-10" />
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <h2 className="text-base font-semibold text-heading-gray">{option.name}</h2>
-                {isCurrent && (
-                  <span className="text-[10px] uppercase tracking-wide font-semibold text-primary-500">
-                    {t('currentLabel')}
-                  </span>
-                )}
-              </div>
-              <div className="mt-2 flex items-center gap-1.5">
-                <span className="block w-2 h-2 bg-primary-500" />
-                <span className="text-xs text-grey-600">
-                  <span className="font-semibold">{t('guardianOperatedBy')}</span> {option.operatedBy}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center gap-1.5">
-                <span className="block w-2 h-2 bg-primary-500" />
-                <span className="text-xs text-grey-600">
-                  <span className="font-semibold">{t('guardianLocation')}</span> {option.location}
-                </span>
-              </div>
+              {t('learnMoreAboutGuardian')}
             </button>
-          );
-        })}
-      </div>
+          </div>
+        )}
 
-      {allowCustomEndpoint && (
-        <div className="mt-4 flex flex-col gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              setIsCustom(prev => !prev);
-              setCustomError(null);
-            }}
-            className="self-start text-xs font-bold text-primary-500"
-          >
-            {t('useCustomGuardianUrl')}
-          </button>
-          {isCustom && (
-            <>
-              <Input
-                id="custom-guardian-endpoint"
-                value={customUrl}
-                placeholder="https://"
-                onChange={event => {
-                  setCustomUrl(event.target.value);
-                  if (customError) setCustomError(null);
-                }}
-              />
-              {customError && <p className="text-red-500 text-xs">{customError}</p>}
-            </>
-          )}
+        <div className="grid grid-cols-[repeat(2,177px)] justify-center gap-x-4 gap-y-3 mt-7">
+          {options.map(option => {
+            const isSelected = selectedId === option.id;
+            const isDefault = option.id === defaultId;
+            const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
+            const { Logo, paddingXClass } = GUARDIAN_LOGOS[option.id]!;
+            return (
+              <div key={option.id} className="flex flex-col">
+                <button
+                  type="button"
+                  onClick={() => handleSelect(option.id)}
+                  className={cn(
+                    'relative flex h-30.5 w-44.25 flex-col overflow-hidden rounded-[20px] transition-all duration-150',
+                    'border-2',
+                    isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
+                  )}
+                >
+                  {(isCurrent || isDefault) && (
+                    <div
+                      className={cn(
+                        'flex h-8 w-full shrink-0 items-center justify-center',
+                        isCurrent ? 'bg-grey-200 text-heading-gray dark:bg-grey-700' : 'bg-primary-500 text-pure-white'
+                      )}
+                    >
+                      <span className="text-sm font-semibold">{isCurrent ? t('currentLabel') : t('default')}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-1 items-center justify-center">
+                    <Logo className={clsx('[&_path]:fill-heading-gray', paddingXClass)} />
+                  </div>
+                </button>
+                <div className="mt-2 px-1 text-center text-gray-secondary dark:text-pure-white text-[10px] leading-tight">
+                  <p className="">
+                    {t('guardianOperatedBy')} <span className="font-bold">{option.operatedBy}</span>
+                  </p>
+                  <div className="w-18.75 mx-auto bg-[#E7753770] h-px" />
+                  <p className="mt-0.5">
+                    {t('guardianLocation')} <span className="font-bold">{option.location}</span>
+                  </p>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      )}
 
-      <div className="w-full flex flex-col gap-4 pt-6 mt-auto shrink-0">
-        <Button
-          title={submitLabel ?? t('continue')}
-          onClick={handleContinue}
-          disabled={!canContinue}
-          className="w-full text-base"
-        />
+        {allowCustomEndpoint && (
+          <div className="mt-4 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                hapticLight();
+                setIsCustom(prev => !prev);
+                setCustomError(null);
+              }}
+              className="self-start text-xs font-bold text-primary-500"
+            >
+              {t('useCustomGuardianUrl')}
+            </button>
+            {isCustom && (
+              <>
+                <Input
+                  id="custom-guardian-endpoint"
+                  value={customUrl}
+                  placeholder="https://"
+                  onChange={event => {
+                    setCustomUrl(event.target.value);
+                    if (customError) setCustomError(null);
+                  }}
+                />
+                {customError && <p className="text-red-500 text-xs">{customError}</p>}
+              </>
+            )}
+          </div>
+        )}
+
+        <div className="w-full flex flex-col items-center gap-4 pt-6 mt-auto shrink-0">
+          <Button title={submitLabel ?? t('continue')} onClick={handleContinue} />
+        </div>
       </div>
 
       <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />

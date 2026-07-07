@@ -30,7 +30,10 @@ export function applyTheme(setting: ThemeSetting) {
   // leaves the inline cream showing above the body and anywhere the body
   // doesn't stretch to fill (e.g. content shorter than viewport, or the 24px
   // margin-top fullpage.html sets on body).
-  const bg = resolved === 'dark' ? '#191919' : '#F6F4F2';
+  // Paint via the CSS variable rather than a literal so surface overrides
+  // (e.g. onboarding's #fbfbfb, hoisted to :root in main.css) reach the
+  // safe-area padding that mobile.html puts on <body>.
+  const bg = 'var(--color-app-bg)';
   doc.style.backgroundColor = bg;
   document.body.style.backgroundColor = bg;
 }

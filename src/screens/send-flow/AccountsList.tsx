@@ -1,66 +1,79 @@
-import React, { HTMLAttributes } from 'react';
+import React from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
 import { EmptyState } from 'components/EmptyState';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { truncateAddress } from 'utils/string';
 
 import { Contact } from './types';
 
-export interface AccountsListProps extends HTMLAttributes<HTMLDivElement> {
+export interface AccountsListDrawerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   recipientAccountId?: string;
   accounts: Contact[];
   onSelectContact: (contact: Contact) => void;
-  onClose: () => void;
 }
 
-export const AccountsList: React.FC<AccountsListProps> = ({
-  className,
+/**
+ * Contact picker for the send flow, presented as a bottom sheet (vaul) over
+ * the recipient step instead of a pushed sub-screen. Fixed at a comfortable
+ * height even when the contact list is short — mirrors SelectTokenDrawer.
+ */
+export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
+  open,
+  onOpenChange,
   recipientAccountId,
   accounts,
-  onSelectContact,
-  onClose,
-  ...props
+  onSelectContact
 }) => {
   const { t } = useTranslation();
 
   return (
-    <div {...props} className={classNames('flex-1 flex flex-col bg-app-bg', className)}>
-      <NavigationHeader mode="close" title={t('contacts')} onClose={onClose} showBorder />
-      <div className="flex flex-col flex-1 p-4 gap-y-2 md:w-[460px] md:mx-auto">
-        {accounts.length === 0 ? (
-          <EmptyState
-            className="flex-1"
-            icon={IconName.Users}
-            title={t('noOtherAccounts')}
-            description={t('noOtherAccountsDescription')}
-          />
-        ) : (
-          accounts.map(c => (
-            <CardItem
-              key={c.id}
-              title={c.name}
-              subtitle={`${t(c.contactType)} · ${truncateAddress(c.id)}`}
-              iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
-              iconRight={c.id === recipientAccountId ? IconName.CheckboxCircleFill : undefined}
-              titleRight={
-                c.isGuardian ? (
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full text-[#CC5200] bg-[#FFF3EB]">
-                    {t('guardianBadge')}
-                  </span>
-                ) : undefined
-              }
-              onClick={() => onSelectContact(c)}
-              hoverable={true}
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>{t('contacts')}</DrawerTitle>
+        </DrawerHeader>
+        <div className="flex flex-col min-h-0 px-4 pb-4 h-120">
+          {accounts.length === 0 ? (
+            <EmptyState
+              className="flex-1"
+              icon={IconName.Users}
+              title={t('noOtherAccounts')}
+              description={t('noOtherAccountsDescription')}
             />
-          ))
-        )}
-      </div>
-    </div>
+          ) : (
+            <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar gap-y-2">
+              {accounts.map(c => (
+                <CardItem
+                  key={c.id}
+                  title={c.name}
+                  subtitle={`${t(c.contactType)} · ${truncateAddress(c.id)}`}
+                  iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
+                  iconRight={c.id === recipientAccountId ? IconName.CheckboxCircleFill : undefined}
+                  titleRight={
+                    c.isGuardian ? (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full text-[#CC5200] bg-[#FFF3EB]">
+                        {t('guardianBadge')}
+                      </span>
+                    ) : undefined
+                  }
+                  onClick={() => {
+                    onSelectContact(c);
+                    onOpenChange(false);
+                  }}
+                  hoverable={true}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </DrawerContent>
+    </Drawer>
   );
 };

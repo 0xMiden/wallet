@@ -34,6 +34,8 @@ export interface FeaturedDapp {
   icon: string;
   /** One-line tagline shown under the dApp name in tiles and carousel cards. */
   shortDescription: string;
+  /** Short genre label shown between name and description on Explore grid cards (e.g. "DEX", "Neobank"). */
+  genre?: string;
   /** Brand color used as the carousel card background and tile fallback. */
   brandColor: string;
   category: FeaturedDappCategory;
@@ -49,7 +51,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://miden.xyz',
     icon: midenIcon,
     shortDescription: 'The privacy layer for the new internet',
-    brandColor: '#FF5700',
+    brandColor: '#E77537',
     category: 'tools',
     badge: 'verified',
     featured: true
@@ -60,6 +62,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://app.zoroswap.com/',
     icon: zoroIcon,
     shortDescription: 'Private swaps on Miden',
+    genre: 'DEX',
     brandColor: '#1D4ED8',
     category: 'defi',
     badge: 'featured',
@@ -71,6 +74,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://faucet.testnet.miden.io/',
     icon: faucetIcon,
     shortDescription: 'Get testnet MIDEN tokens',
+    genre: 'Helper Tool',
     brandColor: '#0EA5E9',
     category: 'tools',
     badge: 'verified'
@@ -81,6 +85,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://beta.luminaengine.ai/',
     icon: luminaIcon,
     shortDescription: 'AI engine on Miden',
+    genre: 'DEX',
     brandColor: '#FACC15',
     category: 'defi',
     badge: 'new',
@@ -92,6 +97,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://qash.finance/',
     icon: qashIcon,
     shortDescription: 'Private banking for global businesses',
+    genre: 'Neobank',
     brandColor: '#2563EB',
     category: 'defi'
   },
@@ -101,7 +107,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://playground.miden.xyz/',
     icon: playgroundIcon,
     shortDescription: 'Build and test Miden contracts',
-    brandColor: '#FF5700',
+    brandColor: '#E77537',
     category: 'tools',
     badge: 'verified'
   },
@@ -111,6 +117,7 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     url: 'https://miden.name/',
     icon: midenNameIcon,
     shortDescription: 'Naming service for the Miden network',
+    genre: 'Naming Service',
     brandColor: '#10B981',
     category: 'tools'
   }
@@ -118,3 +125,8 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
 
 /** dApps surfaced in the hero carousel — subset of FEATURED_DAPPS. */
 export const CAROUSEL_DAPPS = FEATURED_DAPPS.filter(d => d.featured);
+
+/** The four curated apps shown on the simplified Explore grid, in display order. */
+export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['zoro', 'qash', 'faucet', 'miden-name'].flatMap(id =>
+  FEATURED_DAPPS.filter(d => d.id === id)
+);

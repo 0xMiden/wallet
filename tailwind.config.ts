@@ -6,10 +6,12 @@ import customColors from './src/utils/colors';
 const isDevnet = process.env.MIDEN_NETWORK === 'devnet';
 
 const primaryPalette = {
-  50: isDevnet ? '#EEF1F4' : '#FFF0E5',
-  500: isDevnet ? '#7286A0' : '#FF5500',
-  600: isDevnet ? '#5A6B80' : '#CC4400'
+  50: isDevnet ? '#EEF1F4' : '#FFF3EC',
+  500: isDevnet ? '#7286A0' : '#E77537',
+  600: isDevnet ? '#5A6B80' : '#C95A21'
 };
+
+const successGreen = '#90BA89';
 
 export default {
   darkMode: 'class',
@@ -31,6 +33,7 @@ export default {
         'border-subtle': 'var(--color-border-subtle)',
         'heading-gray': 'var(--color-text-secondary)',
         gray: {
+          DEFAULT: 'var(--text-gray)',
           25: 'var(--color-surface-secondary)',
           50: 'var(--color-surface-tertiary)',
           100: 'var(--color-hover-bg)',
@@ -81,17 +84,18 @@ export default {
               950: '#7286A0'
             }
           : {
-              50: '#FFF0E5',
-              100: '#FFE0CC',
-              200: '#FFCC99',
-              300: '#FFB366',
-              400: '#FF9933',
-              500: '#FF7700',
-              600: '#DD5500',
-              700: '#BB4400',
-              800: '#993300',
-              900: '#882200',
-              950: '#FF5500'
+              // Testnet ramp regenerated around app brand #E77537.
+              50: '#FFF3EC',
+              100: '#FCE3D6',
+              200: '#F7C8B1',
+              300: '#F1A47E',
+              400: '#EC8754',
+              500: '#E77537',
+              600: '#C95A21',
+              700: '#9F4518',
+              800: '#7D3616',
+              900: '#652D15',
+              950: '#381508'
             },
         logoOrange: isDevnet
           ? {
@@ -102,28 +106,75 @@ export default {
               700: '#4E5F73'
             }
           : {
-              200: '#FF8844',
-              300: '#FFD4B8',
-              400: '#FF7722',
-              500: '#FF5500',
-              700: '#AA3700'
+              200: '#F1A47E',
+              300: '#F7C8B1',
+              400: '#E77537',
+              500: '#E77537',
+              700: '#9F4518'
             },
         // Brand colors
         'primary-white': '#fcfaf7',
-        'primary-orange': isDevnet ? '#8A9DB5' : '#FF8844',
-        'primary-orange-disabled': isDevnet ? '#7F95AD' : '#FF7722',
-        'primary-orange-light': isDevnet ? '#C5D0DC' : '#FFD4B8',
-        'primary-orange-dark': isDevnet ? '#4E5F73' : '#AA3700',
-        'primary-orange-lighter': isDevnet ? '#EEF1F4' : '#FFF0E5',
-        'primary-orange-darker': isDevnet ? '#3A4857' : '#882200',
+        'primary-orange': isDevnet ? '#8A9DB5' : '#E77537',
+        'primary-orange-disabled': isDevnet ? '#7F95AD' : '#DCD4C8',
+        'primary-orange-light': isDevnet ? '#C5D0DC' : '#F7C8B1',
+        'primary-orange-dark': isDevnet ? '#4E5F73' : '#9F4518',
+        'primary-orange-lighter': isDevnet ? '#EEF1F4' : '#FFF3EC',
+        'primary-orange-darker': isDevnet ? '#3A4857' : '#652D15',
         'primary-gray': '#656565',
         'border-card': 'var(--color-border)',
+        'border-faint': '#BABABA33',
         'chip-bg': 'var(--color-chip-bg)',
-        'pill-active': isDevnet ? '#6878A0' : '#E87040',
-        'accent-orange': isDevnet ? '#5E7090' : '#EE622F',
+        'pill-active': isDevnet ? '#6878A0' : '#E77537',
+        'accent-orange': isDevnet ? '#5E7090' : '#E77537',
         'app-bg': 'var(--color-app-bg)',
-        'send-blue': '#2E80C4',
-        'receive-green': '#38A169',
+        'send-blue': '#024073',
+        'receive-green': successGreen,
+        // Design system tokens (Foundations + Typography) — semantic namespace.
+        // Light/dark values resolve from CSS vars in src/main.css.
+        'accent-primary': 'var(--accent-primary)',
+        'accent-primary-hover': 'var(--accent-primary-hover)',
+        'text-primary-token': 'var(--text-primary)',
+        'text-secondary-token': 'var(--text-secondary)',
+        'text-tertiary-token': 'var(--text-tertiary)',
+        'text-on-accent': 'var(--text-on-accent)',
+        'surface-page': 'var(--surface-page)',
+        'surface-input': 'var(--surface-input)',
+        'surface-interactive': 'var(--surface-interactive)',
+        'surface-inactive': 'var(--surface-inactive)',
+        'button-secondary': 'var(--surface-button-secondary)',
+        'button-secondary-hover': 'var(--surface-button-secondary-hover)',
+        'gray-secondary': 'var(--text-gray-secondary)',
+        'placeholder-gray': 'var(--text-placeholder)',
+        'status-positive': `var(--status-positive, ${successGreen})`,
+        'status-pending': 'var(--status-pending)',
+        'status-negative': 'var(--status-negative)',
+        'tx-received': 'var(--tx-received)',
+        'tx-sent': 'var(--tx-sent)',
+        'tx-swap': 'var(--tx-swap)',
+        'tx-earn': 'var(--tx-earn)',
+        'tx-faucet': 'var(--tx-faucet)',
+        'rule-default': 'var(--rule-default)',
+        'rule-strong': 'var(--rule-strong)',
+        'border-button': 'var(--color-border-button)',
+        // Balance card surface — signature royal blue, distinct from system surfaces.
+        'surface-balance': 'var(--surface-balance)',
+        'surface-balance-fg': 'var(--surface-balance-fg)',
+        'surface-balance-fg-muted': 'var(--surface-balance-fg-muted)',
+        'surface-balance-rule': 'var(--surface-balance-rule)',
+        'surface-balance-positive': 'var(--surface-balance-positive)',
+        'surface-balance-handle': 'var(--surface-balance-handle)',
+        'surface-balance-divider': '#FFFFFF4D',
+        // Balance-card color options (AccountsDrawer picker swatches).
+        'card-slate': 'var(--card-slate)',
+        'card-orange': 'var(--card-orange)',
+        'card-blue': 'var(--card-blue)',
+        'card-green': 'var(--card-green)',
+        'card-purple': 'var(--card-purple)',
+        'card-slate-deep': 'var(--card-slate-deep)',
+        'card-orange-deep': 'var(--card-orange-deep)',
+        'card-blue-deep': 'var(--card-blue-deep)',
+        'card-green-deep': 'var(--card-green-deep)',
+        'card-purple-deep': 'var(--card-purple-deep)',
         ...customColors,
         // Override primary from customColors with network-conditional values
         primary: primaryPalette
@@ -133,26 +184,10 @@ export default {
 
     // Custom font families with Geist
     fontFamily: {
-      sans: [
-        "'Geist'",
-        'system-ui',
-        '-apple-system',
-        'BlinkMacSystemFont',
-        '"Segoe UI"',
-        'Roboto',
-        '"Helvetica Neue"',
-        'Arial',
-        '"Noto Sans"',
-        'sans-serif',
-        '"Apple Color Emoji"',
-        '"Segoe UI Emoji"',
-        '"Segoe UI Symbol"',
-        '"Noto Color Emoji"'
-      ],
-      serif: ['Georgia', 'Cambria', '"Times New Roman"', 'Times', 'serif'],
-      mono: ["'Geist Mono'", 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
-      geist: ["'Geist'", 'system-ui', 'sans-serif'],
-      'geist-mono': ["'Geist Mono'", 'monospace']
+      sans: ['Inter'],
+      serif: ['Inter'],
+      mono: ['Inter'],
+      inter: ['Inter']
     },
 
     extend: {
@@ -165,13 +200,17 @@ export default {
       boxShadow: {
         'xs-white': '0 0 0 1px rgba(255, 255, 255, 0.05)',
         'top-light': '0 -1px 2px 0 rgba(0, 0, 0, 0.1)',
-        outline: isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(237, 137, 54, 0.5)'
+        outline: isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(231, 117, 55, 0.5)'
       },
       // Custom border radius
       borderRadius: {
         '4xl': '2rem',
         5: '5px',
-        10: '10px'
+        10: '10px',
+        // Design system semantic radii (Foundations · Radius)
+        'sm-token': 'var(--radius-sm)',
+        'md-token': 'var(--radius-md-token)',
+        'lg-token': 'var(--radius-lg-token)'
       },
       // Custom stroke color
       stroke: {

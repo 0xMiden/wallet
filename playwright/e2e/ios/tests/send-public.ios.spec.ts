@@ -47,6 +47,9 @@ test.describe('Public Note Send', () => {
       await walletA.sendTokens({
         recipientAddress: addressB!,
         amount: '500',
+        // Target the CLI faucet token explicitly: the 0-balance native MIDEN row
+        // renders above it, so a "first row" pick would choose the wrong token.
+        tokenSymbol: 'TST',
         isPrivate: false,
       });
     }, {

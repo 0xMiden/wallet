@@ -4,9 +4,9 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import AddressShortView from 'app/atoms/AddressShortView';
-import { Button } from 'app/atoms/Button';
 import { useAppEnv } from 'app/env';
 import { ExploreSelectors } from 'app/pages/Explore.selectors';
+import { Button, ButtonVariant } from 'components/Button';
 import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
@@ -70,23 +70,26 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
         <div className="flex flex-col items-end shrink-0">
           <span
             className={classNames(
-              'text-sm font-medium leading-none',
+              'font-heading text-sm font-medium leading-none',
               isReceive ? 'text-receive-green' : 'text-[#DC2626]'
             )}
           >
             {isReceive ? '+' : '-'}
             {entry.amount.toString()}
           </span>
-          {entry.token && <span className="text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>}
+          {entry.token && (
+            <span className="font-heading text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>
+          )}
         </div>
       )}
 
       {/* Cancel button for pending */}
       {entry.cancel && (
         <Button
-          className="hover:bg-gray-100 rounded-md p-1 shrink-0"
+          variant={ButtonVariant.Ghost}
+          className="h-auto w-auto max-w-none p-1 border-0 rounded-md shrink-0"
           onClick={handleCancelClick}
-          testID={ExploreSelectors.CancelTransaction}
+          data-testid={ExploreSelectors.CancelTransaction}
         >
           <span className="text-xs text-red-500">{t('cancel')}</span>
         </Button>

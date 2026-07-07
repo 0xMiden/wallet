@@ -1,64 +1,155 @@
-import React, { FC, useLayoutEffect, useRef } from 'react';
+import React, { FC, useEffect, useRef } from 'react';
 
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
 
 import { useAppEnv } from 'app/env';
-import { useHistoryBadge } from 'app/hooks/useHistoryBadge';
-import Footer from 'app/layouts/PageLayout/Footer';
+import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
+import { Icon, IconName } from 'app/icons/v2';
+import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
+import { BottomNav } from 'components/ui';
+import { springs } from 'lib/animation';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
-import { useLocation } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 
 /**
  * Layout for tab-based pages (Home, History, Settings, Browser).
  * Provides a persistent footer and animated content area.
+ *
+ * The top action bar is mounted when the route is in the "home"
+ * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
+ * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
+ * Activity) hide it.
  */
+const TAB_ROUTES: Record<string, string> = {
+  home: '/',
+  explore: '/browser',
+  activity: '/history'
+};
+
+const ACTION_ROUTES: Record<string, string> = {
+  overview: '/',
+  send: '/send',
+  receive: '/receive',
+  earn: '/earn',
+  swap: '/swap'
+};
+
+const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/earn', '/swap']);
+
+function activeTabFromPath(pathname: string): string {
+  const segment = pathname.split('/')[1] ?? '';
+  if (segment === 'browser') return 'explore';
+  if (segment === 'history' || segment === 'activity-details') return 'activity';
+  return 'home';
+}
+
+function activeActionFromPath(pathname: string): string {
+  if (pathname === '/send') return 'send';
+  if (pathname === '/receive') return 'receive';
+  if (pathname === '/earn') return 'earn';
+  if (pathname === '/swap') return 'swap';
+  return 'overview';
+}
+
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
-  const historyBadge = useHistoryBadge();
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
-  const contentRef = useRef<HTMLDivElement>(null);
+  const hasUnclaimedNotes = useHasUnclaimedNotes();
+  const prevPathnameRef = useRef<string | null>(null);
 
-  // Animate content on route change (mobile only, not extension).
-  //
-  // CRITICAL: this MUST be useLayoutEffect, not useEffect. With
-  // useEffect, the contentRef element renders + paints first (in its
-  // base state, at translateX(0)), and then the effect fires AFTER
-  // the paint to add the .mobile-page-enter class. The element then
-  // jumps from translateX(0) to translateX(8%) (the animation's
-  // `from` keyframe) and animates back to translateX(0). The user
-  // sees a brief flash of the page at the destination, followed by a
-  // visible jump-right and animate-left. It's intermittent because
-  // useEffect timing relative to paint varies under React's
-  // scheduler.
-  //
-  // useLayoutEffect runs synchronously after DOM mutations but BEFORE
-  // the browser paints. So the class is in place by the time the
-  // first paint happens, and the page only ever visibly renders at
-  // translateX(8%) → animate → translateX(0). No flash, no jump.
-  useLayoutEffect(() => {
-    if (!contentRef.current) return;
-    if (isMobile() && isReturningFromWebview()) return;
-    // Skip animation on extension
-    if (isExtension()) return;
+  // During render `prevPathnameRef.current` still holds the previous path
+  // (the effect below updates it AFTER commit). That's exactly what we need
+  // to decide whether the incoming page should slide in.
+  const prevPathname = prevPathnameRef.current;
+  const skipSlideIn =
+    isExtension() ||
+    (isMobile() && isReturningFromWebview()) ||
+    (prevPathname !== null && HOME_GROUP_ROUTES.has(prevPathname) && HOME_GROUP_ROUTES.has(pathname));
 
-    const el = contentRef.current;
-    el.classList.remove('mobile-page-enter');
-    // Force reflow to restart animation
-    void el.offsetWidth;
-    el.classList.add('mobile-page-enter');
-
-    // Remove class after animation completes to prevent restart on display toggle
-    const handleAnimationEnd = () => {
-      el.classList.remove('mobile-page-enter');
-    };
-    el.addEventListener('animationend', handleAnimationEnd, { once: true });
-
-    return () => {
-      el.removeEventListener('animationend', handleAnimationEnd);
-    };
+  useEffect(() => {
+    prevPathnameRef.current = pathname;
   }, [pathname]);
+
+  const tabs = [
+    {
+      id: 'home',
+      label: 'Home',
+      icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
+    },
+    // Explore tab is a dApp browser surface — extension popup has no use
+    // for it (browser-the-product is already the host), so drop it there.
+    ...(isExtension()
+      ? []
+      : [
+          {
+            id: 'explore',
+            label: 'Explore',
+            icon: <Icon name={IconName.Explore} className="w-6 h-6" />
+          }
+        ]),
+    {
+      id: 'activity',
+      label: 'Activity',
+      icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
+      showDot: hasUnclaimedNotes
+    }
+  ];
+
+  const actionItems = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-heading-gray" />
+    },
+    {
+      id: 'send',
+      label: 'Send',
+      icon: <Icon name={IconName.Send} className="w-5 h-5" />
+    },
+    {
+      id: 'receive',
+      label: 'Receive',
+      icon: <Icon name={IconName.Receive} className="w-5 h-5" />
+    }
+    // {
+    //   id: 'earn',
+    //   label: 'Earn',
+    //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+    // },
+    // {
+    //   id: 'swap',
+    //   label: 'Swap',
+    //   icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+    // }
+  ];
+
+  const activeTab = activeTabFromPath(pathname);
+  const activeAction = activeActionFromPath(pathname);
+  const showActionBar = HOME_GROUP_ROUTES.has(pathname);
+
+  // Fires for re-taps on the active tab too (BottomNav forwards them), so a
+  // Home tap from /send, /receive, etc. returns to Overview; a tap on the
+  // route we're already on stays a silent no-op.
+  const handleTabChange = (id: string) => {
+    const to = TAB_ROUTES[id];
+    if (to && to !== pathname) {
+      hapticSelection();
+      navigate(to);
+    }
+  };
+
+  const handleActionChange = (id: string) => {
+    if (id === activeAction) return;
+    const to = ACTION_ROUTES[id];
+    if (to && to !== pathname) {
+      hapticSelection();
+      navigate(to);
+    }
+  };
 
   // Platform-specific sizing:
   // - Mobile: 100% to inherit from parent chain (body has safe area padding)
@@ -76,32 +167,97 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   return (
     <div
-      className={classNames('relative m-auto bg-app-bg overflow-hidden', fullPage && 'rounded-3xl')}
+      // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
+      // the BottomNav shadow can fade into the body's safe-area padding
+      // strip below the container; fixed-size extension/desktop frames keep
+      // full overflow-hidden.
+      className={classNames(
+        'relative m-auto bg-app-bg flex flex-col',
+        isMobile() ? 'overflow-x-clip' : 'overflow-hidden'
+      )}
       style={containerStyles}
     >
-      {/* Content area — fills entire container, scrolls behind footer.
-          key={pathname} forces React to fully remount the element on
-          every route change. Without it, React's reconciler reuses
-          the same DOM element across routes (TabLayout sits at the
-          same JSX position in PageRouter for /, /history, /browser),
-          which can let residual animation state leak between
-          navigations. The key + useLayoutEffect combo guarantees a
-          fresh element with the .mobile-page-enter class applied
-          before the first paint. */}
-      <div
-        key={pathname}
-        ref={contentRef}
-        className="absolute inset-0 flex flex-col"
-        style={{ willChange: 'transform, opacity' }}
-      >
-        {children}
+      {/* Top action bar — sits outside the animated content tree so it
+          stays fixed across intra-home-group navigations. */}
+      {showActionBar && (
+        <div className="shrink-0 relative z-10">
+          {/* Temporary for this release: keep this inline until
+              we bring in another tabs and then use `SegmentedActionBar`. */}
+          <div role="tablist" className="flex h-16 items-center gap-1 bg-gray-25 px-3 py-3">
+            {actionItems.map(item => {
+              const isActive = item.id === activeAction;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-label={item.label}
+                  onClick={() => handleActionChange(item.id)}
+                  className={classNames(
+                    'relative flex h-12 min-w-0 flex-1 basis-0 items-center justify-center gap-1.5 overflow-hidden rounded-[22px] px-2',
+                    'text-text-primary-token transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30'
+                  )}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="tab-layout-action-fill"
+                      className="absolute inset-0 rounded-[22px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                      transition={springs.standard}
+                    />
+                  )}
+                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
+                    {item.icon}
+                  </span>
+                  <span className="relative min-w-0 whitespace-nowrap text-sm font-bold leading-none">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Animated content. For home-group routes we mount the
+          HomeSwipeContainer once (a five-page horizontal carousel) and let it
+          drive intra-group transitions via drag — pathname is just the
+          source of truth for which page is centered. For other routes
+          (Browser, Activity, etc.) we still slide each new page in via
+          framer. The motion.div is keyed by group so the carousel doesn't
+          remount when only the centered page changes. */}
+      <div className="flex-1 min-h-0 relative">
+        <motion.div
+          key={showActionBar ? 'home-group' : pathname}
+          // flex column so non-home children (AllHistory, Browser) that use
+          // `flex-1 min-h-0 overflow-y-auto` for their scroll region can
+          // actually claim the remaining height. Without this their list
+          // collapses to 0 and transactions appear missing.
+          className="absolute inset-0 overflow-hidden flex flex-col"
+          initial={skipSlideIn ? false : { x: '8%', opacity: 0.5 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={springs.standard}
+        >
+          {showActionBar ? <HomeSwipeContainer /> : children}
+        </motion.div>
       </div>
 
-      {/* Floating footer with blur — overlays content. The data attribute lets
-          the dApp bubble host measure the footer height for corner snap math. */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none" data-tabbar-footer="true">
-        <div className="pointer-events-auto">
-          <Footer historyBadge={historyBadge} />
+      {/* Floating bottom nav — overlays content. The data attribute lets
+          the dApp bubble host measure footer height for corner snap math.
+          Forced `display:flex !important` + `z-[60]` guard against legacy
+          CSS or stale compiled bundles that try to hide `[data-tabbar-footer]`
+          or stack a higher z-index over it. */}
+      <div
+        className="absolute bottom-0 left-0 right-0 z-60 pointer-events-none"
+        data-tabbar-footer="true"
+        style={{ display: 'flex' }}
+      >
+        {/* Mobile: the body's safe-area padding (max(16px, env(...)) in
+            mobile.html) already keeps the pill off the screen edge. */}
+        <div className={classNames('pointer-events-auto flex-1 px-4', !isMobile() && 'pb-2')}>
+          <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
 
+import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel } from 'lib/extension/side-panel-handoff';
@@ -14,6 +15,7 @@ import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { WalletStatus, WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
+import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -83,6 +85,10 @@ const Welcome: FC = () => {
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [guardianLookupError, setGuardianLookupError] = useState(false);
   const [importedWalletAccounts, setImportedWalletAccounts] = useState<WalletAccount[]>([]);
+  // Tracks which protection screen the user came through; needed so ChooseGuardian
+  // back navigation and the create-password→confirmation routing pick the right
+  // origin without colliding with the legacy create flow.
+  const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | null>(null);
   const { registerWallet, importWalletFromClient } = useMidenContext();
   const { trackEvent } = useAnalytics();
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
@@ -106,6 +112,13 @@ const Welcome: FC = () => {
   // Or navigate to /?__test_skip_onboarding=1
   const [testBypassTriggered, setTestBypassTriggered] = useState(false);
   useEffect(() => {
+    // E2E-only. Gate on the build flag (like __TEST_STORE__ / __TEST_INTERCOM__):
+    // Vite replaces process.env.MIDEN_E2E_TEST with 'false' in every non-E2E
+    // build, so this whole bypass — including the `seed` import path below —
+    // becomes dead code and tree-shakes out of production. Without this guard a
+    // crafted `fullpage.html?__test_skip_onboarding=1&seed=<words>` link could
+    // silently provision an attacker-chosen wallet.
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
     const params = new URLSearchParams(window.location.search);
     const skipViaParam = params.get('__test_skip_onboarding') === '1';
     const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;
@@ -119,13 +132,27 @@ const Welcome: FC = () => {
     // matches the Chrome E2E's private default and keeps non-guardian specs
     // independent of a guardian backend.
     const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
-    console.log(`[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}`);
-    const testSeed = generateMnemonic(128).split(' ');
+    // Optional `seed` param: a space- or comma-separated mnemonic. When present,
+    // import that exact seed (onboardingType=Import drives registerWallet's
+    // isImport=true) instead of generating a fresh mnemonic + Create. This lets
+    // the harness restore a specific wallet through the bypass.
+    const seedParam = params.get('seed');
+    const importedSeed = seedParam
+      ? seedParam
+          .split(/[\s,]+/)
+          .map(word => word.trim())
+          .filter(Boolean)
+      : null;
+    const bypassOnboardingType = importedSeed ? OnboardingType.Import : OnboardingType.Create;
+    console.log(
+      `[Welcome] Test bypass: setting up seed + password, walletType=${bypassWalletType}, onboardingType=${bypassOnboardingType}`
+    );
+    const testSeed = importedSeed ?? generateMnemonic(128).split(' ');
     const testPassword = params.get('password') || 'password1';
     setWalletType(bypassWalletType);
     setSeedPhrase(testSeed);
     setPassword(testPassword);
-    setOnboardingType(OnboardingType.Create);
+    setOnboardingType(bypassOnboardingType);
     setTestBypassTriggered(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -146,6 +173,9 @@ const Welcome: FC = () => {
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
       if (!importedWithFile) {
         await registerWallet(walletType, actualPassword, seedPhraseFormatted, onboardingType === OnboardingType.Import);
+        if (onboardingType === OnboardingType.Create) {
+          await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
+        }
       } else {
         try {
           console.log('importing wallet from client');
@@ -209,10 +239,54 @@ const Welcome: FC = () => {
     let eventProperties = {};
 
     switch (action.id) {
-      case 'create-wallet':
+      case 'choose-protection':
+        setOnboardingType(OnboardingType.Create);
+        navigate('/#choose-protection');
+        break;
+      case 'setup-passcode':
+        setOnboardingType(OnboardingType.Create);
+        navigate('/#setup-passcode');
+        break;
+      case 'setup-biometric':
+        setOnboardingType(OnboardingType.Create);
+        navigate('/#setup-biometric');
+        break;
+      case 'setup-biometric-submit':
+        // User finished the (fake) biometric prompt — generate the mnemonic
+        // silently and route to guardian selection. The hardware/password
+        // decision is deferred to after the guardian is chosen.
         setSeedPhrase(generateMnemonic(128).split(' '));
         setOnboardingType(OnboardingType.Create);
-        navigate('/#backup-seed-phrase');
+        setProtectionMethod('biometric');
+        navigate('/#choose-guardian');
+        break;
+      case 'setup-passcode-submit':
+        // Passcode IS the vault password. The 6 digits get stretched through
+        // 20.31M PBKDF2 iterations (src/lib/miden/passworder.ts) before unwrapping
+        // the random 256-bit vault key. Online brute-force is blocked by the
+        // Unlock screen's escalating lockout (src/app/pages/Unlock.tsx).
+        setSeedPhrase(generateMnemonic(128).split(' '));
+        setOnboardingType(OnboardingType.Create);
+        setPassword(action.payload);
+        setProtectionMethod('passcode');
+        navigate('/#choose-guardian');
+        break;
+      case 'choose-guardian-submit':
+        await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
+        setWalletType(WalletType.Guardian);
+        if (password) {
+          // Passcode flow already established a password — go straight to confirmation.
+          navigate('/#confirmation');
+        } else {
+          // Biometric flow — defer the hardware vs password decision until now.
+          const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (hardwareAvailable) {
+            setPassword('__HARDWARE_ONLY__');
+            navigate('/#confirmation');
+          } else {
+            navigate('/#create-password');
+          }
+        }
         break;
       case 'select-import-type':
         setOnboardingType(OnboardingType.Import);
@@ -257,50 +331,14 @@ const Welcome: FC = () => {
           }
         }
         break;
-      case 'backup-seed-phrase':
-        setSeedPhrase(generateMnemonic(128).split(' '));
-        navigate('/#backup-seed-phrase');
-        break;
-      case 'verify-seed-phrase':
-        navigate('/#verify-seed-phrase');
-        break;
-      case 'create-password':
-        // Check if user wants biometric AND hardware security is available
-        {
-          const hardwareAvailable = await checkHardwareSecurityAvailable();
-          if (useBiometric && hardwareAvailable) {
-            // Hardware-only mode: skip password, go directly to confirmation
-            setPassword('__HARDWARE_ONLY__');
-            navigate('/#confirmation');
-          } else {
-            // User opted out of biometrics or hardware not available - show password screen
-            navigate('/#create-password');
-          }
-        }
-        break;
       case 'create-password-submit':
         setPassword(action.payload.password);
         eventCategory = AnalyticsEventCategory.FormSubmit;
-        // Hardware protection is automatically set up in Vault.spawn() when available
         if (onboardingType === OnboardingType.Import && importType === ImportType.SeedPhrase) {
           navigate('/#import-select-recovery-method');
         } else {
-          navigate('/#select-recovery-method');
-        }
-        break;
-      case 'select-recovery-method':
-        setWalletType(action.payload);
-        // Guardian wallets get an extra step to pick which Guardian provider to
-        // use; other recovery methods go straight to confirmation.
-        if (action.payload === WalletType.Guardian) {
-          navigate('/#choose-guardian');
-        } else {
           navigate('/#confirmation');
         }
-        break;
-      case 'choose-guardian':
-        await putToStorage(GUARDIAN_URL_STORAGE_KEY, action.payload.guardianEndpoint);
-        navigate('/#confirmation');
         break;
       case 'import-select-recovery-method':
         setWalletType(action.payload.walletType);
@@ -351,29 +389,22 @@ const Welcome: FC = () => {
         if (
           step === OnboardingStep.SelectImportType ||
           step === OnboardingStep.SelectWalletType ||
-          step === OnboardingStep.BackupSeedPhrase
+          step === OnboardingStep.ChooseProtection
         ) {
           navigate('/');
-        } else if (step === OnboardingStep.VerifySeedPhrase) {
-          navigate('/#backup-seed-phrase');
+        } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
+          navigate('/#choose-protection');
+        } else if (step === OnboardingStep.ChooseGuardian) {
+          navigate(protectionMethod === 'biometric' ? '/#setup-biometric' : '/#setup-passcode');
         } else if (step === OnboardingStep.CreatePassword) {
           if (onboardingType === OnboardingType.Create) {
-            navigate('/#verify-seed-phrase');
+            // Biometric-without-hardware lands here from choose-guardian.
+            navigate('/#choose-guardian');
+          } else if (importType === ImportType.WalletFile) {
+            navigate('/#import-from-file');
           } else {
-            if (importType === ImportType.WalletFile) {
-              navigate('/#import-from-file');
-            } else {
-              navigate('/#import-from-seed');
-            }
-          }
-        } else if (step === OnboardingStep.SelectRecoveryMethod) {
-          if (onboardingType === OnboardingType.Import && password === '__HARDWARE_ONLY__') {
             navigate('/#import-from-seed');
-          } else {
-            navigate('/#create-password');
           }
-        } else if (step === OnboardingStep.ChooseGuardian) {
-          navigate('/#select-recovery-method');
         } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
           if (password === '__HARDWARE_ONLY__') {
             navigate('/#import-from-seed');
@@ -400,6 +431,22 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setStep(OnboardingStep.SelectWalletType);
         break;
+      case '#choose-protection':
+        setOnboardingType(OnboardingType.Create);
+        setStep(OnboardingStep.ChooseProtection);
+        break;
+      case '#setup-passcode':
+        setOnboardingType(OnboardingType.Create);
+        setStep(OnboardingStep.SetupPasscode);
+        break;
+      case '#setup-biometric':
+        setOnboardingType(OnboardingType.Create);
+        setStep(OnboardingStep.SetupBiometric);
+        break;
+      case '#choose-guardian':
+        setOnboardingType(OnboardingType.Create);
+        setStep(OnboardingStep.ChooseGuardian);
+        break;
       case '#select-import-type':
         setStep(OnboardingStep.SelectImportType);
         setOnboardingType(OnboardingType.Import);
@@ -410,21 +457,8 @@ const Welcome: FC = () => {
       case '#import-from-file':
         setStep(OnboardingStep.ImportFromFile);
         break;
-      case '#backup-seed-phrase':
-        setOnboardingType(OnboardingType.Create);
-        setStep(OnboardingStep.BackupSeedPhrase);
-        break;
-      case '#verify-seed-phrase':
-        setStep(OnboardingStep.VerifySeedPhrase);
-        break;
       case '#create-password':
         setStep(OnboardingStep.CreatePassword);
-        break;
-      case '#select-recovery-method':
-        setStep(OnboardingStep.SelectRecoveryMethod);
-        break;
-      case '#choose-guardian':
-        setStep(OnboardingStep.ChooseGuardian);
         break;
       case '#import-select-recovery-method':
         setStep(OnboardingStep.ImportSelectRecoveryMethod);
@@ -457,22 +491,26 @@ const Welcome: FC = () => {
   }, [step, isLoading, onAction]);
 
   return (
-    <OnboardingFlow
-      wordslist={wordslist}
-      seedPhrase={seedPhrase}
-      onboardingType={onboardingType}
-      step={step}
-      password={password}
-      isLoading={isLoading}
-      useBiometric={useBiometric}
-      isHardwareSecurityAvailable={isHardwareSecurityAvailable}
-      biometricAttempts={biometricAttempts}
-      biometricError={biometricError}
-      guardianLookupError={guardianLookupError}
-      confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
-      onBiometricChange={setUseBiometric}
-      onAction={onAction}
-    />
+    <AwaitFonts name="Nunito" weights={[500, 600, 700]}>
+      <div data-onboarding-root="true" className="h-full w-full bg-app-bg">
+        <OnboardingFlow
+          wordslist={wordslist}
+          seedPhrase={seedPhrase}
+          onboardingType={onboardingType}
+          step={step}
+          password={password}
+          isLoading={isLoading}
+          useBiometric={useBiometric}
+          isHardwareSecurityAvailable={isHardwareSecurityAvailable}
+          biometricAttempts={biometricAttempts}
+          biometricError={biometricError}
+          guardianLookupError={guardianLookupError}
+          confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
+          onBiometricChange={setUseBiometric}
+          onAction={onAction}
+        />
+      </div>
+    </AwaitFonts>
   );
 };
 

@@ -884,241 +884,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const parkedSessions = useMemo(() => sessionStates.filter(s => s.status === 'parked'), [sessionStates]);
 
-  // ─── Native navbar overlay (Architecture A — quality path) ─────────────
-  //
-  // The native MidenNavbarOverlayWindow at .normal+200 replaces the
-  // React Footer across the entire wallet on mobile. It shows on every
-  // page EXCEPT onboarding / lock screens. The React Footer is hidden
-  // via the `body[data-native-navbar]` CSS hook in main.css whenever
-  // the overlay is up.
-  //
-  // The active pill highlights based on the current woozie route:
-  //   /                           → home
-  //   /history*, /history-details → activity
-  //   /browser, /select-account*, → browser
-  //     /manage-assets*
-  //   anything else (send, receive, settings, etc.) → no pill active
-  //
-  // The navbar stays mounted across tab switches; we just call
-  // setNativeNavbarActive to update which pill is highlighted, which
-  // avoids the teardown/rebuild flicker showNativeNavbar would cause.
-  //
-  // Taps fire a `nativeNavbarTap` Capacitor event that the listener
-  // below forwards to woozie.navigate so HOME / ACTIVITY / BROWSER
-  // behave identically to the React Footer's <Link> elements.
+  // The React-only wallet shell is active once the user is past
+  // onboarding / unlock. Parked dApp trays use this gate so persistent
+  // dApp chrome never appears over welcome, lock, reset, or import flows.
   const location = useLocation();
-  const navbarShownRef = useRef(false);
-  // Check the wallet's lock state from the store. The lock screen
-  // renders at the same `/` route as Home, so we can't tell them
-  // apart by pathname alone — without this guard the navbar would
-  // appear over the password input on app launch / re-lock.
   const isWalletReady = useWalletStore(selectIsReady);
 
-  // Derived flag: true when the user is past onboarding / unlock and
-  // viewing a normal wallet page. Both the native navbar and the
-  // parked-dApp bubble host gate on this — neither should be visible
-  // while the user is still on a welcome / unlock / forgot-password
-  // / reset / import-account route. Memoized so children that read
-  // it don't re-render on unrelated provider state changes.
   const walletShellActive = useMemo(() => {
     if (!isWalletReady) return false;
     const path = location.pathname;
     if (path === '/welcome') return false;
     if (path.startsWith('/onboarding')) return false;
-    if (path === '/loading') return false;
     if (path === '/forgot-password') return false;
     if (path === '/forgot-password-info') return false;
     if (path === '/reset-required') return false;
     if (path === '/reset-wallet') return false;
-    if (path === '/import-account') return false;
-    if (path.startsWith('/import-account/')) return false;
     return true;
   }, [location.pathname, isWalletReady]);
-
-  useEffect(() => {
-    if (!isMobile()) return;
-    const path = location.pathname;
-
-    // Reuse the derived flag — `!walletShellActive` is the inverse
-    // of "show wallet chrome" which is exactly the condition under
-    // which we want to hide the navbar.
-    const isOnboardingRoute = !walletShellActive;
-
-    if (isOnboardingRoute) {
-      document.body.removeAttribute('data-native-navbar');
-      if (navbarShownRef.current) {
-        InAppBrowser.hideNativeNavbar().catch(() => {});
-        navbarShownRef.current = false;
-      }
-      return;
-    }
-
-    // Determine which pill should be highlighted. Pages that aren't
-    // a top-level destination (send, receive, faucet, etc.) pass null
-    // so no pill is active — the navbar still shows but none of the
-    // three pills look "selected". Same pattern iOS uses when you
-    // drill into a sub-page from a tab bar.
-    //
-    // /token-detail/:tokenId is the per-token activity view reached
-    // by tapping a token row on Home. It's conceptually part of the
-    // activity surface — the entire page is the token's transaction
-    // history — so it highlights the activity pill, not home.
-    let activeId: string | null = null;
-    if (path === '/') activeId = 'home';
-    else if (path.startsWith('/history') || path.startsWith('/history-details') || path.startsWith('/token-detail'))
-      activeId = 'activity';
-    else if (path === '/browser' || path.startsWith('/select-account') || path.startsWith('/manage-assets'))
-      activeId = 'browser';
-
-    document.body.setAttribute('data-native-navbar', '');
-
-    if (navbarShownRef.current) {
-      // Navbar already up — just refresh the active pill. Avoids the
-      // teardown / rebuild flicker that showNativeNavbar would cause.
-      InAppBrowser.setNativeNavbarActive({ id: activeId }).catch(() => {});
-      return;
-    }
-
-    // SF Symbols chosen to mirror the React Footer's filled SVG icons:
-    // - house.fill matches `home-new.svg` (filled house silhouette)
-    // - chart.line.uptrend.xyaxis matches `activity-new.svg` (zigzag
-    //   line over a baseline). There's no exact filled equivalent so
-    //   we use the regular variant which is the closest visual match.
-    // - globe matches `globe-new.svg` (circle with meridians).
-    InAppBrowser.showNativeNavbar({
-      items: [
-        { id: 'home', title: t('home'), sfSymbol: 'house.fill' },
-        { id: 'activity', title: t('activity'), sfSymbol: 'chart.line.uptrend.xyaxis' },
-        { id: 'browser', title: t('browser'), sfSymbol: 'globe' }
-      ],
-      activeId
-    }).catch(() => {});
-    navbarShownRef.current = true;
-  }, [location.pathname, walletShellActive, t]);
-
-  // Drive the native navbar's secondary row (Send / Receive / Settings
-  // quick actions). Visible on Home / Send / Receive / Settings routes.
-  // When visible on /send, /receive, or /settings, the matching pill
-  // gets highlighted (mirrors the main nav row's active state). On
-  // other routes we clear the row by passing an empty items array,
-  // which animates the pill back to its single-row height on a spring
-  // curve.
-  //
-  // Gated on `navbarShownRef` so we don't try to populate a secondary
-  // row on a navbar that hasn't been created yet — the main navbar
-  // effect above is authoritative for navbar lifecycle.
-  useEffect(() => {
-    if (!isMobile()) return;
-    if (!navbarShownRef.current) return;
-    const path = location.pathname;
-
-    const isSecondaryVisible =
-      path === '/' ||
-      path === '/send' ||
-      path.startsWith('/send/') ||
-      path === '/receive' ||
-      path === '/settings' ||
-      path.startsWith('/settings/');
-
-    if (!isSecondaryVisible) {
-      InAppBrowser.setNavbarSecondaryRow({ items: [] }).catch(() => {});
-      return;
-    }
-
-    // Highlight the pill matching the current route. On `/` nothing is
-    // active (the pills are inert taps that launch their flow). On any
-    // settings sub-tab the Settings pill stays highlighted.
-    let secondaryActiveId: string | null = null;
-    if (path === '/send' || path.startsWith('/send/')) secondaryActiveId = 'send';
-    else if (path === '/receive') secondaryActiveId = 'receive';
-    else if (path === '/settings' || path.startsWith('/settings/')) secondaryActiveId = 'settings';
-
-    // SF Symbols chosen to mirror the React icons used across the
-    // wallet:
-    // - arrow.up.right is the filled-diagonal "send" arrow
-    // - arrow.down.left is its mirror for "receive"
-    // - gearshape.fill is the standard iOS settings glyph
-    InAppBrowser.setNavbarSecondaryRow({
-      items: [
-        { id: 'send', title: t('send'), sfSymbol: 'arrow.up.right' },
-        { id: 'receive', title: t('receive'), sfSymbol: 'arrow.down.left' },
-        { id: 'settings', title: t('settings'), sfSymbol: 'gearshape.fill' }
-      ],
-      activeId: secondaryActiveId
-    }).catch(() => {});
-  }, [location.pathname, walletShellActive, t]);
-
-  // Mark the body when a dApp is foregrounded so the main.css rule
-  // that adds 88pt of bottom padding to reserve the navbar gutter
-  // can be opted out — dApp content is supposed to extend BEHIND
-  // the floating toolbar pill (the navbar's UIWindow uses a
-  // PassThroughView so taps still hit the pill), not stop above
-  // it. Without this opt-out, the slot rect computed from the
-  // shrunken React body lands ~88pt short of the screen bottom and
-  // the user sees the page background between the dApp and the
-  // toolbar.
-  useEffect(() => {
-    if (!isMobile()) return;
-    if (foregroundId) {
-      document.body.setAttribute('data-dapp-foreground', '');
-    } else {
-      document.body.removeAttribute('data-dapp-foreground');
-    }
-    return () => {
-      document.body.removeAttribute('data-dapp-foreground');
-    };
-  }, [foregroundId]);
-
-  // Forward native navbar taps to the woozie router. Subscribed once for
-  // the lifetime of the provider so we don't lose taps mid-mode-change.
-  useEffect(() => {
-    if (!isMobile()) return;
-    let handle: { remove: () => void } | undefined;
-    (async () => {
-      const sub = await InAppBrowser.addListener('nativeNavbarTap', (event: { id: string }) => {
-        if (event?.id === 'home') navigate('/');
-        else if (event?.id === 'activity') navigate('/history');
-        else if (event?.id === 'browser') navigate('/browser');
-      });
-      handle = sub;
-    })();
-    return () => {
-      handle?.remove();
-      // Best-effort cleanup if the provider unmounts mid-active-state.
-      void InAppBrowser.hideNativeNavbar().catch(() => {});
-    };
-  }, []);
-
-  // Forward secondary-row (Send / Receive / Settings) taps from the
-  // native navbar to the woozie router. Tapping the pill for a route
-  // you're already on is a no-op — mirrors the main nav row behavior
-  // where tapping HOME while on Home doesn't stack a duplicate
-  // history entry.
-  useEffect(() => {
-    if (!isMobile()) return;
-    let handle: { remove: () => void } | undefined;
-    (async () => {
-      const sub = await InAppBrowser.addListener('nativeNavbarSecondaryTap', (event: { id: string }) => {
-        const path = window.location.hash.replace(/^#/, '') || '/';
-        if (event?.id === 'send') {
-          if (path === '/send' || path.startsWith('/send/')) return;
-          navigate('/send');
-        } else if (event?.id === 'receive') {
-          if (path === '/receive') return;
-          navigate('/receive');
-        } else if (event?.id === 'settings') {
-          // Any /settings/* sub-tab counts as "already on settings"
-          // to avoid bouncing the user off the sub-tab they picked.
-          if (path === '/settings' || path.startsWith('/settings/')) return;
-          navigate('/settings');
-        }
-      });
-      handle = sub;
-    })();
-    return () => {
-      handle?.remove();
-    };
-  }, []);
 
   const contextValue = useMemo<DappBrowserContextValue>(
     () => ({
@@ -1209,7 +991,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       {/* Bubble portal — one bubble per parked dApp. Gated on
           `walletShellActive` so the bubbles never render on the lock
           screen, the welcome / onboarding flow, the forgot-password
-          flow, the reset-required screen, or the import-account flow.
+          flow, or the reset-required screen.
           The user shouldn't see persistent dApp chrome until they've
           actually unlocked the wallet and are inside the main shell. */}
       {isMobile() && walletShellActive && <DappPeekTray />}

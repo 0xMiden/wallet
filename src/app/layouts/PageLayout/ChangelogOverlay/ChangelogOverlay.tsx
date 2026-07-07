@@ -3,9 +3,9 @@ import React, { FC } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from 'app/atoms/Button';
 import { useAppEnv } from 'app/env';
 import ContentContainer from 'app/layouts/ContentContainer';
+import { Button, ButtonVariant } from 'components/Button';
 import { useStorage } from 'lib/miden/front';
 
 import { changelogData, ChangelogItem } from './ChangelogOverlay.data';
@@ -53,12 +53,12 @@ export const ChangelogOverlay: FC = () => {
           }}
         >
           <div className={classNames('flex flex-col max-w-sm mx-auto w-full')}>
-            <p className="text-xl font-geist font-semibold" style={{ fontSize: 23, color: '#9f7aea' }}>
+            <p className="text-xl font-inter font-semibold" style={{ fontSize: 23, color: '#9f7aea' }}>
               {t('changelogTitle')}
             </p>
             {filteredChangelog.map(({ version, data }) => (
               <React.Fragment key={version}>
-                <p className="mb-5 mt-8 font-geist" style={{ fontSize: 16 }}>
+                <p className="mb-5 mt-8 font-inter" style={{ fontSize: 16 }}>
                   {t('update')} {version}
                 </p>
                 <ul>
@@ -80,14 +80,14 @@ export const ChangelogOverlay: FC = () => {
               }}
             >
               <Button
+                variant={ButtonVariant.Primary}
                 className={classNames(
-                  'py-2',
-                  'text-pure-white font-geist rounded font-semibold uppercase',
-                  'mx-auto',
-                  s.overlay_ok_button
+                  'h-9 w-auto max-w-none mt-6 mx-auto rounded',
+                  'bg-[#9f7aea] hover:bg-[#9f7aea]',
+                  'text-pure-white font-inter text-[13px] font-semibold uppercase'
                 )}
                 onClick={handleContinue}
-                testID={ChangelogOverlaySelectors.Continue}
+                data-testid={ChangelogOverlaySelectors.Continue}
                 style={{
                   width: compact ? 270 : 384
                 }}

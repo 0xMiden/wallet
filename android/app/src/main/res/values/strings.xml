@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Miden Wallet</string>
-    <string name="title_activity_main">Miden Wallet</string>
+    <string name="app_name">Bread</string>
+    <string name="title_activity_main">Bread</string>
     <string name="package_name">com.miden.wallet</string>
     <string name="custom_url_scheme">com.miden.wallet</string>
 </resources>

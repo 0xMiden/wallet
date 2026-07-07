@@ -1,99 +1,85 @@
-import React, { HTMLAttributes, useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { CardItem } from 'components/CardItem';
-import { NavigationHeader } from 'components/NavigationHeader';
-import { TokenLogo } from 'components/TokenLogo';
+import { AssetRow } from 'components/AssetRow';
+import { SearchInput } from 'components/ui';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { useWalletStore } from 'lib/store';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-import { SendFlowAction, SendFlowActionId, SendFlowStep, UIToken } from './types';
+import { UIToken } from './types';
 
-export interface SelectTokenScreenProps extends HTMLAttributes<HTMLDivElement> {
-  onAction?: (action: SendFlowAction) => void;
+export interface SelectTokenDrawerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (token: UIToken) => void;
 }
 
-export const SelectToken: React.FC<SelectTokenScreenProps> = ({ className, onAction, ...props }) => {
+/**
+ * Token picker for the send flow, presented as a bottom sheet (vaul) over the
+ * Amount step instead of a pushed sub-screen. Fixed at a comfortable height
+ * even when the token list is short.
+ */
+export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOpenChange, onSelect }) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const tokens = useMemo(() => {
-    return (
-      balanceData?.map(token => ({
-        id: token.tokenId,
-        name: token.metadata.symbol,
-        decimals: token.metadata.decimals,
-        balance: token.balance,
-        fiatPrice: token.fiatPrice
-      })) || []
-    );
-  }, [balanceData]);
-
-  const filteredTokens = useMemo(() => {
-    if (!searchQuery.trim()) return tokens;
+  const filteredBalances = useMemo(() => {
+    if (!searchQuery.trim()) return balanceData;
     const query = searchQuery.toLowerCase();
-    return tokens.filter(token => token.name.toLowerCase().includes(query));
-  }, [tokens, searchQuery]);
-
-  const onCancel = useCallback(() => {
-    onAction?.({
-      id: SendFlowActionId.Finish
-    });
-  }, [onAction]);
+    return balanceData.filter(
+      b => b.metadata.symbol.toLowerCase().includes(query) || b.metadata.name?.toLowerCase().includes(query)
+    );
+  }, [balanceData, searchQuery]);
 
   const onSelectToken = useCallback(
     (token: UIToken) => {
-      onAction?.({
-        id: SendFlowActionId.SetFormValues,
-        payload: {
-          token
-        }
-      });
-      onAction?.({
-        id: SendFlowActionId.Navigate,
-        step: SendFlowStep.SendDetails
-      });
+      onSelect(token);
+      setSearchQuery('');
+      onOpenChange(false);
     },
-    [onAction]
+    [onSelect, onOpenChange]
   );
 
-  const fiatBalance = (token: UIToken): number => token.balance * token.fiatPrice;
-
   return (
-    <div {...props} className={classNames('flex-1 flex flex-col bg-app-bg', className)}>
-      <NavigationHeader mode="back" title={t('send')} onBack={onCancel} showBorder />
-      <div className="flex flex-col flex-1 px-4 pt-4">
-        <input
-          type="text"
-          placeholder={t('searchByNameOrSymbol')}
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          className="w-full bg-gray-25 rounded-xl py-4 px-4 text-center text-base text-black placeholder-heading-gray outline-none"
-        />
-        <div className="flex flex-col py-4">
-          {filteredTokens.map(token => {
-            return (
-              <CardItem
-                key={token.id}
-                iconLeft={<TokenLogo symbol={token.name} />}
-                title={token.name}
-                subtitle={token.name.toUpperCase()}
-                titleRight={token.balance.toFixed(3)}
-                subtitleRight={`${fiatBalance(token).toFixed(2)} USD`}
-                className="border-b-[0.25px] border-border-card border-dashed rounded-none px-0 py-3 justify-between"
-                hoverable={true}
-                onClick={() => onSelectToken(token)}
-                titleClassName="!font-medium text-lg"
-                subtitleClassName="!font-normal text-text-muted text-xs"
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent>
+        <DrawerHeader>
+          <DrawerTitle>{t('selectAToken')}</DrawerTitle>
+        </DrawerHeader>
+        <div className="flex flex-col min-h-0 px-4 pb-4 h-120">
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder={t('searchForTokens')}
+            data-testid="send-token-search"
+          />
+          <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar divide-y divide-rule-default">
+            {filteredBalances.map(b => (
+              <AssetRow
+                key={b.tokenId}
+                asset={b}
+                tokenPrices={tokenPrices}
+                data-testid={`send-token-${b.metadata.symbol}`}
+                onClick={() =>
+                  onSelectToken({
+                    id: b.tokenId,
+                    name: b.metadata.symbol,
+                    decimals: b.metadata.decimals,
+                    balance: b.balance,
+                    fiatPrice: b.fiatPrice
+                  })
+                }
               />
-            );
-          })}
+            ))}
+          </div>
         </div>
-      </div>
-    </div>
+      </DrawerContent>
+    </Drawer>
   );
 };

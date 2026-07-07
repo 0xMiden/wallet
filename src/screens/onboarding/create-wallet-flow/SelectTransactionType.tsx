@@ -143,7 +143,7 @@ export const SelectTransactionTypeScreen: React.FC<SelectTransactionTypeScreenPr
               className={classNames('mt-4', { 'text-primary-500': selectedType === option.id })}
               iconLeft={
                 selectedType === option.id ? (
-                  <Icon name={IconName.CheckboxCircleFill} fill={selectedType === option.id ? PRIMARY_HEX : 'black'} />
+                  <Icon name={IconName.CheckboxCircleFill} style={{ color: PRIMARY_HEX }} />
                 ) : null
               }
             />

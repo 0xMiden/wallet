@@ -316,7 +316,7 @@
   "setNewFaucetIdDescription": "Введите идентификатор Faucet Miden",
   "encryptedWalletFile": "Зашифрованный файл кошелька",
   "encryptedWalletFileDescription": "Введите свой пароль для доступа к вашему зашифрованному файлу кошелька. Отключите демонстрацию эfaucetа. Не делитесь этим ни с кем.",
-  "encryptedWalletFileConfirmation": "Я никому не передам свой зашифрованный файл кошелька, включая Miden Wallet.",
+  "encryptedWalletFileConfirmation": "Я никому не передам свой зашифрованный файл кошелька, включая Bread.",
   "editMidenFaucetId": "Изменить идентификатор Faucet Miden",
   "exportWalletFile": "Экспортировать файл кошелька",
   "privacyScalesBetter": "Конфиденциальность лучше масштабируется",

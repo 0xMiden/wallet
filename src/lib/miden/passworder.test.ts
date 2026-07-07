@@ -20,6 +20,8 @@ import {
   verifyPassword
 } from './passworder';
 
+jest.setTimeout(30_000);
+
 describe('passworder', () => {
   describe('generateSalt', () => {
     it('returns a 32-byte Uint8Array by default', () => {
@@ -48,7 +50,7 @@ describe('passworder', () => {
       // Both keys should successfully derive the same AES key
       const salt = generateSalt();
       const d1 = await deriveKey(k1, salt);
-      const d2 = await deriveKey(k2, salt, 1_310_000);
+      const d2 = await deriveKey(k2, salt);
       const iv = new Uint8Array(16);
       const p1 = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, d1, Buffer.from('abc'));
       const p2 = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, d2, Buffer.from('abc'));

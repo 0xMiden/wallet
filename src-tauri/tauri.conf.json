@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Miden Wallet",
+  "productName": "Bread",
   "identifier": "com.miden.wallet",
   "version": "1.13.2",
   "build": {
@@ -15,7 +15,7 @@
     },
     "windows": [
       {
-        "title": "Miden Wallet",
+        "title": "Bread",
         "width": 900,
         "height": 700,
         "resizable": false,
@@ -42,8 +42,8 @@
       "icons/icon.ico"
     ],
     "category": "Finance",
-    "shortDescription": "Miden Wallet - A secure wallet for the Miden blockchain",
-    "longDescription": "Miden Wallet is a secure, cross-platform wallet for the Miden blockchain. Features include secure key storage with OS keychain integration, Touch ID/biometric unlock on supported devices, and a user-friendly interface.",
+    "shortDescription": "Bread - A secure wallet for the Miden blockchain",
+    "longDescription": "Bread is a secure, cross-platform wallet for the Miden blockchain. Features include secure key storage with OS keychain integration, Touch ID/biometric unlock on supported devices, and a user-friendly interface.",
     "macOS": {
       "entitlements": "./entitlements.plist",
       "minimumSystemVersion": "10.15",

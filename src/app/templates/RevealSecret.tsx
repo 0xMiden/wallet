@@ -11,7 +11,7 @@ import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
-import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
@@ -50,12 +50,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const [secret, setSecret] = useSecretState();
   const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
-  // The native iOS / Android navbar pill renders in a separate UIWindow / Dialog
-  // above the WebView, so any content at the bottom of this page (notably the
-  // Unlock button on hardware-protected wallets, where there's no password
-  // input to push the button up) gets z-covered and becomes unclickable.
-  // Morph the pill out while the reveal screen is mounted; restores on unmount.
-  useHideNavbarWhileOpen(true);
+  // Keep parked dApp trays out of the way while the reveal screen is mounted.
+  useHideDappBubblesWhileOpen(true);
   // Private-key + guardian-keys reveals require the user to tick an "I
   // understand" checkbox before the Continue button enables. The warning
   // banner alone is passive; this gate forces one deliberate interaction

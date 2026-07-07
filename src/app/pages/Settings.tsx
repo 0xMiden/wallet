@@ -3,7 +3,6 @@ import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { InAppBrowser } from '@miden/dapp-browser';
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
 import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
 import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
@@ -11,8 +10,6 @@ import { ReactComponent as ToolIconDevnet } from 'app/icons/settings/advanced-se
 import { ReactComponent as ToolIconOrange } from 'app/icons/settings/advanced-settings.svg';
 import { ReactComponent as AppsIconDevnet } from 'app/icons/settings/dapp-devnet.svg';
 import { ReactComponent as AppsIconOrange } from 'app/icons/settings/dapp.svg';
-import { ReactComponent as EncryptedWalletIconDevnet } from 'app/icons/settings/encrypted-wallet-file-devnet.svg';
-import { ReactComponent as EncryptedWalletIconOrange } from 'app/icons/settings/encrypted-wallet-file.svg';
 import { ReactComponent as SettingsIconDevnet } from 'app/icons/settings/general-devnet.svg';
 import { ReactComponent as SettingsIconOrange } from 'app/icons/settings/general.svg';
 import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/language-devnet.svg';
@@ -32,10 +29,12 @@ import DAppSettings from 'app/templates/DAppSettings';
 import EditMidenFaucetId from 'app/templates/EditMidenFaucetId';
 import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
+import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
+import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
@@ -45,7 +44,6 @@ import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
-import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -58,7 +56,6 @@ const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
 const ToolIcon = isDevnet ? ToolIconDevnet : ToolIconOrange;
 const AppsIcon = isDevnet ? AppsIconDevnet : AppsIconOrange;
-const EncryptedWalletIcon = isDevnet ? EncryptedWalletIconDevnet : EncryptedWalletIconOrange;
 const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
 const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
 const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
@@ -162,28 +159,12 @@ const TAB_GROUPS: TabGroup[] = [
         hasOwnLayout: true
       },
       {
-        slug: 'reveal-private-key',
-        titleI18nKey: 'revealPrivateKey',
+        slug: 'keys',
+        titleI18nKey: 'keys',
         Icon: SecretKeyIcon,
-        Component: RevealPrivateKey,
-        testID: SettingsSelectors.RevealPrivateKeyButton
-      },
-      {
-        slug: 'reveal-hot-key',
-        titleI18nKey: 'revealHotKey',
-        Icon: SecretKeyIcon,
-        Component: RevealHotKey,
-        testID: SettingsSelectors.RevealHotKeyButton,
-        guardianOnly: true,
-        requiresActivatedHotKey: true
-      },
-      {
-        slug: 'encrypted-wallet-file',
-        titleI18nKey: 'encryptedWalletFile',
-        Icon: EncryptedWalletIcon,
-        Component: EncryptedFileFlow,
-        testID: SettingsSelectors.EncryptedWalletFile,
-        hasOwnLayout: true
+        Component: KeysSettings,
+        testID: SettingsSelectors.KeysButton,
+        isDrawer: true
       },
       {
         slug: 'guardian-settings',
@@ -240,6 +221,29 @@ const TAB_GROUPS: TabGroup[] = [
 // Hidden tabs that are routable but not shown in the menu
 const HIDDEN_TABS: Tab[] = [
   {
+    slug: 'reveal-private-key',
+    titleI18nKey: 'revealPrivateKey',
+    Icon: SecretKeyIcon,
+    Component: RevealPrivateKey,
+    testID: SettingsSelectors.RevealPrivateKeyButton
+  },
+  {
+    slug: 'reveal-hot-key',
+    titleI18nKey: 'revealHotKey',
+    Icon: SecretKeyIcon,
+    Component: RevealHotKey,
+    testID: SettingsSelectors.RevealHotKeyButton,
+    guardianOnly: true,
+    requiresActivatedHotKey: true
+  },
+  {
+    slug: 'verify-seed-phrase',
+    titleI18nKey: 'verifySeedPhrase',
+    Icon: SeedPhraseIcon,
+    Component: VerifySeedPhraseFlow,
+    hasOwnLayout: true
+  },
+  {
     slug: 'edit-miden-faucet-id',
     titleI18nKey: 'editMidenFaucetId',
     Icon: SettingsIcon,
@@ -274,7 +278,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
-    [hasActivatedHotKey, isGuardianAccount]
+    [isGuardianAccount, hasActivatedHotKey]
   );
 
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
@@ -303,44 +307,29 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
 
-  // On mobile, morph the native navbar AND the parked-dApp bubbles
-  // OUT when a settings drawer / seed-warning overlay takes over the
-  // bottom of the screen — both would otherwise fight with the drawer
-  // for the same real estate. The navbar morph is a Swift spring
-  // animation on the native UIWindow; the bubbles morph via a CSS
-  // rule keyed on `body[data-drawer-open]` (see main.css).
-  //
-  // Morphs back IN when the drawer closes. No-op on desktop/extension.
+  // On mobile, move parked dApp trays out when a settings drawer /
+  // seed-warning overlay takes over the bottom of the screen.
   const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
   useEffect(() => {
     if (!isMobile()) return;
     if (drawerOrSheetOpen) {
       document.body.setAttribute('data-drawer-open', '');
-      InAppBrowser.morphNavbarOut().catch(() => {});
     } else {
       document.body.removeAttribute('data-drawer-open');
-      InAppBrowser.morphNavbarIn().catch(() => {});
     }
     // Unmount cleanup: if the Settings page unmounts while a drawer
-    // is still open (e.g. user swipes back mid-open), force both the
-    // navbar and the bubbles back in so nothing is stranded
-    // off-screen on the next page.
+    // is still open, force parked dApp trays back in.
     return () => {
       if (!isMobile()) return;
       if (drawerOrSheetOpen) {
         document.body.removeAttribute('data-drawer-open');
-        InAppBrowser.morphNavbarIn().catch(() => {});
       }
     };
   }, [drawerOrSheetOpen]);
 
-  // Mark Settings as an edge-to-edge page so it extends behind the
-  // navbar pill (no 88pt bottom gutter from main.css). The list
-  // container below adds its own pb-[88px] so the last item can
-  // still be scrolled above the floating toolbar — without that
-  // internal padding the bottom item would sit permanently under
-  // the pill and be unreachable. Only apply when we're showing the
-  // settings root (not an active sub-tab with its own layout).
+  // Mark Settings as an edge-to-edge page. The list container below
+  // adds its own bottom padding so the last item can still scroll above
+  // the React BottomNav.
   const showSettingsRoot = !activeTab;
   useEffect(() => {
     if (!isMobile()) return;
@@ -382,12 +371,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             </>
           )
         ) : (
-          // pb-[88px] reserves space at the bottom equal to the native
-          // navbar pill's height (76 + 12 gap = 88pt) so the last menu
-          // item can be scrolled above the floating toolbar. Without
-          // this, opting out of the body gutter via data-edge-to-edge
-          // would leave the bottom row permanently hidden behind the pill.
-          <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
+          // pb-[88px] reserves space at the bottom so the last menu item
+          // can scroll above the React BottomNav.
+          <div className="flex flex-col w-full pt-4 pb-22 gap-8 text-heading-gray px-4">
             {tabGroups.map(group => (
               <div key={group.titleI18nKey}>
                 <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>

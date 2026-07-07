@@ -3,34 +3,29 @@ import React, { FC, useLayoutEffect, useMemo } from 'react';
 import { OpenInFullPage, useAppEnv } from 'app/env';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
-import CreateAccount from 'app/pages/CreateAccount';
 import Explore from 'app/pages/Explore';
-import Faucet from 'app/pages/Faucet';
-import ImportAccount from 'app/pages/ImportAccount';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
+import { Pending } from 'app/pages/Pending';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
-import { ConsumingNotePage } from 'screens/consuming-note/ConsumingNote';
-import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
+import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
+import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
+import EarnPositionDetail from 'screens/earn-flow/EarnPositionDetail';
+import EarnPositions from 'screens/earn-flow/EarnPositions';
+import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
+import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 
-import RootSuspenseFallback from './a11y/RootSuspenseFallback';
 import AllHistory from './pages/AllHistory';
 import Browser from './pages/Browser';
-import EditAccountName from './pages/EditAccountName';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
-import { GetTokens } from './pages/GetTokens';
-import ImportNotePending from './pages/ImportNotePending';
-import ImportNoteResult from './pages/ImportNoteResult';
-import ManageAssets from './pages/ManageAssets';
 import ResetRequired from './pages/ResetRequired';
-import SelectAccount from './pages/SelectAccount';
 import TokenDetail from './pages/TokenDetail';
 import { HistoryDetails } from './templates/history/HistoryDetails';
 
@@ -94,7 +89,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       }
     }
   ],
-  ['/loading', (_p, ctx) => (ctx.ready ? <Woozie.Redirect to={'/'} /> : <RootSuspenseFallback />)],
   // Tab pages - wrapped in TabLayout with persistent footer
   [
     '/',
@@ -133,58 +127,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   // Full-screen pages - wrapped in FullScreenPage for slide animation
   [
-    '/select-account',
-    onlyReady(() => (
-      <FullScreenPage>
-        <SelectAccount />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/create-account',
-    onlyReady(() => (
-      <FullScreenPage>
-        <CreateAccount />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/edit-name',
-    onlyReady(() => (
-      <FullScreenPage>
-        <EditAccountName />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/import-account/:tabSlug?',
-    onlyReady(({ tabSlug }) => (
-      <FullScreenPage>
-        <ImportAccount tabSlug={tabSlug} />
-      </FullScreenPage>
-    ))
-  ],
-  [
     '/receive',
     onlyReady(() => (
-      <FullScreenPage>
+      <TabLayout>
         <Receive />
-      </FullScreenPage>
+      </TabLayout>
     ))
   ],
   [
-    '/faucet',
+    '/pending',
     onlyReady(() => (
       <FullScreenPage>
-        <Faucet />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/get-tokens',
-    onlyReady(() => (
-      <FullScreenPage>
-        <GetTokens />
+        <Pending />
       </FullScreenPage>
     ))
   ],
@@ -205,27 +159,77 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/manage-assets/:assetType?',
-    onlyReady(({ assetType }) => (
+    // Full-screen review page — registered before /send (earn convention).
+    // The send form hands off here via query params; see send-flow/send-draft.ts.
+    '/send/review',
+    onlyReady(() => (
       <FullScreenPage>
-        <ManageAssets assetType={assetType!} />
+        <ReviewTransaction />
       </FullScreenPage>
     ))
   ],
   [
     '/send',
     onlyReady(() => (
-      <FullScreenPage>
+      <TabLayout>
         <SendFlow isLoading={false} />
+      </TabLayout>
+    ))
+  ],
+  [
+    '/swap',
+    onlyReady(() => (
+      <TabLayout>
+        <></>
+      </TabLayout>
+    ))
+  ],
+  [
+    '/earn/vaults/:vaultId/deposit/review',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnDepositReview vaultId={vaultId!} />
       </FullScreenPage>
     ))
   ],
   [
-    '/encrypted-wallet-file',
+    '/earn/vaults/:vaultId/deposit',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnDepositAmount vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/vaults/:vaultId',
+    onlyReady(({ vaultId }) => (
+      <FullScreenPage>
+        <EarnVaultDetail vaultId={vaultId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions/:positionId',
+    onlyReady(({ positionId }) => (
+      <FullScreenPage>
+        <EarnPositionDetail positionId={positionId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn/positions',
     onlyReady(() => (
       <FullScreenPage>
-        <EncryptedFileFlow />
+        <EarnPositions />
       </FullScreenPage>
+    ))
+  ],
+  [
+    '/earn',
+    onlyReady(() => (
+      <TabLayout>
+        <></>
+      </TabLayout>
     ))
   ],
   [
@@ -241,38 +245,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage>
         <GeneratingTransactionPage keepOpen={true} />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/consuming-note/:noteId',
-    onlyReady(({ noteId }) => (
-      <FullScreenPage>
-        <ConsumingNotePage noteId={noteId!} />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/import-note-pending/:noteId',
-    onlyReady(({ noteId }) => (
-      <FullScreenPage>
-        <ImportNotePending noteId={noteId!} />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/import-note-success',
-    onlyReady(() => (
-      <FullScreenPage>
-        <ImportNoteResult success={true} />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/import-note-failure',
-    onlyReady(() => (
-      <FullScreenPage>
-        <ImportNoteResult success={false} />
       </FullScreenPage>
     ))
   ],

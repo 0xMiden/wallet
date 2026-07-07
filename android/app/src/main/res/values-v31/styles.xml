@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12+ splash screen: orange background -->
+    <!-- Android 12+ splash screen: app-bg color (light/dark via values-night splash_background) -->
     <style name="AppTheme.NoActionBarLaunch" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowSplashScreenBackground">@color/splash_background</item>
     </style>

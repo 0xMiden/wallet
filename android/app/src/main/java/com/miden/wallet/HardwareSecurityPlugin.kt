@@ -341,7 +341,7 @@ class HardwareSecurityPlugin : Plugin() {
         // Allow biometric or device credential (PIN/pattern/password)
         // Note: When using DEVICE_CREDENTIAL, setNegativeButtonText cannot be used
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Miden Wallet")
+            .setTitle("Bread")
             .setSubtitle("Unlock your wallet")
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or

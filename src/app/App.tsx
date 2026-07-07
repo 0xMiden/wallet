@@ -44,21 +44,27 @@ const App: FC<AppProps> = ({ env }) => {
 
             <AwaitI18N />
 
-            <AwaitFonts name="Geist" weights={[300, 400, 500, 600]} className="antialiased font-geist">
+            <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
               <BootAnimation>
-                {env.confirmWindow ? (
-                  <ConfirmPage />
-                ) : checkIsMobile() ? (
-                  // The DappBrowserProvider owns the embedded dApp webview lifecycle
-                  // and the bubble host. It must live ABOVE PageRouter so it survives
-                  // tab navigation — a parked dApp's bubble stays interactive even
-                  // when the user moves to a different tab.
-                  <DappBrowserProvider>
+                {/* Vaul's shouldScaleBackground scales the element carrying
+                    data-vaul-drawer-wrapper while a bottom sheet is open
+                    (transform + transient border-radius/overflow, all managed
+                    by vaul). Must wrap the whole app surface. */}
+                <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
+                  {env.confirmWindow ? (
+                    <ConfirmPage />
+                  ) : checkIsMobile() ? (
+                    // The DappBrowserProvider owns the embedded dApp webview lifecycle
+                    // and the bubble host. It must live ABOVE PageRouter so it survives
+                    // tab navigation — a parked dApp's bubble stays interactive even
+                    // when the user moves to a different tab.
+                    <DappBrowserProvider>
+                      <PageRouter />
+                    </DappBrowserProvider>
+                  ) : (
                     <PageRouter />
-                  </DappBrowserProvider>
-                ) : (
-                  <PageRouter />
-                )}
+                  )}
+                </div>
               </BootAnimation>
             </AwaitFonts>
           </AppProvider>

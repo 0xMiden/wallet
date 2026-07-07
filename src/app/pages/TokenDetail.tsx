@@ -7,9 +7,9 @@ import { useTranslation } from 'react-i18next';
 import { Line, LineChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
-import { ReactComponent as ReceiveIcon } from 'app/icons/receive-new.svg';
-import { ReactComponent as SendIcon } from 'app/icons/send-new.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
+import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { TokenLogo } from 'components/TokenLogo';
@@ -74,8 +74,10 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <div className="flex flex-col items-center pt-4 pb-4">
             <TokenLogo symbol={symbol} size="xl" className="rounded-10" />
 
-            <span className="text-[44px] font-bold text-heading-gray leading-none pt-2">{balance.toFixed(2)}</span>
-            <span className="text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
+            <span className="font-heading text-[44px] font-bold text-heading-gray leading-none pt-2">
+              {balance.toFixed(2)}
+            </span>
+            <span className="font-heading text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
               ${fiatValue.toFixed(2)}
             </span>
           </div>
@@ -147,9 +149,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
           <span className="text-xs font-semibold text-heading-gray opacity-[0.32] uppercase">{t('tokenPrice')}</span>
           <span
             className={classNames(
-              'text-xs font-semibold px-2 py-0.5 rounded-full',
+              'font-heading text-xs font-semibold px-2 py-0.5 rounded-full',
               priceInfo.change24h >= 0
-                ? 'text-green-200 bg-green-50 dark:bg-green-500/15 dark:text-green-500'
+                ? 'text-green-600 bg-green-50 dark:bg-green-500/15 dark:text-green-500'
                 : 'text-red-600 bg-red-50 dark:bg-red-500/15 dark:text-red-500'
             )}
           >
@@ -157,7 +159,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
             {priceInfo.change24h.toFixed(1)}%
           </span>
         </div>
-        <span className="text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>
+        <span className="font-heading text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>
         <div className="mt-3 h-20">
           <ChartContainer config={{ price: { color: PRIMARY_HEX } }} className="h-full w-full aspect-auto">
             <LineChart data={chartData}>
@@ -168,7 +170,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
-                      <div className="font-semibold">${Number(point.value).toFixed(2)}</div>
+                      <div className="font-heading font-semibold">${Number(point.value).toFixed(2)}</div>
                       {point.time && <div className="opacity-75">{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );

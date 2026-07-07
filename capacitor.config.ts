@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.miden.wallet',
-  appName: 'Miden Wallet',
+  appName: 'Bread',
   webDir: 'dist/mobile',
   server: {
     // Android keeps `http://localhost` so WASM workers can do gRPC fetches.

@@ -622,8 +622,12 @@ export class Vault {
     return await getPlain<string>(currentAccPubKeyStrgKey);
   }
 
-  async fetchSettings() {
-    return DEFAULT_SETTINGS;
+  async fetchSettings(): Promise<WalletSettings> {
+    return withError('Failed to fetch settings', async () => {
+      if (!(await isStored(settingsStrgKey))) return DEFAULT_SETTINGS;
+      const settings = await fetchAndDecryptOneWithLegacyFallBack<WalletSettings>(settingsStrgKey, this.vaultKey);
+      return { ...DEFAULT_SETTINGS, ...settings };
+    });
   }
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {

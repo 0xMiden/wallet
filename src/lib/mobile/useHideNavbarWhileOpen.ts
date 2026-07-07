@@ -1,55 +1,43 @@
 import { useEffect } from 'react';
 
-import { InAppBrowser } from '@miden/dapp-browser';
-import { isMobile } from 'lib/platform';
-
 /**
- * While `open` is true on mobile, morph the native navbar pill off-screen
- * (and mark `body[data-drawer-open]` so any dApp peek bubbles morph out via
- * main.css). Reverses on close / unmount.
+ * While `open` is true, hide the bottom tab navbar — the React `BottomNav`
+ * rendered by `TabLayout` and tagged `data-tabbar-footer`. Reverses on
+ * close / unmount.
  *
- * Exists because the navbar lives in a separate native `UIWindow` stacked
- * above the WKWebView, so web-layer modals cannot cover it — it always
- * renders on top. Every modal on mobile has to call this to stay beneath
- * the overlay. No-op on desktop / extension.
+ * A single reference counter keeps concurrent callers honest: if a second
+ * surface opens before the first closes, the navbar stays hidden until both
+ * are gone. Pairs with the `body[data-hide-navbar] [data-tabbar-footer]`
+ * rule in `main.css`.
  *
- * A single open/close reference counter keeps concurrent modals honest —
- * if a second modal opens before the first closes, the navbar stays out
- * until both are gone.
+ * Full-screen routes (Send, Receive, generating-transaction) already render
+ * outside `TabLayout`, so there is no footer to match and this is a no-op
+ * there. It matters when a success / progress surface is shown over a tab
+ * page, which still mounts the footer behind it.
  */
 let openCount = 0;
 
-async function applyOutside() {
-  document.body.setAttribute('data-drawer-open', '');
-  try {
-    await InAppBrowser.morphNavbarOut();
-  } catch {
-    // Best-effort — the plugin may not be present in this build target.
-  }
+function applyHidden() {
+  document.body.setAttribute('data-hide-navbar', '');
 }
 
-async function applyInside() {
-  document.body.removeAttribute('data-drawer-open');
-  try {
-    await InAppBrowser.morphNavbarIn();
-  } catch {
-    // Best-effort — see applyOutside.
-  }
+function applyVisible() {
+  document.body.removeAttribute('data-hide-navbar');
 }
 
-export function useHideNavbarWhileOpen(open: boolean): void {
+export function useHideNavbarWhileOpen(open = true): void {
   useEffect(() => {
-    if (!isMobile() || !open) return;
+    if (!open) return;
 
     openCount += 1;
     if (openCount === 1) {
-      void applyOutside();
+      applyHidden();
     }
 
     return () => {
       openCount = Math.max(0, openCount - 1);
       if (openCount === 0) {
-        void applyInside();
+        applyVisible();
       }
     };
   }, [open]);

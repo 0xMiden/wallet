@@ -1,5 +1,5 @@
 {
-  "appName": "Miden - Miden Wallet",
+  "appName": "Miden - Bread",
   "createAccount": "Konto erstellen oder wiederherstellen",
   "importAccount": "Konto importieren",
   "settings": "Einstellungen",
@@ -317,7 +317,7 @@
   "setNewFaucetIdDescription": "Geben Sie die ID eines Miden-Faucets ein",
   "encryptedWalletFile": "Verschlüsselte Wallet-Datei",
   "encryptedWalletFileDescription": "Geben Sie Ihr Passwort ein, um auf Ihre verschlüsselte Wallet-Datei zuzugreifen. Deaktivieren Sie die Bildschirmfreigabe. Teilen Sie es mit niemandem.",
-  "encryptedWalletFileConfirmation": "Ich werde meine verschlüsselte Wallet-Datei mit niemandem teilen, auch nicht mit Miden Wallet.",
+  "encryptedWalletFileConfirmation": "Ich werde meine verschlüsselte Wallet-Datei mit niemandem teilen, auch nicht mit Bread.",
   "editMidenFaucetId": "Bearbeiten Sie die Miden Faucet-ID",
   "exportWalletFile": "Wallet-Datei exportieren",
   "privateTransactionsAnytimeAnywhere": "Private Transaktionen jederzeit und überall.",

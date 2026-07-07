@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -10,8 +10,11 @@ import { isMobile } from 'lib/platform';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { ChooseGuardianScreen } from './common/ChooseGuardian';
+import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
+import { SetupBiometricScreen } from './common/SetupBiometric';
+import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
 import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
 import { SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
@@ -41,37 +44,31 @@ export interface OnboardingFlowProps {
   onAction?: (action: OnboardingAction) => void;
 }
 
+const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
+  [OnboardingStep.ChooseProtection]: 1,
+  [OnboardingStep.SetupPasscode]: 2,
+  [OnboardingStep.SetupBiometric]: 2,
+  [OnboardingStep.ChooseGuardian]: 3,
+  [OnboardingStep.SelectImportType]: 1,
+  [OnboardingStep.ImportFromSeed]: 2,
+  [OnboardingStep.ImportFromFile]: 2,
+  [OnboardingStep.BackupSeedPhrase]: 1,
+  [OnboardingStep.VerifySeedPhrase]: 2,
+  [OnboardingStep.CreatePassword]: 3,
+  [OnboardingStep.SelectRecoveryMethod]: 4,
+  [OnboardingStep.ImportSelectRecoveryMethod]: 4,
+  [OnboardingStep.Confirmation]: 4
+};
+
 const Header: React.FC<{
   onBack: () => void;
-  step: OnboardingStep;
+  currentStep: number | null;
   onboardingType?: 'import' | 'create' | null;
-}> = ({ step }) => {
-  let currentStep: number | null = step === OnboardingStep.Welcome ? null : 3;
-
-  if (step === OnboardingStep.BackupSeedPhrase) {
-    currentStep = 1;
-  } else if (step === OnboardingStep.VerifySeedPhrase) {
-    currentStep = 2;
-  } else if (step === OnboardingStep.SelectImportType) {
-    currentStep = 1;
-  } else if (step === OnboardingStep.CreatePassword) {
-    currentStep = 3;
-  } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
-    currentStep = 2;
-  } else if (step === OnboardingStep.SelectRecoveryMethod) {
-    currentStep = 4;
-  } else if (step === OnboardingStep.ChooseGuardian) {
-    currentStep = 4;
-  } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
-    currentStep = 4;
-  } else if (step === OnboardingStep.Confirmation) {
-    currentStep = 4;
-  }
-
+}> = ({ currentStep }) => {
   return (
-    <div className="w-full flex items-center px-4 pt-8">
+    <div className="w-full flex items-center px-4 pt-4">
       <div className="flex-1 flex justify-center">
-        <ProgressIndicator currentStep={currentStep || 1} steps={4} className={currentStep ? '' : 'opacity-0'} />
+        <ProgressIndicator currentStep={currentStep ?? 1} steps={4} className={currentStep ? '' : 'opacity-0'} />
       </div>
     </div>
   );
@@ -95,6 +92,16 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   const { t } = useTranslation();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
+  // Override for screens that have internal sub-steps (e.g. SetupPasscode's
+  // enter → confirm phase). Reset whenever the top-level step changes so the
+  // bump doesn't leak across navigation.
+  const [progressOverride, setProgressOverride] = useState<number | null>(null);
+  useEffect(() => {
+    setProgressOverride(null);
+  }, [step]);
+  const baseStep = STEP_TO_PROGRESS[step] ?? null;
+  const currentProgress = progressOverride ?? baseStep;
+
   const onForwardAction = useCallback(
     (onboardingAction: OnboardingAction) => {
       setNavigationDirection('forward');
@@ -108,7 +115,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       switch (action) {
         case 'select-wallet-type':
           onForwardAction?.({
-            id: 'create-wallet'
+            id: 'choose-protection'
           });
           break;
         case 'select-import-type':
@@ -155,9 +162,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onSelectRecoveryMethodSubmit = (walletType: WalletType) =>
       onForwardAction?.({ id: 'select-recovery-method', payload: walletType });
 
-    const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
-      onForwardAction?.({ id: 'choose-guardian', payload });
-
     const onSelectTransactionTypeSubmit = () =>
       onForwardAction?.({ id: 'select-transaction-type', payload: 'private' });
 
@@ -172,9 +176,32 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       onForwardAction?.({ id: 'import-wallet-file-submit', payload: seedPhrase, walletAccounts });
     };
 
+    const onSelectBiometric = () => onForwardAction?.({ id: 'setup-biometric' });
+    const onSelectPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
+    const onSetupPasscodeSubmit = (code: string) => onForwardAction?.({ id: 'setup-passcode-submit', payload: code });
+    const onSetupBiometricSubmit = () => onForwardAction?.({ id: 'setup-biometric-submit' });
+    const onBiometricSwitchToPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
+    const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
+      onForwardAction?.({ id: 'choose-guardian-submit', payload });
+
     switch (step) {
       case OnboardingStep.Welcome:
         return <WelcomeScreen onSubmit={onWelcomeAction} />;
+      case OnboardingStep.ChooseProtection:
+        return <ChooseProtectionScreen onSelectBiometric={onSelectBiometric} onSelectPasscode={onSelectPasscode} />;
+      case OnboardingStep.SetupPasscode:
+        return (
+          <SetupPasscodeScreen
+            onSubmit={onSetupPasscodeSubmit}
+            onPhaseChange={phase => setProgressOverride(phase === 'enter' ? 2 : 3)}
+          />
+        );
+      case OnboardingStep.SetupBiometric:
+        return (
+          <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
+        );
+      case OnboardingStep.ChooseGuardian:
+        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:
@@ -197,8 +224,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectRecoveryMethod:
         return <SelectRecoveryMethodScreen onSubmit={onSelectRecoveryMethodSubmit} />;
-      case OnboardingStep.ChooseGuardian:
-        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
       case OnboardingStep.ImportSelectRecoveryMethod:
         return (
           <ImportRecoveryMethodScreen
@@ -245,13 +270,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
   return (
     <div
+      data-onboarding-root="true"
       className={classNames('flex flex-col', 'bg-app-bg', 'overflow-hidden', 'w-full h-full mx-auto')}
       style={{ maxWidth: 420 }}
     >
       <div className="flex flex-col flex-1 min-h-0">
         <AnimatePresence mode={'wait'} initial={false}>
           {step !== OnboardingStep.Welcome && (
-            <Header onBack={onBack} step={step} onboardingType={onboardingType} key={'header'} />
+            <Header onBack={onBack} currentStep={currentProgress} onboardingType={onboardingType} key={'header'} />
           )}
         </AnimatePresence>
         <AnimatePresence mode={'wait'} initial={false}>
@@ -282,11 +308,16 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             }}
           >
             {renderStep()}
-            {step !== OnboardingStep.Welcome && step !== OnboardingStep.Confirmation && (
-              <div className="px-4 pt-2 pb-4">
-                <Button title={t('back')} variant={ButtonVariant.Secondary} onClick={onBack} className="w-full" />
-              </div>
-            )}
+            {step !== OnboardingStep.Welcome &&
+              step !== OnboardingStep.ChooseProtection &&
+              step !== OnboardingStep.SetupPasscode &&
+              step !== OnboardingStep.SetupBiometric &&
+              step !== OnboardingStep.ChooseGuardian &&
+              step !== OnboardingStep.Confirmation && (
+                <div className="px-4 pt-2 pb-4">
+                  <Button title={t('back')} variant={ButtonVariant.Secondary} onClick={onBack} className="w-full" />
+                </div>
+              )}
           </motion.div>
         </AnimatePresence>
       </div>

@@ -2,28 +2,26 @@
  * Top-level launcher composition for the embedded dApp browser.
  *
  * Stack (top → bottom):
- *   <Header/>            wallet account header
+ *   <TabHeader/>         "Explore" title + settings button
  *   <HeroSearch/>        search/URL bar
- *   <FeaturedCarousel/>  large brand-color cards
- *   <CategoryRow/>       chip filters (DeFi, NFT, Tools, Social)
- *   <MyDappsGrid/>       4-col featured tiles
+ *   <AppsGrid/>          2×2 curated app cards (EXPLORE_GRID_DAPPS)
  *   <RecentsRow/>        1-row of up to 4 recent opens
  *
  * The launcher reads recents from `recent-dapps.ts` storage on mount.
- * Tile + carousel taps call `onOpen(url)` which the parent
+ * Card + tile taps call `onOpen(url)` which the parent
  * (`BrowserScreen`) handles by creating a session and switching to
  * `<DappActive>`.
  */
 
 import React, { type FC, useEffect, useState } from 'react';
 
-import Header from 'app/layouts/PageLayout/Header';
-import { type FeaturedDappCategory, getRecentDapps, type RecentDapp } from 'lib/dapp-browser';
+import { useTranslation } from 'react-i18next';
 
-import { CategoryRow } from './CategoryRow';
-import { FeaturedCarousel } from './FeaturedCarousel';
+import { TabHeader } from 'components/ui';
+import { getRecentDapps, type RecentDapp } from 'lib/dapp-browser';
+
+import { AppsGrid } from './AppsGrid';
 import { HeroSearch } from './HeroSearch';
-import { MyDappsGrid } from './MyDappsGrid';
 import { RecentsRow } from './RecentsRow';
 
 interface DappLauncherProps {
@@ -33,8 +31,8 @@ interface DappLauncherProps {
 }
 
 export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
+  const { t } = useTranslation();
   const [recents, setRecents] = useState<RecentDapp[]>([]);
-  const [category, setCategory] = useState<FeaturedDappCategory | null>(null);
 
   // Load recents from preferences on mount.
   useEffect(() => {
@@ -53,18 +51,14 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
 
   return (
     <>
-      <Header />
+      <TabHeader title={t('explore')} />
 
       <main className="grow space-y-5 overflow-y-auto pb-24 pt-2" style={{ overscrollBehavior: 'contain' }}>
         <HeroSearch onSubmit={onOpen} />
 
-        <FeaturedCarousel onOpen={onOpen} />
+        <AppsGrid onOpen={onOpen} />
 
-        <CategoryRow active={category} onToggle={setCategory} />
-
-        <MyDappsGrid category={category} onOpen={onOpen} />
-
-        <RecentsRow recents={recents} category={category} onOpen={onOpen} />
+        <RecentsRow recents={recents} onOpen={onOpen} />
       </main>
     </>
   );

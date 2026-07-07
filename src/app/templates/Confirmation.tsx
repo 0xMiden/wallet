@@ -3,10 +3,10 @@ import React, { FC } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from 'app/atoms/Button';
 import { useAppEnv } from 'app/env';
 import { ReactComponent as InfoIcon } from 'app/icons/info-alert.svg';
 import { ReactComponent as SuccessIcon } from 'app/icons/success.svg';
+import { Button, ButtonVariant } from 'components/Button';
 import useTippy from 'lib/ui/useTippy';
 import Link from 'lib/woozie/Link';
 
@@ -73,17 +73,15 @@ const Confirmation: FC<ConfirmationProps> = ({ delegated, testId }) => {
           <div className={classNames('w-full max-w-sm mx-auto')}>
             <Link to="/">
               <Button
+                variant={ButtonVariant.Ghost}
                 className={classNames(
-                  'w-full justify-center',
-                  'px-8',
+                  'h-auto w-full max-w-none px-8 border-0',
                   'rounded-lg',
                   'bg-chip-bg',
                   'hover:bg-gray-100',
                   'active:bg-gray-100',
-                  'flex items-center',
-                  'text-black',
-                  'font-semibold',
-                  'transition duration-200 ease-in-out'
+                  'font-sans text-black',
+                  'font-semibold'
                 )}
                 style={{
                   fontSize: '16px',
@@ -91,7 +89,7 @@ const Confirmation: FC<ConfirmationProps> = ({ delegated, testId }) => {
                   padding: '14px 0px'
                 }}
                 onClick={() => {}}
-                testID={testId}
+                data-testid={testId}
               >
                 {t('home')}
               </Button>

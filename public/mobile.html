@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <link rel="shortcut icon" href="misc/logo-white-bg-16.png" />
-    <title>Miden Wallet</title>
+    <link rel="shortcut icon" href="misc/brand/new-bread.svg" />
+    <title>Bread</title>
     <style>
       /* Full height hierarchy for mobile */
       html, body, #root {
@@ -94,23 +94,40 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: #F6F4F2;
+        background-color: #fbfbfb;
       }
-      #miden-splash img {
-        width: 96px;
-        height: 96px;
+
+      .miden-splash-brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 44px;
+        width: 100%;
+      }
+
+      .miden-splash-mark {
+        width: min(56vw, 220px);
+        height: auto;
+      }
+
+      .miden-splash-wordmark {
+        width: min(58vw, 220px);
+        height: auto;
         object-fit: contain;
       }
     </style>
   </head>
-  <body style="background-color: #F6F4F2;">
+  <body style="background-color: #ffffff;">
     <!--
       Splash element lives OUTSIDE #root so it stays paintable while
       React's createRoot mounts into the empty #root. mobile-app.tsx
       removes #miden-splash after the React render call returns.
     -->
     <div id="miden-splash">
-      <img src="misc/logo-white-bg-16.png" alt="" />
+      <div class="miden-splash-brand" aria-hidden="true">
+        <img class="miden-splash-mark" src="misc/brand/new-bread.svg" alt="" />
+        <img class="miden-splash-wordmark" src="misc/brand/bread-text.svg" alt="" />
+      </div>
     </div>
     <div id="root"></div>
     <script type="module" src="/src/mobile-app.tsx"></script>

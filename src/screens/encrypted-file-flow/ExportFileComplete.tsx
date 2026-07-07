@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { useNativeNavbarAction } from 'lib/dapp-browser';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
 import { exportDb } from 'lib/miden/repo';
@@ -113,12 +112,6 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     getExportFile();
   }, [getExportFile]);
 
-  useNativeNavbarAction({
-    label: t('done'),
-    onTap: onDone,
-    enabled: true
-  });
-
   return (
     <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
       <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
@@ -143,16 +136,9 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           </div>
         </div>
       </div>
-      {!isMobile() && (
-        <div className="w-full pt-8 pb-4">
-          <Button
-            className="w-full justify-center"
-            title={t('done')}
-            variant={ButtonVariant.Primary}
-            onClick={onDone}
-          />
-        </div>
-      )}
+      <div className="w-full pt-8 pb-4">
+        <Button className="w-full justify-center" title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />
+      </div>
     </div>
   );
 };

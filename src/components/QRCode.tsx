@@ -1,67 +1,97 @@
-import React, { useCallback } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 
-import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
-import { QRCode as QRCodeSvg } from 'react-qr-svg';
+import QRCodeStyling, { type Options } from 'qr-code-styling';
 
-import { hapticLight } from 'lib/mobile/haptics';
 import { encodeAddress } from 'lib/qr/format';
-import { truncateAddress } from 'utils/string';
+
+import midenLogoUrl from '../../public/misc/brand/new-bread.svg?url';
 
 export interface QRCodeProps {
   /** The Miden address to encode in the QR code */
   address: string;
   /** Size of the QR code in pixels */
-  size?: number;
-  /** Called when the QR code block is clicked */
-  onCopy?: () => void;
-  /** Additional CSS classes for the container */
-  className?: string;
+  size: number;
 }
+
+export interface QRCodeHandle {
+  /** Returns the rendered QR (with logo) as a PNG Blob, or null if unavailable. */
+  getImageBlob: () => Promise<Blob | null>;
+}
+
+/** Fallback accent color when the CSS variable can't be resolved (matches --accent-primary). */
+const ACCENT_FALLBACK = '#e77537';
+
+const getAccentColor = (): string => {
+  if (typeof window === 'undefined') return ACCENT_FALLBACK;
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim();
+  return value || ACCENT_FALLBACK;
+};
 
 /**
  * QR code display component for Miden addresses.
- * Displays a QR code encoding the address in miden:<address> format.
- * The entire block is clickable to copy the address to clipboard.
+ * Renders a styled QR (circular dots, accent-primary color, Miden logo centered)
+ * encoding the address in miden:<address> format via qr-code-styling.
  */
-export const QRCode: React.FC<QRCodeProps> = ({ address, size = 80, onCopy, className }) => {
-  const { t } = useTranslation();
-
-  const handleClick = useCallback(() => {
-    hapticLight();
-    navigator.clipboard.writeText(address);
-    onCopy?.();
-  }, [address, onCopy]);
-
+export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size }, ref) => {
   const qrValue = encodeAddress(address);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const options = useMemo<Options>(() => {
+    const color = getAccentColor();
+    return {
+      type: 'svg',
+      width: size,
+      height: size,
+      // Quiet zone around the modules for reliable scanning.
+      margin: 6,
+      data: qrValue,
+      image: midenLogoUrl,
+      // Higher error correction compensates for the centered logo cutout.
+      qrOptions: { errorCorrectionLevel: 'H' },
+      imageOptions: { crossOrigin: 'anonymous', margin: 6, imageSize: 0.35, hideBackgroundDots: true },
+      dotsOptions: { type: 'dots', color },
+      cornersSquareOptions: { type: 'extra-rounded', color },
+      cornersDotOptions: { type: 'dot', color },
+      backgroundOptions: { color: '#FFFFFF' }
+    };
+  }, [qrValue, size]);
+
+  // Create the styling instance once; re-use across data/size changes via update().
+  const qrCode = useMemo(() => new QRCodeStyling(options), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.innerHTML = '';
+    qrCode.append(container);
+    return () => {
+      container.innerHTML = '';
+    };
+  }, [qrCode]);
+
+  useEffect(() => {
+    qrCode.update(options);
+  }, [qrCode, options]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getImageBlob: async () => {
+        const data = await qrCode.getRawData('png');
+        // In the browser getRawData resolves to a Blob; guard for the node Buffer path.
+        return data instanceof Blob ? data : null;
+      }
+    }),
+    [qrCode]
+  );
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className={classNames(
-        'flex flex-col items-center justify-center gap-y-2 p-3',
-        'rounded-lg bg-gray-50',
-        'cursor-pointer hover:bg-gray-100 transition duration-300 ease-in-out',
-        'focus:outline-none focus:ring-2 focus:ring-primary-500',
-        className
-      )}
-      aria-label={t('copyToClipboard')}
-    >
-      <div className="bg-pure-white p-2 rounded-md">
-        <QRCodeSvg
-          value={qrValue}
-          style={{ width: size, height: size }}
-          bgColor="#FFFFFF"
-          fgColor="#000000"
-          level="M"
-        />
-      </div>
-      <span className="text-sm text-text-muted font-mono truncate max-w-full">
-        {truncateAddress(address, true, 8, 4, 8)}
-      </span>
-    </button>
+    <div className="bg-pure-white rounded-10 p-2">
+      <div ref={containerRef} style={{ width: size, height: size }} />
+    </div>
   );
-};
+});
+
+QRCode.displayName = 'QRCode';
 
 export default QRCode;
