@@ -46,6 +46,17 @@ async function checkHardwareSecurityAvailable(): Promise<boolean> {
 }
 
 /**
+ * Biometric / FaceID protection is only ever available on mobile (Capacitor).
+ * On the browser extension and Tauri desktop there is no biometric API at all,
+ * so the "choose how to protect your wallet" step collapses to a single real
+ * option. When biometric can't work, onboarding skips that screen entirely and
+ * goes straight to passcode setup.
+ */
+function biometricProtectionSupported(): boolean {
+  return isMobile();
+}
+
+/**
  * Wait for the wallet state to become Ready after registration.
  * This ensures the state is fully synced before navigation.
  */
@@ -241,7 +252,10 @@ const Welcome: FC = () => {
     switch (action.id) {
       case 'choose-protection':
         setOnboardingType(OnboardingType.Create);
-        navigate('/#choose-protection');
+        // Biometric is unavailable on the extension/desktop, so the
+        // choose-protection screen has only one real option — skip it and go
+        // straight to passcode setup.
+        navigate(biometricProtectionSupported() ? '/#choose-protection' : '/#setup-passcode');
         break;
       case 'setup-passcode':
         setOnboardingType(OnboardingType.Create);
@@ -393,7 +407,9 @@ const Welcome: FC = () => {
         ) {
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
-          navigate('/#choose-protection');
+          // The choose-protection screen is skipped when biometric is
+          // unavailable, so backing out of passcode setup returns to Welcome.
+          navigate(biometricProtectionSupported() ? '/#choose-protection' : '/');
         } else if (step === OnboardingStep.ChooseGuardian) {
           navigate(protectionMethod === 'biometric' ? '/#setup-biometric' : '/#setup-passcode');
         } else if (step === OnboardingStep.CreatePassword) {
@@ -433,6 +449,12 @@ const Welcome: FC = () => {
         break;
       case '#choose-protection':
         setOnboardingType(OnboardingType.Create);
+        // Never render the choose-protection screen where biometric can't work
+        // (guards direct hash navigation / reload); redirect to passcode setup.
+        if (!biometricProtectionSupported()) {
+          navigate('/#setup-passcode');
+          break;
+        }
         setStep(OnboardingStep.ChooseProtection);
         break;
       case '#setup-passcode':
