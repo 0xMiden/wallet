@@ -8,6 +8,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
+import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeTransaction,
   requestSWTransactionProcessing,
@@ -186,7 +187,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
-            amount={`$${balance.toFormat(2)}`}
+            amount={`$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
             currency="USD"
             delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}

@@ -1,4 +1,4 @@
-import React, { FC, ReactNode } from 'react';
+import React, { FC, ReactNode, useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 
@@ -58,6 +58,49 @@ export interface BalanceCardProps {
 
 const SKELETON_BLOCK = 'animate-pulse rounded-md bg-white/15';
 
+const AMOUNT_MAX_REM = 3.5;
+const AMOUNT_MIN_REM = 2.5;
+
+/* Shrinks the balance font so the full amount always fits the card width.
+ * Text width scales linearly with font size, so one measurement yields the
+ * exact fit — no iterate-until-fit loop. Sized in rem so it tracks the root
+ * font size. Falls back to maxRem when layout isn't available (jsdom). */
+function useFitFontSize(maxRem: number, minRem: number, active: boolean) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  const [fontSizeRem, setFontSizeRem] = useState(maxRem);
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const text = textRef.current;
+    if (!active || !row || !text) return;
+
+    const fit = () => {
+      const textWidth = text.scrollWidth;
+      const currentPx = parseFloat(getComputedStyle(text).fontSize);
+      if (textWidth === 0 || !currentPx) return;
+      const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const suffix = text.nextElementSibling;
+      const gapPx = parseFloat(getComputedStyle(text.parentElement ?? row).columnGap) || 0;
+      const suffixWidth = suffix instanceof HTMLElement ? suffix.offsetWidth + gapPx : 0;
+      const available = row.clientWidth - suffixWidth;
+      if (available <= 0) return;
+      const widthAtMaxPx = (textWidth / currentPx) * maxRem * rootPx;
+      const next = Math.min(maxRem, Math.max(minRem, (maxRem * available) / widthAtMaxPx));
+      setFontSizeRem(Math.round(next * 1000) / 1000);
+    };
+
+    fit();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(fit);
+    observer.observe(row);
+    observer.observe(text);
+    return () => observer.disconnect();
+  }, [maxRem, minRem, active]);
+
+  return { rowRef, textRef, fontSizeRem };
+}
+
 export const BalanceCard: FC<BalanceCardProps> = ({
   accountNumber,
   accountId,
@@ -72,6 +115,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const isHidden = state === 'hidden';
   const isZero = state === 'zero';
   const cardColor = useCardColor();
+  const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
 
   const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-[#A8BBA3]';
 
@@ -86,15 +130,21 @@ export const BalanceCard: FC<BalanceCardProps> = ({
       <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">Total Balance</div>
 
-        <div className="mt-2.5 flex items-end gap-1 leading-none">
+        <div ref={rowRef} className="mt-2.5 flex items-end gap-1 leading-none min-w-0">
           {isLoading ? (
             <div className={classNames(SKELETON_BLOCK, 'h-12 w-48')} />
           ) : (
-            <div className="flex items-center gap-0.5">
-              <span className="font-heading text-[56px] font-extrabold leading-none ">
+            <div className="flex items-center gap-0.5 min-w-0">
+              <span
+                ref={textRef}
+                style={{ fontSize: `${fontSizeRem}rem` }}
+                className="font-heading font-extrabold leading-none whitespace-nowrap"
+              >
                 {isHidden ? '••••••' : isZero ? '$0.00' : amount}
               </span>
-              <span className="font-heading text-base font-semibold text-surface-balance-fg-muted">{currency}</span>
+              <span className="shrink-0 font-heading text-base font-semibold text-surface-balance-fg-muted">
+                {currency}
+              </span>
             </div>
           )}
         </div>
