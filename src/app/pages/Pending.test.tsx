@@ -209,12 +209,9 @@ const createMockNote = (id: string, overrides: Record<string, any> = {}) => ({
   ...overrides
 });
 
-// Asset-group summary rows are the <button>s that are neither the tab switcher
-// (aria-pressed) nor a mocked Button (data-testid="claim-button").
+// Asset-group summary rows open the detail view that lists individual notes.
 const getAssetGroupRows = (container: HTMLElement): HTMLButtonElement[] =>
-  (Array.from(container.querySelectorAll('button')) as HTMLButtonElement[]).filter(
-    b => !b.hasAttribute('aria-pressed') && b.getAttribute('data-testid') !== 'claim-button'
-  );
+  Array.from(container.querySelectorAll('[data-testid="pending-asset-row"]')) as HTMLButtonElement[];
 
 // Open the first asset group's detail view (where individual note rows live).
 const openFirstAssetGroup = async (container: HTMLElement, act: ActFn): Promise<void> => {

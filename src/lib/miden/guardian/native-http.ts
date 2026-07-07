@@ -23,8 +23,16 @@ import { isMobile } from 'lib/platform';
 
 const guardianOrigins = new Set<string>();
 
-for (const option of GUARDIAN_OPTIONS) {
-  addOrigin(option.endpoint);
+if (Array.isArray(GUARDIAN_OPTIONS)) {
+  for (const option of GUARDIAN_OPTIONS) {
+    addGuardianOptionOrigins(option);
+  }
+}
+
+function addGuardianOptionOrigins(option: (typeof GUARDIAN_OPTIONS)[number]): void {
+  for (const endpoint of option.endpoint.values()) {
+    addOrigin(endpoint);
+  }
 }
 
 function addOrigin(endpoint: string): void {

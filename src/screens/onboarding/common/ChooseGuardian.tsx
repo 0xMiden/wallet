@@ -105,11 +105,6 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
 
-  // Nothing to submit when the active network has no Guardian providers and the
-  // user isn't entering a custom URL — disable Continue rather than silently
-  // no-op'ing the tap on an empty provider grid.
-  const canContinue = isCustom || options.length > 0;
-
   return (
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-choose-guardian">
       <div className="min-h-full flex flex-col px-6 pb-6">

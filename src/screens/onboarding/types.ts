@@ -22,7 +22,6 @@ export enum OnboardingStep {
   ChooseProtection = 'choose-protection',
   SetupPasscode = 'setup-passcode',
   SetupBiometric = 'setup-biometric',
-  ChooseGuardian = 'choose-guardian',
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   SelectImportType = 'select-import-type',
@@ -84,10 +83,6 @@ export type SetupBiometricAction = {
 
 export type SetupBiometricSubmitAction = {
   id: 'setup-biometric-submit';
-};
-
-export type ChooseGuardianAction = {
-  id: 'choose-guardian';
 };
 
 export type ChooseGuardianSubmitAction = {

@@ -405,8 +405,6 @@ const Welcome: FC = () => {
           } else {
             navigate('/#import-from-seed');
           }
-        } else if (step === OnboardingStep.ChooseGuardian) {
-          navigate('/#select-recovery-method');
         } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
           if (password === '__HARDWARE_ONLY__') {
             navigate('/#import-from-seed');
