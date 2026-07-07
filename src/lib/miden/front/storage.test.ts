@@ -1,4 +1,6 @@
-import { fetchFromStorage, putToStorage, onStorageChanged } from './storage';
+import { act, renderHook, waitFor } from '@testing-library/react';
+
+import { fetchFromStorage, putToStorage, onStorageChanged, usePassiveStorage, useStorage } from './storage';
 
 // Mock platform detection - default to extension context
 const mockIsExtension = jest.fn(() => true);
@@ -32,6 +34,11 @@ jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => mockStorage.local
 }));
 
+const mockUseRetryableSWR = jest.fn();
+jest.mock('lib/swr', () => ({
+  useRetryableSWR: (...args: any[]) => mockUseRetryableSWR(...args)
+}));
+
 // Helper to flush promises
 const flushPromises = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -39,6 +46,7 @@ describe('storage utilities', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsExtension.mockReturnValue(true);
+    mockUseRetryableSWR.mockReturnValue({ data: undefined, mutate: jest.fn() });
   });
 
   describe('fetchFromStorage', () => {
@@ -89,6 +97,63 @@ describe('storage utilities', () => {
       await putToStorage('complex-key', complexValue);
 
       expect(mockStorage.local.set).toHaveBeenCalledWith({ 'complex-key': complexValue });
+    });
+  });
+
+  describe('useStorage', () => {
+    it('returns fallback data and stores direct updates', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      mockUseRetryableSWR.mockReturnValue({ data: undefined, mutate: jest.fn() });
+
+      const { result } = renderHook(() => useStorage('settings-key', 'fallback-value'));
+
+      expect(result.current[0]).toBe('fallback-value');
+
+      await act(async () => {
+        await result.current[1]('next-value');
+      });
+
+      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'settings-key': 'next-value' });
+    });
+
+    it('stores functional updates against the latest value ref', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      mockUseRetryableSWR.mockReturnValue({ data: 'current-value', mutate: jest.fn() });
+
+      const { result } = renderHook(() => useStorage<string>('settings-key'));
+
+      await act(async () => {
+        await result.current[1](prev => `${prev}-updated`);
+      });
+
+      expect(mockStorage.local.set).toHaveBeenCalledWith({ 'settings-key': 'current-value-updated' });
+    });
+  });
+
+  describe('usePassiveStorage', () => {
+    it('returns initial storage data and persists local state changes', async () => {
+      mockStorage.local.set.mockResolvedValue(undefined);
+      mockUseRetryableSWR.mockReturnValue({ data: 'initial-value', mutate: jest.fn() });
+
+      const { result } = renderHook(() => usePassiveStorage<string>('passive-key'));
+
+      expect(result.current[0]).toBe('initial-value');
+
+      act(() => {
+        result.current[1]('changed-value');
+      });
+
+      await waitFor(() => {
+        expect(mockStorage.local.set).toHaveBeenCalledWith({ 'passive-key': 'changed-value' });
+      });
+    });
+
+    it('uses the fallback when storage has no value', () => {
+      mockUseRetryableSWR.mockReturnValue({ data: undefined, mutate: jest.fn() });
+
+      const { result } = renderHook(() => usePassiveStorage('missing-key', 'fallback-value'));
+
+      expect(result.current[0]).toBe('fallback-value');
     });
   });
 
