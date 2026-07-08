@@ -33,7 +33,7 @@ jest.mock('lib/miden/back/store', () => ({
   withUnlocked: jest.fn(async (fn: any) => fn({ vault: { signData: jest.fn(async () => 'sig') } }))
 }));
 
-jest.mock('lib/miden/activity/transactions', () => ({
+jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: jest.fn(async () => 'tx-1'),
   requestCustomTransaction: jest.fn(async () => 'tx-2'),
   initiateConsumeTransactionFromId: jest.fn(async () => 'tx-3'),

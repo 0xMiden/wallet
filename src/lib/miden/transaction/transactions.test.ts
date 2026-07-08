@@ -23,7 +23,7 @@ import {
   MAX_CONSECUTIVE_CONSUME_FAILURES,
   RECENT_FAILURE_WINDOW_SEC,
   RETRY_COOLDOWN_SEC
-} from './transactions';
+} from './index';
 
 // Mock functions defined inside factory to avoid hoisting issues with SWC
 const mockTransactionsFilter = jest.fn();
@@ -63,7 +63,7 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
 
-jest.mock('./notes', () => ({
+jest.mock('../activity/notes', () => ({
   importAllNotes: jest.fn(),
   queueNoteImport: jest.fn()
 }));
@@ -925,7 +925,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       toNoteTypeString: jest.fn(() => 'public')
     }));
 
-    jest.doMock('./helpers', () => ({
+    jest.doMock('../activity/helpers', () => ({
       interpretTransactionResult: jest.fn((tx: any) => ({
         ...tx,
         transactionId: 'mock-tx-hash',
@@ -934,7 +934,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
       }))
     }));
 
-    jest.doMock('./notes', () => ({
+    jest.doMock('../activity/notes', () => ({
       importAllNotes: jest.fn(),
       queueNoteImport: jest.fn()
     }));
@@ -953,7 +953,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
 
     jest.isolateModules(() => {
       ({ ITransactionStatus } = require('../db/types'));
-      ({ generateTransactionsLoop } = require('./transactions'));
+      ({ generateTransactionsLoop } = require('./index'));
     });
 
     const signCallback = jest.fn(async () => new Uint8Array());
@@ -1063,11 +1063,11 @@ describe('completeCustomTransaction (isolated)', () => {
       toNoteTypeString: jest.fn(() => 'public')
     }));
 
-    jest.doMock('./helpers', () => ({
+    jest.doMock('../activity/helpers', () => ({
       interpretTransactionResult: jest.fn((tx: any) => ({ ...tx }))
     }));
 
-    jest.doMock('./notes', () => ({
+    jest.doMock('../activity/notes', () => ({
       importAllNotes: jest.fn(),
       queueNoteImport: jest.fn()
     }));
@@ -1098,7 +1098,7 @@ describe('completeCustomTransaction (isolated)', () => {
 
     jest.isolateModules(() => {
       ({ ITransactionStatus } = require('../db/types'));
-      ({ completeCustomTransaction } = require('./transactions'));
+      ({ completeCustomTransaction } = require('./index'));
     });
 
     const nonPrivateNote = {

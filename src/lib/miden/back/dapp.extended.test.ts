@@ -29,7 +29,7 @@ const mockRequestCustomTransaction = jest.fn();
 const mockInitiateConsumeTransactionFromId = jest.fn();
 const mockWaitForTransactionCompletion = jest.fn();
 
-jest.mock('lib/miden/activity/transactions', () => ({
+jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: (...args: unknown[]) => mockInitiateSendTransaction(...args),
   requestCustomTransaction: (...args: unknown[]) => mockRequestCustomTransaction(...args),
   initiateConsumeTransactionFromId: (...args: unknown[]) => mockInitiateConsumeTransactionFromId(...args),

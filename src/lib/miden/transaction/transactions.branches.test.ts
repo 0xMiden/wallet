@@ -1,5 +1,5 @@
 /**
- * Branch-coverage tests for `lib/miden/activity/transactions.ts`.
+ * Branch-coverage tests for `lib/miden/transaction`.
  *
  * Targets: completeSendTransaction (private note success, transport error,
  * init error, missing full note), extractFullNote (no output, intoFull
@@ -19,7 +19,7 @@ import {
   generateTransactionsLoop,
   buildSignCallbackError,
   readLastAuthReason
-} from './transactions'; // eslint-disable-line import/order
+} from './index'; // eslint-disable-line import/order
 
 const _g = globalThis as any;
 _g.__txBrTest = {
@@ -118,12 +118,12 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   clearGuardianServiceFor: jest.fn()
 }));
 
-jest.mock('./notes', () => ({
+jest.mock('../activity/notes', () => ({
   importAllNotes: jest.fn(),
   queueNoteImport: jest.fn()
 }));
 
-jest.mock('./helpers', () => ({
+jest.mock('../activity/helpers', () => ({
   interpretTransactionResult: jest.fn((tx: any) => ({ ...tx, displayMessage: 'Executed' }))
 }));
 

@@ -1,5 +1,5 @@
 /**
- * Extended coverage for `lib/miden/activity/transactions.ts`.
+ * Extended coverage for `lib/miden/transaction`.
  *
  * The existing `transactions.test.ts` covers the bulk of the read/state
  * helpers. This file fills the gaps:
@@ -26,7 +26,7 @@ import {
   verifyStuckTransactionsFromNode,
   waitForConsumeTx,
   waitForTransactionCompletion
-} from './transactions';
+} from './index';
 
 // In-memory db so liveQuery has something to subscribe to.
 const _g = globalThis as any;
@@ -119,12 +119,12 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
-jest.mock('./notes', () => ({
+jest.mock('../activity/notes', () => ({
   importAllNotes: jest.fn(),
   queueNoteImport: jest.fn()
 }));
 
-jest.mock('./helpers', () => ({
+jest.mock('../activity/helpers', () => ({
   interpretTransactionResult: jest.fn((tx: any) => ({ ...tx, displayMessage: 'Executed' }))
 }));
 
@@ -194,7 +194,7 @@ describe('requestCustomTransaction', () => {
   });
 
   it('queues note imports when importNotes is provided', async () => {
-    const { queueNoteImport } = jest.requireMock('./notes');
+    const { queueNoteImport } = jest.requireMock('../activity/notes');
     await requestCustomTransaction('acc-1', Buffer.from('x').toString('base64'), undefined, [
       'note-bytes-1',
       'note-bytes-2'
@@ -509,7 +509,7 @@ describe('completeCustomTransaction', () => {
         outputNotes: () => ({ notes: () => [fakeNote] })
       })
     } as any;
-    const { completeCustomTransaction } = require('./transactions');
+    const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(mockSendPrivateNote).toHaveBeenCalled();
     expect(mockWaitForCommit).toHaveBeenCalled();
@@ -528,7 +528,7 @@ describe('completeCustomTransaction', () => {
         outputNotes: () => ({ notes: () => [fakeNote] })
       })
     } as any;
-    const { completeCustomTransaction } = require('./transactions');
+    const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
@@ -544,7 +544,7 @@ describe('completeCustomTransaction', () => {
         outputNotes: () => ({ notes: () => [fakeNote] })
       })
     } as any;
-    const { completeCustomTransaction } = require('./transactions');
+    const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
@@ -563,7 +563,7 @@ describe('completeCustomTransaction', () => {
         outputNotes: () => ({ notes: () => [fakeNote] })
       })
     } as any;
-    const { completeCustomTransaction } = require('./transactions');
+    const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
@@ -580,7 +580,7 @@ describe('completeCustomTransaction', () => {
         outputNotes: () => ({ notes: () => [fakeNote] })
       })
     } as any;
-    const { completeCustomTransaction } = require('./transactions');
+    const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
@@ -597,7 +597,7 @@ describe('completeCustomTransaction', () => {
         outputNotes: () => ({ notes: () => [fakeNote] })
       })
     } as any;
-    const { completeCustomTransaction } = require('./transactions');
+    const { completeCustomTransaction } = require('./index');
     await completeCustomTransaction(txStore[0]!, txResult);
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
@@ -610,7 +610,7 @@ describe('initiateConsumeTransactionFromId', () => {
     sdk.getMidenClient = async () => ({
       getInputNote: jest.fn(async () => null)
     });
-    const { initiateConsumeTransactionFromId } = require('./transactions');
+    const { initiateConsumeTransactionFromId } = require('./index');
     await expect(initiateConsumeTransactionFromId('acc-1', 'note-missing')).rejects.toThrow(/not found/);
     sdk.getMidenClient = orig;
   });
@@ -623,7 +623,7 @@ describe('initiateConsumeTransactionFromId', () => {
         metadata: () => ({ noteType: () => 0 })
       }))
     });
-    const { initiateConsumeTransactionFromId } = require('./transactions');
+    const { initiateConsumeTransactionFromId } = require('./index');
     const id = await initiateConsumeTransactionFromId('acc-1', 'note-exists');
     expect(typeof id).toBe('string');
     sdk.getMidenClient = orig;

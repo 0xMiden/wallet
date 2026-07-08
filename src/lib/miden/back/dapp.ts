@@ -64,15 +64,15 @@ import { queueNoteImport } from '../activity';
 import { getCurrentMidenNetwork } from './safe-network';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
   initiateConsumeTransactionFromId,
   waitForTransactionCompletion
-} from '../activity/transactions';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
+} from '../transaction';
 
 /**
  * Starts background transaction processing using the unified SW

@@ -1,5 +1,5 @@
 /**
- * Guardian-specific paths through lib/miden/activity/transactions.ts:
+ * Guardian-specific paths through lib/miden/transaction:
  *   - initiateSwitchGuardianTransaction — rejects non-Guardian accounts,
  *     otherwise enqueues a SwitchGuardianTransaction row.
  *   - completeSwitchGuardianTransaction — registers the post-switch state
@@ -18,7 +18,7 @@ import {
   generateTransaction,
   initiateReplaceHotKeyTransaction,
   initiateSwitchGuardianTransaction
-} from './transactions';
+} from './index';
 import {
   ITransactionStatus,
   ReplaceHotKeyTransaction,

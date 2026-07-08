@@ -13,6 +13,7 @@ src/
 ├── lib/
 │   ├── store/           # Zustand (frontend)
 │   ├── miden/{back,front,sdk,psm}
+│   ├── miden/transaction/   # tx pipeline: initiate/complete/get/cancel/helper; index = generateTransaction + loop (re-exported via miden/activity)
 │   ├── intercom/        # port messaging
 │   ├── platform/        # isMobile/isIOS/isAndroid/isExtension
 │   ├── mobile/          # haptics, back-handler
@@ -100,7 +101,7 @@ The in-progress transaction view (`src/screens/generating-transaction/Generating
 **Token symbol/logo**: `useWalletStore(s => s.assetsMetadata)[faucetId]` → `AssetMetadata` (`symbol`, `decimals`, `thumbnailUri`); native fallback `MIDEN_METADATA` (`lib/miden/metadata`). Miden network logo: `IconName.MidenLogo`. To add a variant, add a branch in `TransactionSummaryBadge`; keep returning `null` when there's no meaningful summary so no empty pill renders.
 
 **Deferred — NOT built yet (the mock shows these, intentionally skipped):**
-- **Per-step timing** ("2 sec" / "4 sec" on each step row). There's a right-side meta slot placeholder in the step row. To wire real durations: record a first-entry timestamp on each stage change in `setTransactionStage` **and** the direct `stage: 'sending'` write in `generateTransaction` (both `src/lib/miden/activity/transactions.ts`), store as a non-indexed `stageTimings?: Partial<Record<ITransactionStage, number>>` on `ITransaction` (no Dexie schema bump — non-indexed fields ride through `exportDb`/`importDb` via `...rest`), then derive per-UI-step durations in the component (step→stage map is `getActiveTransactionStepIndex`).
+- **Per-step timing** ("2 sec" / "4 sec" on each step row). There's a right-side meta slot placeholder in the step row. To wire real durations: record a first-entry timestamp on each stage change in `setTransactionStage` (`src/lib/miden/transaction/helper.ts`) **and** the direct `stage: 'sending'` write in `generateTransaction` (`src/lib/miden/transaction/index.ts`), store as a non-indexed `stageTimings?: Partial<Record<ITransactionStage, number>>` on `ITransaction` (no Dexie schema bump — non-indexed fields ride through `exportDb`/`importDb` via `...rest`), then derive per-UI-step durations in the component (step→stage map is `getActiveTransactionStepIndex`).
 - **Bridge step labels** ("Submitting to Base", "via Epoch") and the per-step timing meta. The in-protocol token→token swap badge is **now built** (see the `swap` bullet above), but the bridge-specific step labels and the right-side meta slot are still deferred — there's no backend producer for bridged `extraInputs` and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are referenced in `TransactionSuccess.tsx` but **not defined anywhere** — define them before relying on them.
 
 The redesigned in-progress view dropped the `ScreenHeader` and the linear progress bar; dismissal is via the bottom Hide/Done button.

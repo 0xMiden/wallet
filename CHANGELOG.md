@@ -4,6 +4,8 @@
 
 ### Changes
 
+* [CHANGE][all] Internal refactor: the transaction pipeline moved from `src/lib/miden/activity/transactions.ts` into `src/lib/miden/transaction/` split by lifecycle (`initiate` / `complete` / `get` / `cancel` / `helper`, with `generateTransaction` and the processing loop in `index.ts`); the `lib/miden/activity` barrel re-exports it so consumers are unaffected.
+
 * [CHANGE][all] Redesigned the swap flow into a multi-step wizard — a You Pay / You Receive amounts screen (two stacked `SelectAmount` fields with a swap-direction toggle), a "Review Swap Details" screen (composed two-amount hero with a live Rate row), a swap variant of the transaction-progress view ("Generating Swap" title + a logo-less two-tone token→token summary badge), a "Swap Order Created!" success screen (summary pill, Expiration Date row with the funds-return note, "sourcing liquidity" footer, Done + View in Activities), and a bespoke Activities row ("Swap {offered} → {requested}" / "Via In Protocol Dex" with the requested amount on the right). Extracted the fixed devnet DEX token registry and price-quote logic into `lib/miden/swap/tokens.ts`, replacing the old single-page native-select swap UI. Swap details in Activities add a live order-tracking card (order status / fill rounds / amount filled, polled via `trackOrderId`), and the history status pill is driven by the transaction's actual status (adding a Failed state) instead of message sniffing. "Usually fills in", "Expires", and "Network fee" are static placeholders pending backend swap-quote metadata.
 
 ## 1.15.6 (2026-07-07)

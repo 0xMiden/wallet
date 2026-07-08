@@ -1,5 +1,5 @@
 /**
- * Gap-coverage tests for `lib/miden/activity/transactions.ts`.
+ * Gap-coverage tests for `lib/miden/transaction`.
  *
  * Targets branches not exercised by the other transactions test files:
  *   - `getUncompletedTransactions` (queued+generating filter, tokenId filter)
@@ -21,7 +21,7 @@ import {
   verifyStuckTransactionsFromNode,
   waitForConsumeTx,
   waitForTransactionCompletion
-} from './transactions';
+} from './index';
 
 const _g = globalThis as any;
 _g.__txGapTest = {
@@ -96,12 +96,12 @@ jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
-jest.mock('./notes', () => ({
+jest.mock('../activity/notes', () => ({
   importAllNotes: jest.fn(),
   queueNoteImport: jest.fn()
 }));
 
-jest.mock('./helpers', () => ({
+jest.mock('../activity/helpers', () => ({
   interpretTransactionResult: jest.fn((tx: any) => ({ ...tx, displayMessage: 'Executed' }))
 }));
 
@@ -250,7 +250,7 @@ describe('extractFullNote intoFull-undefined branch', () => {
     } as any;
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
-      const { completeSendTransaction } = require('./transactions');
+      const { completeSendTransaction } = require('./index');
       await completeSendTransaction(txStore[0], txResult);
       expect(errSpy).toHaveBeenCalledWith('intoFull() returned undefined for first output note');
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
@@ -283,7 +283,7 @@ describe('extractFullNote outer try/catch', () => {
 
     const errSpy = jest.spyOn(console, 'error').mockImplementation();
     try {
-      const { completeSendTransaction } = require('./transactions');
+      const { completeSendTransaction } = require('./index');
       await completeSendTransaction(txStore[0], txResult);
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
       expect(errSpy).toHaveBeenCalledWith(

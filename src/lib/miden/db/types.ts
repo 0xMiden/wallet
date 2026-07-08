@@ -251,7 +251,7 @@ export class ConsumeTransaction implements ITransaction {
  * requested side lives in `extraInputs`.
  *
  * TODO: actual swap generation/completion is not wired up yet — see the
- * `case 'swap'` TODOs in the transaction dispatch (activity/transactions.ts).
+ * `case 'swap'` TODOs in the transaction dispatch (lib/miden/transaction).
  */
 export class SwapTransaction implements ITransaction {
   id: string;
