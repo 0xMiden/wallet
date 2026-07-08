@@ -723,6 +723,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "ortaya çıkarmak için şifrenizi girin $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "Ortaya çıkarmak için şifrenizle kilidi açın $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -1119,6 +1128,14 @@
   "forgotPasscode": {
     "message": "Şifrenizi mi unuttunuz?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "Şifrenizi girin",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "Yanlış şifre. Tekrar deneyin.",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "6 haneli bir kod oluşturun",

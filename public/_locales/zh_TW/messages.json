@@ -723,6 +723,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "输入您的密码以显示 $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "使用您的密码解锁以显示 $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -1128,6 +1137,14 @@
   "forgotPasscode": {
     "message": "忘记密码？",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "输入您的密码",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "密码不正确。再试一次。",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "创建 6 位数字代码",
