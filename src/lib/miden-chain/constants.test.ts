@@ -52,6 +52,42 @@ describe('miden-chain/constants', () => {
     expect(mockEndpoint.mock.calls[0][0]).toMatch(/^https?:\/\//);
   });
 
+  describe('getGuardianOptionsForNetwork', () => {
+    it('resolves providers to their endpoint on the network, OpenZeppelin first', () => {
+      jest.isolateModules(() => {
+        const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+        const opts = getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.TESTNET);
+        // More than one provider runs on testnet; opts[0] is the default (OpenZeppelin),
+        // resolved to its TESTNET endpoint (pins provider identity + per-network endpoint).
+        expect(opts.length).toBeGreaterThan(1);
+        expect(opts[0]).toMatchObject({ id: 'open-zeppelin', endpoint: 'https://guardian.openzeppelin.com' });
+      });
+    });
+
+    it('filters to the subset running on the network and resolves that network endpoint', () => {
+      jest.isolateModules(() => {
+        const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+        // Only OpenZeppelin runs a devnet guardian -> exactly one option, its devnet endpoint.
+        expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.DEVNET)).toEqual([
+          {
+            id: 'open-zeppelin',
+            name: 'Open-Zeppelin',
+            operatedBy: 'Open-Zeppelin',
+            location: 'US-EAST',
+            endpoint: 'https://guardian-stg.openzeppelin.com'
+          }
+        ]);
+      });
+    });
+
+    it('returns an empty list for a network with no guardian providers', () => {
+      jest.isolateModules(() => {
+        const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.MAINNET)).toEqual([]);
+      });
+    });
+  });
+
   describe('ensureSdkWasmReady', () => {
     it('delegates to MidenClient.ready()', async () => {
       await jest.isolateModulesAsync(async () => {
@@ -141,7 +177,7 @@ describe('miden-chain/constants', () => {
   });
 
   describe('DEFAULT_GUARDIAN_ENDPOINT', () => {
-    it('matches the network-specific mapping when present', () => {
+    it('uses the network-specific endpoint when present', () => {
       process.env.MIDEN_NETWORK = 'testnet';
       jest.isolateModules(() => {
         const { DEFAULT_GUARDIAN_ENDPOINT, IS_GUARDIAN_SUPPORTED } = require('./constants');
@@ -151,7 +187,7 @@ describe('miden-chain/constants', () => {
     });
 
     it('does NOT fall back to staging on networks with no mapping (mainnet safety)', () => {
-      process.env.MIDEN_NETWORK = 'localnet';
+      process.env.MIDEN_NETWORK = 'mainnet';
       jest.isolateModules(() => {
         const { DEFAULT_GUARDIAN_ENDPOINT, IS_GUARDIAN_SUPPORTED } = require('./constants');
         expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('');
@@ -179,19 +215,48 @@ describe('miden-chain/constants', () => {
   });
 
   describe('GUARDIAN_OPTIONS', () => {
-    it("first option's endpoint matches the network-specific mapping when present", () => {
+    it('offers more than one provider, each mapping networks to valid https endpoints', () => {
       process.env.MIDEN_NETWORK = 'testnet';
       jest.isolateModules(() => {
         const { GUARDIAN_OPTIONS } = require('./constants');
-        expect(GUARDIAN_OPTIONS[0].endpoint).toBe('https://guardian.openzeppelin.com');
+        expect(GUARDIAN_OPTIONS.length).toBeGreaterThan(1);
+        for (const option of GUARDIAN_OPTIONS) {
+          expect(option.id).toBeTruthy();
+          expect(option.endpoint.size).toBeGreaterThan(0);
+          for (const url of option.endpoint.values()) {
+            expect(() => new URL(url)).not.toThrow();
+            // https everywhere, except the localnet dev guardian (http on localhost).
+            expect(url.startsWith('https://') || url.startsWith('http://localhost:')).toBe(true);
+          }
+        }
       });
     });
 
-    it('falls back to the staging endpoint on the first option when the network has no mapping', () => {
-      process.env.MIDEN_NETWORK = 'localnet';
+    it('exposes the OpenZeppelin endpoint per network', () => {
+      process.env.MIDEN_NETWORK = 'testnet';
       jest.isolateModules(() => {
         const { GUARDIAN_OPTIONS } = require('./constants');
-        expect(GUARDIAN_OPTIONS[0].endpoint).toBe('https://stg-guardian.openzeppelin.com');
+        const oz = GUARDIAN_OPTIONS.find((o: { id: string }) => o.id === 'open-zeppelin');
+        expect(oz?.endpoint.get('testnet')).toBe('https://guardian.openzeppelin.com');
+        expect(oz?.endpoint.get('devnet')).toBe('https://guardian-stg.openzeppelin.com');
+      });
+    });
+  });
+
+  describe('MIDEN_GUARDIAN_ENDPOINTS', () => {
+    it('collects every provider endpoint per network, OpenZeppelin first', () => {
+      process.env.MIDEN_NETWORK = 'testnet';
+      jest.isolateModules(() => {
+        const { MIDEN_GUARDIAN_ENDPOINTS } = require('./constants');
+        expect(MIDEN_GUARDIAN_ENDPOINTS.get('testnet')).toEqual([
+          'https://guardian.openzeppelin.com',
+          'https://miden-guardian.dev.eu-north-3.gateway.fm',
+          'https://miden-guardian.lambdaclass.com'
+        ]);
+        // Only OpenZeppelin runs a devnet Guardian.
+        expect(MIDEN_GUARDIAN_ENDPOINTS.get('devnet')).toEqual(['https://guardian-stg.openzeppelin.com']);
+        // OpenZeppelin also exposes a localnet endpoint (the local guardian image).
+        expect(MIDEN_GUARDIAN_ENDPOINTS.get('localnet')).toEqual(['http://localhost:3000']);
       });
     });
   });
@@ -218,6 +283,29 @@ describe('miden-chain/constants', () => {
       jest.isolateModules(() => {
         const { getNetworkId } = require('./constants');
         expect(getNetworkId()).toEqual({ kind: 'testnet' });
+      });
+    });
+  });
+
+  describe('resolveNetworkName', () => {
+    it("maps the E2E 'localhost' token to the LOCALNET enum", () => {
+      jest.isolateModules(() => {
+        const { resolveNetworkName, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(resolveNetworkName('localhost')).toBe(MIDEN_NETWORK_NAME.LOCALNET);
+      });
+    });
+    it('passes through valid enum values', () => {
+      jest.isolateModules(() => {
+        const { resolveNetworkName, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(resolveNetworkName('devnet')).toBe(MIDEN_NETWORK_NAME.DEVNET);
+        expect(resolveNetworkName('localnet')).toBe(MIDEN_NETWORK_NAME.LOCALNET);
+      });
+    });
+    it('defaults to testnet for undefined or unknown', () => {
+      jest.isolateModules(() => {
+        const { resolveNetworkName, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(resolveNetworkName(undefined)).toBe(MIDEN_NETWORK_NAME.TESTNET);
+        expect(resolveNetworkName('bogus')).toBe(MIDEN_NETWORK_NAME.TESTNET);
       });
     });
   });

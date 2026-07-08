@@ -26,9 +26,7 @@ export const ReviewAmount: React.FC<ReviewAmountProps> = ({ symbol, amount, fiat
   return (
     <div>
       {label && (
-        <div className="text-2xl text-[#808080] font-heading p-2 bg-[#F9F9F9] rounded-full font-bold w-fit">
-          {label}
-        </div>
+        <div className="text-2xl text-gray font-heading p-2 bg-surface-input rounded-full font-bold w-fit">{label}</div>
       )}
       <div className="flex items-center gap-2 mt-3">
         <TokenLogo symbol={logoSymbol ?? symbol} size="md" />
@@ -37,7 +35,7 @@ export const ReviewAmount: React.FC<ReviewAmountProps> = ({ symbol, amount, fiat
         </span>
       </div>
       {fiat != null && (
-        <p className="text-center font-heading text-sm text-[#808080]">
+        <p className="text-center font-heading text-sm text-gray">
           {t('approxFiatValue', { value: `$${fiat.toFixed(2)}` })}
         </p>
       )}

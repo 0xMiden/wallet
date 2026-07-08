@@ -4,9 +4,9 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import AddressShortView from 'app/atoms/AddressShortView';
-import { Button } from 'app/atoms/Button';
 import ColorIdenticon from 'app/atoms/ColorIdenticon';
 import Name from 'app/atoms/Name';
+import { Button, ButtonVariant } from 'components/Button';
 import { TestIDProps } from 'lib/analytics';
 
 import { SendFormSelectors } from '../SendForm.selectors';
@@ -32,11 +32,11 @@ const ContactsDropdownItem: FC<ContactsDropdownItemProps> = ({ active, testID, t
     <Button
       ref={ref}
       type="button"
-      testID={testID ?? SendFormSelectors.ContactItemButton}
-      testIDProperties={testIDProperties}
+      variant={ButtonVariant.Ghost}
+      data-testid={testID ?? SendFormSelectors.ContactItemButton}
       className={classNames(
-        'w-full flex items-center',
-        'p-2 text-left',
+        'h-auto w-full max-w-none border-0 rounded-none justify-start gap-0',
+        'p-2 text-left font-sans font-normal text-black',
         active ? 'bg-gray-100' : 'hover:bg-gray-100 focus:bg-gray-100'
       )}
       tabIndex={-1}

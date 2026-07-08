@@ -25,8 +25,6 @@ export const SearchInput: FC<SearchInputProps> = ({
   inputMode,
   'data-testid': dataTestId
 }) => {
-  const hasValue = value.length > 0;
-
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && onSubmit) {
       e.preventDefault();
@@ -50,9 +48,9 @@ export const SearchInput: FC<SearchInputProps> = ({
         autoCorrect={inputMode === 'url' ? 'off' : undefined}
         spellCheck={inputMode === 'url' ? false : undefined}
         className={classNames(
-          'w-full bg-transparent outline-none px-4 py-4 text-base font-heading',
-          'placeholder:text-[#00000047] placeholder:font-bold placeholder:text-center',
-          hasValue ? 'text-primary font-semibold' : 'text-text-tertiary-token font-normal'
+          'w-full bg-transparent outline-none px-4 py-4 text-base font-heading text-center',
+          'placeholder:text-placeholder-gray placeholder:font-bold placeholder:text-center',
+          'text-black font-bold'
         )}
       />
     </div>

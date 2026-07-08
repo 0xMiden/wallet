@@ -3,9 +3,9 @@ import React, { FC } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from 'app/atoms/Button';
 import { useAppEnv } from 'app/env';
 import ContentContainer from 'app/layouts/ContentContainer';
+import { Button, ButtonVariant } from 'components/Button';
 import { useStorage } from 'lib/miden/front';
 
 import { changelogData, ChangelogItem } from './ChangelogOverlay.data';
@@ -80,14 +80,14 @@ export const ChangelogOverlay: FC = () => {
               }}
             >
               <Button
+                variant={ButtonVariant.Primary}
                 className={classNames(
-                  'py-2',
-                  'text-pure-white font-inter rounded font-semibold uppercase',
-                  'mx-auto',
-                  s.overlay_ok_button
+                  'h-9 w-auto max-w-none mt-6 mx-auto rounded',
+                  'bg-[#9f7aea] hover:bg-[#9f7aea]',
+                  'text-pure-white font-inter text-[13px] font-semibold uppercase'
                 )}
                 onClick={handleContinue}
-                testID={ChangelogOverlaySelectors.Continue}
+                data-testid={ChangelogOverlaySelectors.Continue}
                 style={{
                   width: compact ? 270 : 384
                 }}

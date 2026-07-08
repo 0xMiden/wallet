@@ -22,7 +22,18 @@ jest.mock('lib/miden/back/actions', () => ({
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
+  signWord: jest.fn().mockResolvedValue('word-signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
+  revealHotKey: jest.fn().mockResolvedValue('hotkey-hex'),
+  revealGuardianKeys: jest.fn().mockResolvedValue({
+    coldPrivateKey: 'cold-priv',
+    coldPublicKey: 'cold-pub',
+    hotPublicKey: 'hot-pub'
+  }),
+  persistNewHotKey: jest.fn().mockResolvedValue(undefined),
+  swapHotKey: jest.fn().mockResolvedValue(undefined),
+  setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
+  getPublicKeyForCommitment: jest.fn().mockResolvedValue('pub-key-commit'),
   getAllDAppSessions: jest.fn().mockResolvedValue([]),
   removeDAppSession: jest.fn().mockResolvedValue([]),
   isDAppEnabled: jest.fn().mockResolvedValue(true),
@@ -240,6 +251,128 @@ describe('MobileIntercomAdapter', () => {
       expect(response).toEqual({
         type: WalletMessageType.GetAuthSecretKeyResponse,
         key: 'secret-key'
+      });
+    });
+
+    it('handles RevealHotKeyRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.RevealHotKeyRequest,
+        accountPublicKey: 'pub-key-123',
+        password: 'test123'
+      } as any);
+
+      expect(Actions.revealHotKey).toHaveBeenCalledWith('pub-key-123', 'test123');
+      expect(response).toEqual({
+        type: WalletMessageType.RevealHotKeyResponse,
+        hotPrivateKey: 'hotkey-hex'
+      });
+    });
+
+    it('falls back to an empty hot key when none is returned', async () => {
+      (Actions.revealHotKey as jest.Mock).mockResolvedValueOnce(null);
+
+      const response = await adapter.request({
+        type: WalletMessageType.RevealHotKeyRequest,
+        accountPublicKey: 'pub-key-123',
+        password: 'test123'
+      } as any);
+
+      expect(response).toEqual({
+        type: WalletMessageType.RevealHotKeyResponse,
+        hotPrivateKey: ''
+      });
+    });
+
+    it('handles RevealGuardianKeysRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.RevealGuardianKeysRequest,
+        accountPublicKey: 'pub-key-123',
+        password: 'test123'
+      } as any);
+
+      expect(Actions.revealGuardianKeys).toHaveBeenCalledWith('pub-key-123', 'test123');
+      expect(response).toEqual({
+        type: WalletMessageType.RevealGuardianKeysResponse,
+        coldPrivateKey: 'cold-priv',
+        coldPublicKey: 'cold-pub',
+        hotPublicKey: 'hot-pub'
+      });
+    });
+
+    it('falls back to empty guardian keys when none are returned', async () => {
+      (Actions.revealGuardianKeys as jest.Mock).mockResolvedValueOnce(null);
+
+      const response = await adapter.request({
+        type: WalletMessageType.RevealGuardianKeysRequest,
+        accountPublicKey: 'pub-key-123',
+        password: 'test123'
+      } as any);
+
+      expect(response).toEqual({
+        type: WalletMessageType.RevealGuardianKeysResponse,
+        coldPrivateKey: '',
+        coldPublicKey: '',
+        hotPublicKey: undefined
+      });
+    });
+
+    it('handles SignWordRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub-key-123',
+        wordHex: '0xabc'
+      } as any);
+
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc');
+      expect(response).toEqual({
+        type: WalletMessageType.SignWordResponse,
+        signature: 'word-signature'
+      });
+    });
+
+    it('handles PersistNewHotKeyRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.PersistNewHotKeyRequest,
+        newHotPubKey: 'new-pub',
+        newHotCiphertext: 'cipher'
+      } as any);
+
+      expect(Actions.persistNewHotKey).toHaveBeenCalledWith('new-pub', 'cipher');
+      expect(response).toEqual({ type: WalletMessageType.PersistNewHotKeyResponse });
+    });
+
+    it('handles SwapHotKeyRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.SwapHotKeyRequest,
+        accountPublicKey: 'pub-key-123',
+        newHotPubKey: 'new-pub'
+      } as any);
+
+      expect(Actions.swapHotKey).toHaveBeenCalledWith('pub-key-123', 'new-pub');
+      expect(response).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
+    });
+
+    it('handles SetGuardianEndpointRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.SetGuardianEndpointRequest,
+        accountPublicKey: 'pub-key-123',
+        guardianEndpoint: 'https://guardian.example'
+      } as any);
+
+      expect(Actions.setGuardianEndpoint).toHaveBeenCalledWith('pub-key-123', 'https://guardian.example');
+      expect(response).toEqual({ type: WalletMessageType.SetGuardianEndpointResponse });
+    });
+
+    it('handles GetPublicKeyForCommitmentRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+        commitment: 'commit-hash'
+      } as any);
+
+      expect(Actions.getPublicKeyForCommitment).toHaveBeenCalledWith('commit-hash');
+      expect(response).toEqual({
+        type: WalletMessageType.GetPublicKeyForCommitmentResponse,
+        publicKey: 'pub-key-commit'
       });
     });
 

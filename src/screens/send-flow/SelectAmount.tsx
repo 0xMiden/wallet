@@ -23,8 +23,8 @@ export interface SelectAmountProps {
   confirmTitle?: string;
   showNetworkPill?: boolean;
   showBalanceHelper?: boolean;
-  /** Padding classes for the confirm-button footer. Defaults to the send-flow
-   *  spacing (`pt-4 pb-24`); pass a snugger value to hug the bottom. */
+  /** Padding classes for the confirm-button footer. The `pb-24` default clears
+   *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
   footerClassName?: string;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
@@ -96,10 +96,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const helper =
     token && showBalanceHelper ? (
       <>
-        <span className="font-heading text-[#808080] text-base font-bold">
+        <span className="font-heading text-gray text-base font-bold">
           {t('available')} {formatBalance(token.balance)} {token.name}
         </span>
-        <span className="font-heading text-[#808080] text-base font-bold">
+        <span className="font-heading text-gray text-base font-bold">
           {t('approxFiatValue', { value: `$${availableFiat.toFixed(2)}` })}
         </span>
       </>

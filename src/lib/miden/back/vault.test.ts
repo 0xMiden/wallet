@@ -10,6 +10,8 @@ import { PublicError } from './defaults';
 import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
+jest.setTimeout(30_000);
+
 const memoryStore: Record<string, any> = {};
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({

@@ -895,13 +895,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     const path = location.pathname;
     if (path === '/welcome') return false;
     if (path.startsWith('/onboarding')) return false;
-    if (path === '/loading') return false;
     if (path === '/forgot-password') return false;
     if (path === '/forgot-password-info') return false;
     if (path === '/reset-required') return false;
     if (path === '/reset-wallet') return false;
-    if (path === '/import-account') return false;
-    if (path.startsWith('/import-account/')) return false;
     return true;
   }, [location.pathname, isWalletReady]);
 
@@ -994,7 +991,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       {/* Bubble portal — one bubble per parked dApp. Gated on
           `walletShellActive` so the bubbles never render on the lock
           screen, the welcome / onboarding flow, the forgot-password
-          flow, the reset-required screen, or the import-account flow.
+          flow, or the reset-required screen.
           The user shouldn't see persistent dApp chrome until they've
           actually unlocked the wallet and are inside the main shell. */}
       {isMobile() && walletShellActive && <DappPeekTray />}

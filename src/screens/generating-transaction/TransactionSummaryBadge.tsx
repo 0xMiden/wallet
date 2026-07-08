@@ -40,15 +40,15 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
         className
       )}
     >
-      <div className="flex shrink-0 font-heading items-center gap-1.5 whitespace-nowrap font-extrabold text-heading-gray text-xl">
+      <div className="flex shrink-0 font-heading items-center gap-1.5 whitespace-nowrap font-extrabold text-heading-gray text-xl dark:text-pure-white">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="24" height="24" rx="12" fill="#BEACD2" />
-          <path d="M6.22266 12.0879H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
+          <rect width="24" height="24" rx="12" fill="#91ACC1" />
+          <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
           <path
-            d="M14.6582 9.77734L17.0849 12.0885L14.6582 14.3996"
+            d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
             stroke="white"
             stroke-width="2.20995"
             stroke-linecap="round"
@@ -56,7 +56,9 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({ lhs,
           />
         </svg>
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading">{rhs}</div>
+      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
+        {rhs}
+      </div>
     </div>
   );
 };
@@ -73,7 +75,7 @@ interface ResolvedAsset {
 const SwapAmountText: FC<{ amount: string; symbol: string }> = ({ amount, symbol }) => (
   <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
     <span className="text-heading-gray">{amount}</span>
-    <span className="text-[#808080]">{symbol}</span>
+    <span className="text-gray">{symbol}</span>
   </span>
 );
 

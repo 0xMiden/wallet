@@ -28,7 +28,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 const propsPerButtonVariant = {
   [ButtonVariant.Primary]: {
     color: 'text-pure-white',
-    fontWeight: 'font-semibold',
+    fontWeight: 'font-bold',
     disabledColor: 'text-heading-gray',
     disabledFontWeight: 'font-semibold',
     backgroundColor: 'bg-primary-500 focus:bg-primary-500',
@@ -42,15 +42,15 @@ const propsPerButtonVariant = {
     fontWeight: 'font-bold',
     disabledColor: 'text-heading-gray',
     disabledFontWeight: 'font-semibold',
-    backgroundColor: 'bg-[#F9F9F9]',
-    hoverBackgroundColor: 'hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f]',
+    backgroundColor: 'bg-button-secondary',
+    hoverBackgroundColor: 'hover:bg-button-secondary-hover',
     disabledBackgroundColor: 'bg-surface-inactive',
     iconColor: 'black',
     border: ''
   },
   [ButtonVariant.Ghost]: {
     color: 'text-heading-gray',
-    fontWeight: 'font-medium',
+    fontWeight: 'font-bold',
     disabledColor: 'text-grey-400',
     disabledFontWeight: 'font-semibold',
     backgroundColor: 'bg-transparent',
@@ -61,17 +61,20 @@ const propsPerButtonVariant = {
   }
 };
 
-export const Button: React.FC<ButtonProps> = ({
-  variant = ButtonVariant.Primary,
-  title = 'Button Title',
-  iconRight,
-  iconLeft,
-  disabled,
-  className,
-  isLoading,
-  children,
-  ...props
-}) => {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  {
+    variant = ButtonVariant.Primary,
+    title = 'Button Title',
+    iconRight,
+    iconLeft,
+    disabled,
+    className,
+    isLoading,
+    children,
+    ...props
+  },
+  ref
+) {
   const variantProps = propsPerButtonVariant[variant];
   let color = variantProps.color;
   let fontWeight = variantProps.fontWeight;
@@ -112,6 +115,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <motion.button
+      ref={ref}
       className={cn(
         'flex justify-center items-center gap-x-2 font-heading',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
@@ -136,4 +140,4 @@ export const Button: React.FC<ButtonProps> = ({
       {renderContent()}
     </motion.button>
   );
-};
+});

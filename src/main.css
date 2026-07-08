@@ -130,6 +130,23 @@ body {
   background-color: #fbfbfb;
 }
 
+/* Hoist the onboarding surface to the root while onboarding is mounted, so
+ * <html>/<body> (which own the safe-area padding on mobile) paint the same
+ * cream — otherwise white bands show at the notch and home indicator. */
+:root:not(.dark):has([data-onboarding-root='true']) {
+  --color-app-bg: #fbfbfb;
+  --surface-page: #fbfbfb;
+}
+
+/* In dark mode onboarding uses the same app background as the rest of the app.
+ * Without this the light-only override above wins over `.dark`'s html-level
+ * vars (it re-declares the custom properties closer to the consumers). */
+.dark [data-onboarding-root='true'] {
+  --color-app-bg: #191919;
+  --surface-page: #191919;
+  background-color: #191919;
+}
+
 [data-onboarding-root='true'] :is(h1, h2, h3, header, [data-onboarding-heading='true']) {
   font-family: var(--font-onboarding-heading);
 }
@@ -328,7 +345,7 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --color-chip-bg: #eeeff2;
     --color-input-bg: #f9f9f9;
     --color-border-light: #e6e6e6;
-    --color-text-muted: rgba(63, 63, 63, 0.4);
+    --color-text-muted: #ababab;
     --color-border-subtle: rgba(63, 63, 63, 0.08);
     --color-hover-bg: #e1dbdb;
 
@@ -343,7 +360,12 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-input: #f9f9f9;
     --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --status-positive: #90BA89;
+    --surface-button-secondary: #f9f9f9;
+    --surface-button-secondary-hover: #eceae7;
+    --text-gray: #808080;
+    --text-gray-secondary: #8e8e93;
+    --text-placeholder: #00000047;
+    --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #ff5500;
     /* Activity icon-square hues — mirror the Send/Receive/Earn/Swap action-bar
@@ -367,6 +389,20 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
+
+    /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
+     * get lighter variants in dark mode; slate/orange stay fixed. */
+    --card-slate: #777386;
+    --card-orange: #e77537;
+    --card-blue: #607c92;
+    --card-green: #778c72;
+    --card-purple: #847595;
+    /* Second tone — card bottom strip (same value in both themes). */
+    --card-slate-deep: #777386;
+    --card-orange-deep: #bd5d29;
+    --card-blue-deep: #405565;
+    --card-green-deep: #50634c;
+    --card-purple-deep: #5d5368;
   }
 
   .dark {
@@ -403,10 +439,15 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --text-tertiary: rgba(255, 255, 255, 0.4);
     --text-on-accent: #ffffff;
     --surface-page: #191919;
-    --surface-input: #3f3f3f99;
-    --surface-interactive: #3f3f3f99;
+    --surface-input: #363636;
+    --surface-interactive: #363636;
     --surface-inactive: #3f3f3f99;
-    --status-positive: #90BA89;
+    --surface-button-secondary: #484848;
+    --surface-button-secondary-hover: #3f3f3f;
+    --text-gray: #e1d8d8;
+    --text-gray-secondary: #8e8e93;
+    --text-placeholder: #ffffff;
+    --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
     --tx-received: #99ac94;
@@ -425,5 +466,16 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
+
+    --card-slate: #777386;
+    --card-orange: #e77537;
+    --card-blue: #91acc1;
+    --card-green: #a8bba3;
+    --card-purple: #beacd2;
+    --card-slate-deep: #777386;
+    --card-orange-deep: #bd5d29;
+    --card-blue-deep: #405565;
+    --card-green-deep: #50634c;
+    --card-purple-deep: #5d5368;
   }
 }

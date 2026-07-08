@@ -26,7 +26,7 @@ import { DEFAULT_GUARDIAN_ENDPOINT } from 'lib/miden-chain/constants';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
-import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
+import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { AuthScheme, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -129,6 +129,12 @@ const currentAccPubKeyStrgKey = createStorageKey(StorageEntity.CurrentAccPubKey)
 const accountsStrgKey = createStorageKey(StorageEntity.Accounts);
 const settingsStrgKey = createStorageKey(StorageEntity.Settings);
 const ownMnemonicStrgKey = createStorageKey(StorageEntity.OwnMnemonic);
+
+// Leading byte of a serialized SDK `Signature` for the ECDSA (secp256k1) scheme. Guardian hot
+// keys are always ECDSA, and `signHotDigest`/`signWord` strip this tag; signData re-prepends it so
+// `signBytes` returns a full serialized `Signature`. Verified against `@miden-sdk/miden-sdk` 0.15.2
+// (`AuthSecretKey.ecdsaWithRNG(...).sign(word).serialize()[0] === 0x01`).
+const ECDSA_SIGNATURE_SCHEME_TAG = 0x01;
 
 const insertKeyCallbackWrapper = (passKey: CryptoKey) => {
   return async (key: Uint8Array, secretKey: Uint8Array) => {
@@ -617,8 +623,12 @@ export class Vault {
     return await getPlain<string>(currentAccPubKeyStrgKey);
   }
 
-  async fetchSettings() {
-    return DEFAULT_SETTINGS;
+  async fetchSettings(): Promise<WalletSettings> {
+    return withError('Failed to fetch settings', async () => {
+      if (!(await isStored(settingsStrgKey))) return DEFAULT_SETTINGS;
+      const settings = await fetchAndDecryptOneWithLegacyFallBack<WalletSettings>(settingsStrgKey, this.vaultKey);
+      return { ...DEFAULT_SETTINGS, ...settings };
+    });
   }
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
@@ -1059,7 +1069,52 @@ export class Vault {
 
   async authorize(_sendTransaction: SendTransaction) {}
 
-  async signData(publicKey: string, data: string, signKind: SignKind): Promise<string> {
+  async signData(publicKey: string, data: string, signKind: SignKind, accountId?: string): Promise<string> {
+    // Guardian accounts keep their (ECDSA) signing key under the secure-hot-key
+    // facade — stored by `hotPublicKey`, not under accAuthSecretKeyStrgKey(commitment)
+    // that the default path below reads. `resolvePublicKeyCommitments` hands the dApp
+    // the signer *commitment* at connect, so the default lookup misses and throws
+    // "Some storage item not found". Route word-signing for such accounts through
+    // signWord (hot path) so dApp `signBytes` works for Guardian signers. Keyed off
+    // `accountId` (the request's sourceAccountId) since the commitment alone can't be
+    // mapped back to the stored hotPublicKey.
+    //
+    // Only `word`-kind is routed here: signing a raw digest with the hot key is the
+    // Guardian-signer registration use case. `signingInputs` (full transaction) for a
+    // Guardian account goes through the multisig co-sign flow, not this path.
+    //
+    // `signBytes` returns the FULL serialized `Signature` (scheme tag + signature), exactly like
+    // the default path below (`signature.serialize()`). Consumers strip the tag themselves —
+    // notably @openzeppelin's `MidenWalletSigner.signWord`, which does `signBytes(...).slice(1)`
+    // before handing the raw ECDSA signature to Guardian's `/configure`. `signWord`/`signHotDigest`
+    // strip the tag, so re-prepend it here; otherwise the consumer strips a real signature byte and
+    // Guardian rejects the 64-byte result with "unexpected end of file". Guardian hot keys are
+    // always ECDSA (`secureHotKey.generateHotKey` → `AuthSecretKey.ecdsaWithRNG`), whose serialized
+    // `Signature` scheme tag is `0x01`. (On mobile the raw sig comes from the native SE/StrongBox
+    // plugin as `r||s||v`, not an SDK `serialize()`, so this reconstruction is valid for the
+    // tag-stripping consumer — Guardian — but isn't guaranteed to round-trip through the SDK's
+    // `Signature.deserialize`.)
+    if (signKind === 'word' && accountId) {
+      const account = (await this.fetchAccounts()).find(acc => acc.publicKey === accountId);
+      if (account?.hotPublicKey) {
+        const wordHex = `0x${bytesToHex(b64ToU8(data))}`;
+        const sigHex = await this.signWord(account.hotPublicKey, wordHex);
+        const rawEcdsaSig = new Uint8Array(Buffer.from(sigHex.startsWith('0x') ? sigHex.slice(2) : sigHex, 'hex'));
+        const fullSignature = new Uint8Array(rawEcdsaSig.length + 1);
+        fullSignature[0] = ECDSA_SIGNATURE_SCHEME_TAG;
+        fullSignature.set(rawEcdsaSig, 1);
+        return u8ToB64(fullSignature);
+      }
+      if (account?.coldPublicKey) {
+        // Guardian account with no active hot key (e.g. recovered via seed phrase,
+        // `requiresHotKeyRotation`): there is no device key to sign a digest with yet.
+        // Surface that clearly instead of the opaque keystore-miss this fix removes.
+        throw new PublicError(
+          'This Guardian account has no active device key to sign with. Activate the device key in the wallet, then try again.'
+        );
+      }
+    }
+
     const secretKey = await fetchAndDecryptOneWithLegacyFallBack<string>(
       accAuthSecretKeyStrgKey(publicKey),
       this.vaultKey

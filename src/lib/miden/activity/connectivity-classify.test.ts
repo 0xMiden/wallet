@@ -5,6 +5,7 @@ describe('isLikelyNetworkError', () => {
     'Failed to fetch',
     'NetworkError when attempting to fetch resource',
     'Load failed',
+    'request aborted by user',
     'request was abort',
     'request timed out after 30s',
     'connection refused',
@@ -62,6 +63,18 @@ describe('isDefinitelyOffline', () => {
   it('returns false when navigator.onLine is non-boolean', () => {
     setOnLine('yes');
     expect(isDefinitelyOffline()).toBe(false);
+  });
+
+  it('returns false when navigator is unavailable', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: undefined
+    });
+
+    expect(isDefinitelyOffline()).toBe(false);
+
+    Object.defineProperty(globalThis, 'navigator', descriptor!);
   });
 });
 

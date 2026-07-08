@@ -47,7 +47,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
-          <span className="font-heading text-2xl font-bold leading-none text-[#808080]">Deposit Amount</span>
+          <span className="font-heading text-2xl font-bold leading-none text-gray">Deposit Amount</span>
           <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
             {amountValue.toFixed(2)}
           </div>
@@ -118,7 +118,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
           <div className="grid grid-cols-3 gap-3 text-center">
             {projections.map(item => (
               <div key={item.label}>
-                <div className="text-xs font-semibold uppercase leading-none text-[#8E8E93]">{item.label}</div>
+                <div className="text-xs font-semibold uppercase leading-none text-gray-secondary">{item.label}</div>
                 <div className="mt-1 font-heading text-sm font-bold leading-none text-status-positive">
                   +${item.reward.toFixed(2)}
                 </div>

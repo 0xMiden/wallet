@@ -1,14 +1,12 @@
 import React from 'react';
 
-import { render } from '@testing-library/react';
+import { render, renderHook } from '@testing-library/react';
 
-import { PriceProvider } from './index';
+import { PriceProvider, useTokenSparkline } from './index';
 
-// Mock the SWR fetcher so PriceProvider's effect runs deterministically.
+const mockUseRetryableSWR = jest.fn();
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: jest.fn((_key: string, _fetcher: any) => ({
-    data: { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } }
-  }))
+  useRetryableSWR: (...args: any[]) => mockUseRetryableSWR(...args)
 }));
 
 const setTokenPrices = jest.fn();
@@ -18,6 +16,10 @@ jest.mock('lib/store', () => ({
 
 beforeEach(() => {
   setTokenPrices.mockClear();
+  mockUseRetryableSWR.mockReset();
+  mockUseRetryableSWR.mockReturnValue({
+    data: { ETH: { price: 3000, change24h: 10, percentageChange24h: 0.1 } }
+  });
 });
 
 describe('PriceProvider', () => {
@@ -34,7 +36,35 @@ describe('PriceProvider', () => {
   });
 });
 
-// Note: covering the empty-data branch via jest.resetModules + doMock is
-// tricky because the existing module-level mocks would need to be re-applied.
-// The happy-path test above already drives the main code path; the empty
-// branch is exercised by the broader test suite via integration tests.
+describe('useTokenSparkline', () => {
+  it('returns close values from fetched kline data', () => {
+    mockUseRetryableSWR.mockReturnValue({
+      data: [
+        { time: 1, value: 10 },
+        { time: 2, value: 12.5 }
+      ]
+    });
+
+    const { result } = renderHook(() => useTokenSparkline('MIDEN', '1W'));
+
+    expect(result.current).toEqual([10, 12.5]);
+    expect(mockUseRetryableSWR).toHaveBeenCalledWith(
+      ['kline', 'MIDEN', '1W'],
+      expect.any(Function),
+      expect.objectContaining({ refreshInterval: 300000, dedupingInterval: 60000 })
+    );
+  });
+
+  it('uses a null SWR key and returns an empty array when symbol is empty', () => {
+    mockUseRetryableSWR.mockReturnValue({ data: undefined });
+
+    const { result } = renderHook(() => useTokenSparkline(''));
+
+    expect(result.current).toEqual([]);
+    expect(mockUseRetryableSWR).toHaveBeenCalledWith(
+      null,
+      expect.any(Function),
+      expect.objectContaining({ refreshInterval: 300000, dedupingInterval: 60000 })
+    );
+  });
+});

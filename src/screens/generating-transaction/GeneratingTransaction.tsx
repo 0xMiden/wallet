@@ -394,7 +394,7 @@ const TransactionHeroIcon: React.FC<{ state: 'processing' | 'failed' }> = ({ sta
 
   return (
     <motion.div
-      className="flex size-[120px] items-center justify-center"
+      className="flex size-30 items-center justify-center"
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={entranceTransition}
@@ -542,7 +542,7 @@ const TransactionStepRow: React.FC<{
         <span
           className={classNames(
             'min-w-0 truncate font-heading text-base font-bold leading-none',
-            state === 'pending' ? 'text-[#8E8A84]' : 'text-[#161513]'
+            state === 'pending' ? 'text-[#8E8A84] dark:text-[#9B968D]' : 'text-[#161513] dark:text-pure-white'
           )}
         >
           {resolvedLabel}
@@ -712,7 +712,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         <section className="flex w-full flex-1 flex-col items-center pt-5">
           <TransactionHeroIcon state={heroState} />
 
-          <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray">
+          <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray dark:text-pure-white">
             {visibleTitle}
           </h2>
 
@@ -735,7 +735,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             })}
           </div>
           {footerDescription && (
-            <p className="w-full text-center text-sm font-heading text-heading-gray pt-4 font-bold">
+            <p className="w-full text-center text-sm font-heading text-heading-gray pt-4 font-bold dark:text-white">
               {footerDescription}
             </p>
           )}

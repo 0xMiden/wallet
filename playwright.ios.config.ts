@@ -12,7 +12,13 @@ export default defineConfig({
   // Guardian specs run via playwright.ios.guardian.config.ts (dedicated run);
   // keep them out of the standard iOS suite.
   testIgnore: '**/guardian-*.ios.spec.ts',
-  timeout: 900_000, // 15 min per test — WASM prove on simulator is slow (~60-90s per consume)
+  // 25 min per test. WASM prove on the simulator is slow (~60-90s per consume),
+  // and on degraded macos-26 runners BOTH the two-sim `_simPair` setup (capped
+  // at 13 min, see SETUP_DEADLINE_MS) and the test body's simctl/WASM ops crawl.
+  // 25 min leaves room for a slow-but-completing setup + a slow test instead of
+  // killing a run that would have passed given a little more patience (no
+  // assertion is relaxed — this is purely tolerance for degraded-runner IO).
+  timeout: 1_500_000,
   expect: {
     timeout: 60_000,
   },

@@ -28,7 +28,7 @@ const InfoRow: React.FC<InfoRowProps> = ({ badge, title, description, hasDivider
           {title}
         </h3>
       </div>
-      <p className="mt-2.5 break-words text-[15px] font-normal leading-[1.32] text-[#8E8E93]">{description}</p>
+      <p className="mt-2.5 break-words text-[15px] font-normal leading-[1.32] text-gray-secondary">{description}</p>
     </div>
   </div>
 );

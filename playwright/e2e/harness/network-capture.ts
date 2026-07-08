@@ -6,7 +6,7 @@ import type { NetworkCategory } from './types';
 const ENDPOINT_PATTERNS: Record<NetworkCategory, RegExp> = {
   rpc: /rpc\.(testnet|devnet)\.miden\.io|localhost:57291/,
   transport: /transport\.miden\.io|localhost:57292/,
-  prover: /tx-prover\.(testnet|devnet)\.miden\.io|localhost:50051/,
+  prover: /tx-prover\.(testnet|devnet)\.miden\.io|localhost:5005[12]/,
   other: /.*/
 };
 
@@ -164,11 +164,11 @@ export async function attachServiceWorkerFetchCapture(
 
       const origFetch: typeof fetch = g.fetch.bind(g);
       const HOST_PATTERN =
-        /rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|localhost:(57291|57292|50051)/;
+        /rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|localhost:(57291|57292|5005[12])/;
 
       function classify(url: string): string {
         if (/rpc\.(testnet|devnet)\.miden\.io|localhost:57291/.test(url)) return 'rpc';
-        if (/tx-prover\.(testnet|devnet)\.miden\.io|localhost:50051/.test(url)) return 'prover';
+        if (/tx-prover\.(testnet|devnet)\.miden\.io|localhost:5005[12]/.test(url)) return 'prover';
         if (/transport\.miden\.io|localhost:57292/.test(url)) return 'transport';
         return 'other';
       }

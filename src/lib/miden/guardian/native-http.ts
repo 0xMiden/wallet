@@ -32,7 +32,9 @@ const guardianOrigins = new Set<string>();
  */
 function seedBuiltinGuardianOrigins(): void {
   for (const option of GUARDIAN_OPTIONS ?? []) {
-    addOrigin(option.endpoint);
+    for (const endpoint of option.endpoint.values()) {
+      addOrigin(endpoint);
+    }
   }
 }
 
