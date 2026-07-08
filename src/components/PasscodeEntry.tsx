@@ -70,8 +70,13 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
   const hint = error ?? subtitle ?? t('enterYour6DigitCode');
 
   return (
-    <div className={cn('flex flex-col items-center', className)} data-testid="passcode-entry">
-      <div className="flex items-center gap-3.5">
+    <div
+      role="group"
+      aria-label={subtitle ?? t('enterYour6DigitCode')}
+      className={cn('flex flex-col items-center', className)}
+      data-testid="passcode-entry"
+    >
+      <div className="flex items-center gap-3.5" aria-hidden="true">
         {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
           const filled = index < code.length;
           return (
@@ -82,7 +87,13 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
           );
         })}
       </div>
-      <p className={cn('min-h-5 text-sm text-center mt-3', error ? 'text-red-500' : 'text-text-muted')}>{hint}</p>
+      <p
+        role="status"
+        aria-live="polite"
+        className={cn('min-h-5 text-sm text-center mt-3', error ? 'text-red-500' : 'text-text-muted')}
+      >
+        {hint}
+      </p>
       <Numpad className="mt-6" onDigit={handleDigit} onDelete={handleDelete} />
     </div>
   );

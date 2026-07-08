@@ -147,7 +147,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
                 disabled={isDisabled}
                 placeholder={t('enterPassword')}
                 icon={
-                  <button className="flex-1" onClick={onPasswordVisibilityToggle}>
+                  <button type="button" className="flex-1" onClick={onPasswordVisibilityToggle}>
                     <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
                   </button>
                 }

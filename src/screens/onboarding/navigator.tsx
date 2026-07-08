@@ -111,7 +111,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   // In that shortened create flow the password screen replaces passcode setup,
   // so it sits at the protection-step position rather than its import-flow one.
   const baseStep =
-    step === OnboardingStep.CreatePassword && protectionChoiceSkipped ? 2 : (STEP_TO_PROGRESS[step] ?? null);
+    step === OnboardingStep.CreatePassword && protectionChoiceSkipped
+      ? (STEP_TO_PROGRESS[OnboardingStep.SetupPasscode] ?? null)
+      : (STEP_TO_PROGRESS[step] ?? null);
   const rawProgress = progressOverride ?? baseStep;
   const totalSteps = protectionChoiceSkipped ? 3 : 4;
   const currentProgress = protectionChoiceSkipped && rawProgress !== null ? rawProgress - 1 : rawProgress;
