@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.7 (TBD)
+
+### Changes
+
+* [CHANGE][all] **Passcodes are now mobile-only; extension and desktop use a full password.** The extension/desktop create-wallet flow now goes Welcome → Create Password → Choose Guardian → Confirmation (no 6-digit passcode setup), and their unlock screen is a password form again instead of the numpad (desktop still tries hardware unlock first).
+* [CHANGE][mobile] **Settings flows that unlock the vault now prompt with the passcode numpad on mobile.** Reveal seed phrase / private key / hot key / guardian keys, verify seed phrase, and the encrypted-wallet-file export now show the shared 6-digit `PasscodeEntry` (dots + numpad, auto-submit) on mobile passcode-protected wallets instead of a typed password field; extension/desktop keep the password input.
+
 ## 1.15.6 (2026-07-07)
 
 ### Features

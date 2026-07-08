@@ -140,10 +140,10 @@ export const EncryptedFileManager: React.FC<{}> = () => {
   );
 
   const onWalletPasswordChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    (value: string) => {
       onAction({
         id: EncryptedFileActionId.SetFormValues,
-        payload: { walletPassword: event.target.value }
+        payload: { walletPassword: value }
       });
     },
     [onAction]

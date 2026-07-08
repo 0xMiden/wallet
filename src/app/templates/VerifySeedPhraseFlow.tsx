@@ -8,9 +8,11 @@ import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { PasscodeEntry } from 'components/PasscodeEntry';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { isMobile } from 'lib/platform';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
@@ -167,6 +169,29 @@ const VerifySeedPhraseFlow: FC = () => {
   }
 
   if (step === 'auth') {
+    // Mobile vaults are protected by the 6-digit onboarding passcode, so they
+    // get the numpad; extension/desktop use a typed password.
+    if (isMobile()) {
+      return (
+        <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
+          <NavigationHeader title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
+          <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
+            <div className="flex flex-col gap-2 mb-6">
+              <h1 className="text-2xl font-semibold text-heading-gray">{t('enterYourPasscode')}</h1>
+              <p className="text-sm text-text-muted">{t('verifySeedPhrasePasswordBody')}</p>
+            </div>
+            <PasscodeEntry
+              onSubmit={code => revealPhrase(code)}
+              onChange={() => clearErrors()}
+              error={errors.password?.message ?? null}
+              isSubmitting={isSubmitting}
+              className="mt-auto pb-2"
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
         <NavigationHeader title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />

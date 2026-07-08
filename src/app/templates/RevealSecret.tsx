@@ -7,6 +7,7 @@ import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
 import AccountBanner from 'app/templates/AccountBanner';
 import { Button, ButtonVariant } from 'components/Button';
+import { PasscodeEntry } from 'components/PasscodeEntry';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -59,6 +60,10 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // because hot keys rotate from Settings → Rotate Device Key.
   const [privateKeyAcknowledged, setPrivateKeyAcknowledged] = useState(false);
   const requiresAcknowledge = reveal === 'private-key' || reveal === 'guardian-keys';
+  // Non-hardware mobile wallets are protected by the 6-digit passcode set
+  // during onboarding, so prompt with the numpad; extension/desktop vault
+  // secrets are typed passwords.
+  const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
 
   useEffect(() => {
     Vault.hasHardwareProtector().then(setHasHardwareProtector);
@@ -271,6 +276,16 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
               />
             )}
           </>
+        ) : usePasscodeEntry ? (
+          <PasscodeEntry
+            onSubmit={code => onSubmit({ password: code })}
+            onChange={() => clearErrors()}
+            error={errors.password?.message ?? null}
+            subtitle={t('revealSecretPasscodeInputDescription', { secretName: texts.name })}
+            disabled={requiresAcknowledge && !privateKeyAcknowledged}
+            isSubmitting={isSubmitting}
+            className="pt-8"
+          />
         ) : (
           <FormField
             {...register('password', { required: t('required') })}
@@ -301,7 +316,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     secretFieldRef,
     t,
     hasHardwareProtector,
-    handleSubmit
+    handleSubmit,
+    usePasscodeEntry,
+    requiresAcknowledge,
+    privateKeyAcknowledged,
+    isSubmitting
   ]);
 
   const showButton = !secret && !guardianBundle;
@@ -345,7 +364,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
       {mainContent}
 
-      {showButton && (
+      {showButton && !usePasscodeEntry && (
         <div className="mt-auto pb-8">
           <Button
             className="w-full justify-center"
