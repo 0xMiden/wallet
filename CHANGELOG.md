@@ -1,17 +1,6 @@
 # Changelog
 
-## 1.15.7 (TBD)
-
-### Changes
-
-* [CHANGE][all] **Passcodes are now mobile-only; extension and desktop use a full password.** The extension/desktop create-wallet flow now goes Welcome → Create Password → Choose Guardian → Confirmation (no 6-digit passcode setup), and their unlock screen is a password form again instead of the numpad (desktop still tries hardware unlock first).
-* [CHANGE][mobile] **Settings flows that unlock the vault now prompt with the passcode numpad on mobile.** Reveal seed phrase / private key / hot key / guardian keys, verify seed phrase, and the encrypted-wallet-file export now show the shared 6-digit `PasscodeEntry` (dots + numpad, auto-submit) on mobile passcode-protected wallets instead of a typed password field; extension/desktop keep the password input.
-
-### Fixes
-
-* [FIX][all] **Reveal Private Key no longer crashes for standard accounts.** The reveal-private-key screen rendered its `AccountBanner` without an `account`, so the banner's `account.name` access threw `Cannot read properties of undefined (reading 'name')` for on-chain/off-chain accounts. (Guardian accounts route to the guardian-keys reveal, which shows no banner, so they were unaffected — which is why it looked intermittent.) The banner now receives the current account, and `AccountBanner` requires `account` as a prop so the type checker catches any caller that omits it.
-
-## 1.15.6 (2026-07-07)
+## 1.15.6 (2026-07-09)
 
 ### Features
 
@@ -19,6 +8,8 @@
 
 ### Changes
 
+* [CHANGE][all] **Passcodes are now mobile-only; extension and desktop use a full password.** The extension/desktop create-wallet flow now goes Welcome → Create Password → Choose Guardian → Confirmation (no 6-digit passcode setup), and their unlock screen is a password form again instead of the numpad (desktop still tries hardware unlock first).
+* [CHANGE][mobile] **Settings flows that unlock the vault now prompt with the passcode numpad on mobile.** Reveal seed phrase / private key / hot key / guardian keys, verify seed phrase, and the encrypted-wallet-file export now show the shared 6-digit `PasscodeEntry` (dots + numpad, auto-submit) on mobile passcode-protected wallets instead of a typed password field; extension/desktop keep the password input.
 * [CHANGE][all] **Send review moved to its own full-screen page.** The send flow's review step now lives at `/send/review` (FullScreenPage, like the earn deposit review) and owns the whole transaction-creation pipeline; the form (recipient → amount → token) stays at `/send`, hands the inputs over via query params, and restores them on the Amount step when backing out of review. Submitting now hands off straight to the `/generating-transaction` in-progress page (tracking the tx via `?txId=`) instead of waiting silently on review. The bottom tab navbar is also hidden on the send-flow steps past recipient selection so each step's Continue button sits at the bottom of the screen.
 * [CHANGE][all] **Guardian picker now shows operator brand logos.** `ChooseGuardianScreen` cards render each operator's wordmark (Open-Zeppelin, Gateway, Lambda Class) centered, with the "Operated by / Location" caption moved below the card, a "Default" banner on the recommended operator, and the selected card outlined in the brand color; logos recolor with the theme. The onboarding subtitle is shortened to "Select an option below". (#248)
 * [CHANGE][all] **Send review screen restyled.** The transaction review screen drops its header and re-lays each detail row as a grey pill label above a large `font-heading` value: a "You are sending" hero caption, the full recipient address, the Miden network, and an expiration row whose "Edit" link is now inline and which explains that unclaimed funds return to the wallet automatically. Shared `ReviewRow`/`ReviewLayout`/`ReviewAmount` primitives carry the new look. (#248)
@@ -38,6 +29,7 @@
 
 ### Fixes
 
+* [FIX][all] **Reveal Private Key no longer crashes for standard accounts.** The reveal-private-key screen rendered its `AccountBanner` without an `account`, so the banner's `account.name` access threw `Cannot read properties of undefined (reading 'name')` for on-chain/off-chain accounts. (Guardian accounts route to the guardian-keys reveal, which shows no banner, so they were unaffected — which is why it looked intermittent.) The banner now receives the current account, and `AccountBanner` requires `account` as a prop so the type checker catches any caller that omits it.
 * [FIX][extension,desktop] **Onboarding skips the "choose how to protect your wallet" step where biometric can't work.** On the browser extension and desktop there is no Face ID / fingerprint API, so wallet creation now goes straight from Welcome to passcode setup instead of offering a biometric option that always fails, and the onboarding progress stepper shows 3 steps (passcode → guardian → confirm) with passcode first. Mobile is unchanged — it still offers the choice and its existing "use passcode instead" fallback. (#322)
 * [FIX][all] **Address-book contacts now persist and its UI follows dark mode.** `Vault.fetchSettings` was a stub returning `{}` so saved contacts were lost on relock/reload — it now decrypts the stored settings; the receive-address pill is tap-to-copy, and the address-book empty state, `CardItem` right icon and `CheckboxCircleFill` glyph no longer render black in dark mode (`currentColor` + theme-aware text tokens).
 * [FIX][all] **Dark-mode gray palette tokenized.** The onboarding surface no longer stays light cream in dark mode (the `data-onboarding-root` override now has a `.dark` variant painting `#191919`), and the raw gray hexes are theme-aware CSS variables: `text-gray` (`#808080` → `#E1D8D8`), `text-gray-secondary` (`#8E8E93`), secondary buttons (`#F9F9F9` → `#484848`), `--surface-input` dark (`#363636`), and the search placeholder (white in dark). (#248)
