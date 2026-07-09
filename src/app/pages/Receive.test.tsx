@@ -24,7 +24,7 @@ jest.mock('app/env', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { Share: 'Share', Copy: 'Copy' }
+  IconName: { Add: 'Add', CrossChain: 'CrossChain', Share: 'Share' }
 }));
 
 jest.mock('app/templates/EvmConnectModal', () => ({

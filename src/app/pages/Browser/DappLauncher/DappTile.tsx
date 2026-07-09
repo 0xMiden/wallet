@@ -1,11 +1,13 @@
 /**
- * Single dApp tile in the launcher's MyDappsGrid.
+ * Single dApp tile in the launcher's RecentsRow.
  *
- * The tile is the source side of the shared-element morph that animates
+ * The tile can be the source side of the shared-element morph that animates
  * into the capsule when the user opens a dApp. The matching `layoutId`s
  * live on the favicon (`dapp-favicon-${url}`) and name (`dapp-name-${url}`)
  * of `<CapsuleBar>`. framer-motion's `LayoutGroup id="dapp-browser"` (set
- * up at `BrowserScreen` level) wires the two surfaces together.
+ * up at `BrowserScreen` level) wires the two surfaces together — though
+ * RecentsRow opts out (`enableSharedLayout={false}`) because the AppsGrid
+ * cards own the morph for curated apps.
  */
 
 import React, { type FC, useState } from 'react';
@@ -23,24 +25,6 @@ interface DappTileProps {
   brandColor?: string;
   badge?: 'featured' | 'new' | 'verified';
   onOpen: (url: string) => void;
-  /**
-   * Index within the containing section. Used to stagger the entry
-   * animation so tiles fade in sequentially (~30ms between each).
-   * Defaults to 0 for uses that don't want a stagger.
-   */
-  animationIndex?: number;
-  /**
-   * Base delay (in seconds) applied to the entry animation BEFORE the
-   * per-index stagger kicks in. Sections that mount synchronously with
-   * the TabLayout slide-in (e.g. the featured list at initial launcher
-   * render) should pass ~0.2 so their tiles start animating only after
-   * the 150ms tab transform has settled — otherwise the composed
-   * parent-transform + child-y motion looks janky. Sections that
-   * mount asynchronously (e.g. Recents after `getRecentDapps` resolves)
-   * can leave this at the default 0.04 since the tab has already
-   * settled by the time they mount.
-   */
-  entryBaseDelay?: number;
   /**
    * Whether this tile's favicon + name participate in the shared-layout
    * morph that transitions tile → capsule (and back on minimize). Only
@@ -64,8 +48,6 @@ export const DappTile: FC<DappTileProps> = ({
   brandColor,
   badge,
   onOpen,
-  animationIndex = 0,
-  entryBaseDelay = 0.04,
   enableSharedLayout = true
 }) => {
   const [iconBroken, setIconBroken] = useState(false);
@@ -90,37 +72,11 @@ export const DappTile: FC<DappTileProps> = ({
   // onClick only when the touch hasn't moved enough to be a drag,
   // which is the correct tap-vs-scroll discrimination.
   return (
-    <motion.button
+    <button
       type="button"
-      // Entry animation: tiles drop in from the upper-right diagonal.
-      // Explicit `x: 32` AND `y: -48` so the motion is unambiguous
-      // regardless of whether the parent TabLayout slide-in is still
-      // running. Both Recents and MyDapps use the same animation, so
-      // both sections show the same "fly in from top right" reveal.
-      // No `layoutId` on the button — nothing else in the app shares
-      // `dapp-tile-${url}` so it was dead code AND its presence
-      // caused framer-motion's LayoutGroup to suppress the entry
-      // animation entirely.
-      //
-      // Tween with explicit duration (not a spring) so the drop is
-      // visually unambiguous and consistent across mount times.
-      initial={{ opacity: 0, x: 32, y: -48 }}
-      animate={{ opacity: 1, x: 0, y: 0 }}
-      transition={{
-        duration: 0.5,
-        ease: [0.22, 1, 0.36, 1],
-        delay: entryBaseDelay + animationIndex * 0.06
-      }}
       onClick={handleClick}
-      // `w-full` ensures the button fills its container in both
-      // layouts: the grid cells in RecentsRow stretch grid items by
-      // default, but the fixed-width wrapper div in MyDappsGrid is a
-      // plain block and would otherwise leave the content-sized
-      // button narrower than its slot. Without w-full, MyDapps tiles
-      // rendered ~72pt wide while Recents tiles rendered ~93pt wide,
-      // so the favicons ended up at different horizontal positions
-      // within each section's cell and the tiles looked different
-      // sizes.
+      // `w-full` ensures the button fills its grid cell so favicons
+      // line up at consistent horizontal positions across tiles.
       className="flex w-full flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-gray-100"
       aria-label={accessibleLabel}
     >
@@ -156,7 +112,7 @@ export const DappTile: FC<DappTileProps> = ({
       >
         {name}
       </motion.span>
-    </motion.button>
+    </button>
   );
 };
 

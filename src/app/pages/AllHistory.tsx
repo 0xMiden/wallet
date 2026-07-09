@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { AgglayerBridgeBanner } from 'app/templates/history/AgglayerBridgeBanner';
 import History from 'app/templates/history/History';
-import { SearchInput } from 'components/ui';
+import { SearchInput, TabHeader } from 'components/ui';
 import { useAccount } from 'lib/miden/front';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
@@ -42,9 +42,9 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <header className="shrink-0 px-4 py-3 flex items-center justify-between border-b  border-[#00000017]">
-        <h1 className="font-heading text-[28px] font-bold text-heading-gray dark:text-pure-white">{t('activity')}</h1>
-        <div className="flex items-center gap-2">
+      <TabHeader
+        title={t('activity')}
+        actions={
           <button
             type="button"
             aria-label={t('pendingNotes')}
@@ -56,19 +56,8 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
           >
             <Icon name={IconName.PendingNotes} className="w-4 h-4 [&_path]:fill-current" />
           </button>
-          <button
-            type="button"
-            aria-label={t('settings')}
-            onClick={() => {
-              hapticLight();
-              navigate('/settings');
-            }}
-            className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
-          >
-            <Icon name={IconName.Settings} className="w-4 h-4" fill="currentColor" />
-          </button>
-        </div>
-      </header>
+        }
+      />
 
       <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
         {filters.map(f => {

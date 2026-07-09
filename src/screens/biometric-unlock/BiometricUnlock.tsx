@@ -119,7 +119,7 @@ export const BiometricUnlock: FC<BiometricUnlockProps> = ({ onSuccess, onFallbac
         {/* Fallback to Password */}
         <Button
           title={t('usePasswordInstead')}
-          variant={ButtonVariant.Ghost}
+          variant={ButtonVariant.Secondary}
           onClick={onFallbackToPassword}
           disabled={isAuthenticating}
           className="w-full max-w-xs"

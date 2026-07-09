@@ -201,13 +201,8 @@ export const DappActive: FC = () => {
 
       <DappActionsSheet session={session} open={actionsOpen} onOpenChange={setActionsOpen} onReopen={handleReopen} />
 
-      {/* Spacer matching the capsule height (24 drag + 56 content + 1 hairline).
-          No safe-area-inset-top here — public/mobile.html applies it
-          on the body, which already pushes contentRef below the notch,
-          and CapsuleBar dropped its own paddingTop for the same reason.
-          Re-adding it would leave a ~50pt empty band between the
-          status bar and the drag handle. */}
-      <div style={{ height: '81px' }} className="shrink-0" />
+      {/* No spacer needed — the CapsuleBar above renders in flow (it is
+          not position:fixed), so the slot below starts right under it. */}
       <ProgressBar loading={isLoading} />
 
       {/* The slot's bounding rect drives `updateDimensions`. Uses

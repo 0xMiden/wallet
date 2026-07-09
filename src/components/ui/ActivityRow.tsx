@@ -8,7 +8,7 @@ export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
 export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed';
 
 export interface ActivityRowProps {
-  /** Glyph rendered inside the colored square. Pass a white-stroked SVG. */
+  /** Glyph rendered inside the colored square. Pass a white-stroked SVG; it is forced to 16x16. */
   icon: ReactNode;
   /**
    * Tailwind classes for the icon square's background. Defaults to a neutral
@@ -81,6 +81,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         <div
           className={classNames(
             'shrink-0 flex items-center justify-center w-10 h-10 rounded-10 text-pure-white',
+            '[&_svg]:w-4 [&_svg]:h-4',
             iconBg
           )}
         >
