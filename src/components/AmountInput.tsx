@@ -61,7 +61,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     <div className={classNames('flex flex-col', className)}>
       {label != null &&
         (typeof label === 'string' ? (
-          <span className="font-heading text-2xl font-bold text-[#808080] leading-none">{label}</span>
+          <span className="font-heading text-2xl font-bold text-gray leading-none">{label}</span>
         ) : (
           label
         ))}

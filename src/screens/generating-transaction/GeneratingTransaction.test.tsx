@@ -558,43 +558,18 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
-  it('advances visual steps gradually when the backend stage starts ahead', async () => {
-    jest.useFakeTimers();
-    let root: ReturnType<typeof createRoot> | undefined;
+  it('renders the backend step immediately when the backend stage starts ahead', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
+    );
+    const stepStates = () =>
+      Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
+    const activeSpinner = () =>
+      container.querySelector('[data-transaction-step][data-state="active"] svg') as SVGElement | null;
 
-    try {
-      const rendered = await renderInto(
-        <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
-      );
-      const { container } = rendered;
-      root = rendered.root;
-      const stepStates = () =>
-        Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
-      const activeSpinner = () =>
-        container.querySelector('[data-transaction-step][data-state="active"] svg') as SVGElement | null;
-
-      expect(stepStates()).toEqual(['active', 'pending', 'pending', 'pending']);
-      expect(activeSpinner()).toHaveClass('animate-spin');
-
-      await act(async () => {
-        jest.advanceTimersByTime(1_500);
-      });
-
-      expect(stepStates()).toEqual(['complete', 'active', 'pending', 'pending']);
-      expect(activeSpinner()).toHaveClass('animate-spin');
-
-      await act(async () => {
-        jest.advanceTimersByTime(1_500);
-      });
-
-      expect(stepStates()).toEqual(['complete', 'complete', 'active', 'pending']);
-      expect(activeSpinner()).toHaveClass('animate-spin');
-    } finally {
-      if (root) {
-        act(() => root!.unmount());
-      }
-      jest.useRealTimers();
-    }
+    expect(stepStates()).toEqual(['complete', 'complete', 'active', 'pending']);
+    expect(activeSpinner()).toHaveClass('animate-spin');
+    act(() => root.unmount());
   });
 
   it('renders success state when transactionComplete + no errors', async () => {

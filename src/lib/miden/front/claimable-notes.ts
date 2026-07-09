@@ -15,6 +15,7 @@ import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 import { useTokensMetadata } from './assets';
+import { isTestSyncPaused } from './test-sync-pause';
 
 // Debug info for iOS troubleshooting
 export type ClaimableNotesDebugInfo = {
@@ -299,6 +300,10 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     revalidateOnFocus: false,
     dedupingInterval: 10_000,
     refreshInterval: 5_000,
+    // Lets an E2E hook quiesce this (heavy, WASM-lock-bound) poll while it does
+    // its own single-threaded-WASM read; otherwise the read is livelocked on
+    // mobile by the 5s re-fire. No-op in production (tree-shaken).
+    isPaused: () => isTestSyncPaused(),
     onError: e => {
       console.error('Error fetching claimable notes:', e);
       debugInfoRef.current = {

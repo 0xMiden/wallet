@@ -3,10 +3,9 @@ import React, { ButtonHTMLAttributes, FC } from 'react';
 import classNames from 'clsx';
 
 import Spinner from 'app/atoms/Spinner/Spinner';
-import { TestIDProps } from 'lib/analytics';
+import { Button, ButtonVariant } from 'components/Button';
+import { AnalyticsEventCategory, TestIDProps, useAnalytics } from 'lib/analytics';
 import useTippy from 'lib/ui/useTippy';
-
-import { Button } from './Button';
 
 type FormSubmitButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
   TestIDProps & {
@@ -19,25 +18,37 @@ const FormSubmitButton: FC<FormSubmitButtonProps> = ({
   loading,
   small,
   tooltip,
+  type = 'submit',
   disabled,
   className,
   style,
   children,
+  onClick,
+  testID,
+  testIDProperties,
   ...rest
 }) => {
+  const { trackEvent } = useAnalytics();
   const tippyProps = { ...tippyPropsMock, content: tooltip };
   const spanRef = useTippy<HTMLSpanElement>(tippyProps);
+
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    testID !== undefined && trackEvent(testID, AnalyticsEventCategory.ButtonPress, testIDProperties);
+    onClick?.(e);
+  };
+
   const button = (
     <Button
+      variant={ButtonVariant.Primary}
+      type={type}
       className={classNames(
-        'relative py-4.5 text-base',
+        'relative h-auto w-auto max-w-none py-4.5 text-base',
         small ? 'px-6' : 'px-8',
         'rounded-10',
-        'bg-primary-500',
+        'bg-primary-500 hover:bg-primary-500',
         'flex items-center',
         loading ? 'text-transparent' : 'text-pure-white',
         'font-semibold',
-        'transition duration-200 ease-in-out',
         loading || disabled ? 'opacity-60' : 'hover:opacity-90 focus:opacity-90',
         loading || disabled
           ? 'pointer-events-none'
@@ -46,6 +57,7 @@ const FormSubmitButton: FC<FormSubmitButtonProps> = ({
       )}
       style={style}
       disabled={disabled}
+      onClick={handleClick}
       {...rest}
     >
       {children}

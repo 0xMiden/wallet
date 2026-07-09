@@ -45,7 +45,7 @@ jest.mock('lib/miden/back/store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
 
-jest.mock('lib/miden/activity/transactions', () => ({
+jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: jest.fn().mockResolvedValue('tx-send-1'),
   requestCustomTransaction: jest.fn().mockResolvedValue('tx-custom-1'),
   initiateConsumeTransactionFromId: jest.fn().mockResolvedValue('tx-consume-1'),
@@ -840,7 +840,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestSendTransaction rejects with InvalidParams when initiateSendTransaction throws inside the confirmed branch', async () => {
-    const sdk = require('lib/miden/activity/transactions');
+    const sdk = require('lib/miden/transaction');
     sdk.initiateSendTransaction.mockRejectedValueOnce(new Error('insufficient funds'));
     await expect(
       driveConfirmation(
@@ -863,7 +863,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestTransaction rejects with InvalidParams when requestCustomTransaction throws inside the confirmed branch', async () => {
-    const sdk = require('lib/miden/activity/transactions');
+    const sdk = require('lib/miden/transaction');
     sdk.requestCustomTransaction.mockRejectedValueOnce(new Error('bad request'));
     await expect(
       driveConfirmation(
@@ -995,7 +995,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumeTransaction rejects with InvalidParams when consume throws', async () => {
-    const sdk = require('lib/miden/activity/transactions');
+    const sdk = require('lib/miden/transaction');
     sdk.initiateConsumeTransactionFromId.mockRejectedValueOnce(new Error('consume failed'));
     await expect(
       driveConfirmation(

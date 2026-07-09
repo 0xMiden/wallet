@@ -378,8 +378,12 @@ jobs:
     name: Mobile E2E (devnet)
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
-    # used by dapp-browser's WKWebViewController.
-    runs-on: macos-26
+    # used by dapp-browser's WKWebViewController. The -xlarge size is the
+    # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
+    # IO contention) — the shared standard macos-26 runners were intermittently
+    # degraded for hours at a time, with CoreSimulator install/launch crawling
+    # so badly that two-sim `_simPair` setup couldn't finish even in 13-15 min.
+    runs-on: macos-26-xlarge
     # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
@@ -534,11 +538,13 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run blockchain E2E (mobile, devnet)
-        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
-        # runners. Each fixture retries install → launch → CDP connect from
-        # scratch, so a transient webinspectord hiccup doesn't fail the run.
-        # Config stays at retries: 0 for fast local dev feedback.
-        run: yarn playwright test --config playwright.ios.config.ts --retries=1
+        # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
+        # CoreSimulator sim-setup failures on macos-26 runners. Each fixture
+        # retries install → launch → CDP connect from scratch (and restarts the
+        # sim subsystem on a wedged daemon), so a transient runner hiccup gets
+        # multiple fresh attempts within the job budget. Config stays at
+        # retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --retries=2
 
       - name: Upload artifacts
         if: always()
@@ -552,7 +558,7 @@ jobs:
   mobile-testnet:
     name: Mobile E2E (testnet)
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
-    runs-on: macos-26
+    runs-on: macos-26-xlarge
     # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
@@ -701,11 +707,13 @@ jobs:
         run: yarn test:e2e:mobile:build
 
       - name: Run blockchain E2E (mobile, testnet)
-        # --retries=1 absorbs flaky CDP "no pages found" errors on macos-26
-        # runners. Each fixture retries install → launch → CDP connect from
-        # scratch, so a transient webinspectord hiccup doesn't fail the run.
-        # Config stays at retries: 0 for fast local dev feedback.
-        run: yarn playwright test --config playwright.ios.config.ts --retries=1
+        # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
+        # CoreSimulator sim-setup failures on macos-26 runners. Each fixture
+        # retries install → launch → CDP connect from scratch (and restarts the
+        # sim subsystem on a wedged daemon), so a transient runner hiccup gets
+        # multiple fresh attempts within the job budget. Config stays at
+        # retries: 0 for fast local dev feedback.
+        run: yarn playwright test --config playwright.ios.config.ts --retries=2
 
       - name: Upload artifacts
         if: always()
@@ -747,8 +755,12 @@ jobs:
     name: Mobile Guardian E2E (devnet)
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'devnet'
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
-    # used by dapp-browser's WKWebViewController.
-    runs-on: macos-26
+    # used by dapp-browser's WKWebViewController. The -xlarge size is the
+    # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
+    # IO contention) — the shared standard macos-26 runners were intermittently
+    # degraded for hours at a time, with CoreSimulator install/launch crawling
+    # so badly that two-sim `_simPair` setup couldn't finish even in 13-15 min.
+    runs-on: macos-26-xlarge
     # ~40 min setup (CLI compile on cache miss + iOS build + sim cold boot)
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.
@@ -921,7 +933,7 @@ jobs:
   mobile-guardian-testnet:
     name: Mobile Guardian E2E (testnet)
     if: github.event_name != 'workflow_dispatch' || inputs.network == 'both' || inputs.network == 'testnet'
-    runs-on: macos-26
+    runs-on: macos-26-xlarge
     # ~40 min setup (CLI compile on cache miss + iOS build + sim cold boot)
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.

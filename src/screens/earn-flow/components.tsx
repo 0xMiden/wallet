@@ -40,7 +40,7 @@ export const MetricCard: FC<{ label: string; value: string; valueClassName?: str
   className
 }) => (
   <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-gray-25 px-10', className)}>
-    <div className="text-center text-[10px] font-semibold uppercase leading-none text-[#8E8E93]">{label}</div>
+    <div className="text-center text-[10px] font-semibold uppercase leading-none text-gray-secondary">{label}</div>
     <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-[#0B0B0C]', valueClassName)}>
       {value}
     </div>
@@ -54,7 +54,7 @@ export const EarnSummaryPanel: FC<{
   showMetrics?: boolean;
 }> = ({ summary, titleId, className, showMetrics = true }) => (
   <section aria-labelledby={titleId} className={className}>
-    <h1 id={titleId} className="text-base font-bold text-[#8E8E93]">
+    <h1 id={titleId} className="text-base font-bold text-gray-secondary">
       Total Earned Rewards
     </h1>
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -8,8 +8,9 @@ import { ReactComponent as LambdaClassLogo } from 'app/icons/guardian-operator-l
 import { ReactComponent as OpenZeppelinLogo } from 'app/icons/guardian-operator-logs/open-zeppelin.svg';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
-import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { hapticLight } from 'lib/mobile/haptics';
+import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
 import { cn } from 'lib/ui/util';
 
@@ -37,10 +38,8 @@ export interface ChooseGuardianScreenProps {
   // When true, hide the page-level header (title/description/learn-more) so the
   // host screen can supply its own framing.
   hideHeader?: boolean;
-  // When true, show a free-form Guardian URL input below the grid (used by the
-  // rotation flow for self-hosted guardians). A non-empty input wins over the
-  // card selection.
-  showCustomEndpoint?: boolean;
+  // When true, show a "custom Guardian URL" field below the provider grid.
+  allowCustomEndpoint?: boolean;
 }
 
 export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
@@ -50,37 +49,59 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   description,
   submitLabel,
   hideHeader = false,
-  showCustomEndpoint = false
+  allowCustomEndpoint = false
 }) => {
   const { t } = useTranslation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [isCustom, setIsCustom] = useState(false);
+  const [customUrl, setCustomUrl] = useState('');
+  const [customError, setCustomError] = useState<string | null>(null);
 
-  const options = useMemo<GuardianOption[]>(() => GUARDIAN_OPTIONS, []);
+  // Providers that run a Guardian on the active network, resolved to their
+  // endpoint on it.
+  const options = useMemo(() => getGuardianOptionsForNetwork(), []);
 
+  // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
+  // the CURRENT operator, so the user has to deliberately pick a different one to
+  // switch — never nudge them onto another operator by default. In the create
+  // flow (no `currentEndpoint`) default to the first provider.
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
-      const other = options.find(o => o.endpoint !== currentEndpoint);
-      if (other) return other.id;
+      const current = options.find(o => o.endpoint === currentEndpoint);
+      if (current) return current.id;
     }
-    return options[0]!.id;
+    return options[0]?.id ?? '';
   }, [currentEndpoint, options]);
 
   const [selectedId, setSelectedId] = useState<string>(defaultId);
-  const [customEndpoint, setCustomEndpoint] = useState('');
-  const trimmedCustomEndpoint = customEndpoint.trim();
+  // Until the user makes an explicit choice, keep the selection in sync with
+  // `defaultId` so a `currentEndpoint` that resolves after mount (async store
+  // hydration) still updates the highlighted card.
+  const userSelectedRef = useRef(false);
+  useEffect(() => {
+    if (!userSelectedRef.current) setSelectedId(defaultId);
+  }, [defaultId]);
 
   const handleSelect = (id: string) => {
     hapticLight();
+    userSelectedRef.current = true;
     setSelectedId(id);
-    setCustomEndpoint('');
+    setIsCustom(false);
   };
 
   const handleContinue = () => {
-    if (showCustomEndpoint && trimmedCustomEndpoint) {
-      onSubmit?.({ guardianId: 'custom', guardianEndpoint: trimmedCustomEndpoint });
+    if (isCustom) {
+      const sanitized = sanitizeGuardianUrl(customUrl);
+      if (!isValidGuardianUrl(sanitized)) {
+        setCustomError(t('invalidUrl'));
+        return;
+      }
+      setCustomError(null);
+      onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
       return;
     }
-    const selected = options.find(o => o.id === selectedId) ?? options[0]!;
+    const selected = options.find(o => o.id === selectedId) ?? options[0];
+    if (!selected) return;
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
 
@@ -110,7 +131,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
         <div className="grid grid-cols-[repeat(2,177px)] justify-center gap-x-4 gap-y-3 mt-7">
           {options.map(option => {
-            const isSelected = selectedId === option.id && !trimmedCustomEndpoint;
+            const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
             const { Logo, paddingXClass } = GUARDIAN_LOGOS[option.id]!;
@@ -139,7 +160,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     <Logo className={clsx('[&_path]:fill-heading-gray', paddingXClass)} />
                   </div>
                 </button>
-                <div className="mt-2 px-1 text-center text-[#8E8E93] text-[10px] leading-tight">
+                <div className="mt-2 px-1 text-center text-gray-secondary dark:text-pure-white text-[10px] leading-tight">
                   <p className="">
                     {t('guardianOperatedBy')} <span className="font-bold">{option.operatedBy}</span>
                   </p>
@@ -153,18 +174,33 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
           })}
         </div>
 
-        {showCustomEndpoint && (
-          <div className="mt-6 pt-5 border-t border-grey-100 dark:border-grey-800">
-            <h2 className="text-lg font-semibold text-heading-gray">{t('customEndpoint')}</h2>
-            <p className="text-sm text-text-tertiary-token mt-1">{t('customEndpointDescription')}</p>
-            <div className="mt-3">
-              <Input
-                id="custom-guardian-endpoint"
-                value={customEndpoint}
-                placeholder={t('customEndpointPlaceholder')}
-                onChange={event => setCustomEndpoint(event.target.value)}
-              />
-            </div>
+        {allowCustomEndpoint && (
+          <div className="mt-4 flex flex-col gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                hapticLight();
+                setIsCustom(prev => !prev);
+                setCustomError(null);
+              }}
+              className="self-start text-xs font-bold text-primary-500"
+            >
+              {t('useCustomGuardianUrl')}
+            </button>
+            {isCustom && (
+              <>
+                <Input
+                  id="custom-guardian-endpoint"
+                  value={customUrl}
+                  placeholder="https://"
+                  onChange={event => {
+                    setCustomUrl(event.target.value);
+                    if (customError) setCustomError(null);
+                  }}
+                />
+                {customError && <p className="text-red-500 text-xs">{customError}</p>}
+              </>
+            )}
           </div>
         )}
 
@@ -172,6 +208,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
           <Button title={submitLabel ?? t('continue')} onClick={handleContinue} />
         </div>
       </div>
+
       <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
     </div>
   );

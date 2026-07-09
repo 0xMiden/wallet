@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
-import type { TimelineRecorder } from '../harness/timeline-recorder';
 import type { IdbDumpSource } from './idb-dump';
+import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 const PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -81,6 +81,12 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
     latestTxId?: string;
     error?: string;
   }>;
+  /**
+   * Refresh the Zustand `balances` projection from the account vault so a
+   * subsequent quickBalanceSnapshot() reflects freshly-consumed notes. See the
+   * implementation for why the stress settle loop needs this.
+   */
+  refreshBalances(): Promise<void>;
   /** Full dump of chrome.storage.local — end-of-run forensic snapshot. */
   dumpChromeStorage(): Promise<Record<string, unknown>>;
   /**
@@ -261,8 +267,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     return { address };
   }
 
-  // ── Address ───────────────────────────────────────────────────────────────
-
   /**
    * Extract the wallet account address.
    *
@@ -341,12 +345,19 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    *   - does not require the Explore page to be visible
    *
    * Reads straight from the Zustand store + `chrome.storage.local`:
-   *   - `balance` = consumed vault assets (matches getBalance's first source)
+   *   - `balance` = consumed vault assets, as last projected into the store
    *   - `pendingNotes` = full list of claimable notes (id + amount)
-   *   - `totalReportable` = balance + Σ pendingNotes — matches getBalance()
+   *   - `totalReportable` = balance + Σ pendingNotes
    *   - `pendingTxCount` / `lastTxId` = wallet's recent outgoing transactions
    *
    * Safe to call every op: measured at ~50 ms per wallet.
+   *
+   * CAVEAT: because it skips `fetchBalances`, the `balance` half is only as
+   * fresh as the store's last projection. A note that has been consumed but
+   * not yet re-fetched into `state.balances` is in neither `balance` nor
+   * `pendingNotes`, so `totalReportable` transiently under-counts. Callers that
+   * need an authoritative total (e.g. a conservation assertion) must call
+   * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
   async quickBalanceSnapshot(): Promise<{
     balance: number;
@@ -640,6 +651,37 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     } catch (e) {
       console.log(`[WalletPage.getBalance] Error: ${e}`);
       return 0;
+    }
+  }
+
+  /**
+   * Refresh the Zustand `balances` projection from the account vault — the same
+   * `state.fetchBalances` call getBalance() makes, but without navigating or
+   * waiting, so it's cheap enough for the stress settle loop to call each poll.
+   *
+   * Why this exists: quickBalanceSnapshot() is deliberately non-invasive and
+   * never calls `fetchBalances`, so its `balance` half can be stale. The stress
+   * settle loop's triggerSync() fires PROCESS_TRANSACTIONS_REQUEST, which
+   * auto-consumes pending notes: a consumed note leaves `miden_sync_data.notes`
+   * (dropping out of the snapshot's fresh `pendingSum`) but its value only
+   * lands in `state.balances` after a `fetchBalances`. Without this refresh the
+   * consumed value is counted in neither bucket, so `totalReportable`
+   * under-counts and strict conservation reports a phantom loss. Calling this
+   * before the final snapshot makes it authoritative — matching the initial
+   * baseline, which uses getBalance() and so refreshes the same way.
+   */
+  async refreshBalances(): Promise<void> {
+    try {
+      await this.page.evaluate(async () => {
+        const store = (window as any).__TEST_STORE__;
+        const state = store?.getState?.();
+        if (state?.currentAccount?.publicKey && state.fetchBalances) {
+          await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
+        }
+      });
+    } catch {
+      // Best-effort: a failed refresh leaves the prior balance in place and the
+      // settle loop retries on its next poll.
     }
   }
 
@@ -1008,22 +1050,26 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
 
-    // 3. SelectAmount: open the token sub-screen, pick a token, then fill the
+    // 3. SelectAmount: open the token picker, pick a token, then fill the
     // amount. The amount Confirm stays disabled until a token is picked.
+    // The picker is a bottom-sheet drawer PORTALED outside the send-flow
+    // container, so its content must be page-scoped — wait for the drawer
+    // to mount before enumerating rows.
     await sendFlow.getByTestId('send-token-selector').click({ timeout: STEP_TIMEOUT_MS });
+    await this.page.getByTestId('send-token-search').waitFor({ timeout: STEP_TIMEOUT_MS });
 
     if (params.tokenSymbol) {
-      const tokenRow = sendFlow.getByTestId(`send-token-${params.tokenSymbol}`);
+      const tokenRow = this.page.getByTestId(`send-token-${params.tokenSymbol}`);
       const symbolRowCount = await tokenRow.count().catch(() => 0);
       if (symbolRowCount > 0) {
         await tokenRow.first().click({ timeout: STEP_TIMEOUT_MS });
       } else {
         // No row for the requested symbol — fall back to the first non-MIDEN row
         // (MIDEN typically sits at 0 balance above the real fundable token).
-        await this.clickFirstNonMidenTokenRow(sendFlow, STEP_TIMEOUT_MS);
+        await this.clickFirstNonMidenTokenRow(this.page, STEP_TIMEOUT_MS);
       }
     } else {
-      await this.clickFirstNonMidenTokenRow(sendFlow, STEP_TIMEOUT_MS);
+      await this.clickFirstNonMidenTokenRow(this.page, STEP_TIMEOUT_MS);
     }
 
     // Back on SelectAmount after the sub-screen closes.
@@ -1031,7 +1077,15 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await sendFlow.getByTestId('send-amount-confirm').click({ timeout: STEP_TIMEOUT_MS });
 
     // 4. Force the note type. The public/private toggle was removed (private by
-    // default); the E2E hook persists the choice across the remaining steps.
+    // default). Review is now a separate full-screen route (/send/review) that
+    // installs the E2E hook on mount — wait for it before calling.
+    await this.page.waitForFunction(
+      () =>
+        typeof (window as unknown as { __TEST_SET_SHARE_PRIVATELY__?: (v: boolean) => void })
+          .__TEST_SET_SHARE_PRIVATELY__ === 'function',
+      undefined,
+      { timeout: STEP_TIMEOUT_MS }
+    );
     await this.page.evaluate(
       p =>
         (window as unknown as { __TEST_SET_SHARE_PRIVATELY__?: (v: boolean) => void }).__TEST_SET_SHARE_PRIVATELY__?.(
@@ -1040,8 +1094,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       params.isPrivate
     );
 
-    // 5. ReviewTransaction: submit. The flow unmounts on success.
-    await sendFlow.getByTestId('send-review-submit').click({ timeout: STEP_TIMEOUT_MS });
+    // 5. ReviewTransaction: submit. Page-scoped — the review page renders
+    // outside the send-flow container now.
+    await this.page.getByTestId('send-review-submit').click({ timeout: STEP_TIMEOUT_MS });
 
     // 6. Treat the submit button detaching as the "submit accepted" signal — the
     // send flow navigates to home/completion once the request is dispatched.
@@ -1073,10 +1128,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * MIDEN is the only one present.
    */
   private async clickFirstNonMidenTokenRow(
-    sendFlow: ReturnType<Page['getByTestId']>,
+    scope: Page | ReturnType<Page['getByTestId']>,
     timeoutMs: number
   ): Promise<void> {
-    const rows = sendFlow.locator('[data-testid^="send-token-"]');
+    const rows = scope.locator('[data-testid^="send-token-"]');
     const total = await rows.count().catch(() => 0);
     for (let i = 0; i < total; i++) {
       const row = rows.nth(i);

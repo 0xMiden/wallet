@@ -269,6 +269,11 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SwapHotKeyResponse
       };
+    case WalletMessageType.SetGuardianEndpointRequest:
+      await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
+      return {
+        type: WalletMessageType.SetGuardianEndpointResponse
+      };
     case WalletMessageType.GetPublicKeyForCommitmentRequest:
       const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
       return {

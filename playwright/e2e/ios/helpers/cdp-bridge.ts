@@ -14,6 +14,39 @@ const SELECT_APP_POLL_MS = 1_500;
 const PAGE_READY_TIMEOUT = 15_000;
 const SOCKET_DISCOVERY_TIMEOUT = 30_000;
 
+// A synchronous `execute_script` (reading window.__TEST_* globals) returns in
+// milliseconds. If `executeAtom` hasn't resolved within this window, the
+// WebView's RWI socket or its main JS thread is wedged. Surface it as a throw
+// so callers (notably pollForCondition) can enforce their own deadline and let
+// --retries restart on a fresh app + CDP, instead of the whole test hanging
+// until the global Playwright timeout. Mirrors evalAsync's async-callback guard.
+const EVAL_HARD_TIMEOUT_MS = 30_000;
+
+/**
+ * Race a CDP call against a hard wall-clock timeout. A WebKit RemoteDebugger
+ * `executeAtom` can hang indefinitely when the inspected page's main thread is
+ * blocked (e.g. mobile main-thread WASM) or the RWI socket wedges; this bounds
+ * it so a transient stall becomes a fast, retriable failure rather than a
+ * multi-minute hang.
+ */
+async function withHardTimeout<T>(exec: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  // If the timeout wins the race, the abandoned `exec` may settle later; attach
+  // a no-op catch so a late rejection doesn't surface as an unhandledRejection.
+  exec.catch(() => {});
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label}: CDP call did not return within ${timeoutMs}ms (WebView/RWI wedged)`)),
+      timeoutMs
+    );
+  });
+  try {
+    return await Promise.race([exec, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 interface ConnectOpts {
   udid: string;
   bundleId: string;
@@ -69,13 +102,14 @@ export class CdpSession {
    * For Promise-returning code, use `evalAsync` — `eval` resolves the
    * Promise object itself, not its value.
    */
-  async eval<T = unknown>(body: string): Promise<T> {
+  async eval<T = unknown>(body: string, opts: { timeoutMs?: number } = {}): Promise<T> {
     const start = Date.now();
+    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
+      body,
+      [],
+    ]) as Promise<T>;
     try {
-      return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-        body,
-        [],
-      ])) as T;
+      return await withHardTimeout(exec, opts.timeoutMs ?? EVAL_HARD_TIMEOUT_MS, 'eval');
     } finally {
       this.stats.evalCount++;
       this.stats.evalMs += Date.now() - start;
@@ -85,11 +119,22 @@ export class CdpSession {
   /**
    * Evaluate asynchronous JavaScript. The body MUST call the callback
    * `arguments[arguments.length - 1]` with its result — this is the
-   * `execute_async_script` WebDriver atom contract. Useful when the page
-   * code awaits Promises (store.fetchBalances, intercom.request, etc.).
+   * `execute_async_script` WebDriver atom contract.
    *
-   * The optional outer timeout protects against scripts that never invoke
-   * the callback — without it, executeAtomAsync waits forever. Default 30s.
+   * ⚠️ BROKEN on this iOS RWI bridge — prefer the synchronous `eval` and poll.
+   * appium-remote-debugger's `execute_async_script` atom delivers its
+   * completion callback in the `arguments[arguments.length - 1]` slot as the
+   * boolean `true` (not a function) here, so `cb(result)` throws
+   * `TypeError: cb is not a function`, the promise rejects unhandled, the
+   * callback never fires, and the call ALWAYS hangs to the timeout below —
+   * regardless of how fast the script itself completes. (See
+   * `getGuardianAuthInfo`, which used to use this and now reads its data over
+   * the reliable sync `eval` atom instead.) If you need to await page Promises,
+   * stash the resolved value on a global from the page's own code and poll it
+   * with `eval`, rather than relying on this callback.
+   *
+   * The outer timeout protects against scripts that never invoke the callback —
+   * without it, executeAtomAsync waits forever. Default 30s.
    */
   async evalAsync<T = unknown>(body: string, opts: { timeoutMs?: number } = {}): Promise<T> {
     const timeoutMs = opts.timeoutMs ?? 30_000;
@@ -123,14 +168,15 @@ export class CdpSession {
    * it's stringified via Function.prototype.toString and re-parsed in the
    * page. Callers in this harness only read window.__TEST_* globals.
    */
-  async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {
+  async evaluate<T = unknown>(fn: () => T | Promise<T>, opts: { timeoutMs?: number } = {}): Promise<T> {
     const body = `return (${fn.toString()})();`;
     const start = Date.now();
+    const exec = (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
+      body,
+      [],
+    ]) as Promise<T>;
     try {
-      return (await (this.rd as unknown as ExecuteAtomCapable).executeAtom('execute_script', [
-        body,
-        [],
-      ])) as T;
+      return await withHardTimeout(exec, opts.timeoutMs ?? EVAL_HARD_TIMEOUT_MS, 'evaluate');
     } finally {
       this.stats.evaluateCount++;
       this.stats.evaluateMs += Date.now() - start;

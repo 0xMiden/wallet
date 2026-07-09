@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.15.2",
+  "version": "1.15.6",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -11,7 +11,7 @@
     "rev": "733720a7ce5886a390c848402b61079be1e6aa38"
   },
   "scripts": {
-    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules && patch-package",
+    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package",
     "start": "yarn watch:src",
     "dev": "rimraf ./dist && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:bg && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:cs && concurrently -n bg,ext -c blue,green \"cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development vite build --config vite.background.config.ts --watch\" \"cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 MODE_ENV=development NODE_ENV=development vite build --config vite.extension.config.ts --watch\"",
     "dev-clean": "rimraf node_modules && yarn cache clean && yarn install && yarn dev",
@@ -326,6 +326,8 @@
     ]
   },
   "resolutions": {
+    "@miden-sdk/miden-sdk": "file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client",
+    "@miden-sdk/react": "0.15.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",

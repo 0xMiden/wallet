@@ -26,8 +26,8 @@ android {
         applicationId "com.miden.wallet"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 11502001
-        versionName "1.15.2"
+        versionCode 11506001
+        versionName "1.15.6"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

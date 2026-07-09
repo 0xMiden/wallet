@@ -272,7 +272,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       ? t('incorrectPasscode')
       : t('enterYour6DigitCode');
 
-  const subtitleClass = isDisabled || isError ? 'text-red-500' : 'text-[#8E8E93]';
+  const subtitleClass = isDisabled || isError ? 'text-red-500' : 'text-gray-secondary';
 
   return (
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="unlock-passcode">

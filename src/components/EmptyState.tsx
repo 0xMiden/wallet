@@ -18,11 +18,14 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   ...props
 }) => {
   return (
-    <div {...props} className={classNames('flex flex-col items-center justify-center gap-y-1', className)}>
+    <div
+      {...props}
+      className={classNames('flex flex-col items-center justify-center gap-y-1 text-heading-gray', className)}
+    >
       <Icon name={icon} fill="currentColor" size="xl" />
       <div className="flex flex-col items-center gap-y-2">
         <h1 className="font-semibold text-lg">{title}</h1>
-        <p className="text-sm">{description}</p>
+        <p className="text-sm text-text-muted">{description}</p>
       </div>
     </div>
   );

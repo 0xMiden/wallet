@@ -102,7 +102,7 @@ export class SimulatorControl {
     //
     // bootstatus failing is a HARD error: continuing onto a half-booted
     // simulator does not produce "a clearer error later" — it produces
-    // simctl install/launch calls that hang for the entire 15-minute test
+    // simctl install/launch calls that hang for the entire per-test
     // timeout, twice (observed on macos-26 runners). One shutdown→boot
     // cycle is allowed to recover a wedged first boot; after that, fail
     // loudly so the job dies in minutes with the real cause named.
@@ -236,7 +236,21 @@ export class SimulatorControl {
       // Non-zero if the process was already gone (or sudo unavailable off CI) —
       // the daemon respawns on the next simctl call regardless.
     }
-    await sleep(5_000);
+    // Give launchd time to respawn a clean daemon before we drive it again.
+    await sleep(8_000);
+
+    // Clear wedged device state on the freshly-respawned daemon. A degraded
+    // macos-26 CoreSimulator leaves devices in a half-booted state that makes
+    // every subsequent `simctl` op crawl or fail (SimError 405 on terminate);
+    // restarting the daemon alone doesn't reset the devices. `shutdown all`
+    // forces them back to a clean Shutdown state so the boot below starts fresh.
+    // Best-effort and bounded — a still-wedged daemon will time out here, and
+    // the boot loop will surface the real failure.
+    try {
+      await execFileAsync('xcrun', ['simctl', 'shutdown', 'all'], { timeout: 60_000 });
+    } catch {
+      // Best-effort — ensureBooted below recovers individual devices anyway.
+    }
     // webinspectord_sim only exposes WebViews while Simulator.app is running;
     // killing the daemon tears it down, so bring it back before re-booting.
     try {
@@ -256,7 +270,7 @@ export class SimulatorControl {
 
 // Every simctl call gets a hard timeout: on macos-26 CI runners a single
 // `simctl install` / `launch` against an unhealthy simulator hangs
-// indefinitely, silently eating the whole 15-minute test timeout with no
+// indefinitely, silently eating the whole per-test timeout with no
 // attribution. Failing in 3 minutes with the command named turns that into
 // a diagnosable error (and lets the per-test recovery + CI retry actually
 // kick in — see SimulatorControl.recoverSimSubsystem).

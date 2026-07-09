@@ -114,13 +114,25 @@ function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string
     iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
   }
 
-  const title = faucet ? t('faucetRequestTitle') : entry.message || '';
-  const subtitle = entry.secondaryAddress
-    ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
-    : undefined;
+  // Swap rows read "Swap {offered} → {requested}" with the venue as the
+  // subtitle, and show the requested side (what the user receives) on the right.
+  const isSwap = !faucet && !isFailed && entry.txType === 'swap';
+
+  const title = faucet
+    ? t('faucetRequestTitle')
+    : isSwap && entry.token && entry.requestedToken
+      ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
+      : entry.message || '';
+  const subtitle = isSwap
+    ? t('viaInProtocolDex')
+    : entry.secondaryAddress
+      ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
+      : undefined;
 
   let amount: { value: string; symbol?: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
-  if (entry.amount !== undefined) {
+  if (isSwap && entry.requestedAmount) {
+    amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
+  } else if (entry.amount !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
     amount = { value: `${sign}${entry.amount.toString()}`, symbol: entry.token, direction: amountDirection };
   }

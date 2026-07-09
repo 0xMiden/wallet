@@ -1,44 +1,29 @@
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { yupResolver } from '@hookform/resolvers/yup';
-import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
 import classNames from 'clsx';
-import { addDays, format } from 'date-fns';
-import { SubmitHandler, useForm } from 'react-hook-form';
-import { useDebouncedCallback } from 'use-debounce';
+import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
-import { EVM_AGGLAYER_NETWORK_ID, MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
-import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { useMidenContext } from 'lib/miden/front/client';
-import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
-import { NoteTypeEnum } from 'lib/miden/types';
-import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
-import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
+import { isValidMidenAddress } from 'utils/miden';
 
-import { AccountsList } from './AccountsList';
-import { BRIDGE_OUTPUT_TOKEN_SYMBOL, DEFAULT_BRIDGE_NETWORK, getBridgeNetwork } from './bridge-networks';
-import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
-import { ReviewTransaction } from './ReviewTransaction';
-import { Route as RouteStep } from './Route';
+import { AccountsListDrawer } from './AccountsList';
 import { SelectAmount } from './SelectAmount';
-import { SelectNetwork } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
-import { SelectToken } from './SelectToken';
-import { BridgeRoute, Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
-import { useEpochQuote } from './useEpochQuote';
+import { SelectTokenDrawer } from './SelectToken';
+import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { Contact, SendFlowAction, SendFlowActionId, SendFlowForm, SendFlowStep, UIToken } from './types';
 import { WalletType } from '../onboarding/types';
 
 const ROUTES: Route[] = [
@@ -51,31 +36,6 @@ const ROUTES: Route[] = [
     name: SendFlowStep.SelectAmount,
     animationIn: 'push',
     animationOut: 'pop'
-  },
-  {
-    name: SendFlowStep.SelectToken,
-    animationIn: 'push',
-    animationOut: 'pop'
-  },
-  {
-    name: SendFlowStep.SelectNetwork,
-    animationIn: 'push',
-    animationOut: 'pop'
-  },
-  {
-    name: SendFlowStep.Route,
-    animationIn: 'push',
-    animationOut: 'pop'
-  },
-  {
-    name: SendFlowStep.AccountsList,
-    animationIn: 'present',
-    animationOut: 'dismiss'
-  },
-  {
-    name: SendFlowStep.ReviewTransaction,
-    animationIn: 'push',
-    animationOut: 'pop'
   }
 ];
 
@@ -86,12 +46,10 @@ const validations = {
     .test('is-greater-than-zero', 'Amount must be greater than 0', value => {
       return parseFloat(value) > 0;
     }),
-  sharePrivately: yup.boolean().required(),
   recipientAddress: yup
     .string()
     .required()
-    .test('is-valid-address', 'Invalid address', value => isValidRecipientAddress(value ?? '')),
-  recallBlocks: yup.number()
+    .test('is-valid-address', 'Invalid address', value => isValidMidenAddress(value))
 };
 
 const validationSchema = yup.object().shape(validations).required();
@@ -99,18 +57,32 @@ const validationSchema = yup.object().shape(validations).required();
 export interface SendManagerProps {
   isLoading: boolean;
   preselectedTokenId?: string | null;
+  /** Values restored when the user backs out of the full-screen review page. */
+  draft?: SendDraft | null;
 }
 
-export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) => {
+export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, draft }) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
+  const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const { signTransaction } = useMidenContext();
   const delegateEnabled = isDelegateProofEnabled();
-  const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
-  const [recallTime, setRecallTime] = useState('12:00');
 
   const { contacts: addressBookContacts } = useFilteredContacts();
+
+  // Token picker is a bottom sheet over the Amount step, not a Navigator step.
+  const [showTokenDrawer, setShowTokenDrawer] = useState(false);
+  // Contact picker is likewise a bottom sheet over the recipient step.
+  const [showContactsDrawer, setShowContactsDrawer] = useState(false);
+
+  // Hide the floating BottomNav once the user moves past recipient selection,
+  // so the step CTAs can sit at the actual bottom of the screen. Gated on the
+  // pathname because SendManager stays mounted inside HomeSwipeContainer even
+  // when another home-group page is centered — without the gate, a send flow
+  // left mid-step would hide the navbar on Overview too.
+  const currentStep = cardStack[cardStack.length - 1]?.name;
+  const pastRecipientStep = pathname === '/send' && currentStep !== SendFlowStep.SelectRecipient;
+  useHideNavbarWhileOpen(pastRecipientStep);
 
   const allContactsList: Contact[] = useMemo(() => {
     const walletContacts: Contact[] = allAccounts
@@ -139,143 +111,185 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     navigate('/');
   }, []);
 
-  // Handle mobile back button/gesture
+  // Handle mobile back button/gesture. Open bottom sheets close first;
+  // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
-    if (cardStack.length > 1) {
-      goBack(); // Go to previous step (e.g. back from review)
+    if (showContactsDrawer) {
+      setShowContactsDrawer(false);
       return true;
     }
-    // On the root step, close the entire flow
+    if (showTokenDrawer) {
+      setShowTokenDrawer(false);
+      return true;
+    }
+    if (cardStack.length > 1) {
+      goBack(); // Go to previous step
+      return true;
+    }
+    // On first step, close entire flow
     onClose();
     return true;
-  }, [cardStack.length, goBack, onClose]);
+  }, [showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
-  const navigateToGeneratingTransaction = useCallback((txId?: string) => {
-    navigate({
-      pathname: '/generating-transaction-full',
-      search: txId ? `?txId=${encodeURIComponent(txId)}` : ''
-    });
-  }, []);
-
-  const onGenerateTransaction = useCallback(() => {
-    navigateToGeneratingTransaction();
-  }, [navigateToGeneratingTransaction]);
+  // Dismiss any stale completion modal on send-flow entry.
+  //
+  // After PR #230, the TransactionProgressModal auto-dismiss is gated on
+  // terminal-state signals so the "Done" screen stays visible until the
+  // user explicitly taps Done. The modal renders as `fixed inset-0` with
+  // `zIndex: 9999` and no `pointer-events: none` — while it's open it
+  // intercepts every click in the viewport.
+  //
+  // The modal is shared across the wallet: SendManager opens it for
+  // sends, Receive opens it for claims, ConfirmPage opens it for dApp
+  // requests. Any of those completing leaves it sticky. In stress and in
+  // any user flow that initiates a send while a previous send/claim/dApp
+  // tx's completion screen is still up, navigating to `/send` finds the
+  // SelectToken tile blocked behind the modal — Playwright sees
+  // `locator.click` time out against
+  // `getByTestId('send-flow').locator('div.cursor-pointer')`. An
+  // earlier fix gated on `lastCompletedTxHash !== null`, which only
+  // catches the send-completion case (that hash is set by SendManager's
+  // onSubmit only) — claim/dApp completions still produced sticky
+  // modals because they leave the hash null but still flip
+  // `transactionComplete` true via the Dexie queue going empty.
+  //
+  // Entering /send is a clear "I'm starting a new transaction" signal,
+  // equivalent to tapping Done on whatever was open. In-flight modals can't
+  // reach this code path here because PR #217's `pathname`-watching effect in
+  // the modal already auto-dismisses non-terminal opens on navigation away
+  // from `settledPathname`, so the only `isTransactionModalOpen === true`
+  // state reachable here is terminal.
+  //
+  // Gated on `/send` (not run-once-on-mount): submit now happens on the
+  // full-screen `/send/review` route where TabLayout is unmounted, so the
+  // post-success navigate('/') freshly mounts SendManager — a mount effect
+  // would instantly dismiss the "Done" modal and null the Midenscan hash.
+  useEffect(() => {
+    if (pathname !== '/send') return;
+    const state = useWalletStore.getState();
+    if (state.isTransactionModalOpen) {
+      state.closeTransactionModal(true);
+    }
+    if (state.lastCompletedTxHash !== null) {
+      state.setLastCompletedTxHash(null);
+    }
+  }, [pathname]);
 
   const {
     register,
     watch,
-    handleSubmit,
     setError,
     clearErrors,
     setValue,
     trigger,
-    formState: { errors, isSubmitting }
+    formState: { errors }
   } = useForm<SendFlowForm>({
     defaultValues: {
-      amount: undefined,
-      sharePrivately: true,
-      recipientAddress: undefined,
-      recallBlocks: undefined,
-      token: undefined,
-      bridgeRoute: 'epoch'
+      amount: draft?.amount,
+      recipientAddress: draft?.recipientAddress,
+      token: undefined
     },
     resolver: yupResolver(validationSchema) as any
   });
 
   useEffect(() => {
     register('amount');
-    register('sharePrivately');
     register('recipientAddress');
-    register('recallBlocks');
     register('token');
-    register('bridgeNetwork');
-    register('bridgeRoute');
   }, [register]);
 
-  // E2E-only hook: the per-send privacy toggle was removed from the UI, so the
-  // harness can't pick a PUBLIC send by clicking. Mirror the __TEST_STORE__ gate
-  // (process.env.MIDEN_E2E_TEST === 'true') and expose a setter that flips the
-  // react-hook-form `sharePrivately` field. Zero production impact.
-  useEffect(() => {
-    if (process.env.MIDEN_E2E_TEST !== 'true') return;
-    (globalThis as any).__TEST_SET_SHARE_PRIVATELY__ = (v: boolean) => setValue('sharePrivately', v);
-    return () => {
-      delete (globalThis as any).__TEST_SET_SHARE_PRIVATELY__;
-    };
-  }, [setValue]);
-
   const amount = watch('amount');
-  const sharePrivately = watch('sharePrivately');
   const recipientAddress = watch('recipientAddress');
-  const recallBlocks = watch('recallBlocks');
   const token = watch('token');
-  const bridgeNetwork = watch('bridgeNetwork');
-  const bridgeRoute = watch('bridgeRoute');
 
-  // delegateTransaction is driven exclusively by the global proving setting
-  // (the per-send toggle was removed). Read fresh each render so a settings
-  // change while the flow is open takes effect.
-  const delegateTransaction = delegateEnabled;
-
-  // A 0x recipient routes through the bridge instead of a same-chain Miden send.
-  const isBridge = !!recipientAddress && detectAddressChain(recipientAddress) === 'ethereum';
-  const bridgeNetworkObj = getBridgeNetwork(bridgeNetwork);
-
-  // Cross-chain sends are restricted to the single bridgeable faucet token.
-  const isBridgeableToken =
-    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
-
-  // Default a cross-chain send to the only destination network (Sepolia) so the
-  // Amount screen shows "Network: Sepolia · arrives as USDC" without an extra tap.
+  // Speculative pre-prove: kick off execute + offscreen prove in the SW
+  // as soon as the SendDetails form is valid, so the proof can finish
+  // (~5-10s) while the user is still on details/review. Without an early
+  // trigger, the user reaches review with the proof not yet started; their
+  // typical 2-3s on review isn't enough to absorb the 10s prove cost.
+  //
+  // Cache lives in SW memory keyed by params hash; consumed by
+  // MidenClientInterface.proveLocallyViaOffscreen on actual submit. If
+  // the user clicks Confirm BEFORE the speculation finishes,
+  // proveLocallyViaOffscreen calls SpeculationManager.awaitMatching to
+  // wait on the in-flight prove instead of starting a duplicate one
+  // (Fix B).
+  //
+  // Discarded-CPU bound: the SpeculationManager already serializes (one
+  // active + one pending slot). Rapid form changes replace `pending`
+  // before it ever runs, and the in-flight `active` is marked stale and
+  // its result discarded. Worst case: ONE extra prove's worth of CPU per
+  // session of form edits, regardless of how many keystrokes. The 500ms
+  // React-level debounce below further trims churn during typing.
+  //
+  // Gates:
+  //   - feature flag MIDEN_USE_SPECULATIVE_PROVING
+  //   - extension context only (intercom doesn't exist on mobile/desktop)
+  //   - global setting must be local proving (delegate path is just an RPC)
+  //   - form must be valid (recipient is a Miden address, amount > 0
+  //     and <= balance)
+  //
+  // Known gap: the review page always seeds a 7-day recallBlocks, while this
+  // speculation proves a no-recall tx — a guaranteed params-hash mismatch, so
+  // the cached prove goes unused (one wasted prove per send). The flag is off
+  // by default; carrying the seeded recallBlocks into the speculate request is
+  // the fix if it's ever enabled.
   useEffect(() => {
-    if (isBridge && !bridgeNetwork) {
-      setValue('bridgeNetwork', DEFAULT_BRIDGE_NETWORK.id);
-    }
-  }, [isBridge, bridgeNetwork, setValue]);
-
-  // The Slow (Agglayer) route only carries the dedicated bridgeable token. If it
-  // was selected and the token changes to one it can't bridge, fall back to Fast
-  // so Review/submit don't dead-end on the bridgeable-token guard.
-  useEffect(() => {
-    if (isBridge && bridgeRoute === 'agglayer' && !isBridgeableToken) {
-      setValue('bridgeRoute', 'epoch');
-    }
-  }, [isBridge, bridgeRoute, isBridgeableToken, setValue]);
-
-  // Forward-quote the USDC output for the Fast (Epoch) route. Drives both the
-  // Route screen's Fast fee (input value − USDC out) and the Review "you receive"
-  // line. Runs for any bridge send with valid inputs, independent of the
-  // currently-selected route, so the Fast card always shows a live fee.
-  const amountBaseUnits = useMemo(() => {
-    if (!token || !amount || !validations.amount.isValidSync(amount)) return undefined;
+    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
+    if (!isExtension()) return;
+    if (delegateEnabled) return; // delegated proving — no point speculating
+    if (!publicKey || !recipientAddress || !token || !amount) return;
+    if (!isValidMidenAddress(recipientAddress)) return;
+    const amountFloat = parseFloat(amount);
+    if (!(amountFloat > 0)) return;
+    if (amountFloat > token.balance) return;
+    let amountBig: bigint;
     try {
-      return stringToBigInt(amount, token.decimals);
+      amountBig = stringToBigInt(amount, token.decimals);
     } catch {
-      return undefined;
+      return;
     }
-  }, [token, amount]);
+    const timer = setTimeout(() => {
+      requestSpeculateSend({
+        accountId: publicKey,
+        recipientAccountId: recipientAddress,
+        faucetId: token.id,
+        // Sends are private unless E2E flips the toggle — and that only
+        // happens on the review page, where a cache miss just falls back to
+        // a normal prove.
+        noteType: 'private',
+        amount: amountBig
+      });
+    }, 500);
+    return () => {
+      // Clear the debounced trigger if deps change before it fires.
+      // We do NOT call requestSpeculateInvalidate here — the in-SW
+      // SpeculationManager already replaces pending on each new
+      // speculate() and discards stale active results. Invalidating on
+      // every keystroke would defeat the cache.
+      clearTimeout(timer);
+    };
+  }, [delegateEnabled, publicKey, recipientAddress, token, amount]);
 
-  const epochQuote = useEpochQuote({
-    amount: amountBaseUnits,
-    faucetId: token?.id,
-    destinationAddress: recipientAddress,
-    senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge
-  });
+  // One-time invalidation when the SendManager unmounts entirely (user
+  // backs out of the send flow, or the tab closes). Drops any cached
+  // completed entry and marks any active as stale so we don't carry
+  // speculative state into a future send. Skipped when a draft is pending —
+  // that unmount is the handoff to /send/review, which consumes the cache on
+  // submit and owns invalidation from there.
+  useEffect(() => {
+    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
+    if (!isExtension()) return;
+    return () => {
+      if (!hasSendDraft()) {
+        requestSpeculateInvalidate();
+      }
+    };
+  }, []);
 
-  // Fast-route fee = what the user sends (USD) minus the USDC they'd receive.
-  const fastFeeUsd = useMemo(() => {
-    if (!token || !amount || epochQuote.amount == null) return undefined;
-    const input = parseFloat(amount) * token.fiatPrice;
-    const output = parseFloat(epochQuote.amount);
-    if (!isFinite(input) || !isFinite(output)) return undefined;
-    return Math.max(0, input - output);
-  }, [token, amount, epochQuote.amount]);
-
+  // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
-
-  // Pre-select token when navigating from a token detail page.
   useEffect(() => {
     if (!preselectedTokenId || !balanceData) return;
     const match = balanceData.find(t => t.tokenId === preselectedTokenId);
@@ -289,33 +303,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     };
     setValue('token', uiToken);
   }, [preselectedTokenId, balanceData, setValue]);
-
-  // Default every send to a 7-day reclaim (expiration) height. Fetch the
-  // current block height once on flow entry and seed recallDate/recallBlocks.
-  // The user can override via the "Edit" link on the Review screen, which
-  // opens RecallCalendarDrawer; we skip seeding if a date is already set.
-  useEffect(() => {
-    if (recallDate) return;
-    let cancelled = false;
-    ensureSdkWasmReady()
-      .then(() => {
-        if (cancelled) return;
-        const rpc = new RpcClient(getRpcEndpoint());
-        return rpc.getBlockHeaderByNumber().then(header => {
-          if (cancelled) return;
-          const date = addDays(new Date(), 7);
-          setRecallDate(date);
-          setRecallTime(format(date, 'HH:mm'));
-          setValue('recallBlocks', String(dateTimeToRecallBlocks(date, header.blockNum())));
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // Run once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Re-validate the amount whenever the selected token changes. In the new
   // flow the user can type an amount before picking a token, so the balance
@@ -355,143 +342,25 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
             trigger();
           }
           break;
-        case SendFlowActionId.GenerateTransaction:
-          onGenerateTransaction();
-          break;
         default:
           break;
       }
     },
-    [navigateTo, goBack, onClose, onGenerateTransaction, setValue, trigger]
+    [navigateTo, goBack, onClose, setValue, trigger]
   );
 
-  const onSubmit = useCallback<SubmitHandler<SendFlowForm>>(async () => {
-    if (isSubmitting) {
-      return;
-    }
-    try {
-      clearErrors('root');
-      // Drop any hash from a previous completed tx before starting a fresh one,
-      // so the completion modal can't briefly flash a stale "View on Midenscan"
-      // button pointing at the previous hash.
-      useWalletStore.getState().setLastCompletedTxHash(null);
-
-      // Cross-chain (0x) recipient → bridge instead of a Miden send. Restricted
-      // to the bridgeable token; Fast=Epoch / Slow=Agglayer per the selected route.
-      if (detectAddressChain(recipientAddress!) === 'ethereum') {
-        // Agglayer (Slow) can only bridge the dedicated agglayer faucet token;
-        // Epoch (Fast) bridges any token.
-        if (bridgeRoute === 'agglayer' && !isBridgeableToken) {
-          setError('root', { type: 'manual', message: 'onlyBridgeableTokenSupported' });
-          return;
-        }
-        const amountBase = stringToBigInt(amount!, token!.decimals);
-        // Both routes mirror a normal send: create the `bridged-send` row first,
-        // then navigate to the generating-transaction screen WITH its txId so the
-        // screen tracks the real row (no navigate-first race / success flash).
-        // Errors before the row exists (e.g. a failed Epoch quote) stay on the
-        // form, where they're visible.
-        try {
-          if (bridgeRoute === 'agglayer') {
-            const txId = await initiateB2AggBridge({
-              amount: amountBase,
-              destinationAddress: recipientAddress as `0x${string}`,
-              senderPublicKey: publicKey!,
-              destinationNetwork: EVM_AGGLAYER_NETWORK_ID
-            });
-            if (isExtension()) {
-              requestSWTransactionProcessing();
-            }
-            navigateToGeneratingTransaction(txId);
-          } else {
-            // Epoch creates its row mid-solve; `onRowCreated` fires the moment it
-            // exists so we navigate then (the rest of the solve runs in the
-            // background while the screen drives the row to completion).
-            await bridgeEpochSend({
-              amount: amountBase,
-              faucetId: token!.id,
-              destinationAddress: recipientAddress as `0x${string}`,
-              senderPublicKey: publicKey!,
-              deps: { signTransaction, guardianProvider: zustandProvider },
-              onRowCreated: txId => navigateToGeneratingTransaction(txId)
-            });
-          }
-        } catch (bridgeErr: any) {
-          if (bridgeErr?.message) {
-            setError('root', { type: 'manual', message: bridgeErr.message });
-          }
-          console.error(bridgeErr);
-        }
-        return;
-      }
-
-      // Step 1: Create the transaction (same as Receive's initiateConsumeTransaction)
-      const txId = await initiateSendTransaction(
-        publicKey!,
-        recipientAddress!,
-        token!.id,
-        sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
-        stringToBigInt(amount!, token!.decimals),
-        recallBlocks ? parseInt(recallBlocks) : undefined,
-        delegateTransaction
-      );
-
-      if (isExtension()) {
-        // On extension: tell SW to process, then wait for Dexie updates
-        requestSWTransactionProcessing();
-      }
-
-      navigateToGeneratingTransaction(txId);
-    } catch (e: any) {
-      if (e.message) {
-        setError('root', { type: 'manual', message: e.message });
-      }
-      console.error(e);
-    }
-  }, [
-    isSubmitting,
-    clearErrors,
-    publicKey,
-    recipientAddress,
-    sharePrivately,
-    delegateTransaction,
-    amount,
-    recallBlocks,
-    setError,
-    token,
-    bridgeRoute,
-    isBridgeableToken,
-    signTransaction,
-    navigateToGeneratingTransaction
-  ]);
-
-  // Chain-aware address validation: 0x → Ethereum (hex), otherwise Miden bech32.
-  // The error copy matches the detected chain so an Ethereum address no longer
-  // shows the "Invalid Miden account ID" message.
-  const validateAddress = useCallback(
-    (address: string) => {
-      const trimmed = address.trim();
-      if (!trimmed) {
-        clearErrors('recipientAddress');
-        return;
-      }
-      const chain = detectAddressChain(trimmed);
-      const valid = chain === 'ethereum' ? isValidEthereumAddress(trimmed) : isValidMidenAddress(trimmed);
-      if (valid) {
-        clearErrors('recipientAddress');
-      } else {
-        setError('recipientAddress', {
-          type: 'manual',
-          message: chain === 'ethereum' ? 'invalidEthereumAddress' : 'invalidMidenAccountId'
-        });
-      }
-    },
-    [setError, clearErrors]
-  );
-
-  // Only validate once the user pauses typing, so the "invalid" message doesn't
-  // flash on every keystroke while a long address is being entered/pasted.
-  const debouncedValidateAddress = useDebouncedCallback(validateAddress, 400);
+  // Hand off to the full-screen review page, which owns the transaction
+  // pipeline. The draft lets SendManager restore the form (on the Amount
+  // step) when the user backs out of review — see send-draft.ts.
+  const onConfirmAmount = useCallback(() => {
+    if (!token || !amount || !recipientAddress) return;
+    setSendDraft({ amount, recipientAddress, tokenId: token.id });
+    navigate(
+      `/send/review?amount=${encodeURIComponent(amount)}&to=${encodeURIComponent(
+        recipientAddress
+      )}&tokenId=${encodeURIComponent(token.id)}`
+    );
+  }, [amount, recipientAddress, token]);
 
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -500,12 +369,13 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      // Clear any prior error while typing; the debounced validator re-checks
-      // once the user stops.
-      clearErrors('recipientAddress');
-      debouncedValidateAddress(address);
+      if (!isValidMidenAddress(address)) {
+        setError('recipientAddress', { type: 'manual', message: 'invalidMidenAccountId' });
+      } else {
+        clearErrors('recipientAddress');
+      }
     },
-    [onAction, clearErrors, debouncedValidateAddress]
+    [onAction, setError, clearErrors]
   );
 
   const onSelectContact = useCallback(
@@ -515,10 +385,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: contact.id }
       });
-      // Contact is picked from the AccountsList step — pop back to recipient.
-      setTimeout(() => goBack(), 300);
     },
-    [onAction, goBack, clearErrors]
+    [onAction, clearErrors]
   );
 
   const onAmountChange = useCallback(
@@ -547,19 +415,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
     [onAction]
   );
 
-  const onRouteChange = useCallback(
-    (route: BridgeRoute) => {
-      onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeRoute: route } });
-    },
-    [onAction]
-  );
-
-  // From the Amount screen: a cross-chain send picks a route next; a same-chain
-  // Miden send goes straight to review.
-  const onAmountConfirm = useCallback(() => {
-    goToStep(isBridge ? SendFlowStep.Route : SendFlowStep.ReviewTransaction);
-  }, [goToStep, isBridge]);
-
   const renderStep = useCallback(
     (route: Route) => {
       switch (route.name) {
@@ -570,7 +425,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
               error={errors.recipientAddress?.message?.toString()}
               onAddressChange={onAddressChange}
-              onAddressBook={() => goToStep(SendFlowStep.AccountsList)}
+              onAddressBook={() => setShowContactsDrawer(true)}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );
@@ -581,59 +436,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
-              isBridge={isBridge}
-              network={bridgeNetworkObj}
-              outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
+              footerClassName="pt-4 pb-6"
               onAmountChange={onAmountChange}
-              onSelectToken={() => goToStep(SendFlowStep.SelectToken)}
-              onSelectNetwork={() => goToStep(SendFlowStep.SelectNetwork)}
-              onConfirm={onAmountConfirm}
-            />
-          );
-        case SendFlowStep.SelectToken:
-          return <SelectToken onAction={onAction} />;
-        case SendFlowStep.SelectNetwork:
-          return <SelectNetwork selectedNetwork={bridgeNetwork} onAction={onAction} />;
-        case SendFlowStep.Route:
-          return (
-            <RouteStep
-              route={bridgeRoute ?? 'epoch'}
-              onRouteChange={onRouteChange}
-              fastFeeUsd={fastFeeUsd}
-              fastQuoteLoading={epochQuote.loading}
-              slowEnabled={isBridgeableToken}
-              onConfirm={() => goToStep(SendFlowStep.ReviewTransaction)}
-            />
-          );
-        case SendFlowStep.AccountsList:
-          return (
-            <AccountsList
-              recipientAccountId={recipientAddress}
-              accounts={allContactsList}
-              onClose={goBack}
-              onSelectContact={onSelectContact}
-            />
-          );
-        case SendFlowStep.ReviewTransaction:
-          return (
-            <ReviewTransaction
-              amount={amount || ''}
-              token={token}
-              recipientAddress={recipientAddress}
-              recallTime={recallTime}
-              recallDate={recallDate}
-              isBridge={isBridge}
-              network={bridgeNetworkObj}
-              route={bridgeRoute}
-              quote={epochQuote}
-              outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
-              isSubmitting={isSubmitting}
-              onAction={onAction}
-              onGoBack={goBack}
-              onClose={onClose}
-              onSubmit={handleSubmit(onSubmit)}
-              onRecallDateChange={setRecallDate}
-              onRecallTimeChange={setRecallTime}
+              onSelectToken={() => setShowTokenDrawer(true)}
+              onConfirm={onConfirmAmount}
             />
           );
         default:
@@ -645,29 +451,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       recipientAddress,
       errors.recipientAddress,
       errors.amount,
-      isBridge,
-      bridgeNetwork,
-      bridgeNetworkObj,
-      bridgeRoute,
-      isBridgeableToken,
-      epochQuote,
-      fastFeeUsd,
-      onRouteChange,
-      onAmountConfirm,
-      allContactsList,
-      onSelectContact,
-      onClose,
       onAddressChange,
-      goBack,
       amount,
       onAmountChange,
-      onAction,
       goToStep,
-      handleSubmit,
-      onSubmit,
-      isSubmitting,
-      recallDate,
-      recallTime
+      onConfirmAmount
     ]
   );
 
@@ -687,23 +475,42 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId }) 
       )}
       data-testid="send-flow"
     >
-      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col flex-1 h-full min-h-0">
+      <div className="flex flex-col flex-1 h-full min-h-0">
         <Navigator renderRoute={renderStep} />
-      </form>
+      </div>
+
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        onSelect={selectedToken => onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } })}
+      />
+
+      <AccountsListDrawer
+        open={showContactsDrawer}
+        onOpenChange={setShowContactsDrawer}
+        recipientAccountId={recipientAddress}
+        accounts={allContactsList}
+        onSelectContact={onSelectContact}
+      />
     </div>
   );
 };
 
 const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   const { search } = useLocation();
-  const preselectedTokenId = new URLSearchParams(search).get('tokenId');
-  // Always start at recipient selection; a preselected token just pre-fills the
-  // token for the Amount step (see the preselect effect in SendManager).
-  const initialRoute = SendFlowStep.SelectRecipient;
+  // One-shot: a draft exists only when the user backed out of /send/review.
+  // Restore their values and reopen on the Amount step; the token restores
+  // through the preselect effect via its id.
+  const [draft] = useState(consumeSendDraft);
+  const preselectedTokenId = draft?.tokenId ?? new URLSearchParams(search).get('tokenId');
+  // Otherwise always start at recipient selection; a preselected token just
+  // pre-fills the token for the Amount step (see the preselect effect in
+  // SendManager).
+  const initialRoute = draft ? SendFlowStep.SelectAmount : SendFlowStep.SelectRecipient;
 
   return (
     <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
-      <SendManager {...props} preselectedTokenId={preselectedTokenId} />
+      <SendManager {...props} preselectedTokenId={preselectedTokenId} draft={draft} />
     </NavigatorProvider>
   );
 };

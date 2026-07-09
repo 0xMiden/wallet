@@ -64,14 +64,15 @@ import { queueNoteImport } from '../activity';
 import { getCurrentMidenNetwork } from './safe-network';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
   initiateConsumeTransactionFromId,
   waitForTransactionCompletion
-} from '../activity/transactions';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+} from '../transaction';
 
 /**
  * Starts background transaction processing using the unified SW
@@ -125,7 +126,7 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
   if (!account) {
     throw new Error('Account not found');
   }
-  const publicKeyCommitments = account.getPublicKeyCommitments();
+  const publicKeyCommitments = resolvePublicKeyCommitments(account);
   if (publicKeyCommitments.length === 0) {
     throw new Error('Account has no public key commitments');
   }
@@ -440,7 +441,12 @@ const generatePromisifySign = async (
         if (confirmReq.confirmed) {
           try {
             let signature = await withUnlocked(async ({ vault }) => {
-              const signDataResult = await vault.signData(req.sourcePublicKey, req.payload, req.kind);
+              const signDataResult = await vault.signData(
+                req.sourcePublicKey,
+                req.payload,
+                req.kind,
+                req.sourceAccountId
+              );
               return signDataResult;
             });
             resolve({

@@ -16,7 +16,9 @@ export const zustandProvider: GuardianAccountProvider = {
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>
-    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey)
+    useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey),
+  setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
+    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
 };
 
 /**
@@ -65,7 +67,7 @@ export async function syncGuardianAccounts(): Promise<void> {
       // threshold-1 indefinitely. Idempotent + best-effort; once per session.
       if (!hardeningChecked.has(account.publicKey)) {
         hardeningChecked.add(account.publicKey);
-        const { ensureGuardianProcedureThresholds } = await import('lib/miden/activity/transactions');
+        const { ensureGuardianProcedureThresholds } = await import('lib/miden/transaction');
         await ensureGuardianProcedureThresholds(account.publicKey, undefined, zustandProvider);
       }
     } catch (error) {

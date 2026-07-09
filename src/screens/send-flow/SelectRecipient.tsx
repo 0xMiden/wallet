@@ -4,7 +4,6 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { isMobile } from 'lib/platform';
 
 const AddressBookIcon: React.FC = () => (
   <svg width="15" height="16" viewBox="0 0 11 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -51,9 +50,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   }, [address]);
 
   return (
-    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
-        <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('chooseRecipient')}</span>
+        <span className="font-heading text-2xl leading-none font-bold text-gray">{t('chooseRecipient')}</span>
 
         <div className="relative mt-3">
           <textarea
@@ -83,7 +82,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             title={t('addressBook')}
             iconLeft={<AddressBookIcon />}
             onClick={onAddressBook}
-            className="rounded-full text-base font-bold w-39.25"
+            className="rounded-full text-base font-bold w-fit!"
           />
         </div>
       </div>

@@ -22,7 +22,6 @@ export enum OnboardingStep {
   ChooseProtection = 'choose-protection',
   SetupPasscode = 'setup-passcode',
   SetupBiometric = 'setup-biometric',
-  ChooseGuardian = 'choose-guardian',
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   SelectImportType = 'select-import-type',
@@ -32,6 +31,7 @@ export enum OnboardingStep {
   BiometricSetup = 'biometric-setup',
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
+  ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
 }
@@ -54,6 +54,7 @@ export type OnboardingActionId =
   | 'biometric-setup-submit'
   | 'select-transaction-type'
   | 'select-recovery-method'
+  | 'choose-guardian'
   | 'import-select-recovery-method'
   | 'confirmation'
   | 'import-from-file'
@@ -82,10 +83,6 @@ export type SetupBiometricAction = {
 
 export type SetupBiometricSubmitAction = {
   id: 'setup-biometric-submit';
-};
-
-export type ChooseGuardianAction = {
-  id: 'choose-guardian';
 };
 
 export type ChooseGuardianSubmitAction = {
@@ -131,6 +128,11 @@ export type SelectTransactionTypeAction = {
 export type SelectRecoveryMethodAction = {
   id: 'select-recovery-method';
   payload: WalletType;
+};
+
+export type ChooseGuardianAction = {
+  id: 'choose-guardian';
+  payload: { guardianId: string; guardianEndpoint: string };
 };
 
 export type ImportSelectRecoveryMethodAction = {
@@ -183,6 +185,7 @@ export type OnboardingAction =
   | BiometricSetupSubmitAction
   | SelectTransactionTypeAction
   | SelectRecoveryMethodAction
+  | ChooseGuardianAction
   | ImportSelectRecoveryMethodAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction

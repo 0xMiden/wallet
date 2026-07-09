@@ -10,8 +10,6 @@ import { ReactComponent as ToolIconDevnet } from 'app/icons/settings/advanced-se
 import { ReactComponent as ToolIconOrange } from 'app/icons/settings/advanced-settings.svg';
 import { ReactComponent as AppsIconDevnet } from 'app/icons/settings/dapp-devnet.svg';
 import { ReactComponent as AppsIconOrange } from 'app/icons/settings/dapp.svg';
-import { ReactComponent as EncryptedWalletIconDevnet } from 'app/icons/settings/encrypted-wallet-file-devnet.svg';
-import { ReactComponent as EncryptedWalletIconOrange } from 'app/icons/settings/encrypted-wallet-file.svg';
 import { ReactComponent as SettingsIconDevnet } from 'app/icons/settings/general-devnet.svg';
 import { ReactComponent as SettingsIconOrange } from 'app/icons/settings/general.svg';
 import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/language-devnet.svg';
@@ -36,6 +34,7 @@ import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
+import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
@@ -45,7 +44,6 @@ import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { goBack, navigate } from 'lib/woozie';
-import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -58,7 +56,6 @@ const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
 const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
 const ToolIcon = isDevnet ? ToolIconDevnet : ToolIconOrange;
 const AppsIcon = isDevnet ? AppsIconDevnet : AppsIconOrange;
-const EncryptedWalletIcon = isDevnet ? EncryptedWalletIconDevnet : EncryptedWalletIconOrange;
 const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
 const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
 const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
@@ -170,14 +167,6 @@ const TAB_GROUPS: TabGroup[] = [
         isDrawer: true
       },
       {
-        slug: 'encrypted-wallet-file',
-        titleI18nKey: 'encryptedWalletFile',
-        Icon: EncryptedWalletIcon,
-        Component: EncryptedFileFlow,
-        testID: SettingsSelectors.EncryptedWalletFile,
-        hasOwnLayout: true
-      },
-      {
         slug: 'guardian-settings',
         titleI18nKey: 'guardianSettings',
         Icon: SettingsIcon,
@@ -246,6 +235,13 @@ const HIDDEN_TABS: Tab[] = [
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
     requiresActivatedHotKey: true
+  },
+  {
+    slug: 'verify-seed-phrase',
+    titleI18nKey: 'verifySeedPhrase',
+    Icon: SeedPhraseIcon,
+    Component: VerifySeedPhraseFlow,
+    hasOwnLayout: true
   },
   {
     slug: 'edit-miden-faucet-id',
@@ -377,7 +373,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
         ) : (
           // pb-[88px] reserves space at the bottom so the last menu item
           // can scroll above the React BottomNav.
-          <div className="flex flex-col w-full pt-4 pb-[88px] gap-8 text-heading-gray px-4">
+          <div className="flex flex-col w-full pt-4 pb-22 gap-8 text-heading-gray px-4">
             {tabGroups.map(group => (
               <div key={group.titleI18nKey}>
                 <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>

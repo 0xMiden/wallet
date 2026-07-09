@@ -52,7 +52,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
 
           <PositionAreaChart position={position} />
 
-          <div className="mt-4 flex items-center justify-between px-4 text-sm font-medium text-[#8E8E93]">
+          <div className="mt-4 flex items-center justify-between px-4 text-sm font-medium text-gray-secondary">
             {TIMEFRAMES.map(item => (
               <button
                 key={item}
@@ -63,7 +63,7 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
                 }}
                 className={classNames(
                   'rounded-full px-3 py-2 leading-none',
-                  timeframe === item ? 'bg-[#F2F2F4] font-semibold text-pure-black' : 'text-[#8E8E93]'
+                  timeframe === item ? 'bg-[#F2F2F4] font-semibold text-pure-black' : 'text-gray-secondary'
                 )}
               >
                 {item}

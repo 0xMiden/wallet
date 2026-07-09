@@ -81,17 +81,16 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // 4. Create the SE-backed P-256 key. .privateKeyUsage triggers Face ID
-        //    only when the private key is used (i.e. SecKeyCreateDecryptedData
-        //    in signWithHotKey), not at create time.
-        //    THREAT MODEL: we intentionally do NOT add `.biometryCurrentSet`.
-        //    That flag would invalidate the SE key whenever the biometric
-        //    enrollment changes (a face/finger added or re-enrolled), forcing the
-        //    user to re-activate the hot key. We accept "any enrolled biometric
-        //    can sign" in exchange for not bricking the hot key on an enrollment
-        //    change; the key never leaves the Secure Enclave either way. Switch
-        //    to `.biometryCurrentSet` (with a re-activation migration) if a
-        //    stricter "enrollment change = re-activate" posture is required.
+        // 4. Create the SE-backed P-256 key.
+        //    `.privateKeyUsage` is only a *usage permission* — it does NOT prompt
+        //    for authentication when the key is used, so hot signing is silent.
+        //    THREAT MODEL: we intentionally do NOT add `.userPresence` (or
+        //    `.biometryCurrentSet`). Guardian sync signs with the hot key on the
+        //    ~3s AutoSync tick, so any per-use presence gate turns into a
+        //    continuous Face ID / Touch ID prompt loop. If a per-use gate is ever
+        //    reintroduced, background/sync signing must first be routed off the
+        //    hot key (or the gate scoped to user-initiated operations only).
+        //    The key still never leaves the Secure Enclave.
         var accessError: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
@@ -241,8 +240,9 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         let sePrivateKey = foundKey as! SecKey
 
-        // 4. SecKeyCreateDecryptedData triggers Face ID via .privateKeyUsage
-        //    on the SE key.
+        // 4. SecKeyCreateDecryptedData unwraps the payload silently — the SE key
+        //    carries only `.privateKeyUsage`, no per-use presence gate (guardian
+        //    sync signs every ~3s; see the access-control comment in activate).
         var decError: Unmanaged<CFError>?
         guard var unwrapped = SecKeyCreateDecryptedData(
             sePrivateKey,

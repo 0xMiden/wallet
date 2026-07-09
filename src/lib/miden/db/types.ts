@@ -22,6 +22,7 @@ export type ITransactionType =
   | 'bridged-send'
   | 'switch-guardian'
   | 'replace-hot-key'
+  | 'swap'
   | 'update-procedure-threshold';
 
 /** Which cross-chain bridge route a `bridged-send` used. */
@@ -102,32 +103,32 @@ export interface IConsumeBridgeInExtraInputs {
  * label so users see what the wallet is actually doing during the 3-8s
  * spinner window. Not all stages apply to all tx types:
  *   - syncing              : all types, before `syncState()`
- *   - sending              : all types, during the SDK execute→prove→submit→apply span
+ *   - sending              : legacy broad SDK execute→prove→submit→apply span
  *   - creating-proposal    : Guardian only, while building the multisig proposal
  *   - signing-proposal     : Guardian only, while the guardian signs the proposal
- *   - submitting           : Guardian only, after the signed tx submit span returns
+ *   - executing            : Guardian only, while executing the signed request
+ *   - proving              : Guardian only, while proving the executed transaction
+ *   - submitting           : Guardian only, while submitting the proven transaction
  *   - confirming           : send-private + switch-guardian, during `waitForTransactionCommit`
  *   - registering-guardian : switch-guardian only, during post-commit guardian re-registration
  *   - delivering           : send-private only, during `sendPrivateNote`
+ *   - guardian-syncing     : Guardian only, while syncing guardian state after submission
+ *   - complete             : final stage marker before/at terminal status
  */
 export type ITransactionStage =
   | 'syncing'
   | 'sending'
   | 'creating-proposal'
   | 'signing-proposal'
+  | 'executing'
+  | 'proving'
   | 'submitting'
   | 'confirming'
   | 'registering-guardian'
-  | 'delivering';
-
-export type ITransactionTimedStep = 'guardian-approving' | 'generating-proof';
-
-export interface ITransactionStepTiming {
-  startedAt: number;
-  endedAt?: number;
-}
-
-export type ITransactionStepTimings = Partial<Record<ITransactionTimedStep, ITransactionStepTiming>>;
+  | 'delivering'
+  | 'guardian-syncing'
+  | 'guardian-synced'
+  | 'complete';
 
 export interface ITransaction {
   id: string;
@@ -160,8 +161,6 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
-  /** Backend timings for transaction-progress rows, in epoch milliseconds. */
-  stepTimings?: ITransactionStepTimings;
 }
 
 export interface ISuccessTransactionOutput {
@@ -278,17 +277,13 @@ export class ConsumeTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
-  // Background/auto-consume (vs. a user-initiated claim). Guardian accounts use
-  // this to route the signature through the cold key, avoiding a biometric
-  // prompt for a silent background claim — see generateGuardianTransaction.
-  background?: boolean;
 
-  constructor(
-    accountId: string,
-    notes: ConsumableNote | ConsumableNote[],
-    delegateTransaction?: boolean,
-    background?: boolean
-  ) {
+  // There is deliberately no background/user-initiated distinction here anymore:
+  // it only existed so Guardian auto-consume could be cold-signed while the iOS
+  // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
+  // every consume signs the same way. Old persisted rows may still carry a stray
+  // `background` property; it's ignored.
+  constructor(accountId: string, notes: ConsumableNote | ConsumableNote[], delegateTransaction?: boolean) {
     const list = Array.isArray(notes) ? notes : [notes];
     const first = list[0];
     if (!first) {
@@ -312,7 +307,61 @@ export class ConsumeTransaction implements ITransaction {
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
-    this.background = background;
+  }
+}
+
+/**
+ * Swap one asset for another. The user offers `offeredAmount` of
+ * `offeredFaucetId` and requests `requestedAmount` of `requestedFaucetId`.
+ * The offered side maps onto the shared `faucetId`/`amount` fields; the
+ * requested side lives in `extraInputs`.
+ *
+ * TODO: actual swap generation/completion is not wired up yet — see the
+ * `case 'swap'` TODOs in the transaction dispatch (lib/miden/transaction).
+ */
+export class SwapTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  // `orderId` is actually output info but a little hack until I decide if I want to change the schema or not
+  extraInputs: { requestedFaucetId: string; requestedAmount: bigint; orderId?: bigint };
+  delegateTransaction?: boolean;
+  /**
+   * Serialized PSWAP-create `TransactionRequest`, populated lazily by the
+   * Guardian path (`generateGuardianTransaction`) the first time the swap is
+   * processed. Persisted so the custom proposal and the follow-up
+   * `signAndCreateTransactionRequest` reuse identical bytes (the PSWAP serial
+   * number is random — a rebuild would diverge).
+   */
+  requestBytes?: Uint8Array;
+
+  constructor(
+    accountId: string,
+    offeredFaucetId: string,
+    offeredAmount: bigint,
+    requestedFaucetId: string,
+    requestedAmount: bigint,
+    delegateTransaction?: boolean
+  ) {
+    this.id = uuid();
+    this.type = 'swap';
+    this.accountId = accountId;
+    this.faucetId = offeredFaucetId;
+    this.amount = offeredAmount;
+    this.extraInputs = { requestedFaucetId, requestedAmount };
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.displayIcon = 'SWAP';
+    this.displayMessage = 'Swapping';
+    this.delegateTransaction = delegateTransaction;
   }
 }
 

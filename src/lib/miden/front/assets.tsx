@@ -212,14 +212,17 @@ export function useTokensMetadata() {
     return fetchTokenMetadata(faucetId);
   }, []);
 
-  const setTokensBaseMetadata = useCallback(
+  // Persist to storage as well as Zustand — history rows resolve metadata via
+  // getTokensBaseMetadata (storage), not the in-memory store.
+  const setTokensBaseMetadataAndPersist = useCallback(
     async (batch: Record<string, AssetMetadata>) => {
       setAssetsMetadata(batch);
+      await setTokensBaseMetadata(batch);
     },
     [setAssetsMetadata]
   );
 
-  return { allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata };
+  return { allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata: setTokensBaseMetadataAndPersist };
 }
 
 export function searchAssets(

@@ -1,61 +1,179 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { formatDistanceToNow } from 'date-fns';
+import { RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { addDays, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
+import { useAppEnv } from 'app/env';
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
+import { ScreenHeader } from 'components/ScreenHeader';
+import { stringToBigInt } from 'lib/i18n/numbers';
+import {
+  initiateSendTransaction,
+  requestSpeculateInvalidate,
+  requestSWTransactionProcessing
+} from 'lib/miden/activity';
+import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { NoteTypeEnum } from 'lib/miden/types';
+import { ensureSdkWasmReady, getRpcEndpoint } from 'lib/miden-chain/constants';
+import { isExtension } from 'lib/platform';
+import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { useWalletStore } from 'lib/store';
+import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
+import { isValidMidenAddress } from 'utils/miden';
 
-import { BridgeNetwork } from './bridge-networks';
-import { RecallCalendarDrawer } from './RecallCalendarDrawer';
-import { SendFlowAction, BridgeRoute, UIToken } from './types';
-import { EpochQuoteState } from './useEpochQuote';
+import { dateTimeToRecallBlocks, RecallCalendarDrawer } from './RecallCalendarDrawer';
+import { clearSendDraft } from './send-draft';
+import { UIToken } from './types';
 
-export interface ReviewTransactionProps {
-  amount: string;
-  token?: UIToken;
-  recipientAddress?: string;
-  recallDate?: Date;
-  recallTime: string;
-  /** Cross-chain (0x recipient) send — shows bridge details instead of the Miden expiration row. */
-  isBridge?: boolean;
-  network?: BridgeNetwork;
-  route?: BridgeRoute;
-  /** Forward-quote of the USDC output (Fast route). */
-  quote?: EpochQuoteState;
-  outputSymbol?: string;
-  /** True while the tx is being initiated (e.g. an Epoch bridge quote/solve) — drives the confirm-button loader. */
-  isSubmitting?: boolean;
-  onAction: (action: SendFlowAction) => void;
-  onGoBack: () => void;
-  onClose: () => void;
-  onSubmit: () => void;
-  onRecallDateChange: (date: Date | undefined) => void;
-  onRecallTimeChange: (time: string) => void;
-}
-
-export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
-  amount,
-  token,
-  recipientAddress,
-  recallDate,
-  recallTime,
-  isBridge = false,
-  network,
-  route,
-  quote,
-  outputSymbol,
-  isSubmitting = false,
-  onAction,
-  onGoBack,
-  onSubmit,
-  onRecallDateChange,
-  onRecallTimeChange
-}) => {
+/**
+ * Full-screen send review page (`/send/review?amount=…&to=…&tokenId=…`).
+ *
+ * Owns the whole transaction-creation pipeline: the send form at `/send` only
+ * collects recipient/amount/token and hands them over via query params (plus a
+ * send-draft for back-restore — see `send-draft.ts`). Rendered outside
+ * TabLayout via FullScreenPage, so there is no tab bar; back is the
+ * ScreenHeader's back button (or hardware back via MobileBackBridge on
+ * mobile).
+ */
+export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
+  const { search } = useLocation();
+  const { fullPage } = useAppEnv();
+  const { publicKey } = useAccount();
+
+  const { amount, to, tokenId } = useMemo(() => {
+    const params = new URLSearchParams(search);
+    return {
+      amount: params.get('amount') ?? '',
+      to: params.get('to') ?? '',
+      tokenId: params.get('tokenId') ?? ''
+    };
+  }, [search]);
+
+  // Re-derive the UIToken from balances (same mapping as SendManager's
+  // preselect effect) — the URL only carries the token id.
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const token = useMemo<UIToken | undefined>(() => {
+    const match = balanceData?.find(b => b.tokenId === tokenId);
+    if (!match) return undefined;
+    return {
+      id: match.tokenId,
+      name: match.metadata.symbol,
+      decimals: match.metadata.decimals,
+      balance: match.balance,
+      fiatPrice: match.fiatPrice
+    };
+  }, [balanceData, tokenId]);
+
+  // Private by default; the per-send toggle was removed from the UI. Only the
+  // E2E hook below can flip it.
+  const [sharePrivately, setSharePrivately] = useState(true);
+
+  // E2E-only hook: the harness can't pick a PUBLIC send by clicking (no UI
+  // toggle), so expose a setter while the review page is mounted. Mirrors the
+  // __TEST_STORE__ gate. Zero production impact.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    (globalThis as any).__TEST_SET_SHARE_PRIVATELY__ = (v: boolean) => setSharePrivately(v);
+    return () => {
+      delete (globalThis as any).__TEST_SET_SHARE_PRIVATELY__;
+    };
+  }, []);
+
+  const [recallDate, setRecallDate] = useState<Date | undefined>(undefined);
+  const [recallTime, setRecallTime] = useState('12:00');
+  const [recallBlocks, setRecallBlocks] = useState<string | undefined>(undefined);
   const [showCalendar, setShowCalendar] = useState(false);
 
-  const parsedAmount = Number.parseFloat(amount || '0');
-  const fiatValue = token && Number.isFinite(parsedAmount) ? parsedAmount * token.fiatPrice : undefined;
+  // Default every send to a 7-day reclaim (expiration) height. Fetch the
+  // current block height once on mount and seed recallDate/recallBlocks. The
+  // user can override via the "Edit" link, which opens RecallCalendarDrawer.
+  useEffect(() => {
+    let cancelled = false;
+    ensureSdkWasmReady()
+      .then(() => {
+        if (cancelled) return;
+        const rpc = new RpcClient(getRpcEndpoint());
+        return rpc.getBlockHeaderByNumber().then(header => {
+          if (cancelled) return;
+          const date = addDays(new Date(), 7);
+          setRecallDate(date);
+          setRecallTime(format(date, 'HH:mm'));
+          setRecallBlocks(String(dateTimeToRecallBlocks(date, header.blockNum())));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Leaving review = leaving the send flow: drop any cached speculative prove
+  // and mark in-flight ones stale. (SendManager's typing-time speculation
+  // deliberately skips invalidation when handing off to this page.)
+  useEffect(() => {
+    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
+    if (!isExtension()) return;
+    return () => {
+      requestSpeculateInvalidate();
+    };
+  }, []);
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const onSubmit = useCallback(async () => {
+    if (isSubmitting || !token || !publicKey) return;
+    setIsSubmitting(true);
+    try {
+      // Drop any hash from a previous completed tx before starting a fresh one,
+      // so the in-progress page can't briefly flash a stale "View on Midenscan"
+      // button pointing at the previous hash.
+      useWalletStore.getState().setLastCompletedTxHash(null);
+
+      // Step 1: Create the transaction (enqueues a Dexie row).
+      const txId = await initiateSendTransaction(
+        publicKey,
+        to,
+        token.id,
+        sharePrivately ? NoteTypeEnum.Private : NoteTypeEnum.Public,
+        stringToBigInt(amount, token.decimals),
+        recallBlocks ? parseInt(recallBlocks) : undefined,
+        isDelegateProofEnabled()
+      );
+
+      if (isExtension()) {
+        // On extension the SW owns the tx loop — nudge it.
+        requestSWTransactionProcessing();
+      }
+
+      // Step 2: Hand off to the full-screen in-progress page immediately.
+      // GeneratingTransactionPage is self-driving: it runs the tx loop on
+      // SW-less platforms, polls per-stage progress for `txId`, stashes the
+      // Midenscan hash and flips to the success receipt on completion —
+      // failure UX also lives there. (TransactionProgressModal renders
+      // nothing; it's a headless queue driver.) Replace, not push, so back
+      // from the progress page skips the now-stale review params.
+      clearSendDraft();
+      navigate(
+        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}?txId=${encodeURIComponent(txId)}`,
+        HistoryAction.Replace
+      );
+    } catch (e) {
+      console.error(e);
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, token, publicKey, to, sharePrivately, amount, recallBlocks, fullPage]);
+
+  // Deep-link guards — after all hooks. Address/amount are checkable
+  // immediately; token existence and balance only once balances load.
+  const paramsInvalid = !tokenId || !(parseFloat(amount) > 0) || !isValidMidenAddress(to);
+  const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
+  if (paramsInvalid || tokenInvalid) {
+    return <Redirect to="/send" />;
+  }
+
   const expirationLabel = recallDate
     ? (() => {
         const rel = formatDistanceToNow(recallDate, { addSuffix: true });
@@ -63,49 +181,28 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
       })()
     : t('none');
 
-  // Agglayer carries the bridgeable token 1:1; the Fast route forward-quotes the
-  // USDC output. Show a skeleton only while the Fast quote is still loading.
-  const youReceiveLoading = isBridge && route !== 'agglayer' && !!quote?.loading;
-  const youReceiveAmount = route === 'agglayer' ? amount : quote?.amount;
-  const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
-  const youReceiveLabel =
-    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${outputSymbol ?? ''}`.trim() : (outputSymbol ?? '');
-
   return (
-    <>
-      <ReviewLayout
-        hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} fiat={fiatValue} label={t('youAreSending')} />}
-        primary={{
-          label: t('sendPayment'),
-          onPress: onSubmit,
-          type: 'submit',
-          loading: isSubmitting,
-          'data-testid': 'send-review-submit'
-        }}
-        secondary={{ label: t('back'), onPress: onGoBack, disabled: isSubmitting }}
-      >
-        <ReviewRow label={t('to')} value={recipientAddress || ''} />
+    <div className="flex flex-col h-full min-h-0 bg-app-bg">
+      <ScreenHeader
+        title={t('reviewDetails')}
+        backLabel={t('back')}
+        onBack={() => goBack()}
+        className="mx-4 shrink-0"
+      />
+      <div className="flex-1 min-h-0">
+        <ReviewLayout
+          hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} label={t('youAreSending')} />}
+          primary={{ label: t('sendPayment'), onPress: onSubmit, 'data-testid': 'send-review-submit' }}
+        >
+          <ReviewRow label={t('to')} value={to} />
 
-        <ReviewRow label={t('network')}>
-          <span className="inline-flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
-            {isBridge ? (network?.name ?? t('ethereum')) : t('miden')}
-          </span>
-        </ReviewRow>
+          <ReviewRow label={t('network')}>
+            <span className="inline-flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
+              {t('miden')}
+            </span>
+          </ReviewRow>
 
-        {isBridge ? (
-          <>
-            <ReviewRow label={t('route')} value={`${routeLabel} ${arrivalLabel}`} />
-            <ReviewRow label={t('youReceive')}>
-              {youReceiveLoading ? (
-                <div className="h-7 w-32 animate-pulse rounded bg-heading-gray/10" />
-              ) : (
-                youReceiveLabel
-              )}
-            </ReviewRow>
-          </>
-        ) : (
           <ReviewRow
             label={t('expirationDate')}
             onEdit={() => setShowCalendar(true)}
@@ -114,20 +211,18 @@ export const ReviewTransaction: React.FC<ReviewTransactionProps> = ({
           >
             {expirationLabel}
           </ReviewRow>
-        )}
-      </ReviewLayout>
+        </ReviewLayout>
+      </div>
 
-      {!isBridge && (
-        <RecallCalendarDrawer
-          open={showCalendar}
-          onOpenChange={setShowCalendar}
-          recallDate={recallDate}
-          recallTime={recallTime}
-          onAction={onAction}
-          onRecallDateChange={onRecallDateChange}
-          onRecallTimeChange={onRecallTimeChange}
-        />
-      )}
-    </>
+      <RecallCalendarDrawer
+        open={showCalendar}
+        onOpenChange={setShowCalendar}
+        recallDate={recallDate}
+        recallTime={recallTime}
+        onRecallBlocksChange={setRecallBlocks}
+        onRecallDateChange={setRecallDate}
+        onRecallTimeChange={setRecallTime}
+      />
+    </div>
   );
 };

@@ -29,7 +29,7 @@ const mockRequestCustomTransaction = jest.fn();
 const mockInitiateConsumeTransactionFromId = jest.fn();
 const mockWaitForTransactionCompletion = jest.fn();
 
-jest.mock('lib/miden/activity/transactions', () => ({
+jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: (...args: unknown[]) => mockInitiateSendTransaction(...args),
   requestCustomTransaction: (...args: unknown[]) => mockRequestCustomTransaction(...args),
   initiateConsumeTransactionFromId: (...args: unknown[]) => mockInitiateConsumeTransactionFromId(...args),
@@ -735,8 +735,11 @@ describe('requestPermission (mobile)', () => {
   });
 
   it('rejects with NotGranted when the wallet returns no public key commitments', async () => {
+    // Neither the standard interface nor the guardian signer map yields a
+    // commitment, so the resolver comes up empty.
     _g.__dappTestMockGetAccount.mockResolvedValueOnce({
-      getPublicKeyCommitments: () => []
+      getPublicKeyCommitments: () => [],
+      storage: () => ({ getMapItem: () => undefined })
     });
     mockRequestConfirmation.mockResolvedValueOnce({
       confirmed: true,

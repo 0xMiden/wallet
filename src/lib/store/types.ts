@@ -148,6 +148,7 @@ export interface WalletActions {
   signWord: (publicKey: string, wordHex: string) => Promise<string>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
+  setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 

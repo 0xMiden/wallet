@@ -143,7 +143,7 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ ro
                 {row.value}
               </span>
             )}
-            {row.subValue && <span className="mt-1 text-xs font-normal text-[#8E8E93]">{row.subValue}</span>}
+            {row.subValue && <span className="mt-1 text-xs font-normal text-gray-secondary">{row.subValue}</span>}
           </div>
         </div>
       ))}
@@ -174,11 +174,6 @@ export interface TransactionSuccessLayoutProps {
   primaryAction: SuccessAction;
   /** Optional secondary call to action. */
   secondaryAction?: SuccessAction;
-  /**
-   * Footer button arrangement. `stacked` = primary on top, secondary below;
-   * `row` = secondary left, primary right. Defaults to `stacked`.
-   */
-  actionsLayout?: 'stacked' | 'row';
   /** Invoked by the header close button. */
   onClose: () => void;
 }
@@ -190,7 +185,6 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   footerDescription,
   primaryAction,
   secondaryAction,
-  actionsLayout = 'stacked',
   onClose
 }) => {
   const { t } = useTranslation();
@@ -215,21 +209,14 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
 
         <div className="w-full shrink-0 px-1 pt-10 flex flex-col items-center justify-center">
           {footerDescription && (
-            <p className="mb-4 text-center text-base font-normal  text-[#808080]">{footerDescription}</p>
+            <p className="mb-4 text-center text-base font-normal  text-gray">{footerDescription}</p>
           )}
 
           {secondaryAction ? (
-            actionsLayout === 'row' ? (
-              <div className="flex w-full gap-3">
-                <FooterAction action={secondaryAction} className="flex-1 max-w-none" />
-                <FooterAction action={primaryAction} className="flex-1 max-w-none" />
-              </div>
-            ) : (
-              <div className="flex w-full flex-col gap-3">
-                <FooterAction action={primaryAction} className="w-full" />
-                <FooterAction action={secondaryAction} className="w-full" />
-              </div>
-            )
+            <div className="flex w-full flex-col gap-3 items-center justify-between">
+              <FooterAction action={primaryAction} className="w-full" />
+              <FooterAction action={secondaryAction} className="w-full" />
+            </div>
           ) : (
             <FooterAction action={primaryAction} className="w-full" />
           )}

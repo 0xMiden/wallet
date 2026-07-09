@@ -49,8 +49,6 @@ export const ActivateHotKeyBanner: FC<Props> = ({ className }) => {
     }
   }, [account.publicKey, submitting]);
 
-  if (!account.requiresHotKeyRotation) return null;
-
   return (
     <PromptCard
       title={t('activateHotKeyBannerTitle')}
