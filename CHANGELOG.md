@@ -8,7 +8,7 @@
 
 ### Changes
 
-* [CHANGE][all] Merged the in-protocol-DEX branch: the swap flow, the split `lib/miden/transaction/` module and the redesigned transaction-progress view land alongside the Ethereum bridge work, whose send path is re-homed onto the new full-screen `/send/review` page.
+* [CHANGE][all] **Merged the in-protocol-DEX branch and re-homed the Ethereum bridge onto its send flow.** The swap flow, the split `lib/miden/transaction/` module and the redesigned transaction-progress view land alongside the bridge work. Cross-chain sends now follow the same shape as same-chain ones: the destination network moved onto the recipient step (Miden for a bech32 address, Sepolia for a `0x` one), a 0x recipient then picks Fast (Epoch) vs Slow (Agglayer) on a Route step, and the full-screen `/send/review` page owns the whole submit pipeline for both routes plus the live "you receive" USDC quote. `bridged-send` rows are carried into the new transaction module (initiate/complete/Guardian-proposal arms), and batch consume (`Claim All`) moves there too.
 
 * [CHANGE][all] Internal refactor: the transaction pipeline moved from `src/lib/miden/activity/transactions.ts` into `src/lib/miden/transaction/` split by lifecycle (`initiate` / `complete` / `get` / `cancel` / `helper`, with `generateTransaction` and the processing loop in `index.ts`); the `lib/miden/activity` barrel re-exports it so consumers are unaffected.
 

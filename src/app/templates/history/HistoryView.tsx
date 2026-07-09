@@ -13,7 +13,13 @@ import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { BRIDGE_STATUS_LABEL_KEY, bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest } from './transactionUtils';
+import {
+  BRIDGE_STATUS_LABEL_KEY,
+  bridgeInRowDisplay,
+  bridgeRowDisplay,
+  isBridgeInEntry,
+  isFaucetRequest
+} from './transactionUtils';
 
 type HistoryViewProps = {
   entries: IHistoryEntry[];

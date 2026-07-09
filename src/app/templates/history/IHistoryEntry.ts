@@ -1,4 +1,10 @@
-import { IBridgeClaimStatus, IBridgeProvider, ITransactionIcon, ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
+import {
+  IBridgeClaimStatus,
+  IBridgeProvider,
+  ITransactionIcon,
+  ITransactionStatus,
+  ITransactionType
+} from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
   key: string;

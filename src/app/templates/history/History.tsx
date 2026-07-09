@@ -2,7 +2,12 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
-import { formatTransactionStatus, IBridgedSendExtraInputs, IBridgeInInfo, ITransactionStatus } from 'lib/miden/db/types';
+import {
+  formatTransactionStatus,
+  IBridgedSendExtraInputs,
+  IBridgeInInfo,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';

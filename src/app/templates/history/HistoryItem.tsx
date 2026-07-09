@@ -168,7 +168,10 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
           </span>
         )}
         <span
-          className={classNames('flex items-center gap-1 text-xs font-medium leading-none', BRIDGE_STATUS_COLOR[status])}
+          className={classNames(
+            'flex items-center gap-1 text-xs font-medium leading-none',
+            BRIDGE_STATUS_COLOR[status]
+          )}
         >
           <span className={classNames('w-1.5 h-1.5 rounded-full', BRIDGE_STATUS_DOT[status])} />
           {t(BRIDGE_STATUS_LABEL_KEY[status])}

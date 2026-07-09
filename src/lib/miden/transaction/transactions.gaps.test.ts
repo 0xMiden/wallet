@@ -45,11 +45,18 @@ jest.mock('lib/miden/repo', () => ({
       if (typeof arg === 'string') {
         const field = arg;
         return {
-          equals: (val: any) => ({
-            filter: (fn: (tx: any) => boolean) => ({
-              toArray: async () => txStore.filter(t => t[field] === val).filter(fn)
-            })
-          })
+          equals: (val: any) => {
+            // `noteIds` is a multi-entry index: a row matches when the value is
+            // in the array. Scalar fields match by equality.
+            const matches = () =>
+              txStore.filter(t => (Array.isArray(t[field]) ? t[field].includes(val) : t[field] === val));
+            return {
+              toArray: async () => matches(),
+              filter: (fn: (tx: any) => boolean) => ({
+                toArray: async () => matches().filter(fn)
+              })
+            };
+          }
         };
       }
       return {

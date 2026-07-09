@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
+import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import type { GuardianOption } from 'lib/shared/types';
 

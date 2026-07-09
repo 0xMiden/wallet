@@ -52,8 +52,11 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 
 const mockIsExtension = jest.fn((..._args: unknown[]) => false);
+const mockIsMobile = jest.fn((..._args: unknown[]) => false);
 jest.mock('lib/platform', () => ({
-  isExtension: (...args: unknown[]) => mockIsExtension(...args)
+  isExtension: (...args: unknown[]) => mockIsExtension(...args),
+  // useSyncTrigger skips the WASM sync while the transaction modal is up on mobile.
+  isMobile: (...args: unknown[]) => mockIsMobile(...args)
 }));
 
 const mockSyncGuardianAccounts = jest.fn(async (..._args: unknown[]) => {});
