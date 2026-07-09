@@ -723,6 +723,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "パスコードを入力すると、 $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "パスコードでロックを解除すると、 $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -1119,6 +1128,14 @@
   "forgotPasscode": {
     "message": "パスコードをお忘れですか?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "パスワードを入力してください",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "パスワードが間違っています。もう一度やり直してください。",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "6桁のコードを作成します",

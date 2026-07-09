@@ -723,6 +723,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "Geben Sie Ihren Passcode ein, um das anzuzeigen $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "Entsperren Sie es mit Ihrem Passcode, um es anzuzeigen $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -1119,6 +1128,14 @@
   "forgotPasscode": {
     "message": "Passwort vergessen?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "Geben Sie Ihr Passwort ein",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "Falsches Passwort. Versuchen Sie es erneut.",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "Erstellen Sie einen 6-stelligen Code",
