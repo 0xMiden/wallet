@@ -55,7 +55,6 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
         onClick: () => navigate('/history'),
         variant: ButtonVariant.Secondary
       }}
-      actionsLayout="stacked"
       onClose={onDoneClick}
     >
       {badgeContent && <SuccessSummaryPill lhs={badgeContent.lhs} rhs={badgeContent.rhs} />}
