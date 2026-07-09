@@ -466,16 +466,21 @@ const generateGuardianTransaction = async (
   const transactionResult = await withWasmClientLock(async () => {
     try {
       const midenClient = await getMidenClient(options);
-      const { result } = await midenClient.client.transactions.submit(transaction.accountId, tr, {
+      await setTransactionStage(transaction.id, 'executing');
+      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
+      await setTransactionStage(transaction.id, 'proving');
+      const provedTx = await midenClient.client.transactions.prove(executedTx, {
         prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
       });
-      return result;
+      await setTransactionStage(transaction.id, 'submitting');
+      const { blockNumber } = await midenClient.client.transactions.submitProven(provedTx, executedTx);
+      await midenClient.client.transactions.apply(executedTx, blockNumber);
+      return executedTx;
     } catch (error) {
       console.error('Error during transaction submission or execution', { error });
       throw error;
     }
   });
-  await setTransactionStage(transaction.id, 'submitting');
 
   // For switch-guardian, the new guardian must be seeded with the POST-switch
   // account state. submit() returns after submission, not after inclusion, so
@@ -500,6 +505,30 @@ const generateGuardianTransaction = async (
     });
   }
 
+  // Sync the cached hot service so the next consumer sees post-tx state.
+  // Skip for replace-hot-key: that path's service is a transient cold one,
+  // and the cached hot service was invalidated in completeReplaceHotKeyTransaction
+  // via clearGuardianServiceFor — next access re-inits with the new hot pubkey.
+  //
+  // Post-completion bookkeeping only: the transaction is already marked Completed
+  // and the on-chain submit succeeded, so a sync failure here must NOT propagate
+  // (it would flip a genuinely-successful transaction to Failed). The next sync
+  // tick reconciles.
+  // replace-hot-key and update-procedure-threshold both run on a transient cold
+  // service and invalidate the cached hot service in their completion handlers,
+  // so there's nothing useful to sync here.
+  if (transaction.type !== 'replace-hot-key' && transaction.type !== 'update-procedure-threshold') {
+    try {
+      console.log('Transaction generation complete, syncing multisig service');
+      await setTransactionStage(transaction.id, 'guardian-syncing');
+      await service.sync();
+      console.log('synced');
+      await setTransactionStage(transaction.id, 'guardian-synced');
+    } catch (error) {
+      console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
+    }
+  }
+
   switch (transaction.type) {
     case 'send':
       await completeSendTransaction(transaction as SendTransaction, transactionResult);
@@ -508,7 +537,6 @@ const generateGuardianTransaction = async (
       await completeConsumeTransaction(transaction.id, transactionResult);
       break;
     case 'switch-guardian':
-      console.log('Completing switch guardian transaction');
       await completeSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         transactionResult,
@@ -541,26 +569,8 @@ const generateGuardianTransaction = async (
       await completeCustomTransaction(transaction, transactionResult);
       break;
   }
-  // Sync the cached hot service so the next consumer sees post-tx state.
-  // Skip for replace-hot-key: that path's service is a transient cold one,
-  // and the cached hot service was invalidated in completeReplaceHotKeyTransaction
-  // via clearGuardianServiceFor — next access re-inits with the new hot pubkey.
-  //
-  // Post-completion bookkeeping only: the transaction is already marked Completed
-  // and the on-chain submit succeeded, so a sync failure here must NOT propagate
-  // (it would flip a genuinely-successful transaction to Failed). The next sync
-  // tick reconciles.
-  // replace-hot-key and update-procedure-threshold both run on a transient cold
-  // service and invalidate the cached hot service in their completion handlers,
-  // so there's nothing useful to sync here.
-  if (transaction.type !== 'replace-hot-key' && transaction.type !== 'update-procedure-threshold') {
-    try {
-      console.log('Transaction generation complete, syncing multisig service');
-      await service.sync();
-    } catch (error) {
-      console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
-    }
-  }
+
+  await setTransactionStage(transaction.id, 'complete');
 };
 
 export const generateTransactionsLoop = async (

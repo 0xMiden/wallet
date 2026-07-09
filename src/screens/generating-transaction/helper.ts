@@ -35,16 +35,27 @@ export const getTrackedTransactionSearch = (): string => {
 };
 
 export const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
-  if (!stage || stage === 'syncing' || stage === 'creating-proposal' || stage === 'signing-proposal') {
-    return 0;
+  switch (stage) {
+    case undefined:
+    case 'syncing':
+    case 'creating-proposal':
+    case 'signing-proposal':
+      return 0;
+    case 'sending':
+    case 'executing':
+    case 'proving':
+      return 1;
+    case 'submitting':
+      return 2;
+    case 'confirming':
+    case 'registering-guardian':
+    case 'delivering':
+    case 'guardian-syncing':
+      return 3;
+    case 'guardian-synced':
+    case 'complete':
+      return TRANSACTION_STEPS.length;
   }
-  if (stage === 'sending') {
-    return 1;
-  }
-  if (stage === 'submitting') {
-    return 2;
-  }
-  return 3;
 };
 
 export const getTransactionStepState = (
@@ -70,7 +81,10 @@ export const getStageTitleKey = (stage?: ITransactionStage, type?: ITransactionT
   if (stage === 'syncing') return 'transactionStageSyncing';
   if (stage === 'creating-proposal') return 'transactionStageCreatingProposal';
   if (stage === 'signing-proposal') return 'transactionStageSigningProposal';
+  if (stage === 'proving') return 'transactionStageProving';
   if (stage === 'submitting') return 'transactionStageSubmitting';
+  if (stage === 'guardian-syncing') return 'transactionStageGuardianSyncing';
+  if (stage === 'complete') return 'transactionStageComplete';
   if (stage === 'confirming') return 'transactionStageConfirming';
   if (stage === 'registering-guardian') return 'transactionStageRegisteringGuardian';
   if (stage === 'delivering') return 'transactionStageDelivering';
@@ -86,7 +100,11 @@ export const getStageDescriptionKey = (stage?: ITransactionStage): string => {
   if (stage === 'syncing') return 'transactionStageSyncingDescription';
   if (stage === 'creating-proposal') return 'transactionStageCreatingProposalDescription';
   if (stage === 'signing-proposal') return 'transactionStageSigningProposalDescription';
+  if (stage === 'executing') return 'transactionStageExecutingDescription';
+  if (stage === 'proving') return 'transactionStageProvingDescription';
   if (stage === 'submitting') return 'transactionStageSubmittingDescription';
+  if (stage === 'guardian-syncing') return 'transactionStageGuardianSyncingDescription';
+  if (stage === 'complete') return 'transactionStageCompleteDescription';
   if (stage === 'confirming') return 'transactionStageConfirmingDescription';
   if (stage === 'registering-guardian') return 'transactionStageRegisteringGuardianDescription';
   if (stage === 'delivering') return 'transactionStageDeliveringDescription';

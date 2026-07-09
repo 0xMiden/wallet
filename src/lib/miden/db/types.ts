@@ -51,32 +51,32 @@ export type ITransactionType =
  * label so users see what the wallet is actually doing during the 3-8s
  * spinner window. Not all stages apply to all tx types:
  *   - syncing              : all types, before `syncState()`
- *   - sending              : all types, during the SDK execute→prove→submit→apply span
+ *   - sending              : legacy broad SDK execute→prove→submit→apply span
  *   - creating-proposal    : Guardian only, while building the multisig proposal
  *   - signing-proposal     : Guardian only, while the guardian signs the proposal
- *   - submitting           : Guardian only, after the signed tx submit span returns
+ *   - executing            : Guardian only, while executing the signed request
+ *   - proving              : Guardian only, while proving the executed transaction
+ *   - submitting           : Guardian only, while submitting the proven transaction
  *   - confirming           : send-private + switch-guardian, during `waitForTransactionCommit`
  *   - registering-guardian : switch-guardian only, during post-commit guardian re-registration
  *   - delivering           : send-private only, during `sendPrivateNote`
+ *   - guardian-syncing     : Guardian only, while syncing guardian state after submission
+ *   - complete             : final stage marker before/at terminal status
  */
 export type ITransactionStage =
   | 'syncing'
   | 'sending'
   | 'creating-proposal'
   | 'signing-proposal'
+  | 'executing'
+  | 'proving'
   | 'submitting'
   | 'confirming'
   | 'registering-guardian'
-  | 'delivering';
-
-export type ITransactionTimedStep = 'guardian-approving' | 'generating-proof';
-
-export interface ITransactionStepTiming {
-  startedAt: number;
-  endedAt?: number;
-}
-
-export type ITransactionStepTimings = Partial<Record<ITransactionTimedStep, ITransactionStepTiming>>;
+  | 'delivering'
+  | 'guardian-syncing'
+  | 'guardian-synced'
+  | 'complete';
 
 export interface ITransaction {
   id: string;
@@ -107,8 +107,6 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
-  /** Backend timings for transaction-progress rows, in epoch milliseconds. */
-  stepTimings?: ITransactionStepTimings;
 }
 
 export interface ISuccessTransactionOutput {

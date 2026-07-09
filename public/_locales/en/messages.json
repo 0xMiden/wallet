@@ -399,6 +399,18 @@
     "message": "Executing transaction",
     "englishSource": "Executing transaction"
   },
+  "transactionStageExecutingDescription": {
+    "message": "Preparing the transaction for proving.",
+    "englishSource": "Preparing the transaction for proving."
+  },
+  "transactionStageProving": {
+    "message": "Generating proof",
+    "englishSource": "Generating proof"
+  },
+  "transactionStageProvingDescription": {
+    "message": "Creating the proof for your transaction.",
+    "englishSource": "Creating the proof for your transaction."
+  },
   "transactionStageSwitching": {
     "message": "Switching guardian",
     "englishSource": "Switching guardian"
@@ -426,6 +438,22 @@
   "transactionStageSubmittingDescription": {
     "message": "Sending your signed transaction to the network.",
     "englishSource": "Sending your signed transaction to the network."
+  },
+  "transactionStageGuardianSyncing": {
+    "message": "Syncing with Guardian",
+    "englishSource": "Syncing with Guardian"
+  },
+  "transactionStageGuardianSyncingDescription": {
+    "message": "Syncing your updated account state with your guardian.",
+    "englishSource": "Syncing your updated account state with your guardian."
+  },
+  "transactionStageComplete": {
+    "message": "Transaction complete",
+    "englishSource": "Transaction complete"
+  },
+  "transactionStageCompleteDescription": {
+    "message": "Finalizing transaction details.",
+    "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
     "message": "Confirming on chain",
