@@ -10,7 +10,7 @@
 
 ### Fixes
 
-* [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path.
+* [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path. Android gets the equivalent fix: the Keystore hot-key wrapper is no longer auth-bound (`setUserAuthenticationRequired`), so hot signing no longer pops a fingerprint `BiometricPrompt` per signature; legacy auth-bound keys keep working through a prompt fallback until the hot key is rotated.
 
 ## 1.15.6 (2026-07-07)
 
