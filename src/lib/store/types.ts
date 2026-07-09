@@ -91,6 +91,10 @@ export interface TransactionUiSlice {
    * or closes, so a stale hash never leaks across sends.
    */
   lastCompletedTxHash: string | null;
+  /** Whether the transaction progress modal is open */
+  isTransactionModalOpen: boolean;
+  /** Whether the user explicitly dismissed the modal (prevents auto-reopen until transactions complete) */
+  isTransactionModalDismissedByUser: boolean;
 }
 
 /**
@@ -217,6 +221,11 @@ export interface TransactionUiActions {
    */
   setActiveDappSession: (sessionId: string | null) => void;
   setLastCompletedTxHash: (txHash: string | null) => void;
+  openTransactionModal: () => void;
+  /** Close the modal. If dismissedByUser is true, prevents auto-reopen until transactions complete */
+  closeTransactionModal: (dismissedByUser?: boolean) => void;
+  /** Reset the dismissed flag (called when all transactions complete) */
+  resetTransactionModalDismiss: () => void;
 }
 
 /**

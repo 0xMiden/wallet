@@ -5,7 +5,6 @@ import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
-import { Pending } from 'app/pages/Pending';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
@@ -27,15 +26,10 @@ import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
 import ForgotPassword from './pages/ForgotPassword/ForgotPassword';
 import ForgotPasswordInfo from './pages/ForgotPassword/ForgotPasswordInfo';
-import { GetTokens } from './pages/GetTokens';
-import ImportNotePending from './pages/ImportNotePending';
-import ImportNoteResult from './pages/ImportNoteResult';
-import ManageAssets from './pages/ManageAssets';
 import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
-import SelectAccount from './pages/SelectAccount';
 import TokenDetail from './pages/TokenDetail';
 import { HistoryDetails } from './templates/history/HistoryDetails';
 
@@ -173,22 +167,6 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage>
         <BridgeDeposit />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/faucet',
-    onlyReady(() => (
-      <FullScreenPage>
-        <Faucet />
-      </FullScreenPage>
-    ))
-  ],
-  [
-    '/get-tokens',
-    onlyReady(() => (
-      <FullScreenPage>
-        <GetTokens />
       </FullScreenPage>
     ))
   ],

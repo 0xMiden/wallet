@@ -14,6 +14,7 @@ import { logger } from 'shared/logger';
 
 import { cancelStaleQueuedTransactions, cancelStuckTransactions, cancelTransaction } from './cancel';
 import {
+  completeBridgedSendTransaction,
   completeConsumeTransaction,
   completeCustomTransaction,
   completeReplaceHotKeyTransaction,
@@ -32,6 +33,7 @@ import {
 } from './helper';
 import { importAllNotes } from '../activity/notes';
 import {
+  BridgedSendTransaction,
   ConsumeTransaction,
   ITransaction,
   ITransactionStatus,
@@ -207,6 +209,17 @@ export const generateTransaction = async (
         return await midenClient.consumeNoteId(transaction as ConsumeTransaction);
       case 'swap':
         return await midenClient.swapTransaction(transaction as SwapTransaction);
+      case 'bridged-send':
+        // Epoch bridges by sending a recallable P2IDE note (send-style, no
+        // `requestBytes`); Agglayer carries a pre-built request.
+        if (!transaction.requestBytes) {
+          return midenClient.sendTransaction(transaction as SendTransaction);
+        }
+        return midenClient.newTransaction(
+          transaction.accountId,
+          transaction.requestBytes,
+          transaction.delegateTransaction
+        );
       case 'execute':
       default:
         return await midenClient.newTransaction(
@@ -227,6 +240,9 @@ export const generateTransaction = async (
       break;
     case 'swap':
       await completeSwapTransaction(transaction as SwapTransaction, result);
+      break;
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, result);
       break;
     case 'execute':
     default:
@@ -356,6 +372,24 @@ const generateGuardianTransaction = async (
         t.extraInputs = rTx.extraInputs;
       });
       proposalResult = proposal;
+      break;
+    }
+    case 'bridged-send': {
+      const bridgeTx = transaction as BridgedSendTransaction;
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      if (bridgeTx.requestBytes) {
+        // Agglayer: preview the pre-built request into a custom multisig proposal.
+        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes);
+      } else {
+        // Epoch: a recallable P2IDE note to the solver's allocator — propose it as
+        // a send. (The multisig send proposal is P2ID today, so the Epoch recall
+        // safety net is not yet available on Guardian accounts.)
+        proposalResult = await service.createSendProposal(
+          bridgeTx.secondaryAccountId!,
+          bridgeTx.faucetId,
+          BigInt(bridgeTx.amount)
+        );
+      }
       break;
     }
     case 'swap': {
@@ -563,6 +597,9 @@ const generateGuardianTransaction = async (
       break;
     case 'swap':
       await completeSwapTransaction(transaction as SwapTransaction, transactionResult);
+      break;
+    case 'bridged-send':
+      await completeBridgedSendTransaction(transaction as BridgedSendTransaction, transactionResult);
       break;
     case 'execute':
     default:

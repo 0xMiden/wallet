@@ -75,6 +75,8 @@ export const useWalletStore = create<WalletStore>()(
     isDappBrowserOpen: false,
     activeDappSessionId: null,
     lastCompletedTxHash: null,
+    isTransactionModalOpen: false,
+    isTransactionModalDismissedByUser: false,
 
     // Initial note toast state (mobile only)
     seenNoteIds: new Set<string>(),
@@ -576,6 +578,25 @@ export const useWalletStore = create<WalletStore>()(
     // Transaction UI actions
     setLastCompletedTxHash: (txHash: string | null) => {
       set({ lastCompletedTxHash: txHash });
+    },
+
+    openTransactionModal: () => {
+      // Reset dismissed flag when explicitly opening the modal (new transaction initiated).
+      // `lastCompletedTxHash` is intentionally NOT cleared here — clearing happens on
+      // `closeTransactionModal` and at the start of a fresh send.
+      set({ isTransactionModalOpen: true, isTransactionModalDismissedByUser: false });
+    },
+
+    closeTransactionModal: (dismissedByUser = false) => {
+      set({
+        isTransactionModalOpen: false,
+        isTransactionModalDismissedByUser: dismissedByUser,
+        lastCompletedTxHash: null
+      });
+    },
+
+    resetTransactionModalDismiss: () => {
+      set({ isTransactionModalDismissedByUser: false });
     },
 
     // DApp browser state (mobile only)

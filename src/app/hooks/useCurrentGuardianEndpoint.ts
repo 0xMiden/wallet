@@ -39,8 +39,10 @@ export function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () =>
   return { endpoint, refresh };
 }
 
+// A provider now maps each supported network to its endpoint there, so match
+// against any of them — the caller only knows the endpoint, not the network.
 export function guardianOptionForEndpoint(endpoint: string): GuardianOption | undefined {
-  return GUARDIAN_OPTIONS.find(o => o.endpoint === endpoint);
+  return GUARDIAN_OPTIONS.find(o => [...o.endpoint.values()].includes(endpoint));
 }
 
 // "https://guardian.miden.io/foo" -> "guardian.miden.io"; falls back to the raw
