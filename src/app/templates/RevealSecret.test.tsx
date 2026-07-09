@@ -58,8 +58,8 @@ jest.mock('lib/miden/sdk/resolve-public-key-commitments', () => ({
   resolvePublicKeyCommitments: jest.fn(() => [])
 }));
 
-jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
-  useHideNavbarWhileOpen: jest.fn()
+jest.mock('lib/mobile/useHideDappBubblesWhileOpen', () => ({
+  useHideDappBubblesWhileOpen: jest.fn()
 }));
 
 jest.mock('lib/platform', () => ({
