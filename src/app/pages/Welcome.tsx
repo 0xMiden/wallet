@@ -511,6 +511,14 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.ImportFromFile);
         break;
       case '#create-password':
+        // Onboarding state is in-memory only; reloading on this screen loses
+        // onboardingType (and the generated/imported seed phrase), so a
+        // create-password submit would dead-end at Confirmation with no seed.
+        // Restart from Welcome instead of entering that broken flow.
+        if (onboardingType === null) {
+          navigate('/');
+          break;
+        }
         setStep(OnboardingStep.CreatePassword);
         break;
       case '#import-select-recovery-method':
@@ -526,7 +534,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password]);
+  }, [hash, password, onboardingType]);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {

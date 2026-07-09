@@ -724,7 +724,7 @@
     }
   },
   "revealSecretPasscodeInputDescription": {
-    "message": "输入您的密码以显示 $secretName$ .",
+    "message": "輸入您的密碼以顯示 $secretName$ .",
     "englishSource": "Enter your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1139,11 +1139,11 @@
     "englishSource": "Forgot passcode?"
   },
   "enterYourPassword": {
-    "message": "输入您的密码",
+    "message": "輸入您的密碼",
     "englishSource": "Enter your password"
   },
   "incorrectPassword": {
-    "message": "密码不正确。再试一次。",
+    "message": "密碼不正確。再試一次。",
     "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {

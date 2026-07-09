@@ -49,8 +49,12 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const {
     setError,
     clearErrors,
-    formState: { errors, isSubmitting }
+    formState: { errors }
   } = useForm<FormData>();
+  // This form submits directly (not via react-hook-form's handleSubmit), so
+  // formState.isSubmitting never flips true; track the in-flight state ourselves
+  // so the guard, the loading spinner, and PasscodeEntry's auto-submit all work.
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useLocalStorage<number>('TridentSharedStorageKey.PasswordAttempts', 1);
@@ -71,6 +75,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const onSubmit = useCallback(
     async (passcode?: string) => {
       if (isSubmitting) return;
+      setIsSubmitting(true);
 
       clearErrors('password');
       try {
@@ -92,6 +97,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
         setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
+        setIsSubmitting(false);
       }
     },
     [

@@ -724,7 +724,7 @@
     }
   },
   "revealSecretPasscodeInputDescription": {
-    "message": "Enter your passcode to reveal the  $secretName$ .",
+    "message": "Enter your passcode to reveal the $secretName$.",
     "englishSource": "Enter your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {

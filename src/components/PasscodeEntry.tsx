@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -37,17 +37,29 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
 }) => {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
+  // Remembers the code we've already auto-submitted so that a parent re-render
+  // before the digits are cleared (e.g. an attempt-counter bump on a failed
+  // unlock, or a fresh inline onSubmit identity) cannot re-fire the same
+  // passcode. Guarantees exactly one submit per distinct completed code.
+  const submittedCodeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (error) setCode('');
   }, [error]);
 
   useEffect(() => {
-    if (code.length === PASSCODE_LENGTH && !isSubmitting && !disabled) {
-      const timer = setTimeout(() => onSubmit(code), 150);
-      return () => clearTimeout(timer);
+    if (code.length < PASSCODE_LENGTH) {
+      submittedCodeRef.current = null;
+      return undefined;
     }
-    return undefined;
+    if (isSubmitting || disabled || submittedCodeRef.current === code) {
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      submittedCodeRef.current = code;
+      onSubmit(code);
+    }, 150);
+    return () => clearTimeout(timer);
   }, [code, isSubmitting, disabled, onSubmit]);
 
   const handleDigit = useCallback(

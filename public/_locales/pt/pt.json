@@ -476,5 +476,8 @@
   "first": "Primeiro",
   "last": "Durar",
   "language": "Linguagem",
-  "languageDescription": "Alterar o idioma de exibição"
+  "languageDescription": "Alterar o idioma de exibição",
+  "revealSecretPasscodeInputDescription": "Digite sua senha para revelar o $secretName$ .",
+  "enterYourPassword": "Digite sua senha",
+  "incorrectPassword": "Senha incorreta. Tente novamente."
 }
