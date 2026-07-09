@@ -1,9 +1,11 @@
 import React, { FC, useCallback, useEffect, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
@@ -19,10 +21,11 @@ import { goBack } from 'lib/woozie';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
+import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
-import { formatDate } from './transactionUtils';
+import { BRIDGE_STATUS_LABEL_KEY, bridgeRowDisplay, bridgeStatusOf, formatDate } from './transactionUtils';
 
 interface HistoryDetailsProps {
   transactionId: string;
@@ -43,6 +46,39 @@ interface RequestedTokenInfo {
 }
 
 const DISPLAY_DECIMAL_PLACES = 3;
+
+/** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
+const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const { inSymbol, outSymbol, outAmount } = bridgeRowDisplay(entry);
+  const inAmount = entry.amount?.toString() ?? '—';
+  return (
+    <div className="mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+      <span className="text-heading-gray">{inAmount}</span>
+      <span className="text-text-muted">{inSymbol}</span>
+      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 self-center" />
+      <span className="text-heading-gray">{outAmount ?? inAmount}</span>
+      <span className="text-text-muted">{outSymbol}</span>
+    </div>
+  );
+};
+
+/** Pending/Confirmed/Failed for a bridge, derived from the route's own lifecycle. */
+const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const { t } = useTranslation();
+  const status = bridgeStatusOf(entry);
+  const tone =
+    status === 'confirmed'
+      ? 'bg-status-positive/15 text-status-positive'
+      : status === 'failed'
+        ? 'bg-status-negative/15 text-status-negative'
+        : 'bg-status-pending/15 text-status-pending';
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
+    </div>
+  );
+};
 
 function formatDisplayAmount(amount: string | number | bigint): string {
   const amountString = amount.toString();
@@ -224,8 +260,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         : requestedToken.amount - swapTracking.remainingRequested
       : undefined;
 
-  const fromAddress = entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
-  const toAddress = entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
+  // For a bridge the sender is always the Miden account; the EVM destination is
+  // shown in the BridgeClaimSection (with the right explorer link), so the Miden
+  // "to" row is omitted here.
+  const isBridge = entry?.txType === 'bridged-send';
+  const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
+  const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
@@ -248,18 +288,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <ActivitySpinner />
         ) : (
           <div className="flex-1 flex flex-col overflow-y-auto">
-            {/* Top Section */}
+            {/* Top Section — a bridge reads "IN → OUT" across the two chains. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               <TransactionIcon entry={entry} size="lg" />
-              <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                {entry.amount !== undefined && (
-                  <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
-                )}
-                {entry.token && <span className="text-text-muted">{entry.token}</span>}
-              </div>
+              {isBridge ? (
+                <BridgeHeroAmounts entry={entry} />
+              ) : (
+                <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+                  {entry.amount !== undefined && (
+                    <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                  )}
+                  {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                </div>
+              )}
               {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
-                <StatusPill status={entry.status} />
+                {isBridge ? <BridgeStatusPill entry={entry} /> : <StatusPill status={entry.status} />}
               </div>
             </div>
 
@@ -302,6 +346,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 )}
               </DetailCard>
             </div>
+
+            {/* Bridge route + EVM-side claim (bridged-send only) */}
+            {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
 
             {/* Swap order tracking */}
             {entry.txType === 'swap' && orderId != null && (
