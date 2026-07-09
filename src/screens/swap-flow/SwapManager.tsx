@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
-import { useAccount } from 'lib/miden/front';
+import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { deriveRequestAmount, getSwapTokenPrice, SwapToken, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
@@ -16,13 +16,12 @@ import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
 
 import { ReviewSwap } from './ReviewSwap';
-import { SelectSwapToken } from './SelectSwapToken';
+import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
 
 const ROUTES: Route[] = [
   { name: SwapFlowStep.SwapAmounts, animationIn: 'push', animationOut: 'pop' },
-  { name: SwapFlowStep.SelectToken, animationIn: 'push', animationOut: 'pop' },
   { name: SwapFlowStep.ReviewSwap, animationIn: 'push', animationOut: 'pop' }
 ];
 
@@ -32,6 +31,8 @@ const SwapManager: React.FC = () => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { publicKey } = useAccount();
+  const allTokensBaseMetadata = useAllTokensBaseMetadata();
+  const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
 
   const [offerToken, setOfferToken] = useState<SwapToken>(TOKEN_IMIDEN);
   const [requestToken, setRequestToken] = useState<SwapToken>(TOKEN_IETH);
@@ -41,20 +42,26 @@ const SwapManager: React.FC = () => {
   // auto-quote until they change the pay amount or a token again.
   const [requestEdited, setRequestEdited] = useState(false);
   const [selectingSide, setSelectingSide] = useState<SwapSide>('offer');
+  const [showTokenDrawer, setShowTokenDrawer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const onClose = useCallback(() => navigate('/'), []);
 
-  // Handle mobile hardware/swipe back: step back inside the flow, else close it.
+  // Handle mobile hardware/swipe back: close the token drawer first, then step
+  // back inside the flow, else close it.
   useMobileBackHandler(() => {
+    if (showTokenDrawer) {
+      setShowTokenDrawer(false);
+      return true;
+    }
     if (cardStack.length > 1) {
       goBack();
       return true;
     }
     onClose();
     return true;
-  }, [cardStack.length, goBack, onClose]);
+  }, [showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Dismiss any stale completion modal on flow entry (see SendManager for the
   // full rationale — entering a swap is a clear "starting a new tx" signal).
@@ -108,10 +115,17 @@ const SwapManager: React.FC = () => {
   }, [quote, requestEdited]);
 
   const sameToken = offerToken.faucetId === requestToken.faucetId;
-  const hasOfferAmount = Number(offerAmount) > 0;
+  const offerBalance = useMemo(
+    () => balanceData.find(balance => balance.tokenId === offerToken.faucetId)?.balance ?? 0,
+    [balanceData, offerToken.faucetId]
+  );
+  const offerAmountValue = Number(offerAmount);
+  const hasOfferAmount = offerAmountValue > 0;
+  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
   const pricesLoading = offerPriceLoading || requestPriceLoading;
   const priceUnavailable = Boolean(offerPriceError || requestPriceError);
-  const canProceed = !submitting && !sameToken && hasOfferAmount && Number(requestAmount) > 0;
+  const canProceed =
+    !submitting && !sameToken && hasOfferAmount && !offerAmountExceedsBalance && Number(requestAmount) > 0;
 
   const onOfferAmountChange = useCallback((amount: string) => {
     setOfferAmount(amount);
@@ -133,16 +147,16 @@ const SwapManager: React.FC = () => {
 
   const onSelectOfferToken = useCallback(() => {
     setSelectingSide('offer');
-    navigateTo(SwapFlowStep.SelectToken);
-  }, [navigateTo]);
+    setShowTokenDrawer(true);
+  }, []);
 
   const onSelectRequestToken = useCallback(() => {
     setSelectingSide('request');
-    navigateTo(SwapFlowStep.SelectToken);
-  }, [navigateTo]);
+    setShowTokenDrawer(true);
+  }, []);
 
   // Picking the token already on the opposite side flips the two sides rather
-  // than landing on an invalid same-token state.
+  // than landing on an invalid same-token state. The drawer closes itself.
   const onTokenSelected = useCallback(
     (token: SwapToken) => {
       if (selectingSide === 'offer') {
@@ -153,9 +167,8 @@ const SwapManager: React.FC = () => {
         setRequestToken(token);
       }
       setRequestEdited(false);
-      goBack();
     },
-    [selectingSide, offerToken, requestToken, goBack]
+    [selectingSide, offerToken, requestToken]
   );
 
   const onSubmit = useCallback(async () => {
@@ -206,6 +219,7 @@ const SwapManager: React.FC = () => {
           return (
             <SwapAmounts
               offerToken={offerToken}
+              offerBalance={offerBalance}
               offerAmount={offerAmount}
               onOfferAmountChange={onOfferAmountChange}
               onSelectOfferToken={onSelectOfferToken}
@@ -218,14 +232,6 @@ const SwapManager: React.FC = () => {
               canProceed={canProceed}
               statusMessage={statusMessage?.text}
               statusIsError={statusMessage?.isError}
-            />
-          );
-        case SwapFlowStep.SelectToken:
-          return (
-            <SelectSwapToken
-              currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
-              onSelect={onTokenSelected}
-              onBack={goBack}
             />
           );
         case SwapFlowStep.ReviewSwap:
@@ -248,6 +254,7 @@ const SwapManager: React.FC = () => {
     },
     [
       offerToken,
+      offerBalance,
       offerAmount,
       requestToken,
       requestAmount,
@@ -256,13 +263,11 @@ const SwapManager: React.FC = () => {
       submitError,
       canProceed,
       statusMessage,
-      selectingSide,
       onOfferAmountChange,
       onRequestAmountChange,
       onSelectOfferToken,
       onSelectRequestToken,
       onSwapDirection,
-      onTokenSelected,
       onSubmit,
       navigateTo,
       goBack
@@ -275,6 +280,13 @@ const SwapManager: React.FC = () => {
       data-testid="swap-flow"
     >
       <Navigator renderRoute={renderStep} />
+
+      <SelectSwapTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
+        onSelect={onTokenSelected}
+      />
     </div>
   );
 };

@@ -1,6 +1,5 @@
 export enum SwapFlowStep {
   SwapAmounts = 'SwapAmounts',
-  SelectToken = 'SelectToken',
   ReviewSwap = 'ReviewSwap'
 }
 

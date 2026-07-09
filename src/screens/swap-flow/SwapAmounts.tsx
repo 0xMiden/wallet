@@ -13,6 +13,7 @@ import { UIToken } from '../send-flow/types';
 
 export interface SwapAmountsProps {
   offerToken: SwapToken;
+  offerBalance: number;
   offerAmount: string;
   onOfferAmountChange: (amount: string) => void;
   onSelectOfferToken: () => void;
@@ -29,11 +30,11 @@ export interface SwapAmountsProps {
 }
 
 /** SwapToken → the UIToken shape SelectAmount expects (balance/fiat unused here). */
-const swapTokenToUIToken = (token: SwapToken): UIToken => ({
+const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
   id: token.faucetId,
   name: token.symbol,
   decimals: token.decimals,
-  balance: 0,
+  balance,
   fiatPrice: 0
 });
 
@@ -43,6 +44,7 @@ const swapTokenToUIToken = (token: SwapToken): UIToken => ({
  */
 export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   offerToken,
+  offerBalance,
   offerAmount,
   onOfferAmountChange,
   onSelectOfferToken,
@@ -57,6 +59,9 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   statusIsError
 }) => {
   const { t } = useTranslation();
+  const offerAmountValue = Number(offerAmount);
+  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
+  const offerAmountError = offerAmountExceedsBalance ? 'amountMustBeLessThanBalance' : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
@@ -64,10 +69,11 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
         <SelectAmount
           embedded
           label={t('youPay')}
-          token={swapTokenToUIToken(offerToken)}
+          token={swapTokenToUIToken(offerToken, offerBalance)}
           logoSymbol={offerToken.logoSymbol}
           amount={offerAmount}
-          isValidAmount={Number(offerAmount) > 0}
+          isValidAmount={offerAmountValue > 0 && !offerAmountExceedsBalance}
+          error={offerAmountError}
           onAmountChange={onOfferAmountChange}
           onSelectToken={onSelectOfferToken}
         />
