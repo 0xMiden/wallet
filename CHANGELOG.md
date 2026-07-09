@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.7 (TBD)
+
+### Fixes
+
+* [FIX][all] **Reveal Private Key no longer crashes for standard accounts.** The reveal-private-key screen rendered its `AccountBanner` without an `account`, so the banner's `account.name` access threw `Cannot read properties of undefined (reading 'name')` for on-chain/off-chain accounts. (Guardian accounts route to the guardian-keys reveal, which shows no banner, so they were unaffected — which is why it looked intermittent.) The banner now receives the current account, and `AccountBanner` requires `account` as a prop so the type checker catches any caller that omits it.
+
 ## 1.15.6 (2026-07-07)
 
 ### Features

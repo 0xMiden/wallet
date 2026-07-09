@@ -8,7 +8,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { WalletAccount } from 'lib/shared/types';
 
 type AccountBannerProps = HTMLAttributes<HTMLDivElement> & {
-  account?: WalletAccount;
+  account: WalletAccount;
   displayBalance?: boolean;
   networkRpc?: string;
   label?: ReactNode;
@@ -24,8 +24,8 @@ const AccountBanner = memo<AccountBannerProps>(({ className, account }) => {
         <Icon name={IconName.Wallet} fill="currentColor" size="sm" className="text-gray-250" />
 
         <div className="flex items-center ml-3 text-sm">
-          <Name className="text-heading-gray mr-3">{account!.name}</Name>
-          <AddressShortView address={account!.publicKey} />
+          <Name className="text-heading-gray mr-3">{account.name}</Name>
+          <AddressShortView address={account.publicKey} />
         </div>
       </div>
     </div>

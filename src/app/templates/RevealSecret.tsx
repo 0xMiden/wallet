@@ -141,7 +141,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         return {
           name: t('privateKey'),
           accountBanner: (
-            <AccountBanner labelDescription={t('ifYouWantToRevealPrivateKeyFromOtherAccount')} className="mb-6" />
+            <AccountBanner
+              account={account}
+              labelDescription={t('ifYouWantToRevealPrivateKeyFromOtherAccount')}
+              className="mb-6"
+            />
           ),
           attention: (
             <div className="flex flex-col text-left text-black">
@@ -186,7 +190,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           fieldDesc: <div className="text-heading-gray text-sm">{t('guardianKeysRevealDescription')}</div>
         };
     }
-  }, [reveal, t]);
+  }, [reveal, t, account]);
 
   const mainContent = useMemo(() => {
     if (guardianBundle) {
