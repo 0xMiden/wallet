@@ -311,68 +311,10 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(multisigService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-xyz']);
-    // A user-initiated (non-background) consume stays hot-bound — no cold service built.
+    // Every consume is hot-bound — no cold service built. The former
+    // background→cold-key routing existed only to dodge the iOS `.userPresence`
+    // Face ID gate on the hot key, which has since been removed.
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
-  });
-
-  it('Guardian background/auto-consume: routes through the COLD key (no biometric prompt)', async () => {
-    const txId = 'consume-bg-1';
-    const result = makeResult();
-    const coldService = {
-      createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume-cold' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({
-        serialize: () => new Uint8Array([1]),
-        authArg: () => undefined
-      })),
-      sync: jest.fn(async () => {})
-    };
-    const hotService = {
-      createConsumeNotesProposal: jest.fn(async () => ({ id: 'prop-consume-hot' })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({
-        serialize: () => new Uint8Array([1]),
-        authArg: () => undefined
-      })),
-      sync: jest.fn(async () => {})
-    };
-    mockGetOrCreateMultisigService.mockResolvedValue(hotService);
-    mockBuildColdMultisigService.mockResolvedValue(coldService);
-    mockGetMidenClient.mockResolvedValue({
-      syncState: jest.fn(async () => {}),
-      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
-      client: { transactions: { submit: jest.fn(async () => ({ result })) } }
-    });
-    const provider = {
-      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
-      getPublicKeyForCommitment: async () => 'pk',
-      signWord: async () => 'sig'
-    };
-    mockIsGuardianAccount.mockResolvedValue(true);
-    txStore.push({
-      id: txId,
-      type: 'consume',
-      accountId: 'guardian-acc',
-      status: ITransactionStatus.Queued,
-      noteId: 'note-bg'
-    });
-
-    await generateTransaction(
-      {
-        id: txId,
-        type: 'consume',
-        accountId: 'guardian-acc',
-        noteId: 'note-bg',
-        delegateTransaction: false,
-        background: true
-      } as never,
-      jest.fn(async () => new Uint8Array([1])),
-      false,
-      provider as never
-    );
-
-    // Cold service is built and signs the consume; the hot (biometric) service is not used.
-    expect(mockBuildColdMultisigService).toHaveBeenCalled();
-    expect(coldService.createConsumeNotesProposal).toHaveBeenCalledWith(['note-bg']);
-    expect(hotService.createConsumeNotesProposal).not.toHaveBeenCalled();
   });
 
   it('Guardian switch-guardian: cold co-signs before hot, waits for chain inclusion, finalizes switch', async () => {

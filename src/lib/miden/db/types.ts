@@ -222,12 +222,13 @@ export class ConsumeTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
-  // Background/auto-consume (vs. a user-initiated claim). Guardian accounts use
-  // this to route the signature through the cold key, avoiding a biometric
-  // prompt for a silent background claim — see generateGuardianTransaction.
-  background?: boolean;
 
-  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean, background?: boolean) {
+  // There is deliberately no background/user-initiated distinction here anymore:
+  // it only existed so Guardian auto-consume could be cold-signed while the iOS
+  // hot key was Face-ID-gated (`.userPresence`). Hot signing is silent again, so
+  // every consume signs the same way. Old persisted rows may still carry a stray
+  // `background` property; it's ignored.
+  constructor(accountId: string, note: ConsumableNote, delegateTransaction?: boolean) {
     this.id = uuid();
     this.type = 'consume';
     this.accountId = accountId;
@@ -240,7 +241,6 @@ export class ConsumeTransaction implements ITransaction {
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
-    this.background = background;
   }
 }
 

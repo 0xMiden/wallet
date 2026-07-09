@@ -71,15 +71,19 @@ export const initiateConsumeTransactionFromId = async (
   return await initiateConsumeTransaction(accountId, note, delegateTransaction);
 };
 
+// NOTE: this used to take a `background` flag that routed Guardian auto-consume
+// through the COLD key, because iOS hot-key signing was gated behind Face ID
+// (`.userPresence` on the SE key) and a silent background claim must not pop a
+// biometric prompt every AutoSync tick. That gate has been removed — the SE hot
+// key is `.privateKeyUsage`-only again and signs silently — so background and
+// user-initiated consumes are identical and both take the standard hot-bound
+// path (see generateGuardianTransaction).
 export const initiateConsumeTransaction = async (
   accountId: string,
   note: ConsumableNote,
-  delegateTransaction?: boolean,
-  // Background/auto-consume: routed through the cold key on Guardian accounts so
-  // a silent claim doesn't trigger a biometric prompt (see generateGuardianTransaction).
-  background?: boolean
+  delegateTransaction?: boolean
 ): Promise<string> => {
-  const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction, background);
+  const dbTransaction = new ConsumeTransaction(accountId, note, delegateTransaction);
   // Dedup against all non-Failed consume txs for this noteId, including Completed ones.
   // Reason: getConsumableNotes() can still return a note for a short window after a local
   // consume completes (chain-sync lag). Without this, auto-consume polling creates a new

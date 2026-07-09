@@ -73,9 +73,7 @@ const Explore: FC = () => {
     }
 
     const promises = notesToClaim.map(async note => {
-      // `background: true` — this is a silent auto-consume, so on Guardian
-      // accounts it's cold-signed (no biometric prompt). See initiateConsumeTransaction.
-      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
+      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
     });
     await Promise.all(promises);
     mutateClaimableNotes();

@@ -8,6 +8,10 @@
 
 * [CHANGE][all] Redesigned the swap flow into a multi-step wizard — a You Pay / You Receive amounts screen (two stacked `SelectAmount` fields with a swap-direction toggle), a "Review Swap Details" screen (composed two-amount hero with a live Rate row), a swap variant of the transaction-progress view ("Generating Swap" title + a logo-less two-tone token→token summary badge), a "Swap Order Created!" success screen (summary pill, Expiration Date row with the funds-return note, "sourcing liquidity" footer, Done + View in Activities), and a bespoke Activities row ("Swap {offered} → {requested}" / "Via In Protocol Dex" with the requested amount on the right). Extracted the fixed devnet DEX token registry and price-quote logic into `lib/miden/swap/tokens.ts`, replacing the old single-page native-select swap UI. Swap details in Activities add a live order-tracking card (order status / fill rounds / amount filled, polled via `trackOrderId`), and the history status pill is driven by the transaction's actual status (adding a Failed state) instead of message sniffing. "Usually fills in", "Expires", and "Network fee" are static placeholders pending backend swap-quote metadata.
 
+### Fixes
+
+* [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path.
+
 ## 1.15.6 (2026-07-07)
 
 ### Features

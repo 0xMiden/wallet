@@ -237,8 +237,8 @@ export const generateTransaction = async (
 
 /**
  * Build a transient cold-bound MultisigService for `accountId`. Cold signing
- * goes through the SDK keystore (not the SE/StrongBox-wrapped hot key), so it
- * never triggers a biometric prompt — used for background/auto-consume.
+ * goes through the SDK keystore (not the SE/StrongBox-wrapped hot key) — used
+ * for structural ops that must be cold-signed.
  */
 const buildColdServiceForAccount = async (
   accountId: string,
@@ -277,9 +277,9 @@ const generateGuardianTransaction = async (
   let proposalResult: Proposal;
   // The service that creates the proposal AND issues the final
   // signAndCreateTransactionRequest. Hot-bound for routine ops; cold-bound for
-  // structural ops (replace-hot-key / update-procedure-threshold) and for
-  // background auto-consume. The hot-bound path is the only one cached by
-  // guardian-manager; cold services here are transient.
+  // structural ops (replace-hot-key / update-procedure-threshold). The
+  // hot-bound path is the only one cached by guardian-manager; cold services
+  // here are transient.
   //
   // `withGuardianConflictRetry` waits out a transient 409 ConflictPendingDelta
   // (a prior delta still canonicalizing) instead of failing the tx. It wraps
@@ -299,14 +299,13 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      // Background/auto-consume signs with the COLD key so it doesn't pop a
-      // biometric prompt: consuming a note is value-in (claims an incoming note
-      // into your own vault — it can't move funds out), so it needs no user
-      // presence, and threshold-1 means cold + guardian satisfies it on-chain.
-      // User-initiated claims stay hot-bound (tap-to-confirm biometric on mobile).
-      service = consumeTx.background
-        ? await buildColdServiceForAccount(transaction.accountId, guardianProvider)
-        : await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      // Always hot-bound, including background/auto-consume. Auto-consume used
+      // to be routed through the COLD key because the iOS SE hot key carried
+      // `.userPresence` — hot-signing a silent background claim would have
+      // popped Face ID on every attempt. That flag is gone (hot signing is
+      // silent everywhere now), so the cold detour buys nothing and the cached
+      // hot service is strictly cheaper than building a transient cold one.
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       proposalResult = await withGuardianConflictRetry(() => service.createConsumeNotesProposal([consumeTx.noteId]));
       break;
     }
