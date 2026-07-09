@@ -104,12 +104,17 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   useEffect(() => {
     setProgressOverride(null);
   }, [step]);
-  const baseStep = STEP_TO_PROGRESS[step] ?? null;
-  const rawProgress = progressOverride ?? baseStep;
   // The choose-protection step only exists where biometric can work (mobile).
   // On the extension/desktop it's skipped, so the create flow is one step
   // shorter — render 3 segments and shift every position down by one.
   const protectionChoiceSkipped = onboardingType === OnboardingType.Create && !isMobile();
+  // In that shortened create flow the password screen replaces passcode setup,
+  // so it sits at the protection-step position rather than its import-flow one.
+  const baseStep =
+    step === OnboardingStep.CreatePassword && protectionChoiceSkipped
+      ? (STEP_TO_PROGRESS[OnboardingStep.SetupPasscode] ?? null)
+      : (STEP_TO_PROGRESS[step] ?? null);
+  const rawProgress = progressOverride ?? baseStep;
   const totalSteps = protectionChoiceSkipped ? 3 : 4;
   const currentProgress = protectionChoiceSkipped && rawProgress !== null ? rawProgress - 1 : rawProgress;
 

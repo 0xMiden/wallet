@@ -475,5 +475,8 @@
   "first": "첫 번째",
   "last": "마지막",
   "language": "언어",
-  "languageDescription": "표시 언어 변경"
+  "languageDescription": "표시 언어 변경",
+  "revealSecretPasscodeInputDescription": "비밀번호를 입력하면 공개됩니다 $secretName$ .",
+  "enterYourPassword": "비밀번호를 입력하세요",
+  "incorrectPassword": "잘못된 비밀번호입니다. 다시 시도해 보세요."
 }

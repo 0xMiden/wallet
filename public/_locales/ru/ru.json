@@ -469,5 +469,8 @@
   "first": "Первый",
   "last": "Последний",
   "language": "Язык",
-  "languageDescription": "Изменить язык отображения"
+  "languageDescription": "Изменить язык отображения",
+  "revealSecretPasscodeInputDescription": "Введите свой пароль, чтобы открыть $secretName$ .",
+  "enterYourPassword": "Введите свой пароль",
+  "incorrectPassword": "Неправильный пароль. Попробуйте еще раз."
 }

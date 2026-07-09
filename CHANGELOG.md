@@ -2,6 +2,11 @@
 
 ## 1.15.7 (TBD)
 
+### Changes
+
+* [CHANGE][all] **Passcodes are now mobile-only; extension and desktop use a full password.** The extension/desktop create-wallet flow now goes Welcome → Create Password → Choose Guardian → Confirmation (no 6-digit passcode setup), and their unlock screen is a password form again instead of the numpad (desktop still tries hardware unlock first).
+* [CHANGE][mobile] **Settings flows that unlock the vault now prompt with the passcode numpad on mobile.** Reveal seed phrase / private key / hot key / guardian keys, verify seed phrase, and the encrypted-wallet-file export now show the shared 6-digit `PasscodeEntry` (dots + numpad, auto-submit) on mobile passcode-protected wallets instead of a typed password field; extension/desktop keep the password input.
+
 ### Fixes
 
 * [FIX][all] **Reveal Private Key no longer crashes for standard accounts.** The reveal-private-key screen rendered its `AccountBanner` without an `account`, so the banner's `account.name` access threw `Cannot read properties of undefined (reading 'name')` for on-chain/off-chain accounts. (Guardian accounts route to the guardian-keys reveal, which shows no banner, so they were unaffected — which is why it looked intermittent.) The banner now receives the current account, and `AccountBanner` requires `account` as a prop so the type checker catches any caller that omits it.

@@ -74,6 +74,29 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Wallet: 'Wallet' }
 }));
 
+// Mobile passcode-protected vaults render the numpad instead of a password
+// field. Mock it so we can drive its onChange/onSubmit callbacks.
+jest.mock('components/PasscodeEntry', () => ({
+  PasscodeEntry: ({
+    onSubmit,
+    onChange,
+    disabled
+  }: {
+    onSubmit: (code: string) => void;
+    onChange: (code: string) => void;
+    disabled?: boolean;
+  }) => (
+    <div>
+      <button data-testid="passcode-change" onClick={() => onChange('1')}>
+        passcode-change
+      </button>
+      <button data-testid="passcode-submit" disabled={disabled} onClick={() => onSubmit('123456')}>
+        passcode-submit
+      </button>
+    </div>
+  )
+}));
+
 jest.mock('lib/miden/back/vault', () => ({
   Vault: { hasHardwareProtector: () => mockHasHardwareProtector() }
 }));
@@ -379,6 +402,26 @@ describe('RevealSecret', () => {
 
     expect(mockRevealPrivateKey).toHaveBeenCalled();
     expect(mockSetSecret).not.toHaveBeenCalled();
+  });
+
+  it('reveals via the mobile passcode numpad instead of a password field', async () => {
+    mockIsMobile = true; // usePasscodeEntry = isMobile() && hasHardwareProtector === false
+    const container = await renderReveal('private-key');
+    // No password field / action button in the passcode flow; the numpad drives submit.
+    expect(container.querySelector('input[name="password"]')).toBeFalsy();
+    expect(buttonWithText(container, 'continue')).toBeFalsy();
+
+    await acknowledge(container);
+    await act(async () => {
+      (container.querySelector('[data-testid="passcode-change"]') as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (container.querySelector('[data-testid="passcode-submit"]') as HTMLButtonElement).click();
+    });
+    await flush();
+
+    expect(mockRevealPrivateKey).toHaveBeenCalledWith('deadbeef', '123456');
+    expect(mockSetSecret).toHaveBeenCalledWith('PRIVATE_KEY_HEX');
   });
 
   it('clears any revealed secret on unmount', async () => {

@@ -707,6 +707,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "Wprowadź swoje hasło, aby odsłonić $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "Odblokuj za pomocą hasła, aby odsłonić $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -1102,6 +1111,14 @@
   "forgotPasscode": {
     "message": "Zapomniałeś hasła?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "Wpisz swoje hasło",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "Nieprawidłowe hasło. Spróbuj ponownie.",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "Utwórz 6-cyfrowy kod",

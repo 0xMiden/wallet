@@ -483,5 +483,8 @@
   "first": "перше",
   "last": "Останній",
   "language": "Мова",
-  "languageDescription": "Змініть мову відображення"
+  "languageDescription": "Змініть мову відображення",
+  "revealSecretPasscodeInputDescription": "Введіть свій пароль, щоб відкрити $secretName$ .",
+  "enterYourPassword": "Введіть свій пароль",
+  "incorrectPassword": "Невірний пароль. Спробуйте знову."
 }

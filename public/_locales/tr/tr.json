@@ -590,5 +590,8 @@
   "requestConsumableNotes": "Sarf Malzemesi Notlarını Talep Edin",
   "requestsConsumableNotes": "Sarf malzemesi notları isteyin",
   "noteConsumedSuccessfully": "Notunuz başarıyla kullanıldı.",
-  "noteConsumptionError": "Notunuz tüketilirken bir hata oluştu. Lütfen tekrar deneyin."
+  "noteConsumptionError": "Notunuz tüketilirken bir hata oluştu. Lütfen tekrar deneyin.",
+  "revealSecretPasscodeInputDescription": "ortaya çıkarmak için şifrenizi girin $secretName$ .",
+  "enterYourPassword": "Şifrenizi girin",
+  "incorrectPassword": "Yanlış şifre. Tekrar deneyin."
 }
