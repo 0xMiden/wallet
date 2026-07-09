@@ -45,4 +45,6 @@ export interface TransactionStepRowProps {
   state: TransactionStepState;
   isLast: boolean;
   label?: string;
+  /** Right-aligned muted text, e.g. the step's duration ("2 sec"). */
+  meta?: string;
 }

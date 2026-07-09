@@ -136,7 +136,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state }) => {
   );
 };
 
-export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, state, isLast, label }) => {
+export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, state, isLast, label, meta }) => {
   const { t } = useTranslation();
   const rowTransition = useMotion(springs.snappy);
   const resolvedLabel = label ?? t(step.labelKey, { defaultValue: step.defaultLabel });
@@ -164,6 +164,11 @@ export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, st
           {resolvedLabel}
         </span>
       </div>
+      {meta && (
+        <span className="shrink-0 font-heading text-base font-medium leading-none text-[#8E8A84] dark:text-[#9B968D]">
+          {meta}
+        </span>
+      )}
     </motion.div>
   );
 };

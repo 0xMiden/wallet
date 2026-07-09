@@ -36,6 +36,7 @@ import {
   GENERATING_TRANSACTIONS_DEDUPING_INTERVAL_MS,
   GENERATING_TRANSACTIONS_REFRESH_INTERVAL_MS,
   GENERATING_TRANSACTIONS_SWR_KEY,
+  SUCCESS_RECEIPT_DELAY_MS,
   TRANSACTION_LOOP_INTERVAL_MS,
   TRANSACTION_STEPS
 } from './constants';
@@ -50,9 +51,36 @@ import {
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
-import type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
+import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionStep } from './types';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
+
+type TransactionStepId = TransactionStep['id'];
+type TransactionStepTiming = {
+  startedAt: number;
+  endedAt?: number;
+};
+type TransactionStepTimings = Partial<Record<TransactionStepId, TransactionStepTiming>>;
+
+const getTimedStepIndexForStage = (stage?: ITransaction['stage']): number | undefined => {
+  switch (stage) {
+    case 'syncing':
+    case 'creating-proposal':
+    case 'signing-proposal':
+      return 0;
+    case 'sending':
+    case 'proving':
+      return 1;
+    case 'submitting':
+      return 2;
+    case 'guardian-syncing':
+      return 3;
+    case 'guardian-synced':
+      return 4;
+    default:
+      return undefined;
+  }
+};
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ keepOpen = false }) => {
   const { signTransaction } = useMidenContext();
@@ -287,10 +315,87 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   completedTxHash,
   onViewExplorer
 }) => {
-  const [startTimeForStep, setStartTimeForStep] = useState<number[]>([]);
-  const [endTimeForStep, setEndTimeForStep] = useState<number[]>([]);
+  const [stepTimings, setStepTimings] = useState<TransactionStepTimings>({});
+  const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
   const { t } = useTranslation();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
+  const timingTransactionId = activeTransaction?.id ?? completedTransaction?.id;
+
+  useEffect(() => {
+    setStepTimings({});
+  }, [timingTransactionId]);
+
+  useEffect(() => {
+    if (!transactionComplete || hasErrors) {
+      setShowSuccessReceipt(false);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setShowSuccessReceipt(true);
+    }, SUCCESS_RECEIPT_DELAY_MS);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [hasErrors, transactionComplete]);
+
+  useEffect(() => {
+    if (transactionComplete) {
+      const now = Date.now();
+      const lastStep = TRANSACTION_STEPS[TRANSACTION_STEPS.length - 1];
+      if (!lastStep) return;
+
+      setStepTimings(prev => ({
+        ...prev,
+        [lastStep.id]: {
+          startedAt: prev[lastStep.id]?.startedAt ?? now,
+          endedAt: now
+        }
+      }));
+      return;
+    }
+
+    const stepIndex = getTimedStepIndexForStage(activeStage);
+    if (stepIndex === undefined) return;
+
+    const now = Date.now();
+    if (stepIndex === 0) {
+      setStepTimings({ 'guardian-approving': { startedAt: now } });
+      return;
+    }
+
+    const step = TRANSACTION_STEPS[stepIndex];
+    if (!step) return;
+    const prevStep = TRANSACTION_STEPS[stepIndex - 1];
+    if (!prevStep) {
+      throw new Error('Prev Step Should be there');
+    }
+    setStepTimings(prev => {
+      return {
+        ...prev,
+        [prevStep.id]: {
+          ...prev[prevStep.id],
+          endedAt: now
+        },
+        [step.id]: {
+          startedAt: now
+        }
+      };
+    });
+  }, [activeStage, timingTransactionId, transactionComplete]);
+
+  const stepDurationLabels = useMemo(
+    () =>
+      TRANSACTION_STEPS.map(step => {
+        const timing = stepTimings[step.id];
+        if (!timing?.endedAt) return undefined;
+        const { startedAt, endedAt } = timing;
+        const elapsedMs = endedAt - startedAt;
+        return t('transactionStepDurationSec', { seconds: elapsedMs / 1000 });
+      }),
+    [stepTimings, t]
+  );
 
   const headerText = useCallback(() => {
     if (transactionComplete && hasErrors) {
@@ -331,10 +436,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // The success path (transactionComplete && !hasErrors) early-returns
   // <TransactionSuccess> below, so the only completed state that reaches this
   // render is a failure.
-  const heroState = transactionComplete ? 'failed' : 'processing';
+  const heroState = transactionComplete && hasErrors ? 'failed' : 'processing';
   const actionTitle = transactionComplete ? t('done') : t('hide');
 
-  if (transactionComplete && !hasErrors) {
+  if (showSuccessReceipt) {
     return (
       <TransactionSuccess
         transaction={completedTransaction}
@@ -370,6 +475,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                   step={step}
                   state={state}
                   isLast={index === TRANSACTION_STEPS.length - 1}
+                  meta={state === 'complete' ? stepDurationLabels[index] : undefined}
                 />
               );
             })}
