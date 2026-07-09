@@ -9,6 +9,7 @@ import { ScreenHeader } from 'components/ScreenHeader';
 import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
@@ -142,11 +143,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       if (tx.type === 'swap') {
         const extra: SwapExtraInputs = tx.extraInputs ?? {};
         if (extra.orderId != null) {
-          const requestedMeta = extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
+          // The DEX faucets are usually absent from assetsMetadata (where
+          // getTokenMetadata would fall back to MIDEN), so resolve via the
+          // swap-token registry first.
+          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
+          const requestedMeta =
+            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
           setRequestedToken({
             amount: extra.requestedAmount ?? 0n,
-            decimals: requestedMeta?.decimals,
-            symbol: requestedMeta?.symbol
+            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
+            symbol: swapToken?.symbol ?? requestedMeta?.symbol
           });
           setOrderId(extra.orderId);
         }

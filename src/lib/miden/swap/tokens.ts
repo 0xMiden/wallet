@@ -24,25 +24,25 @@ export const SWAP_TOKEN_DECIMALS = 8;
 
 export const TOKEN_IMIDEN: SwapToken = {
   symbol: 'IMIDEN',
-  faucetId: 'mdev1aq484758cd3r5yt3x25megj0ag46wp8a_qr7qqq9wr6w',
+  faucetId: 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe_qr7qqq9wr6w',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'MIDEN'
 };
 export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
-  faucetId: 'mdev1aqaww0tlzehhyvfjuwkthf67w5djl28w_qr7qqq9wr6w',
+  faucetId: 'mtst1apfjwvs5f8mey5f6a6s5llnhp533fe5p_qr7qqq9wr6w',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'ETH'
 };
 export const TOKEN_IBTC: SwapToken = {
   symbol: 'IBTC',
-  faucetId: 'mdev1azehytvhqdsknyg0crh2en8znvp3zmga_qr7qqq9wr6w',
+  faucetId: 'mtst1aqvv35kq9tuvn5fuwkd055vyzuhc5vwl_qr7qqq9wr6w',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'BTC'
 };
 export const TOKEN_IUSDT: SwapToken = {
   symbol: 'IUSDT',
-  faucetId: 'mdev1az0scmkp838d9vg8dg5ep20u9y2s8ymm_qr7qqq9wr6w',
+  faucetId: 'mtst1ap9q8svy8psvnvt4stqzr4tr4c077f9y_qr7qqq9wr6w',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'USDC'
 };
