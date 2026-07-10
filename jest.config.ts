@@ -29,6 +29,9 @@ export default {
     '/src/lib/mobile/faucet-webview\\.ts$',
     '/packages/dapp-browser/'
   ],
+  // 'json-summary' emits coverage/coverage-summary.json, consumed by the
+  // coverage-badge workflow to publish the README shields.io badge.
+  coverageReporters: ['json-summary', 'text-summary', 'lcov'],
   coverageThreshold: {
     global: {
       branches: 95,
