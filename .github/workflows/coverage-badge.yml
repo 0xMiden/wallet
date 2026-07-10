@@ -1,0 +1,64 @@
+name: Coverage Badge
+
+# Publishes the Jest line-coverage % to coverage.json on the orphan `badges`
+# branch so shields.io renders a live badge in README.md. Runs only after a
+# push to main. No external service login required — shields.io reads the JSON
+# directly from raw.githubusercontent.com. The `badges` branch is an orphan
+# holding only the endpoint JSON; nothing merges back into main.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  coverage-badge:
+    name: Publish coverage badge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - name: Install
+        # Plain `yarn install` (no --frozen-lockfile) mirrors the proven pr.yml
+        # coverage job, tolerating any latent lockfile drift on a first run.
+        run: yarn install --network-timeout 600000
+      - name: Run coverage
+        run: yarn test:coverage
+      - name: Compose shields.io endpoint JSON
+        id: badge
+        run: |
+          set -euo pipefail
+          pct=$(node -e 'process.stdout.write(Number(require("./coverage/coverage-summary.json").total.lines.pct).toFixed(1))')
+          int=$(printf '%.0f' "$pct")
+          color=red
+          if [ "$int" -ge 80 ]; then color=yellow; fi
+          if [ "$int" -ge 90 ]; then color=brightgreen; fi
+          if [ "$int" -ge 95 ]; then color=green; fi
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > /tmp/coverage.json
+          echo "Line coverage: ${pct}%"
+          echo "pct=${pct}" >> "$GITHUB_OUTPUT"
+      - name: Publish to `badges` branch
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin badges > /dev/null 2>&1; then
+            git fetch origin badges
+            git checkout badges
+          else
+            git checkout --orphan badges
+            git rm -rf . > /dev/null 2>&1 || true
+          fi
+          cp /tmp/coverage.json coverage.json
+          git add coverage.json
+          if git diff --cached --quiet; then
+            echo "Badge JSON unchanged"
+          else
+            git commit -m "chore: coverage badge -> ${{ steps.badge.outputs.pct }}%"
+            git push origin badges
+          fi
