@@ -32,7 +32,7 @@ const APP_PATH = path.join(
   'Debug-iphonesimulator',
   'App.app'
 );
-const BUNDLE_ID = 'com.miden.wallet';
+const BUNDLE_ID = 'com.miden.bread';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 

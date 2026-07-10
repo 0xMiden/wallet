@@ -6,8 +6,8 @@ This document contains the metadata needed for App Store (iOS) and Google Play (
 
 ## App Information
 
-- **App Name:** Miden Wallet
-- **Bundle ID / Package Name:** com.miden.wallet
+- **App Name (App Store Connect):** Bread Wallet · **Home-screen label (`CFBundleDisplayName`):** Bread
+- **Bundle ID (iOS App Store):** com.miden.bread · **Package Name (Android):** com.miden.wallet
 - **Version:** 1.14.4
 - **Android versionCode:** 11404001
 - **Category:** Finance
@@ -26,7 +26,7 @@ Secure wallet for the Miden blockchain. Send, receive, and manage your assets.
 ## Full Description
 
 ```
-Miden Wallet is the official wallet for the Miden blockchain, designed to give you complete control over your digital assets with industry-leading security and privacy.
+Bread Wallet is the official wallet for the Miden blockchain, designed to give you complete control over your digital assets with industry-leading security and privacy.
 
 KEY FEATURES
 
@@ -54,7 +54,7 @@ User-Friendly Experience
 
 GETTING STARTED
 
-1. Download and open Miden Wallet
+1. Download and open Bread
 2. Create a new wallet or import an existing one using your seed phrase
 3. Secure your wallet with a password and enable biometric login
 4. Start sending and receiving assets on the Miden network
@@ -65,7 +65,7 @@ SECURITY REMINDERS
 • Never share your seed phrase or private keys with anyone
 • Enable biometric authentication for added security
 
-Miden Wallet is open source. Visit our website to learn more about the Miden blockchain and our commitment to privacy and security.
+Bread is open source. Visit our website to learn more about the Miden blockchain and our commitment to privacy and security.
 
 Website: https://miden.fi
 Privacy Policy: https://0xmiden.github.io/wallet/privacy/
@@ -174,7 +174,7 @@ If review requires a test account, provide:
 
 ### Notes for Reviewers
 ```
-Miden Wallet is a cryptocurrency wallet for the Miden blockchain.
+Bread is a cryptocurrency wallet for the Miden blockchain.
 
 To test the app:
 1. Create a new wallet (no account needed)
@@ -248,24 +248,28 @@ Output locations:
 
 ### iOS
 
-**Production App Store identity** (differs from the repo defaults, which are for
-e2e/dev):
+**Production App Store identity** (Miden organization account). These values are
+the iOS identity on `main`. The iOS e2e harness now targets `com.miden.bread` to
+match; the browser extension and Android (`applicationId`) intentionally stay on
+`com.miden.wallet`.
 
-| | Repo default (e2e/dev) | App Store production |
-|---|---|---|
-| Bundle ID | `com.miden.wallet` | **`com.midenfi.wallet`** |
-| Team | `YQ9XQQJ5ZM` | **`QT9F8G4KW7`** (current publishing team) |
-| Provisioning profile | — | "midenwallet" (App Store, `com.midenfi.wallet`) |
+| | Value |
+|---|---|
+| Bundle ID | **`com.miden.bread`** (fresh App ID under the org — no App Transfer needed) |
+| Team | **`LHU7B7J5WL`** (Miden org) |
+| Signing | Automatic — `-allowProvisioningUpdates` mints the Apple Distribution cert + App Store profile under the org |
 
-The production identity is applied as **local, uncommitted overrides** at build
-time — set `PRODUCT_BUNDLE_IDENTIFIER` + `DEVELOPMENT_TEAM` in
-`ios/App/App.xcodeproj/project.pbxproj` and `teamID` in
-`ios/App/ExportOptions.plist`, then **revert after building**. Don't commit them;
-the repo stays on the dev defaults so e2e keeps working.
+The identity lives in four source files (already set to the values above):
+`ios/App/App.xcodeproj/project.pbxproj` (`PRODUCT_BUNDLE_IDENTIFIER` +
+`DEVELOPMENT_TEAM`, Debug & Release), `ios/App/ExportOptions.plist` (`teamID`),
+`ios/App/App/App.entitlements` (keychain-access-group), and
+`capacitor.config.ts` (`appId`).
 
-Prerequisites: Apple Developer membership for the publishing team, the Apple
-Distribution cert + the App Store provisioning profile in the keychain, and Xcode
-signed into that team (Settings → Accounts).
+Prerequisites: an Apple ID that is an **Admin or Account Holder** member of the
+org (`LHU7B7J5WL`) signed into Xcode (Settings → Accounts) so automatic signing
+can mint the distribution cert/profile; an App Store Connect app record for
+`com.miden.bread` under the org; and an App Store Connect **team API key** (org)
+for the headless upload.
 
 ```bash
 # 1. Apply the production identity overrides (bundle id + team) — see table above.
@@ -289,7 +293,7 @@ Web Crypto). `ITSAppUsesNonExemptEncryption` is set to `false` in
 encryption/France questionnaire.
 
 Common upload errors:
-- *"PLA Update available" / "No profiles for com.midenfi.wallet were found"* — the
+- *"PLA Update available" / "No profiles for com.miden.bread were found"* — the
   **Program License Agreement needs accepting** at developer.apple.com/account
   (account holder). Both errors clear once it's accepted.
 
