@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.miden.wallet',
+  appId: 'com.miden.bread',
   appName: 'Bread',
   webDir: 'dist/mobile',
   server: {
