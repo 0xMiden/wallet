@@ -249,8 +249,9 @@ Output locations:
 ### iOS
 
 **Production App Store identity** (Miden organization account). These values are
-committed on the App Store submission branch; the extension, Android, and e2e
-harness still use `com.miden.wallet`.
+the iOS identity on `main`. The iOS e2e harness now targets `com.miden.bread` to
+match; the browser extension and Android (`applicationId`) intentionally stay on
+`com.miden.wallet`.
 
 | | Value |
 |---|---|
