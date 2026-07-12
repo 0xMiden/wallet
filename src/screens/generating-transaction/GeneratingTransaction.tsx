@@ -8,14 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
-import {
-  safeGenerateTransactionsLoop as dbTransactionsLoop,
-  getAllUncompletedTransactions,
-  getTransactionById,
-  getFailedTransactions,
-  waitForTransactionCompletion
-} from 'lib/miden/activity';
-import type { ITransaction } from 'lib/miden/db/types';
+import { safeGenerateTransactionsLoop as dbTransactionsLoop } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
@@ -23,19 +17,12 @@ import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
 import { isAutoCloseEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { useRetryableSWR } from 'lib/swr';
-import { navigate } from 'lib/woozie';
+import { navigate, Redirect } from 'lib/woozie';
 
 import { TransactionHeroIcon, TransactionStepRow } from './components';
 import {
   AUTO_CLOSE_DELAY_MS,
   EXPLORER_TITLE,
-  FAILED_TRANSACTIONS_DEDUPING_INTERVAL_MS,
-  FAILED_TRANSACTIONS_REFRESH_INTERVAL_MS,
-  FAILED_TRANSACTIONS_SWR_KEY,
-  GENERATING_TRANSACTIONS_DEDUPING_INTERVAL_MS,
-  GENERATING_TRANSACTIONS_REFRESH_INTERVAL_MS,
-  GENERATING_TRANSACTIONS_SWR_KEY,
   SUCCESS_RECEIPT_DELAY_MS,
   TRANSACTION_LOOP_INTERVAL_MS,
   TRANSACTION_STEPS
@@ -45,13 +32,12 @@ import {
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
-  getTrackedTransactionSearch,
-  getTransactionStepState,
-  pickActiveTx
+  getTransactionStepState
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
 import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionStep } from './types';
+import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
 
@@ -62,7 +48,7 @@ type TransactionStepTiming = {
 };
 type TransactionStepTimings = Partial<Record<TransactionStepId, TransactionStepTiming>>;
 
-const getTimedStepIndexForStage = (stage?: ITransaction['stage']): number | undefined => {
+const getTimedStepIndexForStage = (stage?: GeneratingTransactionProps['activeStage']): number | undefined => {
   switch (stage) {
     case 'syncing':
     case 'creating-proposal':
@@ -82,35 +68,15 @@ const getTimedStepIndexForStage = (stage?: ITransaction['stage']): number | unde
   }
 };
 
-export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ keepOpen = false }) => {
+export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { signTransaction } = useMidenContext();
   const { pageEvent, trackEvent } = useAnalytics();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [hasFailedTransaction, setHasFailedTransaction] = useState(false);
-  // Track if we've started processing (to know when we can show Done on mobile)
-  const [hasStartedProcessing, setHasStartedProcessing] = useState(false);
-  const [receiptTransaction, setReceiptTransaction] = useState<ITransaction>();
-  const [implicitTransactionId, setImplicitTransactionId] = useState<string>();
-  const initialFailedCountRef = useRef<number | null>(null);
 
-  const { data: txs, mutate: mutateTx } = useRetryableSWR(
-    [GENERATING_TRANSACTIONS_SWR_KEY],
-    async () => getAllUncompletedTransactions(),
-    {
-      revalidateOnMount: true,
-      // Faster poll so per-stage label changes feel responsive — stages can
-      // flip every ~500ms–1s during a single tx and a 5s poll hides them.
-      refreshInterval: GENERATING_TRANSACTIONS_REFRESH_INTERVAL_MS,
-      dedupingInterval: GENERATING_TRANSACTIONS_DEDUPING_INTERVAL_MS
-    }
-  );
-
-  // Poll for failed transactions to track failures during this session
-  const { data: failedTxs } = useRetryableSWR([FAILED_TRANSACTIONS_SWR_KEY], async () => getFailedTransactions(), {
-    revalidateOnMount: true,
-    refreshInterval: FAILED_TRANSACTIONS_REFRESH_INTERVAL_MS,
-    dedupingInterval: FAILED_TRANSACTIONS_DEDUPING_INTERVAL_MS
-  });
+  // Single source of truth: the tracked row, watched by id. It advances
+  // Queued → GeneratingTransaction → Completed | Failed and never disappears,
+  // so status alone drives the whole screen — no queue-guessing, no shadow copy.
+  const { row: active, loaded } = useTransactionRow(txId);
 
   const onClose = useCallback(() => {
     const { hash } = window.location;
@@ -125,101 +91,21 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     pageEvent('GeneratingTransaction', '');
   }, [pageEvent]);
 
-  const transactions = useMemo(() => txs || [], [txs]);
-  const trackedTransactionId = useMemo(() => new URLSearchParams(getTrackedTransactionSearch()).get('txId'), []);
-  const targetTransactionId = trackedTransactionId ?? implicitTransactionId;
-  const active = useMemo(() => {
-    if (targetTransactionId) {
-      return transactions.find(tx => tx.id === targetTransactionId);
-    }
-
-    return pickActiveTx(transactions);
-  }, [targetTransactionId, transactions]);
-  const targetTransactionInFlight = Boolean(active);
-  const prevTargetTransactionInFlight = useRef<boolean>();
-
-  useEffect(() => {
-    if (!trackedTransactionId && !implicitTransactionId && active?.id) {
-      setImplicitTransactionId(active.id);
-    }
-  }, [active?.id, implicitTransactionId, trackedTransactionId]);
-
-  useEffect(() => {
-    if (!trackedTransactionId) return;
-
-    let cancelled = false;
-    waitForTransactionCompletion(trackedTransactionId).then(result => {
-      if (cancelled || 'errorMessage' in result) return;
-      useWalletStore.getState().setLastCompletedTxHash(result.txHash);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [trackedTransactionId]);
-
-  // Debug: log transaction state changes
-  useEffect(() => {
-    console.log('[GeneratingTransaction] State:', {
-      transactionId: targetTransactionId ?? active?.id,
-      status: active?.status,
-      type: active?.type,
-      hasStartedProcessing,
-      hasFailedTransaction
-    });
-  }, [active?.id, active?.status, active?.type, targetTransactionId, hasStartedProcessing, hasFailedTransaction]);
-
-  useEffect(() => {
-    if (prevTargetTransactionInFlight.current && !targetTransactionInFlight) {
-      new Promise(res => setTimeout(res, AUTO_CLOSE_DELAY_MS)).then(async () => {
-        await trackEvent('GeneratingTransaction Page Closed Automatically');
-        isAutoCloseEnabled() && onClose();
-      });
-    }
-
-    prevTargetTransactionInFlight.current = targetTransactionInFlight;
-  }, [targetTransactionInFlight, trackEvent, onClose]);
-
-  // Track new failures during this session, scoped to the one tx shown by the modal.
-  useEffect(() => {
-    if (!failedTxs) return;
-
-    if (targetTransactionId) {
-      setHasFailedTransaction(failedTxs.some(tx => tx.id === targetTransactionId));
-      return;
-    }
-
-    if (initialFailedCountRef.current === null) {
-      initialFailedCountRef.current = failedTxs.length;
-      return;
-    }
-
-    if (failedTxs.length > initialFailedCountRef.current) {
-      setHasFailedTransaction(true);
-    }
-  }, [failedTxs, targetTransactionId]);
-
+  // Driver — unchanged from the queue-observer era. On extension the service
+  // worker owns the loop and this is a no-op; on mobile/desktop the page kicks
+  // the FIFO loop (the in-flight generateTransaction promise survives unmount,
+  // so Hide doesn't stall a tx that has started). The loop drains the whole
+  // queue by design; the row subscription above only decides what we render.
   const generateTransaction = useCallback(async () => {
-    setHasStartedProcessing(true);
-    // On extension the service worker owns the tx loop; the page is a pure
-    // observer there (running the WASM loop in the page context would race the
-    // SW). Just refresh the list and let polling surface progress.
     if (isExtension()) {
-      mutateTx();
       return;
     }
     try {
-      const success = await dbTransactionsLoop(signTransaction, false, zustandProvider);
-      if (success === false) {
-        console.log('[GeneratingTransaction] Transaction loop reported failure');
-      }
-
-      mutateTx();
+      await dbTransactionsLoop(signTransaction, false, zustandProvider);
     } catch (e) {
       console.error('[GeneratingTransaction] Error in transaction loop:', e);
-      mutateTx();
     }
-  }, [mutateTx, signTransaction]);
+  }, [signTransaction]);
 
   useEffect(() => {
     generateTransaction();
@@ -232,48 +118,46 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     };
   }, [generateTransaction]);
 
-  const hasLoadedTransactions = Boolean(txs);
-  const transactionComplete =
-    hasStartedProcessing &&
-    hasLoadedTransactions &&
-    (targetTransactionId ? !targetTransactionInFlight : transactions.length === 0);
-  const hasErrors = hasFailedTransaction;
+  const status = active?.status;
+  const transactionComplete = status === ITransactionStatus.Completed || status === ITransactionStatus.Failed;
+  const hasErrors = status === ITransactionStatus.Failed;
   const activeStage = active?.stage;
   const activeType = active?.type;
 
+  // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
-    if (active) {
-      setReceiptTransaction(active);
+    if (status === ITransactionStatus.Completed && active?.transactionId) {
+      useWalletStore.getState().setLastCompletedTxHash(active.transactionId);
     }
-  }, [active]);
+  }, [status, active?.transactionId]);
 
+  // Auto-close once the tx reaches a terminal state (mirrors the old
+  // "left flight" transition, now derived from status rather than the tx
+  // dropping out of the uncompleted list).
+  const prevTransactionComplete = useRef(false);
   useEffect(() => {
-    const receiptTransactionId = receiptTransaction?.id ?? targetTransactionId;
-    if (!transactionComplete || !receiptTransactionId) return;
+    if (transactionComplete && !prevTransactionComplete.current) {
+      new Promise(res => setTimeout(res, AUTO_CLOSE_DELAY_MS)).then(async () => {
+        await trackEvent('GeneratingTransaction Page Closed Automatically');
+        isAutoCloseEnabled() && onClose();
+      });
+    }
 
-    let cancelled = false;
-    getTransactionById(receiptTransactionId)
-      .then(tx => {
-        if (cancelled) return;
-        setReceiptTransaction(tx);
-        if (tx.transactionId) {
-          useWalletStore.getState().setLastCompletedTxHash(tx.transactionId);
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [transactionComplete, receiptTransaction?.id, targetTransactionId]);
+    prevTransactionComplete.current = transactionComplete;
+  }, [transactionComplete, trackEvent, onClose]);
 
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
-  const receiptTxHash = lastCompletedTxHash ?? receiptTransaction?.transactionId ?? null;
+  const receiptTxHash = lastCompletedTxHash ?? active?.transactionId ?? null;
   const explorerUrl = receiptTxHash ? getExplorerTxUrl(receiptTxHash) : undefined;
   const onViewExplorer = useCallback(() => {
     if (!explorerUrl) return;
     openExternalUrl({ url: explorerUrl, title: EXPLORER_TITLE });
   }, [explorerUrl]);
+
+  // Unknown id (never existed, or already pruned) — nothing to show.
+  if (loaded && !active) {
+    return <Redirect to="/" />;
+  }
 
   return (
     <div
@@ -293,8 +177,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           keepOpen={keepOpen}
           activeStage={activeStage}
           activeType={activeType}
-          activeTransaction={active ?? receiptTransaction}
-          completedTransaction={receiptTransaction}
+          activeTransaction={active}
+          completedTransaction={active}
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
         />

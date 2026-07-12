@@ -3,6 +3,8 @@ import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/mide
 import type { TRANSACTION_STEPS } from './constants';
 
 export interface GeneratingTransactionPageProps {
+  /** Id of the transaction this page tracks; comes from the `/:txId` route param. */
+  txId: string;
   keepOpen?: boolean;
 }
 

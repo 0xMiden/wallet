@@ -1,38 +1,7 @@
-import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
 import { TRANSACTION_STEPS } from './constants';
 import type { TransactionStepState } from './types';
-
-/**
- * Picks the transaction whose stage the modal should display. Prefers the
- * one currently `GeneratingTransaction`; falls back to the oldest queued
- * one so the user sees "Syncing" immediately rather than a blank label
- * before the SDK call starts.
- */
-export const pickActiveTx = <
-  T extends { status: ITransactionStatus; stage?: ITransactionStage; type: ITransactionType }
->(
-  txs: T[]
-): T | undefined => {
-  const processing = txs.find(tx => tx.status === ITransactionStatus.GeneratingTransaction);
-  return processing ?? txs[0];
-};
-
-export const getTrackedTransactionSearch = (): string => {
-  if (typeof window === 'undefined') return '';
-
-  const hashPath = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
-  if (hashPath) {
-    try {
-      return new URL(hashPath, window.location.origin).search;
-    } catch {
-      return '';
-    }
-  }
-
-  return window.location.search;
-};
 
 export const getActiveTransactionStepIndex = (stage?: ITransactionStage): number => {
   switch (stage) {

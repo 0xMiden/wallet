@@ -157,7 +157,7 @@ export const ReviewTransaction: React.FC = () => {
       // from the progress page skips the now-stale review params.
       clearSendDraft();
       navigate(
-        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}?txId=${encodeURIComponent(txId)}`,
+        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
         HistoryAction.Replace
       );
     } catch (e) {

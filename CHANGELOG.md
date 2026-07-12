@@ -10,6 +10,8 @@
 
 * [CHANGE][all] The transaction progress view now shows a per-step duration ("2 sec") on each completed step row, derived from the stage transitions observed while the screen is open.
 
+* [CHANGE][all] The generating-transaction page is now addressed by transaction id (`/generating-transaction/:txId`) and observes that single transaction row directly instead of guessing which one to show by scanning the uncompleted-transactions queue. Completion and failure come straight off the row's status (`Completed` / `Failed`), removing the queue-emptying and failed-row-counting heuristics. The FIFO processing loop and the page's driver are unchanged.
+
 ### Fixes
 
 * [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path. Android gets the equivalent fix: the Keystore hot-key wrapper is no longer auth-bound (`setUserAuthenticationRequired`), so hot signing no longer pops a fingerprint `BiometricPrompt` per signature; legacy auth-bound keys keep working through a prompt fallback until the hot key is rotated.
