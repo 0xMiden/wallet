@@ -13,6 +13,7 @@ import type { StatusIndicatorProps, TransactionHeroIconProps, TransactionStepRow
 export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state }) => {
   const reduceMotion = useReducedMotion();
   const entranceTransition = useMotion(springs.standard);
+  const glyphTransition = useMotion({ duration: 0.32, ease: easings.easeOutCubic });
 
   return (
     <motion.div
@@ -21,7 +22,7 @@ export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state 
       animate={{ opacity: 1, scale: 1 }}
       transition={entranceTransition}
     >
-      {state === 'failed' ? (
+      {state === 'failed' && (
         <svg viewBox="0 0 142 142" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <circle cx="71" cy="71" r="52" fill="rgba(197, 26, 10, 0.12)" />
           <circle cx="71" cy="71" r="36" fill="var(--status-negative)" />
@@ -33,7 +34,26 @@ export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state 
             strokeLinejoin="round"
           />
         </svg>
-      ) : (
+      )}
+
+      {state === 'success' && (
+        <svg viewBox="0 0 142 142" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="71" cy="71" r="52" fill="rgba(144, 186, 137, 0.12)" />
+          <circle cx="71" cy="71" r="36" fill={SUCCESS_GREEN} />
+          <motion.path
+            d="M56 72L67 83L88 60"
+            stroke="white"
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            initial={reduceMotion ? undefined : { pathLength: 0 }}
+            animate={reduceMotion ? undefined : { pathLength: 1 }}
+            transition={glyphTransition}
+          />
+        </svg>
+      )}
+
+      {state === 'processing' && (
         <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <circle cx="60" cy="60" r="60" fill={PROCESSING_ORANGE} />
           <circle cx="60" cy="60" r="27" stroke="rgba(255,255,255,0.22)" strokeWidth="16" />

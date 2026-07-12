@@ -36,7 +36,12 @@ import {
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
-import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionStep } from './types';
+import type {
+  GeneratingTransactionPageProps,
+  GeneratingTransactionProps,
+  TransactionHeroState,
+  TransactionStep
+} from './types';
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
@@ -317,10 +322,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const processingTitle = t('transactionProcessingHeader', { defaultValue: 'Processing' });
   const footerDescription = transactionComplete ? descriptionText() : t('generatingTransactionDescription');
   const activeStepIndex = transactionComplete ? TRANSACTION_STEPS.length : getActiveTransactionStepIndex(activeStage);
-  // The success path (transactionComplete && !hasErrors) early-returns
-  // <TransactionSuccess> below, so the only completed state that reaches this
-  // render is a failure.
-  const heroState = transactionComplete && hasErrors ? 'failed' : 'processing';
+  // A successful tx still renders here for SUCCESS_RECEIPT_DELAY_MS before the
+  // receipt takes over, so the hero has to show a settled success state — not
+  // the spinner — while the title already reads "Transaction completed".
+  const heroState: TransactionHeroState = !transactionComplete ? 'processing' : hasErrors ? 'failed' : 'success';
   const actionTitle = transactionComplete ? t('done') : t('hide');
 
   if (showSuccessReceipt) {

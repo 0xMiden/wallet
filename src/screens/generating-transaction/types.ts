@@ -32,7 +32,7 @@ export interface GeneratingTransactionProps {
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
 export type TransactionStep = (typeof TRANSACTION_STEPS)[number];
-export type TransactionHeroState = 'processing' | 'failed';
+export type TransactionHeroState = 'processing' | 'success' | 'failed';
 
 export interface TransactionHeroIconProps {
   state: TransactionHeroState;
