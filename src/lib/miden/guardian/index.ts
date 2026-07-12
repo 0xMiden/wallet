@@ -24,13 +24,13 @@ import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
-const MAX_SYNC_RETRIES = 20;
-const SYNC_RETRY_DELAY_MS = 3000;
+const MAX_SYNC_RETRIES = 30;
+const SYNC_RETRY_DELAY_MS = 1000;
 // The guardian typically re-canonicalizes an accepted delta within ~2-10 ticks,
 // so wait a bounded window (~36s) before the last-resort re-register. Kept well
 // below MAX_SYNC_RETRIES so a *genuine* (non-transient) blob divergence
 // self-heals sooner instead of stalling for the full nonce-retry ceiling.
-const MAX_GUARDIAN_CANONICALIZE_RETRIES = 12;
+const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
 const MAX_GUARDIAN_REGISTER_RETRIES = 5;
 const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
 

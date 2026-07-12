@@ -330,8 +330,8 @@ describe('MultisigService', () => {
 
       try {
         await expect(service.sync()).rejects.toThrow('Max sync retries reached');
-        // 20 retries + the initial attempt = 21 calls.
-        expect(syncState).toHaveBeenCalledTimes(21);
+        // 30 retries + the initial attempt = 31 calls.
+        expect(syncState).toHaveBeenCalledTimes(31);
       } finally {
         (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
       }
@@ -400,12 +400,12 @@ describe('MultisigService', () => {
         return 0 as unknown as ReturnType<typeof setTimeout>;
       }) as typeof setTimeout;
 
-      // 12 waited retries (initial + 11 more keep the counter < 12), then the 13th
-      // attempt exhausts the window → re-register → the 14th attempt succeeds.
+      // 30 waited retries, then the 31st failure exhausts the window and
+      // re-registers; the 32nd attempt succeeds.
       let calls = 0;
       const syncState = jest.fn(async () => {
         calls++;
-        if (calls <= 13) {
+        if (calls <= 31) {
           throw new Error('Refusing to overwrite local state');
         }
       });
@@ -417,7 +417,7 @@ describe('MultisigService', () => {
       try {
         await service.sync();
         expect(registerOnGuardian).toHaveBeenCalledTimes(1); // last-resort re-register, once
-        expect(syncState).toHaveBeenCalledTimes(14); // 13 lag failures + 1 success after re-register
+        expect(syncState).toHaveBeenCalledTimes(32); // 31 lag failures + 1 success after re-register
       } finally {
         (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
       }
