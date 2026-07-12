@@ -52,7 +52,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
         label: t('viewInActivities'),
-        onClick: () => navigate('/history'),
+        onClick: () => navigate(transaction ? `/history-details/${transaction.id}` : '/history'),
         variant: ButtonVariant.Secondary
       }}
       onClose={onDoneClick}
