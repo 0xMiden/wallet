@@ -694,7 +694,10 @@ describe('generateTransaction execute + consume default switch arms', () => {
       syncState: jest.fn(async () => {}),
       client: {
         transactions: {
-          submit: jest.fn(async () => ({ result: fullResult }))
+          executeRequest: jest.fn(async () => fullResult),
+          prove: jest.fn(async () => ({ proved: true })),
+          submitProven: jest.fn(async () => ({ blockNumber: 1 })),
+          apply: jest.fn(async () => {})
         }
       }
     });
