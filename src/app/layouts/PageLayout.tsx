@@ -4,12 +4,12 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import DocBg from 'app/a11y/DocBg';
-import { Button } from 'app/atoms/Button';
 import Spinner from 'app/atoms/Spinner/Spinner';
 import { useAppEnv } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
+import { Button, ButtonVariant } from 'components/Button';
 import { isDesktop, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
@@ -196,7 +196,7 @@ const Toolbar: FC<ToolbarProps> = ({
         'bg-app-bg',
         'rounded-t-lg',
         'flex flex-col items-center',
-        'transition ease-in-out duration-300'
+        'transition duration-150 ease-hover'
       )}
       style={{
         // The top value needs to be -1px or the element will never intersect
@@ -223,18 +223,15 @@ const Toolbar: FC<ToolbarProps> = ({
           {advancedSettingsSection}
           {isBackButtonAvailable && (
             <Button
+              variant={ButtonVariant.Ghost}
               className={classNames(
-                'p-2',
-                'rounded-full',
-                'flex',
+                'h-auto w-auto max-w-none p-2 border-0',
                 'text-black font-bold text-shadow-black',
-                'hover:bg-gray-100',
-                'transition duration-300 ease-in-out',
                 'opacity-90 hover:opacity-100'
               )}
               style={{ fontSize: 16, lineHeight: '20px' }}
               onClick={step ? onStepBack : onBack}
-              testID={PageLayoutSelectors.BackButton}
+              data-testid={PageLayoutSelectors.BackButton}
             >
               <Icon name={IconName.Close} fill={'currentColor'} />
             </Button>
@@ -246,14 +243,12 @@ const Toolbar: FC<ToolbarProps> = ({
       {skip && (
         <div className="flex content-end">
           <Button
+            variant={ButtonVariant.Ghost}
             className={classNames(
-              'px-4 py-2',
+              'h-auto w-auto max-w-none px-4 py-2 border-0',
               'rounded',
-              'flex items-center',
-              'text-black text-shadow-black',
+              'font-sans text-black text-shadow-black',
               'text-sm font-semibold leading-none',
-              'hover:bg-gray-100',
-              'transition duration-300 ease-in-out',
               'opacity-90 hover:opacity-100'
             )}
             onClick={() => setOnboardingCompleted(true)}

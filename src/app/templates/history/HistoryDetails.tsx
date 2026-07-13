@@ -1,20 +1,23 @@
 import React, { FC, useCallback, useEffect, useState, memo } from 'react';
 
+import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
-import { getTransactionById } from 'lib/miden/activity';
-import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import { ScreenHeader } from 'components/ScreenHeader';
+import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { goBack } from 'lib/woozie';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
@@ -22,63 +25,87 @@ import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
-import {
-  BridgeStatus,
-  bridgeStatusOf,
-  fontColorForType,
-  formatBridgeOutputAmount,
-  formatDate
-} from './transactionUtils';
-
-const formatUsd = (value: number): string =>
-  `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`;
-
-const BRIDGE_PILL_STYLE: Record<BridgeStatus, { bg: string; text: string; dot: string; labelKey: string }> = {
-  pending: { bg: 'bg-[#FBEEDD]', text: 'text-[#E8913A]', dot: 'bg-[#E8913A]', labelKey: 'pending' },
-  confirmed: { bg: 'bg-[#DAF1E2]', text: 'text-[#1A9C52]', dot: 'bg-[#1A9C52]', labelKey: 'confirmed' },
-  failed: { bg: 'bg-[#FBE3E3]', text: 'text-[#DC2626]', dot: 'bg-[#DC2626]', labelKey: 'bridgeFailed' }
-};
-
-const BridgeStatusPill: FC<{ status: BridgeStatus }> = ({ status }) => {
-  const { t } = useTranslation();
-  const s = BRIDGE_PILL_STYLE[status];
-  return (
-    <div className={clsx('flex items-center gap-1.5 px-3 py-1 rounded-5', s.bg)}>
-      <span className={clsx('w-1.5 h-1.5 rounded-full', s.dot)} />
-      <span className={clsx('text-xs font-medium', s.text)}>{t(s.labelKey)}</span>
-    </div>
-  );
-};
-
-/** Swap-style hero for a `bridged-send`: "IN → OUT" with greyed symbols, USD, status. */
-const BridgeHero: FC<{ entry: IHistoryEntry; tokenPrices: TokenPrices }> = ({ entry, tokenPrices }) => {
-  const inSymbol = entry.token ?? '—';
-  const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
-  const inAmount = entry.amount?.toString() ?? '—';
-  const outAmount = formatBridgeOutputAmount(entry.bridgeOutputAmount) ?? inAmount;
-  const { price } = getTokenPrice(tokenPrices, inSymbol);
-  const usdValue = Number(entry.amount ?? '0') * price;
-
-  return (
-    <div className="flex flex-col items-center justify-center pt-4 pb-6 border-b border-[#BABABA33]">
-      <TransactionIcon entry={entry} size="lg" />
-      <div className="flex items-center gap-2 flex-wrap justify-center leading-none">
-        <span className="text-5xl font-extrabold text-heading-gray">{inAmount}</span>
-        <span className="text-3xl font-extrabold text-[#B5B5BD]">{inSymbol}</span>
-        <Icon name={IconName.ArrowRight} size="md" className="mx-0.5" fill="#1A1A1A" />
-        <span className="text-5xl font-extrabold text-heading-gray">{outAmount}</span>
-        <span className="text-3xl font-extrabold text-[#B5B5BD]">{outSymbol}</span>
-      </div>
-      {usdValue > 0 && <p className="mt-2 text-sm text-heading-gray">≈ {formatUsd(usdValue)}</p>}
-      <div className="mt-2">
-        <BridgeStatusPill status={bridgeStatusOf(entry)} />
-      </div>
-    </div>
-  );
-};
+import { BRIDGE_STATUS_LABEL_KEY, bridgeRowDisplay, bridgeStatusOf, formatDate } from './transactionUtils';
 
 interface HistoryDetailsProps {
   transactionId: string;
+}
+
+/** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
+interface SwapExtraInputs {
+  requestedFaucetId?: string;
+  requestedAmount?: bigint;
+  orderId?: bigint;
+}
+
+/** Requested-token display info for the swap order tracking card. */
+interface RequestedTokenInfo {
+  amount: bigint;
+  decimals?: number;
+  symbol?: string;
+}
+
+const DISPLAY_DECIMAL_PLACES = 3;
+
+/** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
+const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const { inSymbol, outSymbol, outAmount } = bridgeRowDisplay(entry);
+  const inAmount = entry.amount?.toString() ?? '—';
+  return (
+    <div className="mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+      <span className="text-heading-gray">{inAmount}</span>
+      <span className="text-text-muted">{inSymbol}</span>
+      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 self-center" />
+      <span className="text-heading-gray">{outAmount ?? inAmount}</span>
+      <span className="text-text-muted">{outSymbol}</span>
+    </div>
+  );
+};
+
+/** Pending/Confirmed/Failed for a bridge, derived from the route's own lifecycle. */
+const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const { t } = useTranslation();
+  const status = bridgeStatusOf(entry);
+  const tone =
+    status === 'confirmed'
+      ? 'bg-status-positive/15 text-status-positive'
+      : status === 'failed'
+        ? 'bg-status-negative/15 text-status-negative'
+        : 'bg-status-pending/15 text-status-pending';
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
+    </div>
+  );
+};
+
+function formatDisplayAmount(amount: string | number | bigint): string {
+  const amountString = amount.toString();
+  const displayAmount = new BigNumber(amountString);
+
+  if (!displayAmount.isFinite()) {
+    return amountString;
+  }
+
+  return displayAmount.decimalPlaces(DISPLAY_DECIMAL_PLACES, BigNumber.ROUND_DOWN).toFixed();
+}
+
+function formatFiatDisplayAmount(
+  amount: string | number | bigint,
+  tokenSymbol: string,
+  tokenPrices: TokenPrices
+): string | undefined {
+  const displayAmount = new BigNumber(amount.toString());
+
+  if (!displayAmount.isFinite()) {
+    return undefined;
+  }
+
+  const { price } = getTokenPrice(tokenPrices, tokenSymbol);
+  const fiatAmount = displayAmount.abs().times(price);
+
+  return `≈ $${fiatAmount.toFixed(2)} USD`;
 }
 
 const AccountDisplay: FC<{
@@ -118,40 +145,54 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
+  // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
+  const [orderId, setOrderId] = useState<string | bigint | null>(null);
+  const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
+  const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
   const loadTransaction = useCallback(async () => {
     try {
       setLoadError(null);
       const tx = await getTransactionById(transactionId);
       const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
       console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
-      const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
         timestamp: tx.completedAt,
         message: tx.displayMessage,
+        status: tx.status,
         transactionIcon: tx.displayIcon,
         amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
         token: tokenMetadata ? tokenMetadata.symbol : undefined,
-        secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+        secondaryAddress: tx.secondaryAccountId,
         txId: tx.id,
         noteType: tx.noteType,
         noteId: tx.outputNoteIds?.[0],
         externalTxId: tx.transactionId,
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
-        txType: tx.type,
-        bridgeProvider: bridge?.provider,
-        bridgeDestinationAddress: bridge?.destinationAddress,
-        bridgeDestinationNetwork: bridge?.destinationNetwork,
-        bridgeClaimStatus: bridge?.claimStatus,
-        bridgeOutputAmount: bridge?.outputAmount,
-        bridgeOutputSymbol: bridge?.outputSymbol,
-        bridgeIntentNonce: bridge?.intentNonce,
-        bridgeFillTxHash: bridge?.fillTxHash,
-        bridgeFillChainId: bridge?.fillChainId,
-        bridgeEpochStatus: bridge?.epochStatus
+        txType: tx.type
       } as IHistoryEntry;
+
+      if (tx.type === 'swap') {
+        const extra: SwapExtraInputs = tx.extraInputs ?? {};
+        if (extra.orderId != null) {
+          // The DEX faucets are usually absent from assetsMetadata (where
+          // getTokenMetadata would fall back to MIDEN), so resolve via the
+          // swap-token registry first.
+          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
+          const requestedMeta =
+            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
+          setRequestedToken({
+            amount: extra.requestedAmount ?? 0n,
+            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
+            symbol: swapToken?.symbol ?? requestedMeta?.symbol
+          });
+          setOrderId(extra.orderId);
+        }
+      }
 
       setEntry(historyEntry);
     } catch (error) {
@@ -164,106 +205,202 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
 
-  const isBridge = entry?.txType === 'bridged-send';
+  // Poll the swap order lineage every 3s until it reaches a terminal state
+  // (filled or reclaimed). The orderId is persisted on the swap tx; the live
+  // lineage is fetched via `trackOrderId`.
+  useEffect(() => {
+    if (orderId == null) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const POLL_INTERVAL_MS = 3000;
+
+    const poll = async () => {
+      try {
+        const result = await trackOrderId(orderId);
+        if (cancelled) return;
+        setSwapTracking(result);
+        // Keep polling while the order is still active (or not yet trackable).
+        if (result === null || result.state === 'active') {
+          timer = setTimeout(poll, POLL_INTERVAL_MS);
+        }
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to track swap order:', error);
+        if (!cancelled) timer = setTimeout(poll, POLL_INTERVAL_MS);
+      } finally {
+        if (!cancelled) setTrackingLoading(false);
+      }
+    };
+
+    setTrackingLoading(true);
+    poll();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [orderId]);
+
+  const orderStatusLabel = (state: SwapOrderState): string => {
+    switch (state) {
+      case 'filled':
+        return t('orderStatusFilled');
+      case 'reclaimed':
+        return t('orderStatusReclaimed');
+      default:
+        return t('orderStatusActive');
+    }
+  };
+
+  // How much of the requested amount has been filled so far, derived from the
+  // original requested amount and the lineage's still-outstanding remainder.
+  const filledRequested =
+    requestedToken && swapTracking
+      ? swapTracking.remainingRequested > requestedToken.amount
+        ? 0n
+        : requestedToken.amount - swapTracking.remainingRequested
+      : undefined;
+
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
+  const isBridge = entry?.txType === 'bridged-send';
   const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
   const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
+  const approximateUsdAmount =
+    entry?.amount !== undefined && entry.token
+      ? formatFiatDisplayAmount(entry.amount, entry.token, tokenPrices)
+      : undefined;
 
   return (
-    <PageLayout pageTitle={t('transaction')} hasBackAction={true}>
-      {loadError ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-4">
-          <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
-          <p className="text-text-muted text-sm text-center select-text">{loadError}</p>
-          <p className="text-text-muted text-xs text-center mt-2 select-text">ID: {transactionId}</p>
-        </div>
-      ) : entry === null ? (
-        <ActivitySpinner />
-      ) : (
-        <div className="flex-1 flex flex-col px-4 py-2 overflow-y-auto">
-          {/* Top Section */}
-          {isBridge ? (
-            <BridgeHero entry={entry} tokenPrices={tokenPrices} />
-          ) : (
-            <div className="flex flex-col items-center justify-center pt-4 pb-6 border-b border-[#BABABA33]">
+    <PageLayout hideToolbar>
+      <div className="flex flex-1 flex-col min-h-0 px-4">
+        <ScreenHeader title={t('transaction')} backLabel={t('back')} onBack={goBack} />
+
+        {loadError ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-4">
+            <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
+            <p className="text-text-muted text-sm text-center select-text">{loadError}</p>
+            <p className="text-text-muted text-xs text-center mt-2 select-text">ID: {transactionId}</p>
+          </div>
+        ) : entry === null ? (
+          <ActivitySpinner />
+        ) : (
+          <div className="flex-1 flex flex-col overflow-y-auto">
+            {/* Top Section — a bridge reads "IN → OUT" across the two chains. */}
+            <div className="flex flex-col items-center justify-center pt-6 pb-5">
               <TransactionIcon entry={entry} size="lg" />
-              <p className="text-sm text-heading-gray mt-3">{entry.message}</p>
-              <p
-                className={clsx(
-                  'text-5xl font-semibold leading-none text-heading-gray',
-                  fontColorForType(entry.txType)
-                )}
-              >
-                {entry.amount?.toString()} {entry.token}
-              </p>
-              <div className="mt-1">
-                <StatusPill message={entry.message} />
+              {isBridge ? (
+                <BridgeHeroAmounts entry={entry} />
+              ) : (
+                <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+                  {entry.amount !== undefined && (
+                    <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                  )}
+                  {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                </div>
+              )}
+              {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
+              <div className="mt-2">
+                {isBridge ? <BridgeStatusPill entry={entry} /> : <StatusPill status={entry.status} />}
               </div>
             </div>
-          )}
 
-          {/* Transfer Details */}
-          <div className="mt-4">
-            <DetailCard title={t('transferDetails')}>
-              <DetailRow label={t('date')}>
-                <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
-              </DetailRow>
-
-              {entry.externalTxId && (
-                <DetailRow label={t('txIdLabel')}>
-                  <ExternalLinkValue
-                    displayValue={
-                      <HashChip hash={entry.externalTxId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
-                    }
-                    href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
-                  />
+            {/* Transfer Details */}
+            <div className="mt-4">
+              <DetailCard title={t('transferDetails')}>
+                <DetailRow label={t('date')}>
+                  <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
                 </DetailRow>
-              )}
 
-              {fromAddress && (
-                <DetailRow label={t('from')} isLast={!toAddress}>
-                  <ExternalLinkValue
-                    displayValue={<AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />}
-                    href={`https://testnet.midenscan.com/account/${fromAddress}`}
-                  />
-                </DetailRow>
-              )}
+                {entry.externalTxId && (
+                  <DetailRow label={t('txIdLabel')}>
+                    <ExternalLinkValue
+                      displayValue={
+                        <HashChip hash={entry.externalTxId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
+                      }
+                      href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                    />
+                  </DetailRow>
+                )}
 
-              {toAddress && (
-                <DetailRow label={t('to')} isLast>
-                  <ExternalLinkValue
-                    displayValue={<AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />}
-                    href={`https://testnet.midenscan.com/account/${toAddress}`}
-                  />
-                </DetailRow>
-              )}
-            </DetailCard>
-          </div>
+                {fromAddress && (
+                  <DetailRow label={t('from')}>
+                    <ExternalLinkValue
+                      displayValue={
+                        <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
+                      }
+                      href={`https://testnet.midenscan.com/account/${fromAddress}`}
+                    />
+                  </DetailRow>
+                )}
 
-          {/* Bridge route + claim (bridged-send only) */}
-          {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
-
-          {/* Notes */}
-          {hasNoteData && (
-            <div className="mt-6 mb-4">
-              <DetailCard title={t('notesSection')}>
-                <DetailRow label={t('created')}>
-                  <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                </DetailRow>
-                <DetailRow label="Note" isLast>
-                  <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-text-muted'}`}>
-                    {entry.noteType ? t('on') : t('off')}
-                  </span>
-                </DetailRow>
+                {toAddress && (
+                  <DetailRow label={t('to')} isLast>
+                    <ExternalLinkValue
+                      displayValue={<AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />}
+                      href={`https://testnet.midenscan.com/account/${toAddress}`}
+                    />
+                  </DetailRow>
+                )}
               </DetailCard>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* Bridge route + EVM-side claim (bridged-send only) */}
+            {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
+
+            {/* Swap order tracking */}
+            {entry.txType === 'swap' && orderId != null && (
+              <div className="mt-6">
+                <DetailCard title={t('orderTracking')}>
+                  <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
+                    {swapTracking ? (
+                      <span className="text-sm text-heading-gray font-medium">
+                        {orderStatusLabel(swapTracking.state)}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-text-muted font-medium">
+                        {trackingLoading ? t('loading') : t('trackingUnavailable')}
+                      </span>
+                    )}
+                  </DetailRow>
+                  {swapTracking && (
+                    <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
+                      <span className="text-sm text-heading-gray font-medium">{swapTracking.currentDepth}</span>
+                    </DetailRow>
+                  )}
+                  {swapTracking && requestedToken && (
+                    <DetailRow label={t('amountFilled')} isLast>
+                      <span className="text-sm text-heading-gray font-medium">
+                        {formatAmount(filledRequested ?? 0n, requestedToken.decimals)} /{' '}
+                        {formatAmount(requestedToken.amount, requestedToken.decimals)}
+                        {requestedToken.symbol ? ` ${requestedToken.symbol}` : ''}
+                      </span>
+                    </DetailRow>
+                  )}
+                </DetailCard>
+              </div>
+            )}
+
+            {/* Notes */}
+            {hasNoteData && (
+              <div className="mt-6 mb-4">
+                <DetailCard title={t('notesSection')}>
+                  <DetailRow label={t('created')}>
+                    <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
+                  </DetailRow>
+                  <DetailRow label="Note" isLast>
+                    <span className={`text-sm font-medium ${entry.noteType ? 'text-[#E8913A]' : 'text-text-muted'}`}>
+                      {entry.noteType ? t('on') : t('off')}
+                    </span>
+                  </DetailRow>
+                </DetailCard>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </PageLayout>
   );
 };

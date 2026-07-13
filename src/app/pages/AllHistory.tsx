@@ -3,6 +3,7 @@ import React, { FC, useMemo, useRef, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import { AgglayerBridgeBanner } from 'app/templates/history/AgglayerBridgeBanner';
 import History from 'app/templates/history/History';
@@ -20,6 +21,7 @@ type FilterId = 'all' | 'sent' | 'received' | 'faucet';
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
+  const hasUnclaimedNotes = useHasUnclaimedNotes();
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
@@ -50,11 +52,14 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             aria-label={t('pendingNotes')}
             onClick={() => {
               hapticLight();
-              navigate('/pending');
+              navigate('/pending-notes');
             }}
-            className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
+            className="relative flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
           >
             <Icon name={IconName.PendingNotes} className="w-4 h-4 [&_path]:fill-current" />
+            {hasUnclaimedNotes && (
+              <span aria-hidden className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500" />
+            )}
           </button>
         }
       />

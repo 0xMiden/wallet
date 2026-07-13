@@ -59,6 +59,11 @@ jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-account-123' })
 }));
 
+jest.mock('lib/platform', () => ({
+  isMobile: () => false,
+  isExtension: () => false
+}));
+
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));

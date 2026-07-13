@@ -2,7 +2,12 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
-import { formatTransactionStatus, IBridgedSendExtraInputs, IBridgeInInfo, ITransactionStatus } from 'lib/miden/db/types';
+import {
+  formatTransactionStatus,
+  IBridgedSendExtraInputs,
+  IBridgeInInfo,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -10,7 +15,7 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest as isFaucetEntry } from './transactionUtils';
+import { isFaucetRequest as isFaucetEntry, resolveSwapHistoryFields } from './transactionUtils';
 
 type HistoryProps = {
   address: string;
@@ -144,6 +149,9 @@ async function fetchTransactionsAsHistoryEntries(
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+    // Swap faucets are usually absent from wallet metadata — resolve both
+    // sides through the DEX registry instead of the generic path.
+    const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
@@ -151,8 +159,10 @@ async function fetchTransactionsAsHistoryEntries(
       message: updateMessageForFailed,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
-      amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
-      token: tokenMetadata ? tokenMetadata.symbol : undefined,
+      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
+      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      requestedAmount: swapFields?.requestedAmount,
+      requestedToken: swapFields?.requestedToken,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
@@ -191,14 +201,18 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
         : HistoryEntryType.PendingTransaction;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
+    const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
     return {
       key: `pending-${tx.id}`,
       address: address,
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,
       message: tx.displayMessage || 'Generating transaction',
-      amount: tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
-      token: tokenMetadata ? tokenMetadata.symbol : undefined,
+      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
+      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      requestedAmount: swapFields?.requestedAmount,
+      requestedToken: swapFields?.requestedToken,
+      // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
       type: entryType,

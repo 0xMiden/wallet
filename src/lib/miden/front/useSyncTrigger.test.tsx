@@ -52,8 +52,11 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 
 const mockIsExtension = jest.fn((..._args: unknown[]) => false);
+const mockIsMobile = jest.fn((..._args: unknown[]) => false);
 jest.mock('lib/platform', () => ({
-  isExtension: (...args: unknown[]) => mockIsExtension(...args)
+  isExtension: (...args: unknown[]) => mockIsExtension(...args),
+  // useSyncTrigger skips the WASM sync while the transaction modal is up on mobile.
+  isMobile: (...args: unknown[]) => mockIsMobile(...args)
 }));
 
 const mockSyncGuardianAccounts = jest.fn(async (..._args: unknown[]) => {});
@@ -180,6 +183,52 @@ describe('useSyncTrigger', () => {
     // inner cancel guard short-circuits.
     await flush();
     expect(mockSyncState).not.toHaveBeenCalled();
+  });
+
+  it('extension: skips SyncRequest while a test pauses sync via __TEST_SYNC_PAUSED__', async () => {
+    const prevEnv = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+    mockIsExtension.mockReturnValue(true);
+
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockIntercomRequest).not.toHaveBeenCalled();
+
+    unmount();
+    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
+    process.env.MIDEN_E2E_TEST = prevEnv;
+  });
+
+  it('mobile/desktop: skips syncState while a test pauses sync via __TEST_SYNC_PAUSED__', async () => {
+    const prevEnv = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+
+    unmount();
+    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
+    process.env.MIDEN_E2E_TEST = prevEnv;
+  });
+
+  it('does not pause sync when __TEST_SYNC_PAUSED__ is set but MIDEN_E2E_TEST is off (production)', async () => {
+    const prevEnv = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'false';
+    (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+
+    const { unmount } = render(<HookHost />);
+
+    // The flag is ignored off the E2E build, so the normal mobile sync still runs.
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
+
+    unmount();
+    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
+    process.env.MIDEN_E2E_TEST = prevEnv;
   });
 
   it('extension: clears the interval on unmount', async () => {

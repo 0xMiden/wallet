@@ -29,7 +29,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           className={classNames(
             'relative',
             'flex flex-row items-center',
-            'transition duration-300 ease-in-out',
+            'transition-colors duration-150 ease-hover',
             'overflow-hidden',
             'border border-border-light hover:border-border-light rounded-lg'
           )}
@@ -80,7 +80,7 @@ export const CurrencyInput: React.FC<CurrencyInputProps> = ({
       <div
         className={classNames(
           'flex flex-row items-center',
-          'transition duration-300 ease-in-out',
+          'transition-colors duration-150 ease-hover',
           'overflow-hidden',
           'border border-border-light hover:border-border-light rounded-lg',
           'has-[:focus]:outline-none has-[:focus]:border-primary-500 has-[:focus]:ring-1 has-[:focus]:ring-primary-500'

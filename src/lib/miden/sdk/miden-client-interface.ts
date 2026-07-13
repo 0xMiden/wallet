@@ -38,7 +38,7 @@ import { NoteExportType } from './constants';
 import { getBech32AddressFromAccountId } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
-import { ConsumeTransaction, SendTransaction } from '../db/types';
+import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
@@ -589,6 +589,34 @@ export class MidenClientInterface {
         account: accountId,
         // Batch claims consume every note in one transaction (one proof/submit).
         notes: noteIds && noteIds.length > 0 ? noteIds : [noteId],
+        prover
+      });
+      return result;
+    }, transaction.delegateTransaction);
+  }
+
+  /**
+   * Create a partial-swap (PSWAP) note offering one fungible asset in
+   * exchange for another. The creator locks `offeredAmount` of
+   * `offeredFaucetId`; a filler later consumes the note and pays back
+   * `requestedAmount` of `requestedFaucetId` (partial fills emit a
+   * remainder PSWAP note for the unfilled amount).
+   *
+   * TODO: offscreen-prover path not wired up — pswapCreate has no
+   * `buildExecuteArgs` builder yet, so this always proves inline via
+   * `withProverFallback`. Add the offscreen path if swap proving is slow.
+   */
+  async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
+    const { accountId, faucetId, amount, extraInputs } = transaction;
+
+    const offer = { token: faucetId, amount };
+    const request = { token: extraInputs.requestedFaucetId, amount: extraInputs.requestedAmount };
+
+    return this.withProverFallback(async prover => {
+      const { result } = await this.client.transactions.pswapCreate({
+        account: accountId,
+        offer,
+        request,
         prover
       });
       return result;

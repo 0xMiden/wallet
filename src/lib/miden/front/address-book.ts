@@ -15,7 +15,6 @@ export function useContacts() {
       if (allContacts.some(c => c.address === cToAdd.address)) {
         throw new Error(getMessage('contactWithTheSameAddressAlreadyExists'));
       }
-      console.log('calling update settings...');
       await updateSettings({
         contacts: [cToAdd, ...contacts]
       });

@@ -39,12 +39,12 @@ button:disabled,
 
 .ReactModal__Overlay {
   opacity: 0;
-  transition: opacity 200ms ease-in-out;
+  transition: opacity 200ms ease-out;
 }
 
 .ReactModal__Content {
-  transform: scale(0.75);
-  transition: transform 200ms ease-in-out;
+  transform: scale(0.96);
+  transition: transform 200ms ease-out;
 }
 
 .ReactModal__Overlay--after-open {
@@ -60,13 +60,13 @@ button:disabled,
 }
 
 .ReactModal__Overlay--before-close .ReactModal__Content {
-  transform: scale(0.75);
+  transform: scale(0.96);
 }
 
 #recall-height-modal.ReactModal__Content {
   transform: scale(1);
   transform: translateY(2rem);
-  transition: transform 200ms ease-in-out;
+  transition: transform 200ms ease-out;
 }
 
 .ReactModal__Overlay--after-open #recall-height-modal.ReactModal__Content {
@@ -128,6 +128,23 @@ body {
   --color-app-bg: #fbfbfb;
   --surface-page: #fbfbfb;
   background-color: #fbfbfb;
+}
+
+/* Hoist the onboarding surface to the root while onboarding is mounted, so
+ * <html>/<body> (which own the safe-area padding on mobile) paint the same
+ * cream — otherwise white bands show at the notch and home indicator. */
+:root:not(.dark):has([data-onboarding-root='true']) {
+  --color-app-bg: #fbfbfb;
+  --surface-page: #fbfbfb;
+}
+
+/* In dark mode onboarding uses the same app background as the rest of the app.
+ * Without this the light-only override above wins over `.dark`'s html-level
+ * vars (it re-declares the custom properties closer to the consumers). */
+.dark [data-onboarding-root='true'] {
+  --color-app-bg: #191919;
+  --surface-page: #191919;
+  background-color: #191919;
 }
 
 [data-onboarding-root='true'] :is(h1, h2, h3, header, [data-onboarding-heading='true']) {
@@ -276,12 +293,22 @@ button,
   animation: mobile-slide-in 0.15s ease-out both;
 }
 
-/* Native navbar overlay retired — wallet now ships a React-only BottomNav
- * mounted inside TabLayout. The legacy rules keyed on
- * `body[data-native-navbar]` (which hid `[data-tabbar-footer='true']` and
- * reserved 88pt of bottom gutter) have been removed so a stale compiled
- * bundle that still toggles that attribute can't make the React BottomNav
- * vanish or push the page upward. */
+@keyframes mobile-fade-in {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-page-enter {
+    animation: mobile-fade-in 0.15s ease-out both;
+  }
+}
+
+/* Wallet navigation is React-only: BottomNav is mounted inside TabLayout. */
 
 /* Parked-dApp bubble host — default transform is identity, and it
  * rides a ~spring transition so that when the drawer-open rule
@@ -301,6 +328,12 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
    * the phantom location. */
   transform: translateY(200px);
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-dapp-bubble-host='true'] {
+    transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  }
 }
 
 /* Surfaces that own the whole screen (e.g. the transaction success view)
@@ -333,7 +366,7 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --color-chip-bg: #eeeff2;
     --color-input-bg: #f9f9f9;
     --color-border-light: #e6e6e6;
-    --color-text-muted: rgba(63, 63, 63, 0.4);
+    --color-text-muted: #ababab;
     --color-border-subtle: rgba(63, 63, 63, 0.08);
     --color-hover-bg: #e1dbdb;
 
@@ -348,6 +381,11 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-input: #f9f9f9;
     --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
+    --surface-button-secondary: #f9f9f9;
+    --surface-button-secondary-hover: #eceae7;
+    --text-gray: #808080;
+    --text-gray-secondary: #8e8e93;
+    --text-placeholder: #00000047;
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #ff5500;
@@ -372,6 +410,20 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
+
+    /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
+     * get lighter variants in dark mode; slate/orange stay fixed. */
+    --card-slate: #777386;
+    --card-orange: #e77537;
+    --card-blue: #607c92;
+    --card-green: #778c72;
+    --card-purple: #847595;
+    /* Second tone — card bottom strip (same value in both themes). */
+    --card-slate-deep: #777386;
+    --card-orange-deep: #bd5d29;
+    --card-blue-deep: #405565;
+    --card-green-deep: #50634c;
+    --card-purple-deep: #5d5368;
   }
 
   .dark {
@@ -408,9 +460,14 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --text-tertiary: rgba(255, 255, 255, 0.4);
     --text-on-accent: #ffffff;
     --surface-page: #191919;
-    --surface-input: #3f3f3f99;
-    --surface-interactive: #3f3f3f99;
+    --surface-input: #363636;
+    --surface-interactive: #363636;
     --surface-inactive: #3f3f3f99;
+    --surface-button-secondary: #484848;
+    --surface-button-secondary-hover: #3f3f3f;
+    --text-gray: #e1d8d8;
+    --text-gray-secondary: #8e8e93;
+    --text-placeholder: #ffffff;
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
@@ -430,5 +487,16 @@ body[data-hide-navbar] [data-tabbar-footer='true'] {
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
+
+    --card-slate: #777386;
+    --card-orange: #e77537;
+    --card-blue: #91acc1;
+    --card-green: #a8bba3;
+    --card-purple: #beacd2;
+    --card-slate-deep: #777386;
+    --card-orange-deep: #bd5d29;
+    --card-blue-deep: #405565;
+    --card-green-deep: #50634c;
+    --card-purple-deep: #5d5368;
   }
 }

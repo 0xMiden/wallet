@@ -4,9 +4,9 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import AddressShortView from 'app/atoms/AddressShortView';
-import { Button } from 'app/atoms/Button';
 import { useAppEnv } from 'app/env';
 import { ExploreSelectors } from 'app/pages/Explore.selectors';
+import { Button, ButtonVariant } from 'components/Button';
 import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
@@ -109,9 +109,10 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
       {/* Cancel button for pending */}
       {entry.cancel && (
         <Button
-          className="hover:bg-gray-100 rounded-md p-1 shrink-0"
+          variant={ButtonVariant.Ghost}
+          className="h-auto w-auto max-w-none p-1 border-0 rounded-md shrink-0"
           onClick={handleCancelClick}
-          testID={ExploreSelectors.CancelTransaction}
+          data-testid={ExploreSelectors.CancelTransaction}
         >
           <span className="text-xs text-red-500">{t('cancel')}</span>
         </Button>
@@ -167,7 +168,10 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
           </span>
         )}
         <span
-          className={classNames('flex items-center gap-1 text-xs font-medium leading-none', BRIDGE_STATUS_COLOR[status])}
+          className={classNames(
+            'flex items-center gap-1 text-xs font-medium leading-none',
+            BRIDGE_STATUS_COLOR[status]
+          )}
         >
           <span className={classNames('w-1.5 h-1.5 rounded-full', BRIDGE_STATUS_DOT[status])} />
           {t(BRIDGE_STATUS_LABEL_KEY[status])}

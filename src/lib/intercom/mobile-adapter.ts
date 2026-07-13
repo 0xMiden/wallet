@@ -188,6 +188,13 @@ export class MobileIntercomAdapter {
         };
       }
 
+      case WalletMessageType.SetGuardianEndpointRequest: {
+        await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
+        return {
+          type: WalletMessageType.SetGuardianEndpointResponse
+        };
+      }
+
       case WalletMessageType.GetPublicKeyForCommitmentRequest: {
         const publicKey = await Actions.getPublicKeyForCommitment(req.commitment);
         return {

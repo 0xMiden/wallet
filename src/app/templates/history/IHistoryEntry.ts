@@ -1,4 +1,10 @@
-import { IBridgeClaimStatus, IBridgeProvider, ITransactionIcon, ITransactionType } from 'lib/miden/db/types';
+import {
+  IBridgeClaimStatus,
+  IBridgeProvider,
+  ITransactionIcon,
+  ITransactionStatus,
+  ITransactionType
+} from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
   key: string;
@@ -9,8 +15,14 @@ export interface IHistoryEntry {
   txType: ITransactionType;
 
   // Optional properties
+  /** Raw transaction status; set by the detail page for the status pill. */
+  status?: ITransactionStatus;
   token?: string;
   amount?: bigint;
+  /** Swap only: formatted requested-side amount, shown on the row's right. */
+  requestedAmount?: string;
+  /** Swap only: requested-side token symbol. */
+  requestedToken?: string;
   secondaryAddress?: string;
   cancel?: () => Promise<void>;
   explorerLink?: string;

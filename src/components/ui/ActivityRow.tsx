@@ -1,5 +1,6 @@
 import React, { FC, ReactNode } from 'react';
 
+import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
 
 import { hapticLight } from 'lib/mobile/haptics';
@@ -51,6 +52,19 @@ const STATUS_TEXT: Record<ActivityStatusTone, string> = {
   failed: 'text-status-negative'
 };
 
+const DISPLAY_DECIMAL_PLACES = 3;
+
+function formatDisplayAmount(value: string): string {
+  const sign = value.startsWith('+') ? '+' : '';
+  const amount = new BigNumber(sign ? value.slice(1) : value);
+
+  if (!amount.isFinite()) {
+    return value;
+  }
+
+  return `${sign}${amount.decimalPlaces(DISPLAY_DECIMAL_PLACES, BigNumber.ROUND_DOWN).toFixed()}`;
+}
+
 export const ActivityRow: FC<ActivityRowProps> = ({
   icon,
   iconBg = 'bg-gray-50',
@@ -97,7 +111,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
       <div className="flex flex-col items-end gap-0.5">
         {amount && (
           <span className="font-heading text-sm font-bold leading-tight">
-            <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{amount.value}</span>
+            <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
           </span>
         )}

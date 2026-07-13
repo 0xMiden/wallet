@@ -10,6 +10,7 @@
  */
 
 import * as Passworder from 'lib/miden/passworder';
+import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
@@ -197,6 +198,94 @@ describe('Vault instance signWord', () => {
     expect(sig).toBe('0xaabbcc');
     expect(mockWordFromHex).toHaveBeenCalledWith('0xdeadbeef');
     expect(mockSign).toHaveBeenCalled();
+  });
+});
+
+describe('Vault instance signData — Guardian account (word kind)', () => {
+  const GUARDIAN_ADDR = 'mtst1-guardian-addr';
+
+  async function seedGuardianVault(): Promise<Vault> {
+    const vault = await seedVault('pw', {
+      accounts: [
+        {
+          publicKey: GUARDIAN_ADDR,
+          name: 'Guardian 1',
+          isPublic: false,
+          type: WalletType.Guardian,
+          // 3-key model: the signing key lives under the secure-hot-key facade,
+          // keyed by hotPublicKey — NOT under the commitment the dApp resolves.
+          hotPublicKey: 'hotpub-123',
+          coldPublicKey: 'coldpub-456'
+        } as any
+      ],
+      currentPk: GUARDIAN_ADDR
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    // Hot ciphertext stored under hotPublicKey, matching persistGuardianKeys.
+    await encryptAndSaveMany([[keys.accAuthSecretKey('hotpub-123'), '0a0b0c']], vaultKey);
+    return vault;
+  }
+
+  it('signs a word digest via the hot key when routed by accountId', async () => {
+    const vault = await seedGuardianVault();
+
+    // The 32-byte digest the dApp passes to signBytes(kind: 'word'), base64-encoded.
+    const data = u8ToB64(new Uint8Array(32).fill(0xab));
+    // The commitment the dApp received at connect — deliberately NOT a stored key,
+    // so the default accAuthSecretKey(commitment) lookup would miss.
+    const commitment = 'deadbeef'.repeat(8);
+
+    const sig = await vault.signData(commitment, data, 'word', GUARDIAN_ADDR);
+
+    // signBytes must return the FULL serialized Signature (scheme tag + raw sig), matching the
+    // default path and what @openzeppelin's MidenWalletSigner expects — it strips the leading tag
+    // byte itself before handing the raw ECDSA signature to Guardian. `signWord`/`signHotDigest`
+    // strip that tag (mock sign() → [0xff,0xaa,0xbb,0xcc], slice(1) → [0xaa,0xbb,0xcc]); signData
+    // re-prepends the ECDSA scheme tag (0x01) so the returned bytes deserialize as a full Signature.
+    const returned = b64ToU8(sig);
+    expect(returned[0]).toBe(0x01); // ECDSA Signature scheme tag
+    expect(Array.from(returned.slice(1))).toEqual([0xaa, 0xbb, 0xcc]); // raw sig after MidenWalletSigner strips the tag
+    // Signed the exact word it was handed, via the hot (secure-hot-key) path.
+    expect(mockWordFromHex).toHaveBeenCalledWith(`0x${'ab'.repeat(32)}`);
+  });
+
+  it('throws a clear error for a Guardian account whose device (hot) key is not active yet', async () => {
+    const addr = 'mtst1-guardian-pending';
+    const vault = await seedVault('pw', {
+      accounts: [
+        {
+          publicKey: addr,
+          name: 'Guardian pending',
+          isPublic: false,
+          type: WalletType.Guardian,
+          // Recovered Guardian account pending device-key activation: cold key
+          // only, no hot key to sign arbitrary digests with yet.
+          coldPublicKey: 'coldpub-only',
+          requiresHotKeyRotation: true
+        } as any
+      ],
+      currentPk: addr
+    });
+    const data = u8ToB64(new Uint8Array(32).fill(0x22));
+
+    await expect(vault.signData('some-commitment', data, 'word', addr)).rejects.toThrow(/device key/i);
+  });
+
+  it('still uses the default key path for a non-Guardian account when accountId is passed', async () => {
+    const addr = 'mtst1-plain';
+    const commitment = 'cafe'.repeat(16); // 32 bytes
+    const vault = await seedVault('pw', {
+      accounts: [{ publicKey: addr, name: 'Plain', isPublic: true, type: WalletType.OnChain } as any],
+      currentPk: addr
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey(commitment), '01020304']], vaultKey);
+
+    const data = u8ToB64(new Uint8Array(32).fill(0x11));
+    const sig = await vault.signData(commitment, data, 'word', addr);
+
+    // Default path returns the FULL serialized signature (with the scheme byte).
+    expect(sig).toBe(u8ToB64(new Uint8Array([0xff, 0xaa, 0xbb, 0xcc])));
   });
 });
 

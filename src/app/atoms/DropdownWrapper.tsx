@@ -27,7 +27,7 @@ const DropdownWrapper: FC<DropdownWrapperProps> = ({
         scaleAnimation && 'scale-100',
         'transition ease-out duration-100'
       ),
-      exit: classNames('transform opacity-0', scaleAnimation && 'scale-95', 'transition ease-in duration-100')
+      exit: classNames('transform opacity-0', scaleAnimation && 'scale-95', 'transition ease-out duration-100')
     }}
     unmountOnExit
   >

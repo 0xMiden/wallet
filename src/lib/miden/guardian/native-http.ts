@@ -23,8 +23,19 @@ import { isMobile } from 'lib/platform';
 
 const guardianOrigins = new Set<string>();
 
-for (const option of GUARDIAN_OPTIONS) {
-  addOrigin(option.endpoint);
+/**
+ * Seed the built-in guardian origins. Deferred from module-load to first
+ * interceptor install: importing this module must not iterate GUARDIAN_OPTIONS
+ * eagerly, or a `lib/miden-chain/constants` <-> native-http import cycle can
+ * observe `GUARDIAN_OPTIONS` before it's initialized (undefined → throw at
+ * import time, which breaks unrelated module graphs and unit tests).
+ */
+function seedBuiltinGuardianOrigins(): void {
+  for (const option of GUARDIAN_OPTIONS ?? []) {
+    for (const endpoint of option.endpoint.values()) {
+      addOrigin(endpoint);
+    }
+  }
 }
 
 function addOrigin(endpoint: string): void {
@@ -49,6 +60,8 @@ let installed = false;
 export function installGuardianCorsBypass(): void {
   if (installed || !isMobile()) return;
   installed = true;
+
+  seedBuiltinGuardianOrigins();
 
   const originalFetch = globalThis.fetch.bind(globalThis);
 

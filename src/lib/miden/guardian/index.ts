@@ -24,8 +24,13 @@ import { fetchFromStorage } from '../front/storage';
 import { accountIdStringToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
-const MAX_SYNC_RETRIES = 20;
-const SYNC_RETRY_DELAY_MS = 3000;
+const MAX_SYNC_RETRIES = 30;
+const SYNC_RETRY_DELAY_MS = 1000;
+// The guardian typically re-canonicalizes an accepted delta within ~2-10 ticks,
+// so wait a bounded window (~36s) before the last-resort re-register. Kept well
+// below MAX_SYNC_RETRIES so a *genuine* (non-transient) blob divergence
+// self-heals sooner instead of stalling for the full nonce-retry ceiling.
+const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
 const MAX_GUARDIAN_REGISTER_RETRIES = 5;
 const GUARDIAN_REGISTER_RETRY_DELAY_MS = 2000;
 
@@ -220,8 +225,12 @@ export class MultisigService {
   /**
    * Create a custom transaction proposal from a serialized transaction request.
    * This is used for 'execute' type transactions.
+   *
+   * `proposalType` is a free-form label that @openzeppelin/miden-multisig-client
+   * validates as lowercase snake_case (`[a-z0-9_]`) and rejects if it collides
+   * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
-  async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom transaction'): Promise<Proposal> {
+  async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
     return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
   }
 
@@ -267,7 +276,9 @@ export class MultisigService {
     // around each `syncState` attempt and release during the back-off wait so
     // other client operations can proceed between retries.
     this.syncRetryCount = 0;
-    // The guardian-realign self-heal below runs at most once per sync run so a
+    // Consecutive "guardian still canonicalizing" failures this run (Stage 1 below).
+    let canonicalizeRetryCount = 0;
+    // The last-resort re-register (Stage 2 below) runs at most once per run so a
     // genuinely stuck guardian doesn't loop re-registering every tick.
     let realignAttempted = false;
     for (;;) {
@@ -291,30 +302,53 @@ export class MultisigService {
           continue;
         }
 
-        // `multisig.syncState` refuses to overwrite local state when the guardian's
-        // stored blob lags the on-chain account ("Refusing to overwrite local
-        // state ..." / commitment-mismatch). The OZ lib only re-registers
-        // structural rotations on the guardian for `switch_guardian`; after a
-        // replace-hot-key (`update_signers`) or `update_procedure_threshold` the
-        // guardian's blob is never updated, so it diverges from on-chain and this
-        // throws every ~3s AutoSync tick — forever, until a full reinstall. Self-heal
-        // once per run: push our current on-chain state up to the guardian (see
-        // `reRegisterCurrentStateOnGuardian`) so it realigns, then retry the sync.
-        // Best-effort: if the realign itself fails, fall through to the original error.
-        if (!realignAttempted) {
-          realignAttempted = true;
-          try {
+        // `multisig.syncState` refuses to overwrite local state while the guardian
+        // is still canonicalizing a delta it just accepted: its stored blob lags the
+        // on-chain account, so the incoming guardian commitment doesn't match on-chain
+        // ("Refusing to overwrite local state ..."). This is usually transient — the
+        // guardian catches up within ~2-10 ticks — so handle it in two stages, all
+        // silently in the background (this runs only under the AutoSync / post-tx
+        // bookkeeping paths, never a UI flow).
+        const isGuardianCanonicalizing =
+          message.includes('Refusing to overwrite local state') ||
+          (message.includes('commitment') && message.includes('match'));
+        if (isGuardianCanonicalizing) {
+          // Stage 1: WAIT it out with a bounded back-off (its own, shorter ceiling
+          // so a real divergence doesn't stall for the full nonce-retry window).
+          if (canonicalizeRetryCount < MAX_GUARDIAN_CANONICALIZE_RETRIES) {
+            canonicalizeRetryCount++;
             console.warn(
-              'Guardian sync failed; realigning guardian to current on-chain state, then retrying:',
-              message
+              'Guardian still canonicalizing (its state lags on-chain), retrying sync...',
+              canonicalizeRetryCount
             );
-            await this.reRegisterCurrentStateOnGuardian();
+            await delay(SYNC_RETRY_DELAY_MS);
             continue;
-          } catch (realignError) {
-            console.warn('Guardian re-registration during sync failed (non-fatal):', realignError);
           }
+
+          // Stage 2 (last resort): the guardian never caught up within the
+          // canonicalization window, so treat it as a genuine guardian-blob divergence
+          // and re-register our current on-chain state ONCE, then retry the sync. For a
+          // same-guardian rotation this realigns the guardian; after a switch the cached
+          // service is normally already replaced (via getOrCreateMultisigService's
+          // endpoint drift-check) before we get here, so this rarely fires for switches.
+          // Best-effort: if the re-register itself fails, fall through to the original
+          // error and let the next background tick reconcile.
+          if (!realignAttempted) {
+            realignAttempted = true;
+            try {
+              console.warn(
+                'Guardian still lagging after canonicalization window; re-registering current state as a last resort'
+              );
+              await this.reRegisterCurrentStateOnGuardian();
+              continue;
+            } catch (realignError) {
+              console.warn('Last-resort guardian re-registration failed (non-fatal):', realignError);
+            }
+          }
+          throw error;
         }
-        throw error; // Rethrow if it's a different error (caller logs per-account)
+
+        throw error; // Rethrow other errors (caller logs per-account)
       }
     }
   }
@@ -438,7 +472,6 @@ export class MultisigService {
       this.multisig.setGuardianClient(nextGuardian);
       this.multisig.guardianPublicKey = commitment;
       this.guardianEndpoint = newGuardianEndpoint;
-
       await this.registerOnGuardianWithRetry(updatedStateBase64);
     } catch (error) {
       console.error('Error finalizing guardian switch:', error);
@@ -477,6 +510,10 @@ export class MultisigService {
    * reinstall re-registers the account. Mirrors `finalizeGuardianSwitch`'s
    * registration step but keeps the same guardian endpoint. Idempotent: if the
    * guardian already has this state, re-registering is a no-op.
+   *
+   * Called explicitly by those completion handlers, and as the Stage-2 last resort
+   * in `runSync` once a lagging guardian fails to canonicalize within the retry
+   * window (NOT on the first sign of lag — see `runSync`).
    */
   async reRegisterCurrentStateOnGuardian(): Promise<void> {
     const updatedStateBase64 = await withWasmClientLock(async () => {

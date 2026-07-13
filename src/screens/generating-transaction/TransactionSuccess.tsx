@@ -4,6 +4,7 @@ import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 
 import { BridgeSuccess } from './success/BridgeSuccess';
 import { SendSuccess } from './success/SendSuccess';
+import { SwapSuccess } from './success/SwapSuccess';
 import { TransactionSuccessProps } from './success/TransactionSuccessLayout';
 
 export type { TransactionSuccessProps } from './success/TransactionSuccessLayout';
@@ -22,13 +23,17 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
  * Picks the success receipt for a completed transaction by type. Each variant
  * lives in `./success` and composes the shared `TransactionSuccessLayout`.
  *
- * Only the bridged-send discriminator routes away from the default today.
- * `SwapSuccess` / `EarnSuccess` exist as stubs but have no discriminator yet
- * (no `swap` / `earn` tx type or producer — see those files), so they're
- * unreachable; `SendSuccess` covers send plus every other type.
+ * `swap` routes by the tx type; bridged sends route by their extraInputs
+ * discriminator. `EarnSuccess` exists as a stub but has no discriminator yet
+ * (no `earn` tx type or producer — see that file), so it's unreachable;
+ * `SendSuccess` covers send plus every other type.
  */
 export const TransactionSuccess: FC<TransactionSuccessProps> = props => {
   const extraInputs = props.transaction?.extraInputs;
+
+  if (props.transaction?.type === 'swap') {
+    return <SwapSuccess {...props} />;
+  }
 
   if (isBridgedSendExtraInputs(extraInputs)) {
     return <BridgeSuccess {...props} bridgedInputs={extraInputs} />;

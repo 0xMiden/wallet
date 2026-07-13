@@ -35,7 +35,7 @@ const ImportTabSwitcher: React.FC<ImportTabSwitcherProps> = ({ className, tabs, 
                   'border-b-2',
                   active ? 'border-primary-orange' : 'border-transparent',
                   active ? 'text-primary-orange' : 'hover:text-primary-orange',
-                  'transition ease-in-out duration-300',
+                  'transition-colors ease-hover duration-150',
                   'truncate'
                 )}
               >

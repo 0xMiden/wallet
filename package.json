@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.15.2",
+  "version": "1.15.6",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -11,7 +11,7 @@
     "rev": "733720a7ce5886a390c848402b61079be1e6aa38"
   },
   "scripts": {
-    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules && patch-package",
+    "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package",
     "start": "yarn watch:src",
     "dev": "rimraf ./dist && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:bg && cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development yarn build:cs && concurrently -n bg,ext -c blue,green \"cross-env TARGET_BROWSER=chrome MODE_ENV=development NODE_ENV=development vite build --config vite.background.config.ts --watch\" \"cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 MODE_ENV=development NODE_ENV=development vite build --config vite.extension.config.ts --watch\"",
     "dev-clean": "rimraf node_modules && yarn cache clean && yarn install && yarn dev",
@@ -127,7 +127,7 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.26",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.15.2",
+    "@miden-sdk/miden-sdk": "0.15.5",
     "@miden-sdk/react": "0.15.2",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
@@ -326,6 +326,8 @@
     ]
   },
   "resolutions": {
+    "@miden-sdk/miden-sdk": "0.15.5",
+    "@miden-sdk/react": "0.15.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -336,7 +338,6 @@
     "**/axios": "^1.15.0",
     "**/cross-spawn": "^7.0.5",
     "**/nth-check": "^2.1.1",
-    "@miden-sdk/miden-sdk": "0.15.2",
     "dexie": "4.4.2",
     "**/protobufjs": "^7.5.5",
     "**/lodash": "^4.18.0",

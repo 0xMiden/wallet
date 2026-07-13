@@ -4,10 +4,12 @@ import classNames from 'clsx';
 import { motion } from 'framer-motion';
 
 import { useAppEnv } from 'app/env';
+import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -17,8 +19,8 @@ import { navigate, useLocation } from 'lib/woozie';
  * Layout for tab-based pages (Home, History, Settings, Browser).
  * Provides a persistent footer and animated content area.
  *
- * The top SegmentedActionBar is mounted when the route is in the "home"
- * tab group (/, /send, /receive, /earn, /swap) — so it stays visible across
+ * The top action bar is mounted when the route is in the "home"
+ * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
  * Activity) hide it.
  */
@@ -56,6 +58,7 @@ function activeActionFromPath(pathname: string): string {
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
+  const hasUnclaimedNotes = useHasUnclaimedNotes();
   const prevPathnameRef = useRef<string | null>(null);
 
   // During render `prevPathnameRef.current` still holds the previous path
@@ -91,7 +94,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'activity',
       label: 'Activity',
-      icon: <Icon name={IconName.Activity} className="w-6 h-6" />
+      icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
+      showDot: hasUnclaimedNotes
     }
   ];
 
@@ -99,7 +103,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'overview',
       label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5" />
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-heading-gray" />
     },
     {
       id: 'send',
@@ -111,11 +115,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       label: 'Receive',
       icon: <Icon name={IconName.Receive} className="w-5 h-5" />
     },
-    {
-      id: 'earn',
-      label: 'Earn',
-      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
-    },
+    // {
+    //   id: 'earn',
+    //   label: 'Earn',
+    //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+    // },
     {
       id: 'swap',
       label: 'Swap',
@@ -127,11 +131,19 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const activeAction = activeActionFromPath(pathname);
   const showActionBar = HOME_GROUP_ROUTES.has(pathname);
 
+  // Fires for re-taps on the active tab too (BottomNav forwards them), so a
+  // Home tap from /send, /receive, etc. returns to Overview; a tap on the
+  // route we're already on stays a silent no-op.
   const handleTabChange = (id: string) => {
     const to = TAB_ROUTES[id];
-    if (to && to !== pathname) navigate(to);
+    if (to && to !== pathname) {
+      hapticSelection();
+      navigate(to);
+    }
   };
 
+  // SegmentedActionBar already no-ops re-taps on the active segment and
+  // fires the selection haptic itself.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
     if (to && to !== pathname) navigate(to);
@@ -153,20 +165,31 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   return (
     <div
-      className={classNames('relative m-auto bg-app-bg overflow-hidden flex flex-col', fullPage && 'rounded-3xl')}
+      // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
+      // the BottomNav shadow can fade into the body's safe-area padding
+      // strip below the container; fixed-size extension/desktop frames keep
+      // full overflow-hidden.
+      className={classNames(
+        'relative m-auto bg-app-bg flex flex-col',
+        isMobile() ? 'overflow-x-clip' : 'overflow-hidden'
+      )}
       style={containerStyles}
     >
-      {/* Top action bar — sits OUTSIDE the animated content tree so it
-          stays fixed across intra-home-group navigations. The framer-motion
-          pill inside handles the active-item transition. */}
+      {/* Top action bar — sits outside the animated content tree so it
+          stays fixed across intra-home-group navigations. */}
       {showActionBar && (
         <div className="shrink-0 relative z-10">
-          <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
+          <SegmentedActionBar
+            items={actionItems}
+            activeId={activeAction}
+            onChange={handleActionChange}
+            layoutId="tab-layout-action-fill"
+          />
         </div>
       )}
 
       {/* Animated content. For home-group routes we mount the
-          HomeSwipeContainer once (a 4-page horizontal carousel) and let it
+          HomeSwipeContainer once (a five-page horizontal carousel) and let it
           drive intra-group transitions via drag — pathname is just the
           source of truth for which page is centered. For other routes
           (Browser, Activity, etc.) we still slide each new page in via
@@ -198,7 +221,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         data-tabbar-footer="true"
         style={{ display: 'flex' }}
       >
-        <div className="pointer-events-auto flex-1 px-4 pb-2">
+        {/* Mobile: the body's safe-area padding (max(16px, env(...)) in
+            mobile.html) already keeps the pill off the screen edge. */}
+        <div className={classNames('pointer-events-auto flex-1 px-4', !isMobile() && 'pb-2')}>
           <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>

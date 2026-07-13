@@ -335,8 +335,8 @@ describe('MultisigService', () => {
 
       try {
         await expect(service.sync()).rejects.toThrow('Max sync retries reached');
-        // 20 retries + the initial attempt = 21 calls.
-        expect(syncState).toHaveBeenCalledTimes(21);
+        // 30 retries + the initial attempt = 31 calls.
+        expect(syncState).toHaveBeenCalledTimes(31);
       } finally {
         (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
       }
@@ -365,9 +365,17 @@ describe('MultisigService', () => {
       }
     });
 
-    it('self-heals a lagging guardian: re-registers current state, then the retried sync succeeds', async () => {
-      // The OZ lib refuses to overwrite local state when the guardian's blob lags
-      // on-chain; once we push the current state to the guardian, the retry passes.
+    it('waits out a canonicalizing guardian without re-registering, then the retried sync succeeds', async () => {
+      // "Refusing to overwrite local state" means the guardian is mid-canonicalization
+      // (its blob briefly lags on-chain). It's transient, so we WAIT and retry — we must
+      // NOT re-register on the first sign (that re-`configure`s the old guardian after a
+      // switch and strands the account).
+      const origSetTimeout = global.setTimeout;
+      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
+        fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+
       const syncState = jest
         .fn()
         .mockRejectedValueOnce(
@@ -379,22 +387,45 @@ describe('MultisigService', () => {
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
 
-      await service.sync();
-
-      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
-      expect(syncState).toHaveBeenCalledTimes(2);
+      try {
+        await service.sync();
+        expect(registerOnGuardian).not.toHaveBeenCalled(); // waited, did not re-register
+        expect(syncState).toHaveBeenCalledTimes(2); // initial + one retry
+      } finally {
+        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+      }
     });
 
-    it('attempts the guardian realign only once per run, then propagates a persistent failure', async () => {
-      const syncState = jest.fn(async () => Promise.reject(new Error('Refusing to overwrite local state')));
+    it('re-registers once as a last resort after the canonicalization window, then the retried sync succeeds', async () => {
+      // Only after the bounded wait is exhausted do we treat the lag as a genuine
+      // divergence and re-register the current on-chain state once, then retry.
+      const origSetTimeout = global.setTimeout;
+      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
+        fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout;
+
+      // 30 waited retries, then the 31st failure exhausts the window and
+      // re-registers; the 32nd attempt succeeds.
+      let calls = 0;
+      const syncState = jest.fn(async () => {
+        calls++;
+        if (calls <= 31) {
+          throw new Error('Refusing to overwrite local state');
+        }
+      });
       const registerOnGuardian = jest.fn(async () => {});
       const multisig = makeMultisig({ syncState, registerOnGuardian });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
       mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1, 2, 3]) });
 
-      await expect(service.sync()).rejects.toThrow('Refusing to overwrite local state');
-      expect(registerOnGuardian).toHaveBeenCalledTimes(1); // not looped
-      expect(syncState).toHaveBeenCalledTimes(2); // initial + one retry after realign
+      try {
+        await service.sync();
+        expect(registerOnGuardian).toHaveBeenCalledTimes(1); // last-resort re-register, once
+        expect(syncState).toHaveBeenCalledTimes(32); // 31 lag failures + 1 success after re-register
+      } finally {
+        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+      }
     });
   });
 

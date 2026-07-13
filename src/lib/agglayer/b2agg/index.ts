@@ -1,5 +1,6 @@
 import {
   AccountId,
+  EthAddress,
   FungibleAsset,
   Note,
   NoteArray,
@@ -28,11 +29,11 @@ export async function createB2AggNote(
   destinationNetwork: number
 ) {
   return Note.createB2AggNote(
-    destinationNetwork,
-    destinationAddress,
-    new NoteAssets([new FungibleAsset(AccountId.fromHex(MIDEN_AGGLAYER_FAUCET_ID), amount)]),
+    accountIdStringToSdk(senderAddress),
     AccountId.fromHex(MIDEN_BRIDGE_ID),
-    accountIdStringToSdk(senderAddress)
+    new NoteAssets([new FungibleAsset(AccountId.fromHex(MIDEN_AGGLAYER_FAUCET_ID), amount)]),
+    destinationNetwork,
+    EthAddress.fromHex(destinationAddress)
   );
 }
 

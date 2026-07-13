@@ -3,7 +3,7 @@ import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 
 export * from './helpers';
-export * from './transactions';
+export * from '../transaction';
 export * from './notes';
 export * from './bridge-in';
 

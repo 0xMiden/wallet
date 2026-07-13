@@ -4,7 +4,10 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { isMobile } from 'lib/platform';
+import { hapticLight } from 'lib/mobile/haptics';
+import { AddressChain } from 'utils/miden';
+
+import { BRIDGE_NETWORKS, BridgeNetworkId } from './bridge-networks';
 
 const AddressBookIcon: React.FC = () => (
   <svg width="15" height="16" viewBox="0 0 11 12" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -26,15 +29,51 @@ export interface SelectRecipientProps {
   address: string;
   isValidAddress: boolean;
   error?: string;
+  /**
+   * Chain detected from the typed address. `ethereum` offers the cross-chain
+   * destination networks; `miden` is same-chain, so Miden is its only network.
+   */
+  chain: AddressChain;
+  /** Selected destination network (cross-chain only). */
+  network?: BridgeNetworkId;
+  onNetworkChange?: (network: BridgeNetworkId) => void;
   onAddressChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onAddressBook: () => void;
   onConfirm: () => void;
 }
 
+/** Network chip. A chain with a single option (Miden, and today Sepolia) renders as a static badge. */
+const NetworkChip: React.FC<{ label: string; selected: boolean; onSelect?: () => void }> = ({
+  label,
+  selected,
+  onSelect
+}) => (
+  <button
+    type="button"
+    onClick={
+      onSelect &&
+      (() => {
+        hapticLight();
+        onSelect();
+      })
+    }
+    className={clsx(
+      'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
+      selected ? 'bg-primary-500 text-pure-white' : 'bg-surface-interactive text-heading-gray',
+      !onSelect && 'pointer-events-none'
+    )}
+  >
+    {label}
+  </button>
+);
+
 export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   address,
   isValidAddress,
   error,
+  chain,
+  network,
+  onNetworkChange,
   onAddressChange,
   onAddressBook,
   onConfirm
@@ -51,9 +90,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   }, [address]);
 
   return (
-    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
+    <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
-        <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('chooseRecipient')}</span>
+        <span className="font-heading text-2xl leading-none font-bold text-gray">{t('chooseRecipient')}</span>
 
         <div className="relative mt-3">
           <textarea
@@ -77,13 +116,31 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
         {error && <p className="text-red-500 text-sm mt-2">{t(`${error}`)}</p>}
 
+        {/* Destination network follows the detected chain: a 0x recipient bridges to an
+            EVM network, anything else stays on Miden. */}
+        <div className="mt-4 flex items-center gap-2">
+          <span className="text-xs font-medium text-gray">{t('network')}</span>
+          {chain === 'ethereum' ? (
+            BRIDGE_NETWORKS.map(n => (
+              <NetworkChip
+                key={n.id}
+                label={n.name}
+                selected={network === n.id}
+                onSelect={BRIDGE_NETWORKS.length > 1 ? () => onNetworkChange?.(n.id) : undefined}
+              />
+            ))
+          ) : (
+            <NetworkChip label={t('miden')} selected />
+          )}
+        </div>
+
         <div className="mt-4 flex">
           <Button
             variant={ButtonVariant.Secondary}
             title={t('addressBook')}
             iconLeft={<AddressBookIcon />}
             onClick={onAddressBook}
-            className="rounded-full text-base font-bold w-39.25"
+            className="rounded-full text-base font-bold w-fit!"
           />
         </div>
       </div>

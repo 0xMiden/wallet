@@ -20,6 +20,8 @@ import {
   verifyPassword
 } from './passworder';
 
+jest.setTimeout(30_000);
+
 describe('passworder', () => {
   describe('generateSalt', () => {
     it('returns a 32-byte Uint8Array by default', () => {

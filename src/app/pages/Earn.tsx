@@ -81,13 +81,13 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => (
           {position.protocol} &bull; {position.asset}
         </div>
       </div>
-      <div className="rounded-full bg-[#E6F5EA] px-2 py-1 text-xs font-bold font-heading leading-none text-[#2BA84A]">
+      <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-bold font-heading leading-none text-green-500">
         {position.apy} APY
       </div>
     </div>
 
     <div className="mt-3 text-[22px] font-bold font-heading leading-none text-pure-black">{position.amount}</div>
-    <div className="mt-2 text-xs font-bold leading-none text-[#2BA84A]">
+    <div className="mt-2 text-xs font-bold leading-none text-green-500">
       {position.rewards} &bull; {position.age}
     </div>
   </button>

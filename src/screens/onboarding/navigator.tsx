@@ -1,7 +1,7 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import classNames from 'clsx';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
@@ -63,12 +63,17 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
 const Header: React.FC<{
   onBack: () => void;
   currentStep: number | null;
+  totalSteps: number;
   onboardingType?: 'import' | 'create' | null;
-}> = ({ currentStep }) => {
+}> = ({ currentStep, totalSteps }) => {
   return (
     <div className="w-full flex items-center px-4 pt-4">
       <div className="flex-1 flex justify-center">
-        <ProgressIndicator currentStep={currentStep ?? 1} steps={4} className={currentStep ? '' : 'opacity-0'} />
+        <ProgressIndicator
+          currentStep={currentStep ?? 1}
+          steps={totalSteps}
+          className={currentStep ? '' : 'opacity-0'}
+        />
       </div>
     </div>
   );
@@ -90,6 +95,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   onAction
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
   // Override for screens that have internal sub-steps (e.g. SetupPasscode's
@@ -100,7 +106,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     setProgressOverride(null);
   }, [step]);
   const baseStep = STEP_TO_PROGRESS[step] ?? null;
-  const currentProgress = progressOverride ?? baseStep;
+  const rawProgress = progressOverride ?? baseStep;
+  // The choose-protection step only exists where biometric can work (mobile).
+  // On the extension/desktop it's skipped, so the create flow is one step
+  // shorter — render 3 segments and shift every position down by one.
+  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && !isMobile();
+  const totalSteps = protectionChoiceSkipped ? 3 : 4;
+  const currentProgress = protectionChoiceSkipped && rawProgress !== null ? rawProgress - 1 : rawProgress;
 
   const onForwardAction = useCallback(
     (onboardingAction: OnboardingAction) => {
@@ -277,7 +289,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       <div className="flex flex-col flex-1 min-h-0">
         <AnimatePresence mode={'wait'} initial={false}>
           {step !== OnboardingStep.Welcome && (
-            <Header onBack={onBack} currentStep={currentProgress} onboardingType={onboardingType} key={'header'} />
+            <Header
+              onBack={onBack}
+              currentStep={currentProgress}
+              totalSteps={totalSteps}
+              onboardingType={onboardingType}
+              key={'header'}
+            />
           )}
         </AnimatePresence>
         <AnimatePresence mode={'wait'} initial={false}>
@@ -294,7 +312,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             }}
             variants={{
               initialState: {
-                x: navigationDirection === 'forward' ? '1vw' : '-1vw',
+                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '1vw' : '-1vw',
                 opacity: 0
               },
               animateState: {
@@ -302,7 +320,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
                 opacity: 1
               },
               exitState: {
-                x: navigationDirection === 'forward' ? '-1vw' : '1vw',
+                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '-1vw' : '1vw',
                 opacity: 0
               }
             }}

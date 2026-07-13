@@ -32,7 +32,7 @@ const mockRequestCustomTransaction = jest.fn();
 const mockInitiateConsumeTransactionFromId = jest.fn();
 const mockWaitForTransactionCompletion = jest.fn();
 
-jest.mock('lib/miden/activity/transactions', () => ({
+jest.mock('lib/miden/transaction', () => ({
   initiateSendTransaction: (...args: unknown[]) => mockInitiateSendTransaction(...args),
   requestCustomTransaction: (...args: unknown[]) => mockRequestCustomTransaction(...args),
   initiateConsumeTransactionFromId: (...args: unknown[]) => mockInitiateConsumeTransactionFromId(...args),
@@ -248,8 +248,10 @@ describe('requestPermission — mobile branches', () => {
   });
 
   it('rejects when account has no public key commitments', async () => {
+    // Interface empty and guardian signer map empty: the resolver misses both.
     _g.__dappBranchMockGetAccount.mockResolvedValueOnce({
-      getPublicKeyCommitments: () => []
+      getPublicKeyCommitments: () => [],
+      storage: () => ({ getMapItem: () => undefined })
     });
     await expect(
       dapp.requestPermission(

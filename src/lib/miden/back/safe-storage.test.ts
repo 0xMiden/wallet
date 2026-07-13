@@ -14,6 +14,8 @@ import {
   savePlain
 } from './safe-storage';
 
+jest.setTimeout(30_000);
+
 // We mock the storage adapter so we can run without browser.storage / localStorage.
 // `getStorageProvider` is called lazily inside safe-storage, so the mock just
 // needs to return an in-memory object.

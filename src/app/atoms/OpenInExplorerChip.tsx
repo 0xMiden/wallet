@@ -72,7 +72,7 @@ const OpenInExplorerChip: FC<OpenInExplorerChipProps> = ({
         })(),
         rounded === 'base' ? 'rounded' : 'rounded-sm',
         'leading-none select-none',
-        'transition ease-in-out duration-300',
+        'transition-colors ease-hover duration-150',
         'flex items-center justify-center',
         className
       )}

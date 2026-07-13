@@ -56,7 +56,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
             >
               {vault.apy}
             </div>
-            <div className="mt-2 text-xs font-bold uppercase leading-none tracking-wide text-[#8E8E93]">
+            <div className="mt-2 text-xs font-bold uppercase leading-none tracking-wide text-gray-secondary">
               Current APY
             </div>
             <div className="mt-0.5 text-xl font-semibold leading-none text-status-positive">{vault.apyChange24h}</div>
@@ -64,7 +64,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
 
           <VaultAreaChart vault={vault} />
 
-          <div className="mt-4 flex items-center justify-between px-4 text-sm font-medium text-[#8E8E93]">
+          <div className="mt-4 flex items-center justify-between px-4 text-sm font-medium text-gray-secondary">
             {TIMEFRAMES.map(item => (
               <button
                 key={item}
@@ -75,7 +75,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
                 }}
                 className={classNames(
                   'rounded-full px-3 py-2 leading-none',
-                  timeframe === item ? 'bg-[#F2F2F4] font-semibold text-pure-black' : 'text-[#8E8E93]'
+                  timeframe === item ? 'bg-[#F2F2F4] font-semibold text-pure-black' : 'text-gray-secondary'
                 )}
               >
                 {item}

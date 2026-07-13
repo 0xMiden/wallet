@@ -39,17 +39,12 @@ export const ActivateHotKeyBanner: FC<Props> = ({ className }) => {
     try {
       const txId = await initiateReplaceHotKeyTransaction(account.publicKey, isDelegateProofEnabled(), zustandProvider);
       if (isExtension()) requestSWTransactionProcessing();
-      navigate({
-        pathname: '/generating-transaction-full',
-        search: `?txId=${encodeURIComponent(txId)}`
-      });
+      navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);
     }
   }, [account.publicKey, submitting]);
-
-  if (!account.requiresHotKeyRotation) return null;
 
   return (
     <PromptCard

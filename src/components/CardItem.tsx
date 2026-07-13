@@ -75,8 +75,8 @@ export const CardItem: React.FC<CardItemProps> = ({
     'flex items-center justify-evenly', // Layout classes
     'p-2', // Size and padding classes
     'gap-x-2 bg-app-bg', // Gap and background classes
-    'rounded-lg transition', // Shape and transition classes
-    'duration-300 ease-in-out cursor-pointer', // Transition duration and timing function classes
+    'rounded-lg transition-colors', // Shape and transition classes
+    'duration-150 ease-hover cursor-pointer', // Transition duration and timing function classes
     'overflow-hidden w-full',
     className // User-defined classes
   );
@@ -124,7 +124,8 @@ export const CardItem: React.FC<CardItemProps> = ({
       </div>
       {iconRight && (
         <div className="shrink-0">
-          <IconOrComponent icon={iconRight} color="black" />
+          {/* text-black auto-flips with theme; currentColor icons follow it */}
+          <IconOrComponent icon={iconRight} color="black" className="text-black" />
         </div>
       )}
     </div>

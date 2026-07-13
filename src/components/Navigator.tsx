@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
 import { isMobile } from 'lib/platform';
 
@@ -207,44 +207,54 @@ export const DefaultAnimationConfig = {
   presentExitPosition: PresentExitPosition
 };
 
+// prefers-reduced-motion: movement is dropped, opacity fades are kept.
+export const ReducedMotionAnimationConfig = {
+  ...DefaultAnimationConfig,
+  pushInitialPosition: { ...PushInitialPosition, x: '0vw' },
+  presentInitialPosition: { ...PresentInitialPosition, y: '0vw' },
+  presentExitPosition: { ...PresentExitPosition, y: '0vw' }
+};
+
 export const Navigator: React.FC<NavigatorProps> = ({
   renderRoute,
   animationDuration = 0.15,
   animationConfig = DefaultAnimationConfig
 }) => {
   const { direction, activeRoute, activeIndex } = useNavigator();
+  const reduceMotion = useReducedMotion();
 
   // Only animate on mobile (disable for Chrome extension)
   const effectiveDuration = isMobile() ? animationDuration : 0;
+  const effectiveConfig = reduceMotion ? ReducedMotionAnimationConfig : animationConfig;
 
   const animationVariants = useMemo(() => {
     return {
       initialPosition: (config: { in: AnimationIn; out: AnimationOut; direction: AnimationDirection }) => {
         if (config.in === 'push') {
           if (config.direction === 'down') {
-            return animationConfig.pushModalBackgroundPosition;
+            return effectiveConfig.pushModalBackgroundPosition;
           }
 
           return config.direction === 'forward'
-            ? animationConfig.pushInitialPosition
-            : animationConfig.pushHiddenPosition;
+            ? effectiveConfig.pushInitialPosition
+            : effectiveConfig.pushHiddenPosition;
         } else {
-          return animationConfig.presentInitialPosition;
+          return effectiveConfig.presentInitialPosition;
         }
       },
-      focusPosition: animationConfig.focusPosition,
+      focusPosition: effectiveConfig.focusPosition,
       exitPosition: (config: { in: AnimationIn; out: AnimationOut; direction: AnimationDirection }) => {
         if (config.out === 'pop') {
           if (config.direction === 'up') {
-            return animationConfig.pushModalBackgroundPosition;
+            return effectiveConfig.pushModalBackgroundPosition;
           }
-          return config.direction === 'forward' ? animationConfig.pushHiddenPosition : animationConfig.pushExitPosition;
+          return config.direction === 'forward' ? effectiveConfig.pushHiddenPosition : effectiveConfig.pushExitPosition;
         } else {
-          return animationConfig.presentExitPosition;
+          return effectiveConfig.presentExitPosition;
         }
       }
     };
-  }, [animationConfig]);
+  }, [effectiveConfig]);
 
   return (
     <AnimatePresence mode="wait" initial={false}>

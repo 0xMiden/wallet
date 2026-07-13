@@ -13,6 +13,8 @@ import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { CustomRpsContext } from 'lib/analytics';
+import { getAllUncompletedTransactions } from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { AssetMetadata, MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { MidenDAppPayload } from 'lib/miden/types';
@@ -534,7 +536,12 @@ const ConfirmDAppForm: FC = () => {
         case 'consume':
           await confirmDAppTransaction(id, confirmed, delegate);
           if (confirmed) {
-            navigate('/generating-transaction-full');
+            // The dApp confirm response carries no txId, but the progress page
+            // is addressed by one — resolve the active row from the queue.
+            const uncompleted = await getAllUncompletedTransactions();
+            const active =
+              uncompleted.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? uncompleted[0];
+            navigate(active ? `/generating-transaction-full/${encodeURIComponent(active.id)}` : '/');
           }
           return;
         case 'privateNotes':

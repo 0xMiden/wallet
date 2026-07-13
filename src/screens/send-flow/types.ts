@@ -6,19 +6,13 @@ export type BridgeRoute = 'epoch' | 'agglayer';
 export enum SendFlowStep {
   SelectRecipient = 'SelectRecipient',
   SelectAmount = 'SelectAmount',
-  SelectToken = 'SelectToken',
-  SelectNetwork = 'SelectNetwork',
-  Route = 'Route',
-  AccountsList = 'AccountsList',
-  ReviewTransaction = 'ReviewTransaction',
-  TransactionInitiated = 'TransactionInitiated'
+  /** Cross-chain only: pick Fast (Epoch) vs Slow (Agglayer) before handing off to /send/review. */
+  Route = 'Route'
 }
 
 export type SendFlowForm = {
   amount: string;
-  sharePrivately: boolean;
   recipientAddress: string;
-  recallBlocks?: string;
   token?: UIToken;
   /** Destination network, only meaningful when the recipient is a 0x (Ethereum) address. */
   bridgeNetwork?: BridgeNetworkId;
@@ -30,7 +24,6 @@ export enum SendFlowActionId {
   GoBack = 'go-back',
   Navigate = 'navigate',
   SetFormValues = 'set-form-values',
-  GenerateTransaction = 'generate-transaction',
   Finish = 'finish'
 }
 
@@ -53,11 +46,7 @@ export type Finish = {
   id: SendFlowActionId.Finish;
 };
 
-export type GenerateTransaction = {
-  id: SendFlowActionId.GenerateTransaction;
-};
-
-export type SendFlowAction = Navigate | GoBack | SetFormValues | Finish | GenerateTransaction;
+export type SendFlowAction = Navigate | GoBack | SetFormValues | Finish;
 
 export type Contact = {
   id: string;
