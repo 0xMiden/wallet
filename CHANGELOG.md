@@ -12,6 +12,8 @@
 
 * [CHANGE][all] The generating-transaction page is now addressed by transaction id (`/generating-transaction/:txId`) and observes that single transaction row directly instead of guessing which one to show by scanning the uncompleted-transactions queue. Completion and failure come straight off the row's status (`Completed` / `Failed`), removing the queue-emptying and failed-row-counting heuristics. The FIFO processing loop and the page's driver are unchanged.
 
+* [CHANGE][all] Animation polish pass: hover/press color feedback across buttons, list rows, chips, and inputs sped up from 300ms to a tokenized 150ms `ease` curve (`ease-hover`); dropdown close and react-modal transitions now use `ease-out` (modals settle from `scale(0.96)` instead of zooming from `0.75`); the toggle knob animates via `transform` instead of layout-thrashing `left`; and `prefers-reduced-motion` is honored by the page navigators, the Settings seed-phrase overlay, the mobile page slide-in, and the sync shimmer (movement dropped, fades kept). Audit plans live in `plans/`.
+
 ### Fixes
 
 * [FIX][all] The transaction progress view no longer shows a spinning loader while the title already reads "Transaction completed" — a successful transaction now settles onto a green check hero for the beat before the success receipt appears, instead of reusing the in-progress spinner.

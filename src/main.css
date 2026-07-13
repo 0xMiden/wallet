@@ -39,12 +39,12 @@ button:disabled,
 
 .ReactModal__Overlay {
   opacity: 0;
-  transition: opacity 200ms ease-in-out;
+  transition: opacity 200ms ease-out;
 }
 
 .ReactModal__Content {
-  transform: scale(0.75);
-  transition: transform 200ms ease-in-out;
+  transform: scale(0.96);
+  transition: transform 200ms ease-out;
 }
 
 .ReactModal__Overlay--after-open {
@@ -60,13 +60,13 @@ button:disabled,
 }
 
 .ReactModal__Overlay--before-close .ReactModal__Content {
-  transform: scale(0.75);
+  transform: scale(0.96);
 }
 
 #recall-height-modal.ReactModal__Content {
   transform: scale(1);
   transform: translateY(2rem);
-  transition: transform 200ms ease-in-out;
+  transition: transform 200ms ease-out;
 }
 
 .ReactModal__Overlay--after-open #recall-height-modal.ReactModal__Content {
@@ -293,6 +293,21 @@ button,
   animation: mobile-slide-in 0.15s ease-out both;
 }
 
+@keyframes mobile-fade-in {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-page-enter {
+    animation: mobile-fade-in 0.15s ease-out both;
+  }
+}
+
 /* Wallet navigation is React-only: BottomNav is mounted inside TabLayout. */
 
 /* Parked-dApp bubble host — default transform is identity, and it
@@ -313,6 +328,12 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
    * the phantom location. */
   transform: translateY(200px);
   opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-dapp-bubble-host='true'] {
+    transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  }
 }
 
 /* Surfaces that own the whole screen (e.g. the transaction success view)

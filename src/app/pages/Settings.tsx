@@ -1,6 +1,6 @@
 import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
@@ -267,6 +267,7 @@ const HIDDEN_TABS: Tab[] = [
 
 const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
@@ -442,9 +443,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           >
             <motion.div
               className="flex-1 flex flex-col"
-              initial={{ y: 40, opacity: 0 }}
+              initial={{ y: reduceMotion ? 0 : 40, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 40, opacity: 0 }}
+              exit={{ y: reduceMotion ? 0 : 40, opacity: 0 }}
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               <div className="mt-6 px-4">

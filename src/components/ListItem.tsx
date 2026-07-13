@@ -47,8 +47,8 @@ export const ListItem: React.FC<ListItemProps> = ({
     'flex items-center justify-evenly', // Layout classes
     'p-2', // Size and padding classes
     'gap-x-4 bg-white', // Gap and background classes
-    'rounded-lg transition', // Shape and transition classes
-    'duration-300 ease-in-out', // Transition duration and timing function classes
+    'rounded-lg transition-colors', // Shape and transition classes
+    'duration-150 ease-hover', // Transition duration and timing function classes
     'hover:bg-gray-100 cursor-pointer', // Hover and cursor classes
     'overflow-hidden',
     className // User-defined classes

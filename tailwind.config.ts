@@ -216,6 +216,9 @@ export default {
       stroke: {
         orange: '#ED8936'
       },
+      transitionTimingFunction: {
+        hover: 'cubic-bezier(0.25, 0.1, 0.25, 1)' // CSS `ease` — hover/color feedback
+      },
       // Custom animation
       animation: {
         'gradient-wave': 'gradient-wave 2s ease-in-out infinite'
