@@ -16,9 +16,16 @@
 
 * [CHANGE][all] The transaction progress view now shows a per-step duration ("2 sec") on each completed step row, derived from the stage transitions observed while the screen is open.
 
+* [CHANGE][all] The generating-transaction page is now addressed by transaction id (`/generating-transaction/:txId`) and observes that single transaction row directly instead of guessing which one to show by scanning the uncompleted-transactions queue. Completion and failure come straight off the row's status (`Completed` / `Failed`), removing the queue-emptying and failed-row-counting heuristics. The FIFO processing loop and the page's driver are unchanged.
+
+* [CHANGE][all] Animation polish pass: hover/press color feedback across buttons, list rows, chips, and inputs sped up from 300ms to a tokenized 150ms `ease` curve (`ease-hover`); dropdown close and react-modal transitions now use `ease-out` (modals settle from `scale(0.96)` instead of zooming from `0.75`); the toggle knob animates via `transform` instead of layout-thrashing `left`; and `prefers-reduced-motion` is honored by the page navigators, the Settings seed-phrase overlay, the mobile page slide-in, and the sync shimmer (movement dropped, fades kept). Audit plans live in `plans/`.
+
 ### Fixes
 
 * [FIX][all] **Receive-from-EVM bridge deposit keeps its state across the amount → route step.** The Receive screen drove the bridge deposit's two steps (amount entry, route selection) as separate outer-Navigator cards that both rendered a fresh `BridgeDeposit`, so advancing to the route step remounted `EvmBridgeDepositScreen` with empty state — the entered amount and Epoch quote were wiped and Confirm dead-ended. The bridge deposit now runs its own nested `Navigator` (mounted once, mirroring `SendManager`) so state survives step changes; the outer Receive navigator collapses to a single `ShowBridgePage` card, which also fixes the standalone `/bridge/deposit` route that previously threw for rendering without a `NavigatorProvider`.
+
+* [FIX][all] The transaction progress view no longer shows a spinning loader while the title already reads "Transaction completed" — a successful transaction now settles onto a green check hero for the beat before the success receipt appears, instead of reusing the in-progress spinner.
+
 * [FIX][mobile] **iOS no longer prompts Face ID every few seconds while a Guardian account syncs.** Reverts the `.userPresence` gate (#299) on the Secure Enclave hot key: guardian sync signs with the hot key on the ~3s AutoSync tick, so the per-use presence flag turned into a continuous Face ID prompt loop. New hot keys are created with `.privateKeyUsage` only again (silent signing, key still SE-bound). Since hot signing is silent everywhere now, the `background` consume flag and its Guardian cold-key auto-consume detour (which existed only to dodge that prompt) are also removed — every consume takes the standard hot-bound path. Android gets the equivalent fix: the Keystore hot-key wrapper is no longer auth-bound (`setUserAuthenticationRequired`), so hot signing no longer pops a fingerprint `BiometricPrompt` per signature; legacy auth-bound keys keep working through a prompt fallback until the hot key is rotated.
 
 ## 1.15.6 (2026-07-07)

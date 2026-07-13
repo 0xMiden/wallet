@@ -120,7 +120,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
         'flex justify-center items-center gap-x-2 font-heading',
         // Fixed design-system dimensions: 370px × 56px (override with w-full etc via className).
         'max-w-92.5 h-14 px-4 rounded-full w-full',
-        'transition-colors duration-300 ease-in-out text-base',
+        'transition-colors duration-150 ease-hover text-base',
         color,
         fontWeight,
         backgroundColor,

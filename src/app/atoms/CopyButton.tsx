@@ -73,7 +73,7 @@ const CopyButton: FC<CopyButtonProps> = ({
                 roundedClassName,
                 smallClassName,
                 'font-tnum leading-none select-none cursor-pointer',
-                'transition ease-in-out duration-300',
+                'transition-colors ease-hover duration-150',
                 className
               )
             : classNames('hover:underline cursor-pointer', className)

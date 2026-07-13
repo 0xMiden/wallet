@@ -42,7 +42,8 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -72,39 +73,18 @@ jest.mock('lib/mobile/external-browser', () => ({
   openExternalUrl: (...args: any[]) => openExternalUrlMock(...args)
 }));
 
-const mutateTxMock = jest.fn();
-// Key-aware SWR mock: the container calls useRetryableSWR twice — once with
-// key ['all-latest-generating-transactions'] (in-flight txs) and once with
-// ['all-failed-transactions'] (failed txs). These mutable vars let individual
-// tests drive each effect; they default to [] so the existing tests are
-// unaffected.
-let swrGeneratingTxs: any[] = [];
-let swrFailedTxs: any[] = [];
-jest.mock('lib/swr', () => ({
-  useRetryableSWR: (key: any[]) => {
-    const which = Array.isArray(key) ? key[0] : key;
-    if (which === 'all-failed-transactions') {
-      return { data: swrFailedTxs, mutate: jest.fn() };
-    }
-    return { data: swrGeneratingTxs, mutate: mutateTxMock };
-  }
+// The container drives the FIFO loop via safeGenerateTransactionsLoop (unchanged
+// behaviour). That's the only thing it still pulls from lib/miden/activity.
+const safeGenerateTransactionsLoopMock = jest.fn();
+jest.mock('lib/miden/activity', () => ({
+  safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args)
 }));
 
-const safeGenerateTransactionsLoopMock = jest.fn();
-const getAllUncompletedTransactionsMock = jest.fn(async () => [] as any[]);
-const getFailedTransactionsMock = jest.fn(async () => [] as any[]);
-const getTransactionByIdMock = jest.fn(async (_id: string) => {
-  throw new Error('Transaction not found');
-});
-const waitForTransactionCompletionMock = jest.fn(async (_id: string) => ({
-  errorMessage: 'Transaction not found'
-}));
-jest.mock('lib/miden/activity', () => ({
-  safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
-  getAllUncompletedTransactions: (...args: any[]) => getAllUncompletedTransactionsMock(...(args as [])),
-  getFailedTransactions: (...args: any[]) => getFailedTransactionsMock(...(args as [])),
-  getTransactionById: (...args: any[]) => getTransactionByIdMock(...(args as [string])),
-  waitForTransactionCompletion: (...args: any[]) => waitForTransactionCompletionMock(...(args as [string]))
+// The container observes the tracked row through this hook. Tests drive the row
+// (status/stage/transactionId) via `mockRowState` instead of touching Dexie.
+let mockRowState: { row: any; loaded: boolean } = { row: undefined, loaded: false };
+jest.mock('./useTransactionRow', () => ({
+  useTransactionRow: () => mockRowState
 }));
 
 // Minimal ITransaction factory for container tests.
@@ -118,7 +98,7 @@ const makeTx = (overrides: Record<string, any> = {}) => ({
   ...overrides
 });
 
-describe('GeneratingTransactionPage interval cleanup', () => {
+describe('GeneratingTransactionPage interval driver', () => {
   beforeAll(() => {
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -131,16 +111,8 @@ describe('GeneratingTransactionPage interval cleanup', () => {
     jest.useFakeTimers();
     mockWalletStoreState.lastCompletedTxHash = null;
     mockWalletStoreState.setLastCompletedTxHash.mockClear();
-    mutateTxMock.mockClear();
     safeGenerateTransactionsLoopMock.mockReset();
-    swrGeneratingTxs = [];
-    swrFailedTxs = [];
-    getAllUncompletedTransactionsMock.mockClear();
-    getFailedTransactionsMock.mockClear();
-    getTransactionByIdMock.mockReset();
-    getTransactionByIdMock.mockRejectedValue(new Error('Transaction not found'));
-    waitForTransactionCompletionMock.mockReset();
-    waitForTransactionCompletionMock.mockResolvedValue({ errorMessage: 'Transaction not found' } as any);
+    mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
     getExplorerTxUrlMock.mockReset();
     getExplorerTxUrlMock.mockReturnValue(undefined);
     openExternalUrlMock.mockClear();
@@ -161,7 +133,7 @@ describe('GeneratingTransactionPage interval cleanup', () => {
     const root = createRoot(container);
 
     await act(async () => {
-      root.render(<GeneratingTransactionPage />);
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
     });
 
     await act(async () => {
@@ -174,7 +146,7 @@ describe('GeneratingTransactionPage interval cleanup', () => {
     await act(async () => {
       jest.advanceTimersByTime(30_000);
     });
-    // New behavior: loop continues processing even after failure
+    // Loop continues processing even after a reported failure.
     expect(safeGenerateTransactionsLoopMock.mock.calls.length).toBeGreaterThan(callsBefore);
 
     act(() => root.unmount());
@@ -190,7 +162,7 @@ describe('GeneratingTransactionPage interval cleanup', () => {
     const root = createRoot(container);
 
     await act(async () => {
-      root.render(<GeneratingTransactionPage />);
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
     });
 
     await act(async () => {
@@ -203,7 +175,7 @@ describe('GeneratingTransactionPage interval cleanup', () => {
     await act(async () => {
       jest.advanceTimersByTime(30_000);
     });
-    // New behavior: loop continues processing even after errors
+    // Loop continues processing even after errors.
     expect(safeGenerateTransactionsLoopMock.mock.calls.length).toBeGreaterThan(callsBefore);
 
     act(() => root.unmount());
@@ -217,7 +189,7 @@ describe('GeneratingTransactionPage interval cleanup', () => {
     const root = createRoot(container);
 
     await act(async () => {
-      root.render(<GeneratingTransactionPage />);
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
     });
 
     act(() => root.unmount());
@@ -238,17 +210,9 @@ describe('GeneratingTransactionPage container effects', () => {
     jest.useFakeTimers();
     mockWalletStoreState.lastCompletedTxHash = null;
     mockWalletStoreState.setLastCompletedTxHash.mockClear();
-    mutateTxMock.mockClear();
     safeGenerateTransactionsLoopMock.mockReset();
     safeGenerateTransactionsLoopMock.mockReturnValue(true);
-    swrGeneratingTxs = [];
-    swrFailedTxs = [];
-    getAllUncompletedTransactionsMock.mockClear();
-    getFailedTransactionsMock.mockClear();
-    getTransactionByIdMock.mockReset();
-    getTransactionByIdMock.mockRejectedValue(new Error('Transaction not found'));
-    waitForTransactionCompletionMock.mockReset();
-    waitForTransactionCompletionMock.mockResolvedValue({ errorMessage: 'Transaction not found' } as any);
+    mockRowState = { row: undefined, loaded: false };
     getExplorerTxUrlMock.mockReset();
     getExplorerTxUrlMock.mockReturnValue(undefined);
     openExternalUrlMock.mockClear();
@@ -281,157 +245,57 @@ describe('GeneratingTransactionPage container effects', () => {
     return { container, root };
   };
 
-  it('parses txId from the hash so the tracked tx becomes active', async () => {
-    window.location.hash = '#/generating-transaction?txId=tx-1';
-    swrGeneratingTxs = [makeTx({ id: 'tx-other' }), makeTx({ id: 'tx-1', stage: 'submitting' })];
-    waitForTransactionCompletionMock.mockResolvedValue({ txHash: '0xabc' } as any);
+  it('redirects home when the id is unknown (loaded, no row)', async () => {
+    mockRowState = { row: undefined, loaded: true };
 
-    const { root } = await mount(<GeneratingTransactionPage />);
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-missing" />);
 
-    expect(waitForTransactionCompletionMock).toHaveBeenCalledWith('tx-1');
+    expect(container.querySelector('[data-testid="redirect"]')?.textContent).toBe('redirect:/');
     act(() => root.unmount());
   });
 
-  it('falls back to window.location.search when there is no hash', async () => {
-    window.location.hash = '';
-    // jsdom default search is '' so trackedTransactionId is null; just exercise the path.
-    swrGeneratingTxs = [makeTx({ id: 'tx-implicit', stage: 'syncing' })];
+  it('records the completed tx hash when the row reaches Completed with a hash', async () => {
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xdeadbeef' }), loaded: true };
 
-    const { root } = await mount(<GeneratingTransactionPage />);
-
-    // No tracked id → waitForTransactionCompletion should NOT be called.
-    expect(waitForTransactionCompletionMock).not.toHaveBeenCalled();
-    act(() => root.unmount());
-  });
-
-  it('returns empty search when the hash is a malformed URL (try/catch)', async () => {
-    // A hash whose path is not parseable as a relative URL against the origin
-    // (`new URL('//[', origin)` throws) → the catch returns '' → no txId.
-    window.location.hash = '#//[';
-    swrGeneratingTxs = [];
-
-    const { root } = await mount(<GeneratingTransactionPage />);
-
-    // Malformed hash → search '' → no txId → no completion wait.
-    expect(waitForTransactionCompletionMock).not.toHaveBeenCalled();
-    act(() => root.unmount());
-  });
-
-  it('sets the implicit transaction id from the active tx when no txId in URL', async () => {
-    window.location.hash = '#/generating-transaction';
-    swrGeneratingTxs = [makeTx({ id: 'tx-implicit', stage: 'syncing' })];
-
-    const { root } = await mount(<GeneratingTransactionPage />);
-
-    // Implicit path: no tracked id, so waitForTransactionCompletion is not called,
-    // but the active lookup + setImplicitTransactionId effect runs without error.
-    expect(waitForTransactionCompletionMock).not.toHaveBeenCalled();
-    act(() => root.unmount());
-  });
-
-  it('records the completed tx hash when the tracked tx resolves with a txHash', async () => {
-    window.location.hash = '#/generating-transaction?txId=tx-1';
-    swrGeneratingTxs = [makeTx({ id: 'tx-1', stage: 'submitting' })];
-    waitForTransactionCompletionMock.mockResolvedValue({ txHash: '0xdeadbeef' } as any);
-
-    const { root } = await mount(<GeneratingTransactionPage />);
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith('0xdeadbeef');
     act(() => root.unmount());
   });
 
-  it('does not record a hash when the tracked tx resolves with an errorMessage', async () => {
-    window.location.hash = '#/generating-transaction?txId=tx-1';
-    swrGeneratingTxs = [makeTx({ id: 'tx-1', stage: 'submitting' })];
-    waitForTransactionCompletionMock.mockResolvedValue({ errorMessage: 'failed' } as any);
+  it('does not record a hash when the completed row has no transactionId', async () => {
+    mockRowState = { row: makeTx({ status: 2 }), loaded: true };
 
-    const { root } = await mount(<GeneratingTransactionPage />);
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
     expect(mockWalletStoreState.setLastCompletedTxHash).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 
-  it('marks a failed transaction when the tracked tx id is in the failed list', async () => {
-    window.location.hash = '#/generating-transaction?txId=tx-1';
-    // The tracked tx is NOT in flight (queue empty) but IS in the failed list →
-    // transactionComplete && hasErrors → failed header renders.
-    swrGeneratingTxs = [];
-    swrFailedTxs = [makeTx({ id: 'tx-1', status: 3 })];
+  it('renders the failed state when the row status is Failed', async () => {
+    mockRowState = { row: makeTx({ status: 3 }), loaded: true };
 
-    const { container, root } = await mount(<GeneratingTransactionPage />);
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
     expect(container.textContent).toContain('transactionFailed');
-    act(() => root.unmount());
-  });
-
-  it('seeds the initial failed count on first run when there is no tracked id', async () => {
-    window.location.hash = '#/generating-transaction';
-    swrGeneratingTxs = [makeTx({ id: 'tx-implicit', stage: 'syncing' })];
-    swrFailedTxs = [makeTx({ id: 'old-failure', status: 3 })];
-
-    const { container, root } = await mount(<GeneratingTransactionPage />);
-
-    // initialFailedCountRef seeded with 1; no NEW failures → not flagged as error.
-    expect(container.textContent).not.toContain('transactionFailed');
-    act(() => root.unmount());
-  });
-
-  it('flags a failure when the failed count increases beyond the initial count', async () => {
-    window.location.hash = '#/generating-transaction';
-    // No tracked id and queue empty → transactionComplete becomes true once the
-    // new failure pushes hasFailedTransaction true → failed header renders.
-    swrGeneratingTxs = [];
-    swrFailedTxs = [];
-
-    const { container, root } = await mount(<GeneratingTransactionPage />);
-    expect(container.textContent).not.toContain('transactionFailed');
-
-    // A new failure appears after the initial seed; re-render to push it through
-    // the `failedTxs.length > initialFailedCountRef.current` branch.
-    swrFailedTxs = [makeTx({ id: 'new-failure', status: 3 })];
-    await act(async () => {
-      root.render(<GeneratingTransactionPage />);
-    });
-    await flush();
-
-    expect(container.textContent).toContain('transactionFailed');
-    act(() => root.unmount());
-  });
-
-  it('loads the receipt transaction and records its hash once the queue empties', async () => {
-    window.location.hash = '#/generating-transaction?txId=tx-1';
-    swrGeneratingTxs = [makeTx({ id: 'tx-1', stage: 'submitting' })];
-    getTransactionByIdMock.mockReset();
-    getTransactionByIdMock.mockResolvedValue(makeTx({ id: 'tx-1', transactionId: '0xreceipt' }) as any);
-
-    const { root } = await mount(<GeneratingTransactionPage />);
-
-    // Queue empties → transactionComplete true → getTransactionById runs.
-    swrGeneratingTxs = [];
-    await act(async () => {
-      root.render(<GeneratingTransactionPage />);
-    });
-    await flush();
-
-    expect(getTransactionByIdMock).toHaveBeenCalledWith('tx-1');
-    expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith('0xreceipt');
     act(() => root.unmount());
   });
 
   it('wires onViewExplorer to openExternalUrl when an explorer url is available', async () => {
-    // Tracked tx already complete (queue empty), no errors, with a known hash and
-    // an explorer url → the container passes onViewExplorer down to
-    // TransactionSuccess, which renders the "View on Midenscan" button.
-    window.location.hash = '#/generating-transaction?txId=tx-1';
-    swrGeneratingTxs = [];
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
     mockWalletStoreState.lastCompletedTxHash = '0xhash';
     getExplorerTxUrlMock.mockReturnValue('https://devnet.midenscan.com/tx/0xhash');
-    getTransactionByIdMock.mockReset();
-    getTransactionByIdMock.mockResolvedValue(makeTx({ id: 'tx-1', transactionId: '0xhash' }) as any);
 
-    const { container, root } = await mount(<GeneratingTransactionPage />);
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
     expect(getExplorerTxUrlMock).toHaveBeenCalledWith('0xhash');
+
+    // The success receipt (which owns the "View on Midenscan" button) is shown
+    // after SUCCESS_RECEIPT_DELAY_MS (1500ms).
+    await act(async () => {
+      jest.advanceTimersByTime(1_500);
+    });
+    await flush();
 
     const button = Array.from(container.querySelectorAll('button')).find(
       btn => btn.getAttribute('aria-label') === 'viewOnMidenscan'
@@ -448,18 +312,18 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
-  it('auto-closes (navigate home) when the tracked tx leaves flight and auto-close is enabled', async () => {
-    window.location.hash = '#/generating-transaction?txId=tx-1';
+  it('auto-closes (navigate home) when the row reaches a terminal state and auto-close is enabled', async () => {
     isAutoCloseEnabledMock.mockReturnValue(true);
     navigateMock.mockClear();
-    swrGeneratingTxs = [makeTx({ id: 'tx-1', stage: 'submitting' })];
+    window.location.hash = '#/generating-transaction/tx-1';
+    mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
 
-    const { root } = await mount(<GeneratingTransactionPage />);
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
-    // Tx leaves flight (queue empties) → prevInFlight true → schedules auto-close.
-    swrGeneratingTxs = [];
+    // Row transitions to Completed → schedules auto-close.
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
     await act(async () => {
-      root.render(<GeneratingTransactionPage />);
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
     });
     await flush();
 
@@ -473,18 +337,18 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
-  it('does not navigate on close when the hash is not on the generating-transaction route', async () => {
+  it('does not navigate on auto-close when the hash is not on the generating-transaction route', async () => {
     // onClose early-returns when the hash does not include 'generating-transaction'.
-    window.location.hash = '#/some-other-route?txId=tx-1';
     isAutoCloseEnabledMock.mockReturnValue(true);
     navigateMock.mockClear();
-    swrGeneratingTxs = [makeTx({ id: 'tx-1', stage: 'submitting' })];
+    window.location.hash = '#/some-other-route/tx-1';
+    mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
 
-    const { root } = await mount(<GeneratingTransactionPage />);
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
 
-    swrGeneratingTxs = [];
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
     await act(async () => {
-      root.render(<GeneratingTransactionPage />);
+      root.render(<GeneratingTransactionPage txId="tx-1" />);
     });
     await flush();
 
@@ -493,7 +357,6 @@ describe('GeneratingTransactionPage container effects', () => {
     });
     await flush();
 
-    // trackEvent still fired, but onClose early-returned → no navigate.
     expect(navigateMock).not.toHaveBeenCalled();
     isAutoCloseEnabledMock.mockReturnValue(false);
     act(() => root.unmount());
@@ -593,6 +456,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
   });
 
   it('renders the View on Midenscan button and wires it to onViewExplorer on success', async () => {
+    jest.useFakeTimers();
     const onViewExplorer = jest.fn();
     const { container, root } = await renderInto(
       <GeneratingTransaction
@@ -604,6 +468,11 @@ describe('GeneratingTransaction stage + state rendering', () => {
       />
     );
 
+    // The success receipt is shown after SUCCESS_RECEIPT_DELAY_MS (1500ms).
+    await act(async () => {
+      jest.advanceTimersByTime(1_500);
+    });
+
     const button = Array.from(container.querySelectorAll('button')).find(
       btn => btn.getAttribute('aria-label') === 'viewOnMidenscan'
     ) as HTMLButtonElement;
@@ -614,6 +483,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(onViewExplorer).toHaveBeenCalledTimes(1);
 
     act(() => root.unmount());
+    jest.useRealTimers();
   });
 
   it('omits the View on Midenscan button when no onViewExplorer is provided', async () => {

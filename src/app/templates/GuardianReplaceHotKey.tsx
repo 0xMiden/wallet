@@ -38,10 +38,7 @@ const GuardianReplaceHotKey: FC = () => {
         zustandProvider
       );
       if (isExtension()) requestSWTransactionProcessing();
-      navigate({
-        pathname: '/generating-transaction-full',
-        search: `?txId=${encodeURIComponent(txId)}`
-      });
+      navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

@@ -261,18 +261,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     ))
   ],
   [
-    '/generating-transaction',
-    onlyReady(() => (
+    '/generating-transaction/:txId',
+    onlyReady(({ txId }) => (
       <FullScreenPage>
-        <GeneratingTransactionPage />
+        <GeneratingTransactionPage txId={txId!} />
       </FullScreenPage>
     ))
   ],
   [
-    '/generating-transaction-full',
-    onlyReady(() => (
+    '/generating-transaction-full/:txId',
+    onlyReady(({ txId }) => (
       <FullScreenPage>
-        <GeneratingTransactionPage keepOpen={true} />
+        <GeneratingTransactionPage txId={txId!} keepOpen={true} />
       </FullScreenPage>
     ))
   ],

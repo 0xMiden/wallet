@@ -101,7 +101,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       hero={hero}
       heroDivider={false}
       dividers={false}
-      primary={{ label: t('sendPayment'), onPress: onSubmit }}
+      primary={{ label: t('swap'), onPress: onSubmit }}
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
       <ReviewRow

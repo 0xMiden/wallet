@@ -67,10 +67,7 @@ const RotateGuardianReview: FC = () => {
         zustandProvider
       );
       if (isExtension()) requestSWTransactionProcessing();
-      navigate({
-        pathname: '/generating-transaction-full',
-        search: `?txId=${encodeURIComponent(txId)}`
-      });
+      navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

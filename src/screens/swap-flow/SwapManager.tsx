@@ -196,7 +196,7 @@ const SwapManager: React.FC = () => {
       // Hand off to the full-screen generating-transaction page, which renders
       // progress steps + the swap summary badge and observes the tx through to
       // its success/failure receipt. Replaces the old headless-modal path.
-      navigate({ pathname: '/generating-transaction', search: `?txId=${txId}` });
+      navigate(`/generating-transaction/${encodeURIComponent(txId)}`);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);

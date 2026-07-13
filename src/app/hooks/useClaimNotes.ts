@@ -227,10 +227,7 @@ export function useClaimNotes(): ClaimNotesState {
         }
 
         if (batchTxId && !signal.aborted) {
-          navigate({
-            pathname: '/generating-transaction-full',
-            search: `?txId=${encodeURIComponent(batchTxId)}`
-          });
+          navigate(`/generating-transaction-full/${encodeURIComponent(batchTxId)}`);
         }
       } finally {
         if (!isExtension()) {

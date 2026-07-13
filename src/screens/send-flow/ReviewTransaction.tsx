@@ -177,7 +177,7 @@ export const ReviewTransaction: React.FC = () => {
     (txId: string) => {
       clearSendDraft();
       navigate(
-        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}?txId=${encodeURIComponent(txId)}`,
+        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
         HistoryAction.Replace
       );
     },

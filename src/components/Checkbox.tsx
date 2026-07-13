@@ -34,7 +34,7 @@ export const Checkbox: React.FC<CheckboxProps> = ({ value, onChange, ...props })
       className={classNames(
         backgroundColor,
         borderWidth,
-        'transition duration-300 ease-in-out',
+        'transition-colors duration-150 ease-hover',
         'flex items-center justify-center p-1',
         'w-5 h-5 shrink-0 relative border-border-light rounded-xs'
       )}

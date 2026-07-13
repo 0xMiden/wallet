@@ -3,6 +3,8 @@ import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/mide
 import type { TRANSACTION_STEPS } from './constants';
 
 export interface GeneratingTransactionPageProps {
+  /** Id of the transaction this page tracks; comes from the `/:txId` route param. */
+  txId: string;
   keepOpen?: boolean;
 }
 
@@ -30,7 +32,7 @@ export interface GeneratingTransactionProps {
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
 export type TransactionStep = (typeof TRANSACTION_STEPS)[number];
-export type TransactionHeroState = 'processing' | 'failed';
+export type TransactionHeroState = 'processing' | 'success' | 'failed';
 
 export interface TransactionHeroIconProps {
   state: TransactionHeroState;

@@ -438,10 +438,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       }
 
       if (!signal.aborted) {
-        navigate({
-          pathname: '/generating-transaction-full',
-          search: `?txId=${encodeURIComponent(id)}`
-        });
+        navigate(`/generating-transaction-full/${encodeURIComponent(id)}`);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;

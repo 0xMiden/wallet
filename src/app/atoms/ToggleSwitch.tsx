@@ -62,12 +62,13 @@ const ToggleSwitch = forwardRef<HTMLInputElement, ToggleSwitchProps>(
         />
         {/* Dot */}
         <div
-          className="absolute rounded-full transition-all duration-200 ease-in-out shadow-sm"
+          className="absolute rounded-full transition-transform duration-200 ease-in-out shadow-sm"
           style={{
             width: '18px',
             height: '18px',
             top: '2px',
-            left: localChecked ? '20px' : '2px',
+            left: '2px',
+            transform: localChecked ? 'translateX(18px)' : 'translateX(0)',
             backgroundColor: '#FFFFFF',
             pointerEvents: 'none'
           }}

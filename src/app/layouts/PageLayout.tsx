@@ -196,7 +196,7 @@ const Toolbar: FC<ToolbarProps> = ({
         'bg-app-bg',
         'rounded-t-lg',
         'flex flex-col items-center',
-        'transition ease-in-out duration-300'
+        'transition duration-150 ease-hover'
       )}
       style={{
         // The top value needs to be -1px or the element will never intersect
