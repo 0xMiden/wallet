@@ -13,6 +13,7 @@ import { compareAccountIds } from '../activity/utils';
 import {
   BridgedSendTransaction,
   ConsumeTransaction,
+  EarnDepositTransaction,
   IBridgedSendNoteParams,
   IBridgeProvider,
   ITransactionStatus,
@@ -318,6 +319,29 @@ export const initiateBridgedSendTransaction = async (
   );
   await Repo.transactions.add(dbTransaction);
 
+  return dbTransaction.id;
+};
+
+/** Queue the recallable Miden P2IDE note that collateralizes an Earn deposit. */
+export const initiateEarnDepositTransaction = async (
+  accountId: string,
+  amount: bigint,
+  evmRecipient: string,
+  marketUid: string,
+  faucetId: string,
+  sendParams: IBridgedSendNoteParams,
+  delegateTransaction?: boolean
+): Promise<string> => {
+  const dbTransaction = new EarnDepositTransaction(
+    accountId,
+    amount,
+    evmRecipient,
+    marketUid,
+    faucetId,
+    sendParams,
+    delegateTransaction
+  );
+  await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };
 

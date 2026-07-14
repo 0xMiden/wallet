@@ -3,8 +3,6 @@ import React, { FC, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { shortenAddress } from 'app/templates/EvmConnectModal/shared';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
 import { MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
@@ -45,9 +43,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const vault = useMemo(() => vaults.find(item => item.id === vaultId) ?? placeholderVault(), [vaults, vaultId]);
 
   const account = useAccount();
-  // The deposited asset is the native faucet — label it by its discovered id, not a symbol.
-  const midenFaucetId = useMidenFaucetId();
-  const depositSymbol = shortenAddress(midenFaucetId ?? '');
+  const depositSymbol = 'USDC';
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -67,8 +63,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
-        onRowCreated: txId =>
-          navigate({ pathname: '/generating-transaction-full', search: `?txId=${encodeURIComponent(txId)}` })
+        onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`)
       });
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Failed to open position');
@@ -104,7 +99,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           title="Open position"
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
-          disabled={isSubmitting}
+          disabled={isSubmitting || amountValue <= 0 || !vault.id}
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
@@ -171,10 +166,9 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
       </div>
 
       <div className="mt-4 space-y-6">
-        <DetailRow label="Solver fee" value="0.30%" />
-        <DetailRow label="Network fee" value="~$0.42" />
+        <DetailRow label="Collateral" value="Miden P2IDE (gasless)" />
         <DetailRow label="Route" value={`Miden -> ${vault.protocol} (${vault.network})`} />
-        <DetailRow label="Network fee" value="~30 seconds" />
+        <DetailRow label="Estimated time" value="~30 seconds" />
       </div>
     </div>
   );

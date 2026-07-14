@@ -94,6 +94,38 @@ export function getEpochSigningSdk(midenAccountPublicKey: string, evmAddress: `0
   return sdk;
 }
 
+/**
+ * Ensure the wallet-derived EVM owner is delegated to Epoch's EIP-7702 smart
+ * account on Sepolia. This is intentionally separate from the Miden-funded
+ * deposit path: only EVM write flows (notably Smart Withdraw) need the
+ * delegation. The status probe makes this safe to call before every write.
+ */
+export async function ensureEpochSmartAccount(
+  midenAccountPublicKey: string,
+  evmAddress: `0x${string}`
+): Promise<EpochIntentSDK> {
+  const sdk = getEpochSigningSdk(midenAccountPublicKey, evmAddress);
+  const status = await sdk.getWalletGaslessStatus(sepolia.id);
+
+  if (status.delegation === 'epoch') {
+    return sdk;
+  }
+  if (status.delegation === 'other') {
+    throw new Error('The EVM account is delegated to an unsupported smart-account implementation.');
+  }
+
+  const setup = await sdk.convertToSmartAccount({ chainId: sepolia.id });
+  if (!setup.ok) {
+    throw new Error(setup.reason ?? 'Failed to enable the Epoch smart account.');
+  }
+
+  const ready = await sdk.getWalletGaslessStatus(sepolia.id);
+  if (ready.delegation !== 'epoch') {
+    throw new Error('Epoch smart-account setup completed but the delegation is not active.');
+  }
+  return sdk;
+}
+
 export function resetEpochSdk(): void {
   defaultCache = null;
   midenCache = null;

@@ -24,6 +24,7 @@ const libPosition = (overrides: Partial<LibEarnPosition> = {}): LibEarnPosition 
   depositsUSD: 1024.5,
   depositApr: 5.24,
   symbol: 'USDC',
+  underlyingAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
   decimals: 6,
   priceUsd: 1,
   ...overrides
@@ -38,7 +39,9 @@ describe('positionSlug', () => {
   });
 
   it('differs across owners and markets', () => {
-    expect(positionSlug(libPosition())).not.toBe(positionSlug(libPosition({ owner: '0x0000000000000000000000000000000000000001' })));
+    expect(positionSlug(libPosition())).not.toBe(
+      positionSlug(libPosition({ owner: '0x0000000000000000000000000000000000000001' }))
+    );
     expect(positionSlug(libPosition())).not.toBe(positionSlug(libPosition({ marketUid: 'OTHER:1:0x1' })));
   });
 });
@@ -77,6 +80,9 @@ describe('mapEarnPosition', () => {
     expect(ui.network).toBe('Sepolia');
     expect(ui.amount).toBe('$1,024.50');
     expect(ui.depositedAmount).toBe('$1,024.50');
+    expect(ui.owner).toBe('0xF39Fd6e51aad88F6F4ce6aB8827279cffFb92266');
+    expect(ui.withdrawable).toBe('1024.5');
+    expect(ui.underlyingAddress).toBe('0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69');
     expect(ui.apy).toBe('5.24%');
     expect(ui.yearlyEstimate).toBe('+$53.68 / yr');
     expect(ui.route).toBe('Miden -> Dummy Lending (Sepolia)');

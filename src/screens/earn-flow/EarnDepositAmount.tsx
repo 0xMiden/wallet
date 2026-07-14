@@ -1,7 +1,6 @@
 import React, { FC, useMemo, useState } from 'react';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import { MIDEN_USDC_DECIMALS } from 'lib/epoch';
+import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'lib/epoch';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { navigate } from 'lib/woozie';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
@@ -24,23 +23,21 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
-  // The deposited asset is the native faucet — the discovered id is bech32,
-  // the same form the balance rows key on.
-  const midenFaucetId = useMidenFaucetId();
-  const nativeBalance = useMemo(
-    () => (midenFaucetId ? balanceData?.find(item => item.tokenId === midenFaucetId) : undefined),
-    [balanceData, midenFaucetId]
+  // Epoch Earn is USDC-only. Balance rows use bech32 faucet ids while the
+  // allocator configuration uses hex, so compare their normalized account ids.
+  const depositBalance = useMemo(
+    () => balanceData?.find(item => normalizeMidenIdToHex(item.tokenId) === normalizeMidenIdToHex(MIDEN_USDC_FAUCET)),
+    [balanceData]
   );
   const token = useMemo<UIToken>(
     () => ({
-      id: midenFaucetId ?? '',
-      // Label the deposit token by its faucet id, not a symbol.
-      name: nativeBalance?.metadata.symbol ?? 'MDN',
-      decimals: nativeBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
-      balance: nativeBalance?.balance ?? 0,
-      fiatPrice: nativeBalance?.fiatPrice ?? 1
+      id: depositBalance?.tokenId ?? MIDEN_USDC_FAUCET,
+      name: depositBalance?.metadata.symbol ?? 'USDC',
+      decimals: depositBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
+      balance: depositBalance?.balance ?? 0,
+      fiatPrice: depositBalance?.fiatPrice ?? 1
     }),
-    [midenFaucetId, nativeBalance]
+    [depositBalance]
   );
 
   const amountValue = parseAmount(amount);
@@ -62,6 +59,7 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           showBalanceHelper={!hasAmount}
           footerClassName="pt-4 pb-6"
           onAmountChange={setAmount}
+          onSelectToken={() => undefined}
           onConfirm={() => {
             if (isValidAmount) {
               navigate(`/earn/vaults/${vaultId}/deposit/review?amount=${encodeURIComponent(amount)}`);

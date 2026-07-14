@@ -90,6 +90,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
             <Button
               title="Deposit"
               variant={ButtonVariant.Primary}
+              disabled={!vault.id}
               onClick={() => navigate(`/earn/vaults/${vaultId}/deposit`)}
               className="h-14 max-w-none rounded-full text-lg font-bold"
             />

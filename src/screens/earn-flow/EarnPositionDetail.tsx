@@ -6,6 +6,8 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { CircleButton } from 'components/CircleButton';
+import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
+import { useAccount } from 'lib/miden/front';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
@@ -24,6 +26,9 @@ interface EarnPositionDetailProps {
 
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const [timeframe, setTimeframe] = useState('1M');
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawMessage, setWithdrawMessage] = useState<string | null>(null);
+  const account = useAccount();
   const { summary, positions } = useEarnPositions();
   const position = useMemo(
     () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
@@ -76,7 +81,42 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
           <PositionStats position={position} />
           <ProjectedEarnings position={position} />
           <PositionDetails position={position} />
-          <PositionActions position={position} />
+          <PositionActions
+            position={position}
+            isWithdrawing={isWithdrawing}
+            message={withdrawMessage}
+            onWithdraw={async () => {
+              if (!account.evmAddress || account.evmAddress.toLowerCase() !== position.owner.toLowerCase()) {
+                setWithdrawMessage('This position is not owned by the current wallet-derived EVM account.');
+                return;
+              }
+              setIsWithdrawing(true);
+              setWithdrawMessage(null);
+              try {
+                console.log({
+                  midenAccountPublicKey: account.publicKey,
+                  evmAddress: account.evmAddress,
+                  marketUid: position.marketUid,
+                  underlyingAddress: position.underlyingAddress,
+                  amount: position.withdrawable,
+                  underlyingDecimals: position.decimals
+                });
+                const result = await gaslessEarnWithdrawalToMiden({
+                  midenAccountPublicKey: account.publicKey,
+                  evmAddress: account.evmAddress,
+                  marketUid: position.marketUid,
+                  underlyingAddress: position.underlyingAddress,
+                  amount: position.withdrawable,
+                  underlyingDecimals: position.decimals
+                });
+                setWithdrawMessage(`Gasless withdrawal submitted (intent ${result.nonce}).`);
+              } catch (error) {
+                setWithdrawMessage(error instanceof Error ? error.message : 'Gasless withdrawal failed.');
+              } finally {
+                setIsWithdrawing(false);
+              }
+            }}
+          />
         </div>
       </div>
     </div>
@@ -210,23 +250,36 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
   );
 };
 
-const PositionActions: FC<{ position: EarnPosition }> = ({ position }) => (
-  <div className="mt-16 grid grid-cols-2 gap-3">
-    <Button
-      title="Deposit more"
-      variant={ButtonVariant.Secondary}
-      disabled={!position.vaultId}
-      onClick={() => {
-        hapticLight();
-        navigate(`/earn/vaults/${position.vaultId}/deposit`);
-      }}
-      className="h-14 max-w-none rounded-full border-rule-strong bg-white text-base font-bold text-accent-primary hover:bg-white focus:bg-white"
-    />
-    <Button
-      title="Withdraw"
-      variant={ButtonVariant.Primary}
-      className="h-14 max-w-none rounded-full text-base font-bold"
-    />
+const PositionActions: FC<{
+  position: EarnPosition;
+  isWithdrawing: boolean;
+  message: string | null;
+  onWithdraw: () => void;
+}> = ({ position, isWithdrawing, message, onWithdraw }) => (
+  <div className="mt-16">
+    {message && <div className="mb-3 text-center text-sm text-heading-gray">{message}</div>}
+    <div className="grid grid-cols-2 gap-3">
+      <Button
+        title="Deposit more"
+        variant={ButtonVariant.Secondary}
+        disabled={!position.vaultId}
+        onClick={() => {
+          hapticLight();
+          navigate(`/earn/vaults/${position.vaultId}/deposit`);
+        }}
+        className="h-14 max-w-none rounded-full border-rule-strong bg-white text-base font-bold text-accent-primary hover:bg-white focus:bg-white"
+      />
+      <Button
+        title={isWithdrawing ? 'Withdrawing…' : 'Withdraw'}
+        variant={ButtonVariant.Primary}
+        disabled={!position.id || isWithdrawing || Number(position.withdrawable) <= 0}
+        onClick={() => {
+          hapticLight();
+          onWithdraw();
+        }}
+        className="h-14 max-w-none rounded-full text-base font-bold"
+      />
+    </div>
   </div>
 );
 

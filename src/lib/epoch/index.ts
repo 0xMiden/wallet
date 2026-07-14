@@ -3,7 +3,7 @@ export { MIDEN_MIN_RECLAIM_BLOCKS, getCurrentMidenBlock } from './chain';
 export { buildEpochWalletClient } from './client';
 export { createBridgeP2IDNote } from './miden-note';
 export type { BridgeNoteDeps } from './miden-note';
-export { getEpochSdk, getEpochSigningSdk, resetEpochSdk, useEpochSdk } from './sdk';
+export { ensureEpochSmartAccount, getEpochSdk, getEpochSigningSdk, resetEpochSdk, useEpochSdk } from './sdk';
 export { buildVaultEvmWalletClient } from './evm-account';
 export { useEpochStore } from './store';
 export type { EpochFlow, EpochStatus } from './store';
@@ -19,9 +19,12 @@ export {
   MIDEN_USDC_DECIMALS,
   EARN_MARKET_UID,
   EARN_UNDERLYING,
-  EARN_DESTINATION_CHAIN_ID
+  EARN_DESTINATION_CHAIN_ID,
+  EARN_PROTOCOL_HASH
 } from './earn';
 export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote } from './earn';
+export { buildEarnWithdrawTaskDataParams, gaslessEarnWithdrawalToMiden } from './earn-withdraw';
+export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
 export { EPOCH_POSITIONS_URL } from './config';
 export { fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
 export type { EarnPosition, EarnPositionsResult, EarnVaultInfo, FetchEarnPositionsArgs } from './positions';

@@ -35,7 +35,7 @@ export const MIDEN_USDC_DECIMALS = 6;
 export const EARN_MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
 export const EARN_UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
 export const EARN_DESTINATION_CHAIN_ID = 11155111;
-const EARN_PROTOCOL_HASH = keccak256(toBytes('dummy-lending'));
+export const EARN_PROTOCOL_HASH = keccak256(toBytes('dummy-lending'));
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
@@ -117,8 +117,6 @@ export async function getEarnQuote(
     intentData,
     isNative: false
   });
-  console.log('earn qoute', quoteResult);
-
   if (!quoteResult.success) {
     throw new Error(quoteResult.error ?? 'Quote failed');
   }
@@ -161,7 +159,6 @@ export async function buildEarnIntent(
       midenSourceAccount: midenSourceHex,
       createMidenP2IDNote: params.createMidenP2IDNote
     });
-    console.log('solve result', solveResult);
     // The nonce lands on one of several fields depending on the solve path.
     const nonce =
       solveResult?.nonce ?? solveResult?.submittedIntentData?.nonce ?? solveResult?.allocationResponse?.nonce;
@@ -182,8 +179,8 @@ export async function buildEarnIntent(
 }
 
 // Epoch `getIntentStatus` terminal states for the lending leg.
-const EARN_DONE_STATUSES = new Set(['completed', 'finalized', 'success', 'filled', 'settled']);
-const EARN_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reverted']);
+export const EARN_DONE_STATUSES = new Set(['completed', 'finalized', 'success', 'filled', 'settled']);
+export const EARN_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'reverted']);
 
 /**
  * Background-poll the Epoch allocator for a lending intent's fill and flip the
@@ -253,6 +250,9 @@ export interface OpenEarnPositionArgs {
  * pipeline, then marked "Deposited to lending".
  */
 export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ txId?: string }> {
+  if (args.amount <= 0n) {
+    throw new Error('Deposit amount must be greater than zero.');
+  }
   if (!isEvmAddress(args.evmAddress)) {
     throw new Error('Enter a valid EVM address (0x followed by 40 hex characters).');
   }
@@ -291,7 +291,23 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   });
 
   if (intent.error) {
+    if (earnTxId) {
+      await updateEarnDepositStatus(earnTxId, 'failed').catch((err: unknown) =>
+        console.warn('[epoch] updateEarnDepositStatus(failed) failed', err)
+      );
+    }
     throw new Error(intent.error);
+  }
+
+  if (!earnTxId) {
+    throw new Error('Epoch did not request the Miden collateral note.');
+  }
+
+  if (earnTxId && !intent.intentNonce) {
+    await updateEarnDepositStatus(earnTxId, 'failed').catch((err: unknown) =>
+      console.warn('[epoch] updateEarnDepositStatus(failed) failed', err)
+    );
+    throw new Error('Epoch accepted the collateral note but did not return an intent nonce.');
   }
 
   // Record the intent nonce on the row and poll the lending leg in the background;

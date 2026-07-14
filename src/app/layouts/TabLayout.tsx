@@ -115,11 +115,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       label: 'Receive',
       icon: <Icon name={IconName.Receive} className="w-5 h-5" />
     },
-    // {
-    //   id: 'earn',
-    //   label: 'Earn',
-    //   icon: <Icon name={IconName.Earn} className="w-5 h-5" />
-    // },
+    {
+      id: 'earn',
+      label: 'Earn',
+      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+    },
     {
       id: 'swap',
       label: 'Swap',

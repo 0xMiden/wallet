@@ -10,8 +10,10 @@ import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
   BridgedSendTransaction,
+  EarnDepositTransaction,
   IBridgeClaimStatus,
   IBridgedSendExtraInputs,
+  IEarnDepositExtraInputs,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -386,6 +388,34 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes: result.serialize()
+  });
+};
+
+/** Complete the Miden collateral-note leg of an Epoch Earn deposit. */
+export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  const note = extractFullNote(result);
+  const noteId = note?.id().toString();
+  const outputNoteIds = noteId ? [noteId] : [];
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    displayMessage: 'Deposited to lending',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    completedAt: Math.floor(Date.now() / 1000),
+    resultBytes: result.serialize()
+  });
+};
+
+/** Patch the allocator-side settlement state after the Miden note is finalized. */
+export const updateEarnDepositStatus = async (
+  id: string,
+  epochStatus: NonNullable<IEarnDepositExtraInputs['epochStatus']>,
+  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const inputs = tx.extraInputs as IEarnDepositExtraInputs;
+    tx.extraInputs = { ...inputs, epochStatus, ...(extra ?? {}) };
   });
 };
 

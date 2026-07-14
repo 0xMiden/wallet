@@ -1499,10 +1499,10 @@
     ethers "^6.0.0"
     viem "2.42.0"
 
-"@epoch-protocol/epoch-intents-sdk@^1.0.26":
-  version "1.0.31"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.31.tgz#e7e8be59f1f1d323e5a3a298d9e195e52a6a2005"
-  integrity sha512-ssy0ilPYevYj6qrmaTaZW5BBHB0qKalOcj6tlThEzPLHIfW3HKlu+r7GuwvuOvxzEQLgd4hh+Kt2vjiurAxHKg==
+"@epoch-protocol/epoch-intents-sdk@^1.0.32":
+  version "1.0.32"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.32.tgz#97e8826d412fd6c26bd49be7b3092c3c40eafec4"
+  integrity sha512-HLy3nd4wKpe714Wxao+GIurrMQZ908wfiDnCyOTh9TLbuK/WtlzzObgZQF8XYX0YRE1Nji8Vfuxaqrv0j7pk7w==
   dependencies:
     "@epoch-protocol/epoch-commons-sdk" "^0.1.17"
     "@metamask/delegation-toolkit" "^0.13.0"

@@ -3,15 +3,17 @@ import {
   createWalletClient,
   hashTypedData,
   http,
+  parseSignature,
   serializeTransaction,
   stringToHex,
   toHex
 } from 'viem';
 import { toAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
+import { hashAuthorization } from 'viem/utils';
 
-import { useWalletStore } from 'lib/store';
 import { SignEvmOperation } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 
 /**
  * Viem WalletClient whose account is the wallet-derived EVM identity of the
@@ -35,6 +37,25 @@ export function buildVaultEvmWalletClient(midenAccountPublicKey: string, evmAddr
 
   const account = toAccount({
     address: evmAddress,
+    async sign({ hash }) {
+      return signEvm({ op: 'typed-data', digest: hash });
+    },
+    async signAuthorization(authorization) {
+      const address =
+        'contractAddress' in authorization && authorization.contractAddress
+          ? authorization.contractAddress
+          : authorization.address;
+      const unsignedAuthorization = {
+        address,
+        chainId: authorization.chainId,
+        nonce: authorization.nonce
+      };
+      const signature = await signEvm({
+        op: 'typed-data',
+        digest: hashAuthorization(unsignedAuthorization)
+      });
+      return { ...unsignedAuthorization, ...parseSignature(signature) };
+    },
     async signTransaction(transaction, options) {
       const serializer = options?.serializer ?? serializeTransaction;
       return signEvm({ op: 'transaction', serializedTransaction: await serializer(transaction) });

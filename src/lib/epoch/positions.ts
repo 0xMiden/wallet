@@ -3,7 +3,7 @@ import type { IEarnDepositExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import { EPOCH_POSITIONS_URL } from './config';
-import { EARN_DESTINATION_CHAIN_ID } from './earn';
+import { EARN_DESTINATION_CHAIN_ID, EARN_MARKET_UID } from './earn';
 
 /**
  * Epoch "Dummy Lending" positions — the READ side of the Earn feature.
@@ -78,6 +78,8 @@ interface PositionsApiResponse {
   };
 }
 
+const CATALOG_ACCOUNT = '0x0000000000000000000000000000000000000000';
+
 // ---- Flattened, UI-facing shapes ----------------------------------------------
 
 /** A single non-zero lending position, tagged with the EVM owner it belongs to. */
@@ -98,6 +100,8 @@ export interface EarnPosition {
   /** Deposit APR (percent) for this lender/chain. */
   depositApr: number;
   symbol: string;
+  /** EVM address of the deposited asset; needed to build a withdrawal mandate. */
+  underlyingAddress: string;
   decimals: number;
   priceUsd: number;
 }
@@ -169,7 +173,7 @@ async function fetchPositionsForOwner(
       return { owner, items: [], error: `positions request failed (${res.status})` };
     }
     const body: PositionsApiResponse = await res.json();
-    if (!body.success || !body.data) {
+    if (!body.success || !body.data || !Array.isArray(body.data.items)) {
       return { owner, items: [], error: body.error ?? 'positions request unsuccessful' };
     }
     return { owner, items: body.data.items };
@@ -183,6 +187,7 @@ function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosit
   const out: EarnPosition[] = [];
   for (const group of item.data) {
     for (const pos of group.positions) {
+      if (pos.marketUid.toLowerCase() !== EARN_MARKET_UID.toLowerCase()) continue;
       // Every supported token is returned even at zero balance — keep only funded ones.
       if (pos.deposits === '0' && pos.depositsUSD === 0) continue;
       out.push({
@@ -196,6 +201,7 @@ function flattenChainItem(owner: string, item: PositionsApiChainItem): EarnPosit
         depositsUSD: pos.depositsUSD,
         depositApr: item.aprData.depositApr,
         symbol: pos.underlyingInfo.asset.symbol,
+        underlyingAddress: pos.underlyingInfo.asset.address,
         decimals: pos.underlyingInfo.asset.decimals,
         priceUsd: pos.underlyingInfo.prices.priceUsd
       });
@@ -223,11 +229,11 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
   const chains = args.chains ?? [EARN_DESTINATION_CHAIN_ID];
   const owners = args.owners ?? (await getEarnDepositEvmAddresses(args.accountId));
 
-  if (owners.length === 0) {
-    return { positions: [], vaults: [], totalDepositsUSD: 0, owners: [], errors: [] };
-  }
-
-  const results = await Promise.all(owners.map(owner => fetchPositionsForOwner(owner, chains)));
+  // The positions endpoint also serves as the supported-vault catalog. Query a
+  // neutral account when a wallet has no derived EVM owner yet so Featured
+  // Vaults works for new/imported Miden accounts.
+  const queryOwners = owners.length > 0 ? owners : [CATALOG_ACCOUNT];
+  const results = await Promise.all(queryOwners.map(owner => fetchPositionsForOwner(owner, chains)));
 
   const positions: EarnPosition[] = [];
   const vaultsByKey = new Map<string, EarnVaultInfo>();
@@ -237,7 +243,9 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
       errors.push({ owner: result.owner, error: result.error });
     }
     for (const item of result.items) {
-      positions.push(...flattenChainItem(result.owner, item));
+      if (owners.length > 0) {
+        positions.push(...flattenChainItem(result.owner, item));
+      }
       const vaultKey = `${item.lenderInfo.lenderKey}:${item.chainId}`;
       if (!vaultsByKey.has(vaultKey)) {
         vaultsByKey.set(vaultKey, {
