@@ -28,7 +28,11 @@ const VELOCITY_PROJECTION_MS = 300;
  */
 export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className }) => {
   const slides = Children.toArray(children).filter(Boolean);
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Held as state (callback ref) rather than a plain ref: the track div only
+  // exists once there are 2+ slides, so setup effects must re-run when it
+  // (un)mounts — with a plain ref and [] deps they'd observe null forever
+  // whenever the carousel mounts with 0/1 slides.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const suppressClickRef = useRef(false);
   const releaseClickTimerRef = useRef<number | null>(null);
   const x = useMotionValue(0);
@@ -47,32 +51,30 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   }, [activeIndex, index]);
 
   useLayoutEffect(() => {
-    if (!containerRef.current) return;
-    setWidth(containerRef.current.clientWidth);
-  }, []);
+    if (!container) return;
+    setWidth(container.clientWidth);
+  }, [container]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    const el = containerRef.current;
+    if (!container) return;
     const ro = new ResizeObserver(entries => {
       const w = entries[0]?.contentRect.width ?? 0;
       if (w > 0) setWidth(w);
     });
-    ro.observe(el);
+    ro.observe(container);
     return () => ro.disconnect();
-  }, []);
+  }, [container]);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    if (!container) return;
 
     // HomePrompts sits inside HomeSwipeContainer, which is another horizontal
     // Framer Motion drag surface. Let the prompt track start its drag session,
     // then stop pointer-down from bubbling into the page-level carousel.
     const claimPromptGesture = (event: PointerEvent) => event.stopPropagation();
-    el.addEventListener('pointerdown', claimPromptGesture);
-    return () => el.removeEventListener('pointerdown', claimPromptGesture);
-  }, []);
+    container.addEventListener('pointerdown', claimPromptGesture);
+    return () => container.removeEventListener('pointerdown', claimPromptGesture);
+  }, [container]);
 
   useEffect(
     () => () => {
@@ -83,12 +85,12 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
 
   useEffect(() => {
     if (!width) {
-      x.set(-activeIndex * (containerRef.current?.clientWidth ?? 0));
+      x.set(-activeIndex * (container?.clientWidth ?? 0));
       return;
     }
     const controls = animate(x, -activeIndex * width, springs.standard);
     return () => controls.stop();
-  }, [activeIndex, width, x]);
+  }, [activeIndex, container, width, x]);
 
   const handleDragStart = () => {
     if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
@@ -136,7 +138,7 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
 
   return (
     <div className={classNames('flex flex-col gap-2', className)}>
-      <div ref={containerRef} className="w-full overflow-hidden touch-pan-y">
+      <div ref={setContainer} className="w-full overflow-hidden touch-pan-y">
         <motion.div
           className="flex items-start"
           style={{ x, width: `${slides.length * 100}%` }}

@@ -95,4 +95,33 @@ describe('PromptCarousel', () => {
 
     expect(outerPointerDown).not.toHaveBeenCalled();
   });
+
+  it('wires up the track when it mounts after starting with a single slide', () => {
+    const outerPointerDown = jest.fn();
+    const { rerender } = render(
+      <div data-testid="outer-carousel">
+        <PromptCarousel>
+          <button type="button">First prompt</button>
+        </PromptCarousel>
+      </div>
+    );
+    // One slide renders bare — no track, no carousel chrome.
+    expect(screen.queryByTestId('motion-track')).toBeNull();
+
+    rerender(
+      <div data-testid="outer-carousel">
+        <PromptCarousel>
+          <button type="button">First prompt</button>
+          <button type="button">Second prompt</button>
+        </PromptCarousel>
+      </div>
+    );
+    const outer = screen.getByTestId('outer-carousel');
+    outer.addEventListener('pointerdown', outerPointerDown);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Second prompt' }));
+
+    expect(screen.getByTestId('motion-track')).toBeTruthy();
+    expect(outerPointerDown).not.toHaveBeenCalled();
+  });
 });
