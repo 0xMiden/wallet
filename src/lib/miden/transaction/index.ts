@@ -1,4 +1,4 @@
-import { NoteType, TransactionProver, type TransactionResult, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionProver, WasmWebClient } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
@@ -500,27 +500,16 @@ const generateGuardianTransaction = async (
   const transactionResult = await withWasmClientLock(async () => {
     try {
       const midenClient = await getMidenClient(options);
-      const sdkClient = midenClient.client as unknown as {
-        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
-      };
-      const withInner = sdkClient._withInnerWebClient;
-      if (typeof withInner !== 'function') {
-        throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
-      }
-
-      return (await withInner.call(sdkClient, async (inner: any) => {
-        await setTransactionStage(transaction.id, 'executing');
-        const executedTx = await inner.executeTransaction(accountIdStringToSdk(transaction.accountId), tr);
-        await setTransactionStage(transaction.id, 'proving');
-        const prover = !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined;
-        const provedTx = prover
-          ? await inner.proveTransaction(executedTx, prover)
-          : await inner.proveTransaction(executedTx);
-        await setTransactionStage(transaction.id, 'submitting');
-        const blockNumber = await inner.submitProvenTransaction(provedTx, executedTx);
-        await inner.applyTransaction(executedTx, blockNumber);
-        return executedTx;
-      })) as TransactionResult;
+      await setTransactionStage(transaction.id, 'executing');
+      const executedTx = await midenClient.client.transactions.executeRequest(transaction.accountId, tr);
+      await setTransactionStage(transaction.id, 'proving');
+      const provedTx = await midenClient.client.transactions.prove(executedTx, {
+        prover: !transaction.delegateTransaction ? TransactionProver.newLocalProver() : undefined
+      });
+      await setTransactionStage(transaction.id, 'submitting');
+      const { blockNumber } = await midenClient.client.transactions.submitProven(provedTx, executedTx);
+      await midenClient.client.transactions.apply(executedTx, blockNumber);
+      return executedTx;
     } catch (error) {
       console.error('Error during transaction submission or execution', { error });
       throw error;
