@@ -12,11 +12,23 @@ export interface PromptCardProps {
   body?: string;
   variant?: PromptCardVariant;
   onClick?: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
+  actionDisabled?: boolean;
   onDismiss?: () => void;
   className?: string;
 }
 
-export const PromptCard: FC<PromptCardProps> = ({ title, body, onClick, onDismiss, className }) => {
+export const PromptCard: FC<PromptCardProps> = ({
+  title,
+  body,
+  onClick,
+  actionLabel,
+  onAction,
+  actionDisabled = false,
+  onDismiss,
+  className
+}) => {
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
@@ -28,6 +40,13 @@ export const PromptCard: FC<PromptCardProps> = ({ title, body, onClick, onDismis
     if (!onDismiss) return;
     hapticLight();
     onDismiss();
+  };
+
+  const handleAction = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!onAction || actionDisabled) return;
+    hapticLight();
+    onAction();
   };
 
   const Trail = onDismiss ? (
@@ -53,6 +72,16 @@ export const PromptCard: FC<PromptCardProps> = ({ title, body, onClick, onDismis
         <div className={classNames('text-base font-bold font-heading leading-tight truncate')}>{title}</div>
         {body && <div className="text-xs font-normal">{body}</div>}
       </div>
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          onClick={handleAction}
+          disabled={actionDisabled}
+          className="shrink-0 text-xs font-semibold text-accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {actionLabel}
+        </button>
+      )}
       {Trail}
     </div>
   );

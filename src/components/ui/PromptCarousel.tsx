@@ -29,6 +29,8 @@ const VELOCITY_PROJECTION_MS = 300;
 export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className }) => {
   const slides = Children.toArray(children).filter(Boolean);
   const containerRef = useRef<HTMLDivElement>(null);
+  const suppressClickRef = useRef(false);
+  const releaseClickTimerRef = useRef<number | null>(null);
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
   const [index, setIndex] = useState(0);
@@ -61,6 +63,25 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   }, []);
 
   useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    // HomePrompts sits inside HomeSwipeContainer, which is another horizontal
+    // Framer Motion drag surface. Let the prompt track start its drag session,
+    // then stop pointer-down from bubbling into the page-level carousel.
+    const claimPromptGesture = (event: PointerEvent) => event.stopPropagation();
+    el.addEventListener('pointerdown', claimPromptGesture);
+    return () => el.removeEventListener('pointerdown', claimPromptGesture);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
+    },
+    []
+  );
+
+  useEffect(() => {
     if (!width) {
       x.set(-activeIndex * (containerRef.current?.clientWidth ?? 0));
       return;
@@ -69,18 +90,37 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
     return () => controls.stop();
   }, [activeIndex, width, x]);
 
+  const handleDragStart = () => {
+    if (releaseClickTimerRef.current !== null) window.clearTimeout(releaseClickTimerRef.current);
+    suppressClickRef.current = true;
+  };
+
   const handleDragEnd = (_e: unknown, info: PanInfo) => {
-    if (!width) return;
-    const projected = info.offset.x + info.velocity.x * (VELOCITY_PROJECTION_MS / 1000);
-    let nextIdx = activeIndex;
-    if (projected < -width * COMMIT_THRESHOLD && activeIndex < slides.length - 1) nextIdx = activeIndex + 1;
-    else if (projected > width * COMMIT_THRESHOLD && activeIndex > 0) nextIdx = activeIndex - 1;
-    if (nextIdx !== activeIndex) {
-      hapticSelection();
-      setIndex(nextIdx);
-    } else {
-      animate(x, -activeIndex * width, springs.standard);
+    if (width) {
+      const projected = info.offset.x + info.velocity.x * (VELOCITY_PROJECTION_MS / 1000);
+      let nextIdx = activeIndex;
+      if (projected < -width * COMMIT_THRESHOLD && activeIndex < slides.length - 1) nextIdx = activeIndex + 1;
+      else if (projected > width * COMMIT_THRESHOLD && activeIndex > 0) nextIdx = activeIndex - 1;
+      if (nextIdx !== activeIndex) {
+        hapticSelection();
+        setIndex(nextIdx);
+      } else {
+        animate(x, -activeIndex * width, springs.standard);
+      }
     }
+
+    // Browsers may dispatch a click immediately after pointer-up. Keep the
+    // guard through that click, then restore normal card/CTA interaction.
+    releaseClickTimerRef.current = window.setTimeout(() => {
+      suppressClickRef.current = false;
+      releaseClickTimerRef.current = null;
+    }, 0);
+  };
+
+  const handleClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const handleDotTap = (i: number) => {
@@ -105,7 +145,9 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
           dragConstraints={{ left: dragMaxLeft, right: 0 }}
           dragElastic={0.15}
           dragMomentum={false}
+          onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onClickCapture={handleClickCapture}
         >
           {slides.map((slide, i) => (
             <div key={i} className="shrink-0" style={{ width: `${100 / slides.length}%` }}>
