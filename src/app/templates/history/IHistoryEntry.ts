@@ -17,6 +17,10 @@ export interface IHistoryEntry {
   // Optional properties
   /** Raw transaction status; set by the detail page for the status pill. */
   status?: ITransactionStatus;
+  /** Failure reason (`tx.error`); set by the detail page for failed transactions. */
+  errorMessage?: string;
+  /** User-requested cancellation, persisted as a failed terminal transaction. */
+  isCancelled?: boolean;
   token?: string;
   amount?: bigint;
   /** Swap only: formatted requested-side amount, shown on the row's right. */

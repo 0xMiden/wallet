@@ -15,6 +15,10 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
+export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by user';
+
+export const isUserCancelledTransaction = (error: unknown): boolean => error === USER_CANCELLED_TRANSACTION_REASON;
+
 export const cancelTransaction = async (transaction: Transaction, error: any) => {
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often

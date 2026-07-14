@@ -7,8 +7,18 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
+import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { getTransactionById, trackOrderId, SwapOrderState, SwapOrderTracking } from 'lib/miden/activity';
+import {
+  cancelTransactionById,
+  getTransactionById,
+  isUserCancelledTransaction,
+  trackOrderId,
+  SwapOrderState,
+  SwapOrderTracking,
+  USER_CANCELLED_TRANSACTION_REASON
+} from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -145,6 +155,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
@@ -160,7 +172,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
-        timestamp: tx.completedAt,
+        timestamp: tx.completedAt ?? tx.initiatedAt,
         message: tx.displayMessage,
         status: tx.status,
         transactionIcon: tx.displayIcon,
@@ -173,7 +185,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         externalTxId: tx.transactionId,
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
-        txType: tx.type
+        txType: tx.type,
+        errorMessage: tx.error,
+        isCancelled: isUserCancelledTransaction(tx.error)
       } as IHistoryEntry;
 
       if (tx.type === 'swap') {
@@ -204,6 +218,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
+
+  const handleCancel = useCallback(async () => {
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
+      await loadTransaction();
+    } catch (error) {
+      console.error('[HistoryDetails] Failed to cancel transaction:', error);
+      setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [loadTransaction, t, transactionId]);
 
   // Poll the swap order lineage every 3s until it reaches a terminal state
   // (filled or reclaimed). The orderId is persisted on the swap tx; the live
@@ -263,7 +292,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
-  const isBridge = entry?.txType === 'bridged-send';
+  const isBridge = entry?.txType === 'bridged-send' && !entry.isCancelled;
   const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
   const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
@@ -272,6 +301,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     entry?.amount !== undefined && entry.token
       ? formatFiatDisplayAmount(entry.amount, entry.token, tokenPrices)
       : undefined;
+  const isPending =
+    entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
 
   return (
     <PageLayout hideToolbar>
@@ -303,7 +334,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
               {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
-                {isBridge ? <BridgeStatusPill entry={entry} /> : <StatusPill status={entry.status} />}
+                {isBridge ? (
+                  <BridgeStatusPill entry={entry} />
+                ) : (
+                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
+                )}
               </div>
             </div>
 
@@ -346,6 +381,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 )}
               </DetailCard>
             </div>
+
+            {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
+            {entry.status === ITransactionStatus.Failed && entry.errorMessage && (
+              <div className="mt-6">
+                <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
+                  <p
+                    className={clsx(
+                      'px-4 py-3 text-sm font-medium wrap-break-word select-text',
+                      entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
+                    )}
+                  >
+                    {entry.errorMessage}
+                  </p>
+                </DetailCard>
+              </div>
+            )}
 
             {/* Bridge route + EVM-side claim (bridged-send only) */}
             {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
@@ -398,6 +449,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 </DetailCard>
               </div>
             )}
+          </div>
+        )}
+
+        {isPending && (
+          <div className="shrink-0 pt-3 pb-4">
+            {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
+            <Button
+              variant={ButtonVariant.Primary}
+              title={t('cancel')}
+              isLoading={isCancelling}
+              disabled={isCancelling}
+              onClick={handleCancel}
+              className="max-w-none bg-status-negative hover:bg-status-negative focus:bg-status-negative"
+            />
           </div>
         )}
       </div>

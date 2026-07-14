@@ -7,8 +7,10 @@ import InfiniteScroll from 'react-infinite-scroller';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityStatusTone } from 'components/ui';
+import { ActivityRow } from 'components/ui';
+import type { ActivityAmountDirection, ActivityRowProps } from 'components/ui';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
@@ -56,113 +58,172 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   );
 };
 
-// Map an IHistoryEntry to the visual props ActivityRow expects: icon glyph,
-// colored square background, amount string with sign, and status pill (dot +
-// label). Faucet requests get their own dark-blue glyph regardless of icon.
-function buildRowProps(entry: IHistoryEntry, t: (k: string, opts?: Record<string, unknown>) => string) {
-  // Bridge rows get a dedicated swap-style layout: "Bridge IN → OUT" / "Via
-  // <provider> → <network>" / output amount / status dot. The Miden-side icon
-  // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
-  // EVM→Miden deposits) reuse the same layout with the direction flipped.
-  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
-    const bridgeIn = entry.txType !== 'bridged-send';
-    const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-    return {
-      icon: <SwapIcon className="w-5 h-5" />,
-      iconBg: 'bg-[#777487]',
-      title: t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
-      subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
-      amount: d.outAmount
-        ? {
-            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
-            direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
-          }
-        : undefined,
-      status: { label: t(BRIDGE_STATUS_LABEL_KEY[d.status]), tone: d.status }
-    };
-  }
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+type RowVisualKind = 'cancelled' | 'failed' | 'faucet' | 'receive' | 'send' | 'swap' | 'earn' | 'mint' | 'default';
+type RowVisual = Pick<ActivityRowProps, 'icon' | 'iconBg'> & {
+  amountDirection: ActivityAmountDirection;
+};
 
+interface RowState {
+  faucet: boolean;
+  cancelled: boolean;
+  failed: boolean;
+  swap: boolean;
+}
+
+const ROW_VISUALS: Record<RowVisualKind, RowVisual> = {
+  cancelled: { icon: <FailedCrossIcon />, iconBg: 'bg-gray-400', amountDirection: 'neutral' },
+  failed: { icon: <FailedCrossIcon />, iconBg: 'bg-[#CC5D5D]', amountDirection: 'neutral' },
+  faucet: {
+    icon: <Icon name={IconName.Faucet} size="sm" className="[&_path]:fill-pure-white" fill="currentColor" />,
+    iconBg: 'bg-tx-faucet',
+    amountDirection: 'positive'
+  },
+  receive: {
+    icon: <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />,
+    iconBg: 'bg-tx-received',
+    amountDirection: 'positive'
+  },
+  send: {
+    icon: <Icon name={IconName.Send} size="sm" className="[&_path]:fill-pure-white" />,
+    iconBg: 'bg-tx-sent',
+    amountDirection: 'negative'
+  },
+  swap: {
+    icon: <Icon name={IconName.Convert} size="sm" className="[&_path]:stroke-pure-white" />,
+    iconBg: 'bg-tx-swap',
+    amountDirection: 'neutral'
+  },
+  earn: {
+    icon: <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />,
+    iconBg: 'bg-tx-earn',
+    amountDirection: 'negative'
+  },
+  mint: {
+    icon: <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />,
+    iconBg: 'bg-tx-earn',
+    amountDirection: 'positive'
+  },
+  default: {
+    icon: <Icon name={IconName.More} size="sm" fill="currentColor" />,
+    iconBg: 'bg-gray-50',
+    amountDirection: 'neutral'
+  }
+};
+
+const ICON_VISUAL_KIND: Partial<Record<NonNullable<IHistoryEntry['transactionIcon']>, RowVisualKind>> = {
+  RECEIVE: 'receive',
+  SEND: 'send',
+  SWAP: 'swap'
+};
+
+const AMOUNT_SIGN: Record<ActivityAmountDirection, string> = {
+  positive: '+',
+  negative: '-',
+  neutral: ''
+};
+
+function getRowState(entry: IHistoryEntry): RowState {
   const faucet = isFaucetRequest(entry);
-  const icon = entry.transactionIcon ?? 'DEFAULT';
-  const isFailed = icon === 'FAILED' || entry.message === 'Transaction failed';
+  const cancelled = entry.isCancelled === true;
+  const failed = !cancelled && (entry.transactionIcon === 'FAILED' || entry.message === 'Transaction failed');
+  return {
+    faucet,
+    cancelled,
+    failed,
+    swap: !faucet && !failed && !cancelled && entry.txType === 'swap'
+  };
+}
 
-  let iconNode: React.ReactNode;
-  let iconBg = 'bg-gray-50';
-  let amountDirection: 'positive' | 'negative' | 'neutral' = 'neutral';
+function getRowVisualKind(entry: IHistoryEntry, state: RowState): RowVisualKind {
+  if (state.cancelled) return 'cancelled';
+  if (state.faucet) return 'faucet';
+  if (state.failed) return 'failed';
 
-  // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
-  // rendered white over their own hue (set as `iconBg`). The source SVGs ship
-  // with hardcoded fills/strokes, so force them white via `[&_path]:*` here.
-  if (faucet) {
-    iconNode = <Icon name={IconName.Faucet} size="sm" className="[&_path]:fill-pure-white" fill="currentColor" />;
-    iconBg = 'bg-tx-faucet';
-    amountDirection = 'positive';
-  } else if (isFailed) {
-    iconNode = <Icon name={IconName.Close} size="sm" fill="currentColor" />;
-    iconBg = 'bg-status-negative';
-  } else if (icon === 'RECEIVE') {
-    iconNode = <Icon name={IconName.Receive} size="sm" className="[&_path]:fill-pure-white" />;
-    iconBg = 'bg-tx-received';
-    amountDirection = 'positive';
-  } else if (icon === 'SEND') {
-    iconNode = <Icon name={IconName.Send} size="sm" className="[&_path]:fill-pure-white" />;
-    iconBg = 'bg-tx-sent';
-    amountDirection = 'negative';
-  } else if (icon === 'SWAP') {
-    iconNode = <Icon name={IconName.Convert} size="sm" className="[&_path]:stroke-pure-white" />;
-    iconBg = 'bg-tx-swap';
-    amountDirection = 'neutral';
-  } else if (icon === 'MINT') {
-    iconNode = <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />;
-    iconBg = 'bg-tx-earn';
-    amountDirection = 'positive';
-  } else {
-    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
+  const iconKind = entry.transactionIcon && ICON_VISUAL_KIND[entry.transactionIcon];
+  if (iconKind) return iconKind;
+  if (entry.txType === 'earn-deposit') return 'earn';
+  if (entry.transactionIcon === 'MINT') return 'mint';
+  return 'default';
+}
+
+function getRowTitle(entry: IHistoryEntry, state: RowState, t: Translate): string {
+  if (state.cancelled) return t('cancelled');
+  if (state.faucet) return t('faucetRequestTitle');
+  if (state.swap && entry.token && entry.requestedToken) {
+    return `${t('swap')} ${entry.token} → ${entry.requestedToken}`;
   }
+  return entry.message || '';
+}
 
-  // Swap rows read "Swap {offered} → {requested}" with the venue as the
-  // subtitle, and show the requested side (what the user receives) on the right.
-  const isSwap = !faucet && !isFailed && entry.txType === 'swap';
+function getRowSubtitle(entry: IHistoryEntry, state: RowState, t: Translate): string | undefined {
+  if (state.swap) return t('viaInProtocolDex');
+  if (!entry.secondaryAddress) return undefined;
 
-  const title = faucet
-    ? t('faucetRequestTitle')
-    : isSwap && entry.token && entry.requestedToken
-      ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-      : entry.message || '';
-  const subtitle = isSwap
-    ? t('viaInProtocolDex')
-    : entry.secondaryAddress
-      ? `${icon === 'RECEIVE' || faucet ? t('from') : t('to')}: ${shortAddr(entry.secondaryAddress)}`
-      : undefined;
+  const direction = entry.transactionIcon === 'RECEIVE' || state.faucet ? t('from') : t('to');
+  return `${direction}: ${shortAddr(entry.secondaryAddress)}`;
+}
 
-  let amount: { value: string; symbol?: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
-  if (isSwap && entry.requestedAmount) {
-    amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
-  } else if (entry.amount !== undefined) {
-    const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
-    amount = { value: `${sign}${entry.amount.toString()}`, symbol: entry.token, direction: amountDirection };
+function getRowAmount(
+  entry: IHistoryEntry,
+  state: RowState,
+  direction: ActivityAmountDirection
+): ActivityRowProps['amount'] {
+  if (state.swap && entry.requestedAmount) {
+    return { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
   }
+  if (entry.amount === undefined) return undefined;
 
-  let statusTone: ActivityStatusTone = 'confirmed';
-  let statusLabel = t('confirmed');
-  if (isFailed) {
-    statusTone = 'failed';
-    statusLabel = t('failed');
-  } else if (
-    entry.type === HistoryEntryType.PendingTransaction ||
-    entry.type === HistoryEntryType.ProcessingTransaction
-  ) {
-    statusTone = 'pending';
-    statusLabel = t('pending');
-  }
+  return { value: `${AMOUNT_SIGN[direction]}${entry.amount.toString()}`, symbol: entry.token, direction };
+}
+
+function getRowStatus(entry: IHistoryEntry, state: RowState, t: Translate): NonNullable<ActivityRowProps['status']> {
+  if (state.cancelled) return { label: t('cancelled'), tone: 'cancelled' };
+  if (state.failed) return { label: t('failed'), tone: 'failed' };
+
+  const pending =
+    entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
+  if (pending) return { label: t('pending'), tone: 'pending' };
+  return { label: t('confirmed'), tone: 'confirmed' };
+}
+
+function getBridgeAmount(
+  outAmount: string | undefined,
+  outSymbol: string,
+  bridgeIn: boolean
+): ActivityRowProps['amount'] {
+  if (!outAmount) return undefined;
+  const direction = bridgeIn ? 'positive' : 'neutral';
+  return { value: `${AMOUNT_SIGN[direction]}${outAmount} ${outSymbol}`, direction };
+}
+
+function buildBridgeRowProps(entry: IHistoryEntry, t: Translate): ActivityRowProps {
+  const bridgeIn = entry.txType !== 'bridged-send';
+  const display = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
 
   return {
-    icon: iconNode,
-    iconBg,
-    title,
-    subtitle,
-    amount,
-    status: { label: statusLabel, tone: statusTone }
+    icon: <SwapIcon className="w-5 h-5" />,
+    iconBg: 'bg-[#777487]',
+    title: t('bridgeRowTitle', { from: display.inSymbol, to: display.outSymbol }),
+    subtitle: t('bridgeRowVia', { provider: display.providerLabel, network: display.network }),
+    amount: getBridgeAmount(display.outAmount, display.outSymbol, bridgeIn),
+    status: { label: t(BRIDGE_STATUS_LABEL_KEY[display.status]), tone: display.status }
+  };
+}
+
+function buildRowProps(entry: IHistoryEntry, t: Translate): ActivityRowProps {
+  const bridge = !entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry));
+  if (bridge) return buildBridgeRowProps(entry, t);
+
+  const state = getRowState(entry);
+  const visual = ROW_VISUALS[getRowVisualKind(entry, state)];
+  return {
+    icon: visual.icon,
+    iconBg: visual.iconBg,
+    title: getRowTitle(entry, state, t),
+    subtitle: getRowSubtitle(entry, state, t),
+    amount: getRowAmount(entry, state, visual.amountDirection),
+    status: getRowStatus(entry, state, t)
   };
 }
 

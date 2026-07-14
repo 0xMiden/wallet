@@ -1,7 +1,13 @@
 import React, { memo, RefObject, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
-import { cancelTransactionById, getCompletedTransactions, getUncompletedTransactions } from 'lib/miden/activity';
+import {
+  cancelTransactionById,
+  getCompletedTransactions,
+  getUncompletedTransactions,
+  isUserCancelledTransaction,
+  USER_CANCELLED_TRANSACTION_REASON
+} from 'lib/miden/activity';
 import {
   formatTransactionStatus,
   IBridgedSendExtraInputs,
@@ -63,7 +69,7 @@ const History = memo<HistoryProps>(
         latestPendingTransactions?.map(tx => {
           tx.cancel = async () => {
             if (tx.txId) {
-              await cancelTransactionById(tx.txId, 'Transaction was cancelled by user');
+              await cancelTransactionById(tx.txId, USER_CANCELLED_TRANSACTION_REASON);
               mutateTx();
             }
           };
@@ -142,9 +148,14 @@ async function fetchTransactionsAsHistoryEntries(
   limit?: number,
   tokenId?: string
 ): Promise<IHistoryEntry[]> {
-  const transactions = await getCompletedTransactions(address, offset, limit, false, tokenId);
+  const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
   const entries = transactions.map(async tx => {
-    const updateMessageForFailed = tx.status === ITransactionStatus.Failed ? 'Transaction failed' : tx.displayMessage;
+    const isCancelled = isUserCancelledTransaction(tx.error);
+    const updateMessageForFailed = isCancelled
+      ? 'Cancelled'
+      : tx.status === ITransactionStatus.Failed
+        ? 'Transaction failed'
+        : tx.displayMessage;
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
@@ -169,6 +180,8 @@ async function fetchTransactionsAsHistoryEntries(
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
+      errorMessage: tx.error,
+      isCancelled,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,

@@ -3,6 +3,7 @@ import React, { FC } from 'react';
 import { ReactComponent as FaucetIcon } from 'app/icons/faucet-new.svg';
 import { ReactComponent as PendingIcon } from 'app/icons/rotate.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
@@ -31,6 +32,14 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   const config = sizeConfig[size];
   const isPending =
     entry.type === HistoryEntryType.PendingTransaction || entry.type === HistoryEntryType.ProcessingTransaction;
+
+  if (entry.isCancelled) {
+    return (
+      <div className={`${config.container} rounded-10 flex items-center justify-center bg-gray-400`}>
+        <FailedCrossIcon className={config.sendIcon} />
+      </div>
+    );
+  }
 
   // Bridge rows keep the swap glyph through every state (incl. pending) — the
   // Pending/Confirmed status is surfaced in text, not by swapping the icon.
@@ -61,6 +70,12 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
   }
 
   switch (entry.transactionIcon) {
+    case 'FAILED':
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-[#CC5D5D]`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
     case 'SEND':
       return (
         <div
