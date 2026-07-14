@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 export enum WalletPromptType {
+  Faucet = 'faucet',
   VerifySeedPhrase = 'verifySeedPhrase'
 }
 
@@ -95,12 +97,43 @@ export const dismissWalletPrompt = (type: WalletPromptType) =>
 export const completeWalletPrompt = (type: WalletPromptType) =>
   setWalletPromptStatus(type, WalletPromptStatus.Completed);
 
+const FAUCET_API_URL = 'https://faucet-api.forkchoice.xyz/api/mint';
+// 10 IMIDEN in base units (8 decimals).
+const IMIDEN_FAUCET_AMOUNT = 1_000_000_000;
+// 100 MIDEN in base units (6 decimals).
+const MIDEN_FAUCET_AMOUNT = 100_000_000n;
+
+async function mintFromForkchoice(address: string): Promise<void> {
+  const response = await fetch(FAUCET_API_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      token: 'IMIDEN',
+      address,
+      amount: IMIDEN_FAUCET_AMOUNT,
+      note_type: 'public'
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Faucet request failed with status ${response.status}`);
+  }
+}
+
+export async function faucet(address: string): Promise<void> {
+  await Promise.all([mintFromForkchoice(address), mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT)]);
+}
+
 export function useWalletPromptStorage() {
   const [storage, setStorage] = useState<WalletPromptStorage>(EMPTY_WALLET_PROMPT_STORAGE);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const refreshPrompts = useCallback(async () => {
     const nextStorage = await fetchWalletPromptStorage();
     setStorage(nextStorage);
+    setIsLoaded(true);
     return nextStorage;
   }, []);
 
@@ -109,7 +142,10 @@ export function useWalletPromptStorage() {
 
     fetchWalletPromptStorage()
       .then(nextStorage => {
-        if (!cancelled) setStorage(nextStorage);
+        if (!cancelled) {
+          setStorage(nextStorage);
+          setIsLoaded(true);
+        }
       })
       .catch(error => {
         console.warn('[wallet-prompts] failed to refresh prompts:', error);
@@ -155,6 +191,7 @@ export function useWalletPromptStorage() {
 
   return {
     storage,
+    isLoaded,
     refreshPrompts,
     setPromptStatus,
     dismissPrompt,

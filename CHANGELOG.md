@@ -12,6 +12,8 @@
 
 ### Changes
 
+* [CHANGE][all] The home-screen "Fund your wallet" prompt now also mints 100 MIDEN from the official Miden faucet (PoW-gated `faucet-api.*` REST API) in parallel with the existing forkchoice IMIDEN mint, and its "Fund now" button sits beside the prompt text instead of below it.
+
 * [CHANGE][all] **Merged the in-protocol-DEX branch and re-homed the Ethereum bridge onto its send flow.** The swap flow, the split `lib/miden/transaction/` module and the redesigned transaction-progress view land alongside the bridge work. Cross-chain sends now follow the same shape as same-chain ones: the destination network moved onto the recipient step (Miden for a bech32 address, Sepolia for a `0x` one), a 0x recipient then picks Fast (Epoch) vs Slow (Agglayer) on a Route step, and the full-screen `/send/review` page owns the whole submit pipeline for both routes plus the live "you receive" USDC quote. `bridged-send` rows are carried into the new transaction module (initiate/complete/Guardian-proposal arms), and batch consume (`Claim All`) moves there too.
 
 * [CHANGE][all] Internal refactor: the transaction pipeline moved from `src/lib/miden/activity/transactions.ts` into `src/lib/miden/transaction/` split by lifecycle (`initiate` / `complete` / `get` / `cancel` / `helper`, with `generateTransaction` and the processing loop in `index.ts`); the `lib/miden/activity` barrel re-exports it so consumers are unaffected.
