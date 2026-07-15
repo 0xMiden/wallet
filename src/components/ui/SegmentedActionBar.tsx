@@ -46,7 +46,10 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
   };
 
   return (
-    <div role="tablist" className={classNames('flex h-16 items-center gap-1 bg-gray-25 px-3', className)}>
+    <div
+      role="tablist"
+      className={classNames('flex h-16 items-center gap-1 overflow-hidden bg-gray-25 px-3', className)}
+    >
       {items.map(item => {
         const isActive = item.id === activeId;
         return (
@@ -59,9 +62,14 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             onClick={() => handleSelect(item.id)}
             className={classNames(
               'relative flex h-12 min-w-0 items-center justify-center overflow-hidden rounded-[22px]',
-              'text-text-primary-token transition-colors',
+              'text-text-primary-token transition-[width,color] duration-200',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
-              isActive ? 'shrink-0 gap-1.5 px-2.5' : 'flex-1 px-0'
+              // The selected width is constant for every label. Inactive
+              // items divide the remaining room equally, so a longer label
+              // can never grow into the next icon.
+              isActive
+                ? 'w-28 flex-none gap-1.5 px-2.5 max-[359px]:w-24 max-[359px]:gap-1 max-[359px]:px-2'
+                : 'flex-1 px-0'
             )}
           >
             {isActive && (
@@ -77,7 +85,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             {isActive && (
               <motion.span
                 key={`${item.id}-label`}
-                className="relative whitespace-nowrap text-base font-bold leading-none"
+                className="relative whitespace-nowrap text-sm font-bold leading-none max-[359px]:text-xs"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={labelTransition}
