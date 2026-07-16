@@ -23,6 +23,7 @@ jest.mock('components/ui', () => ({
     actionLabel,
     onAction,
     actionDisabled,
+    status,
     onDismiss
   }: {
     title: string;
@@ -30,9 +31,10 @@ jest.mock('components/ui', () => ({
     actionLabel?: string;
     onAction?: () => void;
     actionDisabled?: boolean;
+    status?: string;
     onDismiss?: () => void;
   }) => (
-    <section data-testid="prompt-card" data-title={title}>
+    <section data-testid="prompt-card" data-title={title} data-status={status}>
       <button type="button" onClick={onClick}>
         {title}
       </button>
@@ -132,6 +134,23 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
     expect(mockFaucet).toHaveBeenCalledTimes(1);
     expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    expect(faucetCard).toHaveAttribute('data-status', 'success');
+  });
+
+  it('shows a failure state and allows the faucet request to be retried', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockFaucet.mockRejectedValueOnce(new Error('rate limited')).mockResolvedValueOnce(undefined);
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+
+    render(<HomePrompts account={account} balances={zeroBalance} balancesLoading={false} />);
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    const action = within(faucetCard).getByRole('button', { name: 'faucetPromptAction' });
+
+    fireEvent.click(action);
+    await waitFor(() => expect(faucetCard).toHaveAttribute('data-status', 'failure'));
+    fireEvent.click(action);
+
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
   });
 
   it('does not fund when the faucet card content is clicked', () => {

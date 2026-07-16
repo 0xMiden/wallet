@@ -8,7 +8,7 @@ import { PromptCard } from './PromptCard';
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />,
-  IconName: { ChevronRight: 'ChevronRight', Close: 'Close' }
+  IconName: { Checkmark: 'Checkmark', ChevronRight: 'ChevronRight', Close: 'Close', Loader: 'Loader' }
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -69,5 +69,24 @@ describe('PromptCard', () => {
 
     expect(onAction).not.toHaveBeenCalled();
     expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['loading', 'Loading', 'Loader'],
+    ['success', 'Success', 'Checkmark'],
+    ['failure', 'Failed', 'Close']
+  ] as const)('renders the %s status indicator', (status, label, icon) => {
+    render(<PromptCard title="Fund your wallet" status={status} />);
+
+    expect(screen.getByRole('status', { name: label })).toContainElement(screen.getByTestId(`icon-${icon}`));
+  });
+
+  it('keeps the action available after a failure so it can be retried', () => {
+    const onAction = jest.fn();
+    render(<PromptCard title="Fund your wallet" status="failure" actionLabel="Try again" onAction={onAction} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 });
