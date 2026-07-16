@@ -57,7 +57,7 @@ export function formatQuoteTokenIn(raw: string | undefined, tokenDecimals: numbe
  * intent is fulfilled — privacy-preserving on the Miden side, trustless on EVM side.
  */
 
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
 export function normalizeMidenIdToHex(id: string): string {
@@ -131,7 +131,8 @@ export function buildEpochTaskDataParams(params: CrossChainIntentParams): GetTas
     },
     // Mirror EpochSwapWidget Miden extraData pattern exactly
     extraDataTypestring:
-      'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId,uint256 midenReclaimHeight',
+      'uint256 midenReclaimHeight,' +
+      'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId',
     extraData: {
       midenSourceAccount: midenSourceAccountHex,
       midenFaucetId: midenFaucetIdHex,

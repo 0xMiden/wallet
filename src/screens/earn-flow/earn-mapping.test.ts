@@ -67,10 +67,10 @@ describe('mapEarnPosition', () => {
     expect(ui.vaultId).toBe(vaultSlug(libVault()));
   });
 
-  it('applies the lender display override (DUMMY_LENDING shown as Aave)', () => {
+  it('applies the lender display override (DUMMY_LENDING shown as Dummy Lending)', () => {
     const ui = mapEarnPosition(libPosition({ lenderKey: 'DUMMY_LENDING' }));
-    expect(ui.protocol).toBe('Aave');
-    expect(ui.route).toBe('Miden -> Aave (Sepolia)');
+    expect(ui.protocol).toBe('Dummy Lending');
+    expect(ui.route).toBe('Miden -> Dummy Lending (Sepolia)');
   });
 
   it('maps real fields to the display formats', () => {
@@ -148,9 +148,9 @@ describe('vaultSlug', () => {
 });
 
 describe('mapEarnVault', () => {
-  it('renders the dummy lender as Aave on USDC with the live APR', () => {
+  it('renders the dummy lender as Dummy Lending on USDC with the live APR', () => {
     const ui = mapEarnVault(libVault());
-    expect(ui.protocol).toBe('Aave');
+    expect(ui.protocol).toBe('Dummy Lending');
     expect(ui.asset).toBe('USDC');
     expect(ui.network).toBe('Sepolia');
     expect(ui.apy).toBe('2.00%');

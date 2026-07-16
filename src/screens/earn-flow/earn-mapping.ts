@@ -31,11 +31,12 @@ export function formatSignedUsd(value: number): string {
 
 /**
  * Display names per lender key. The only live lender today is Epoch's
- * "DUMMY_LENDING" stand-in — shown as Aave on USDC until real lenders exist
- * (the whole earn flow is USDC-only, see MIDEN_USDC_FAUCET).
+ * "DUMMY_LENDING" stand-in — shown by its market-uid name ("Dummy Lending") on
+ * USDC until real lenders exist (the whole earn flow is USDC-only, see
+ * MIDEN_USDC_FAUCET).
  */
 const VAULT_DISPLAY: Record<string, { protocol: string; asset: string }> = {
-  DUMMY_LENDING: { protocol: 'Aave', asset: 'USDC' }
+  DUMMY_LENDING: { protocol: 'Dummy Lending', asset: 'USDC' }
 };
 
 function protocolName(lenderKey: string, lenderName: string): string {

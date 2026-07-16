@@ -86,9 +86,8 @@ export function buildEarnTaskDataParams(params: EarnIntentParams) {
       recipient: params.evmRecipient
     },
     extraDataTypestring:
-      'string marketUid,string action,string payAsset,' +
-      'string midenSourceAccount,string midenFaucetId,' +
-      'string midenNoteType,string midenNoteId,uint256 midenReclaimHeight',
+      'string marketUid,string action,string payAsset,uint256 midenReclaimHeight,' +
+      'string midenSourceAccount,string midenFaucetId,string midenNoteType,string midenNoteId',
     extraData: {
       marketUid: EARN_MARKET_UID,
       action: 'deposit',
