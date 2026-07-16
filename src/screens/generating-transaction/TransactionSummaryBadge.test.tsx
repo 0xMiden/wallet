@@ -63,6 +63,16 @@ describe('TransactionSummaryBadge component', () => {
     act(() => root.unmount());
   });
 
+  it('renders a caller-provided separator instead of the default arrow', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSummaryBadge lhs="750 USDC" rhs="AAVE-USDC" separator={<span data-testid="sep">UP</span>} />
+    );
+    expect(container.querySelector('[data-testid="sep"]')?.textContent).toBe('UP');
+    // The default arrow svg is not rendered when a separator is supplied.
+    expect(container.querySelector('svg')).toBeNull();
+    act(() => root.unmount());
+  });
+
   it.each([
     ['lhs null', null, 'rhs'],
     ['lhs undefined', undefined, 'rhs'],
@@ -151,6 +161,50 @@ describe('useTransactionSummaryBadgeContent', () => {
 
   it('returns undefined when the send has no recipient', async () => {
     const { container, root } = await renderProbe(baseTransaction({ amount: 5n }));
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it('builds a bridged-send summary from the source amount and EVM destination', async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'bridged-send',
+        amount: 5000000n,
+        faucetId: 'faucet-1',
+        extraInputs: { destinationAddress: '0x1234567890abcdef1234567890abcdef12345678' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('5000000 TST');
+    expect(container.textContent).toContain('0x123456');
+    expect(container.textContent).not.toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it('returns undefined for a bridged-send with no destination address', async () => {
+    const { container, root } = await renderProbe(baseTransaction({ type: 'bridged-send', amount: 5n }));
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it('builds an earn-deposit summary with the market label and USDC fallback', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'earn-deposit',
+        amount: 750n,
+        extraInputs: { marketUid: 'DUMMY_LENDING:11155111:0xabc' }
+      })
+    );
+    // lhs = "{amount} {symbol}" with the USDC fallback symbol.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('750 USDC');
+    // rhs = "{protocol}-USDC" derived from the marketUid lender key.
+    expect(container.textContent).toContain('AAVE-USDC');
+    expect(container.textContent).not.toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it('returns undefined for an earn-deposit with no marketUid', async () => {
+    const { container, root } = await renderProbe(baseTransaction({ type: 'earn-deposit', amount: 750n }));
     expect(container.textContent).toContain('UNDEFINED');
     act(() => root.unmount());
   });
