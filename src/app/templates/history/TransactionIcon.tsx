@@ -54,6 +54,27 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     );
   }
 
+  // Smart Withdraw rows are born Completed but carry an in-flight phase — keep the
+  // Earn glyph across states (status shown in text), and the failed cross on failure.
+  if (entry.txType === 'earn-withdraw') {
+    if (entry.earnWithdrawPhase === 'failed') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-[#CC5D5D]`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
+    }
+    return (
+      <div className={`${config.container} rounded-10 flex items-center justify-center bg-tx-earn`}>
+        <Icon
+          name={IconName.Earn}
+          size={size === 'lg' ? 'lg' : 'sm'}
+          className="[&_path]:fill-pure-white [&_path]:stroke-pure-white"
+        />
+      </div>
+    );
+  }
+
   if (isPending) {
     return <PendingIcon className={`${config.pending} animate-spin ${whiteIconClass}`} />;
   }

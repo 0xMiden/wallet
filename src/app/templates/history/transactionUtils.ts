@@ -1,7 +1,8 @@
+import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
-import { ITransaction, ITransactionType } from 'lib/miden/db/types';
+import { IEarnWithdrawPhase, ITransaction, ITransactionType } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -131,6 +132,30 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   const outAmount = entry.amount?.toString();
   const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: 'confirmed' };
+};
+
+/** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */
+export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txType === 'earn-withdraw';
+
+/** Trim a human decimal amount to at most 2 places (e.g. `2.50000000` → `2.5`). */
+export const formatEarnWithdrawAmount = (human: string): string => {
+  const n = new BigNumber(human);
+  return n.isFinite() ? n.decimalPlaces(2, BigNumber.ROUND_DOWN).toFixed() : human;
+};
+
+/** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */
+export const earnWithdrawToneOf = (phase: IEarnWithdrawPhase | undefined): BridgeStatus => {
+  if (phase === 'received') return 'confirmed';
+  if (phase === 'failed') return 'failed';
+  return 'pending';
+};
+
+/** i18n key for each withdraw phase status chip. */
+export const EARN_WITHDRAW_STATUS_LABEL_KEY: Record<IEarnWithdrawPhase, string> = {
+  redeeming: 'earnWithdrawStatusRedeeming',
+  delivering: 'earnWithdrawStatusDelivering',
+  received: 'received',
+  failed: 'failed'
 };
 
 export const fontColorForType = (type: ITransactionType): string => {

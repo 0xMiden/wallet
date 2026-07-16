@@ -54,6 +54,15 @@ function isEvmAddress(value: string): value is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(value);
 }
 
+/**
+ * Canonical note-id key for cross-system comparison. The Epoch allocator and the
+ * Miden SDK both emit hex note ids, but may differ in `0x` prefix and casing —
+ * matching on the raw strings silently misses. Strip prefix + lowercase.
+ */
+function noteIdKey(id: string): string {
+  return id.trim().toLowerCase().replace(/^0x/, '');
+}
+
 /** Read the untyped `midenNoteId` field the allocator includes on EVM→Miden status entries. */
 function extractMidenNoteId(results: unknown[]): string | undefined {
   for (const result of results) {
@@ -84,17 +93,59 @@ async function pollIntentNoteId(intent: PendingBridgeInIntent): Promise<string |
 
 /** Patch the COMPLETED consume row that claimed `noteId`. Returns false if no such row exists yet. */
 async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boolean> {
-  const row = await Repo.transactions
+  // Fast path: exact multi-entry index hit. Falls back to a normalized scan so a
+  // `0x`/casing drift between the allocator and SDK note ids still matches.
+  let row = await Repo.transactions
     .where('noteIds')
     .equals(noteId)
     .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed)
     .first();
+  if (!row) {
+    const key = noteIdKey(noteId);
+    row = await Repo.transactions
+      .filter(
+        tx =>
+          tx.type === 'consume' &&
+          tx.status === ITransactionStatus.Completed &&
+          (tx.noteIds ?? []).some(n => noteIdKey(n) === key)
+      )
+      .first();
+  }
   if (!row) return false;
   await Repo.transactions.where({ id: row.id }).modify(tx => {
-    tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn: info };
+    tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn: { ...info, midenNoteId: noteId } };
     tx.displayMessage = 'Bridged from EVM';
   });
+  // Race cover: if the consume already completed before this intent was resolved,
+  // `completeConsumeTransaction` never saw the bridge-in, so flip the linked
+  // Smart Withdraw row to `received` here instead. Lazy import avoids a cycle.
+  if (info.earnWithdrawTxId) {
+    try {
+      const { updateEarnWithdrawPhase } = await import('../transaction/complete');
+      await updateEarnWithdrawPhase(
+        info.earnWithdrawTxId,
+        'received',
+        { midenNoteId: noteId, outputSymbol: info.sourceSymbol },
+        row.amount
+      );
+    } catch (err) {
+      console.warn('[bridge-in] earn-withdraw received patch (resolve path) failed', err);
+    }
+  }
   return true;
+}
+
+/**
+ * Return the subset of `ids` that exist as transaction rows. Used by the history
+ * list to decide whether a bridge-in `consume` row tagged with an
+ * `earnWithdrawTxId` should be suppressed (its Smart Withdraw row still exists) or
+ * shown as a plain bridge-in receive (dangling reference — funds never invisible).
+ */
+export async function existingTransactionIds(ids: string[]): Promise<Set<string>> {
+  const unique = [...new Set(ids)].filter(Boolean);
+  if (unique.length === 0) return new Set();
+  const rows = await Repo.transactions.where('id').anyOf(unique).primaryKeys();
+  return new Set(rows);
 }
 
 /**
@@ -144,6 +195,7 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
   const registry = await readRegistry();
   if (registry.length === 0) return undefined;
 
+  const consumedKeys = new Set(noteIds.map(noteIdKey));
   let matched: PendingBridgeInIntent | undefined;
   let registryChanged = false;
   const next: PendingBridgeInIntent[] = [];
@@ -157,7 +209,7 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
         registryChanged = true;
       }
     }
-    if (!matched && noteId && noteIds.includes(noteId)) {
+    if (!matched && noteId && consumedKeys.has(noteIdKey(noteId))) {
       matched = intent;
       registryChanged = true;
       continue; // matched intents leave the registry
@@ -166,5 +218,8 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
   }
 
   if (registryChanged) await writeRegistry(next);
-  return matched?.info;
+  // Copy the resolved note id onto the returned info so the consume side can
+  // patch the linked `earn-withdraw` row's `midenNoteId` without another lookup.
+  if (!matched) return undefined;
+  return matched.midenNoteId ? { ...matched.info, midenNoteId: matched.midenNoteId } : matched.info;
 }

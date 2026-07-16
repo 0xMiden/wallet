@@ -23,7 +23,13 @@ export {
   EARN_PROTOCOL_HASH
 } from './earn';
 export type { OpenEarnPositionArgs, EarnIntentParams, EarnQuote } from './earn';
-export { buildEarnWithdrawTaskDataParams, gaslessEarnWithdrawalToMiden } from './earn-withdraw';
+export {
+  buildEarnWithdrawTaskDataParams,
+  gaslessEarnWithdrawalToMiden,
+  pollEarnWithdrawDelivery,
+  resumeEarnWithdrawal,
+  reconcileEarnWithdrawals
+} from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
 export { EPOCH_POSITIONS_URL } from './config';
 export { fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';

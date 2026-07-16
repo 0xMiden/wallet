@@ -1,6 +1,7 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
+  IEarnWithdrawPhase,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType
@@ -59,6 +60,9 @@ export interface IHistoryEntry {
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;
+
+  // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
+  earnWithdrawPhase?: IEarnWithdrawPhase;
 }
 
 /// The history entry type. For sorting purposes, the order matters. In a given transaction

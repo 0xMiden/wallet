@@ -19,7 +19,10 @@ import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  earnWithdrawToneOf,
   isBridgeInEntry,
+  isEarnWithdrawEntry,
   isFaucetRequest
 } from './transactionUtils';
 
@@ -211,9 +214,31 @@ function buildBridgeRowProps(entry: IHistoryEntry, t: Translate): ActivityRowPro
   };
 }
 
+function buildEarnWithdrawRowProps(entry: IHistoryEntry, t: Translate): ActivityRowProps {
+  const phase = entry.earnWithdrawPhase ?? 'redeeming';
+  const failed = phase === 'failed';
+  const amount =
+    entry.amount !== undefined
+      ? { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const }
+      : undefined;
+  return {
+    icon: failed ? (
+      <FailedCrossIcon />
+    ) : (
+      <Icon name={IconName.Earn} size="sm" className="[&_path]:fill-pure-white [&_path]:stroke-pure-white" />
+    ),
+    iconBg: failed ? 'bg-[#CC5D5D]' : 'bg-tx-earn',
+    title: t('earnWithdrawRowTitle'),
+    subtitle: t('earnWithdrawRowVia'),
+    amount: failed ? undefined : amount,
+    status: { label: t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase]), tone: earnWithdrawToneOf(phase) }
+  };
+}
+
 function buildRowProps(entry: IHistoryEntry, t: Translate): ActivityRowProps {
   const bridge = !entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry));
   if (bridge) return buildBridgeRowProps(entry, t);
+  if (!entry.isCancelled && isEarnWithdrawEntry(entry)) return buildEarnWithdrawRowProps(entry, t);
 
   const state = getRowState(entry);
   const visual = ROW_VISUALS[getRowVisualKind(entry, state)];

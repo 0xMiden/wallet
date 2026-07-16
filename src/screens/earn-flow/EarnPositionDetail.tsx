@@ -93,14 +93,6 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
               setIsWithdrawing(true);
               setWithdrawMessage(null);
               try {
-                console.log({
-                  midenAccountPublicKey: account.publicKey,
-                  evmAddress: account.evmAddress,
-                  marketUid: position.marketUid,
-                  underlyingAddress: position.underlyingAddress,
-                  amount: position.withdrawable,
-                  underlyingDecimals: position.decimals
-                });
                 const result = await gaslessEarnWithdrawalToMiden({
                   midenAccountPublicKey: account.publicKey,
                   evmAddress: account.evmAddress,
@@ -109,7 +101,9 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
                   amount: position.withdrawable,
                   underlyingDecimals: position.decimals
                 });
-                setWithdrawMessage(`Gasless withdrawal submitted (intent ${result.nonce}).`);
+                // The withdraw is now tracked as an activity row; jump to its detail
+                // page (it observes the phase through Redeeming → Delivering → Received).
+                navigate(`/history-details/${result.txId}`);
               } catch (error) {
                 setWithdrawMessage(error instanceof Error ? error.message : 'Gasless withdrawal failed.');
               } finally {

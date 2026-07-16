@@ -6,6 +6,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
+import { takeBridgeInInfoForNotes } from '../activity/bridge-in';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
@@ -14,6 +15,8 @@ import {
   IBridgeClaimStatus,
   IBridgedSendExtraInputs,
   IEarnDepositExtraInputs,
+  IEarnWithdrawExtraInputs,
+  IEarnWithdrawPhase,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -117,6 +120,35 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
+
+  // Best-effort bridge-in tagging: if this consume claimed a note parked by an
+  // EVM→Miden intent (plain bridge deposit OR a Smart Withdraw delivery), tag the
+  // row as "Bridged from EVM". A bridge-in with an `earnWithdrawTxId` also flips
+  // that withdraw row to `received` with the actual consumed amount. Must never
+  // fail the consume itself.
+  try {
+    const consumedNoteIds = dbTransaction?.noteIds ?? (dbTransaction?.noteId ? [dbTransaction.noteId] : []);
+    const bridgeIn = await takeBridgeInInfoForNotes(consumedNoteIds);
+    if (bridgeIn) {
+      await Repo.transactions.where({ id }).modify(tx => {
+        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
+        tx.displayMessage = 'Bridged from EVM';
+      });
+      if (bridgeIn.earnWithdrawTxId) {
+        await updateEarnWithdrawPhase(
+          bridgeIn.earnWithdrawTxId,
+          'received',
+          {
+            midenNoteId: bridgeIn.midenNoteId,
+            outputSymbol: bridgeIn.sourceSymbol
+          },
+          amount
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
+  }
 };
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
@@ -416,6 +448,33 @@ export const updateEarnDepositStatus = async (
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs = tx.extraInputs as IEarnDepositExtraInputs;
     tx.extraInputs = { ...inputs, epochStatus, ...(extra ?? {}) };
+  });
+};
+
+/**
+ * Advance an `earn-withdraw` row's lifecycle. The row is finalized (`Completed`)
+ * from birth, so this mutates ONLY `extraInputs` (via a direct `modify`) — never
+ * `updateTransactionStatus`, which would reject the already-finalized row. On the
+ * `failed` phase the failure reason is also mirrored onto `tx.error`.
+ */
+export const updateEarnWithdrawPhase = async (
+  id: string,
+  phase: IEarnWithdrawPhase,
+  extra?: Partial<
+    Pick<
+      IEarnWithdrawExtraInputs,
+      'withdrawIntentNonce' | 'evmTxHash' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+    >
+  >,
+  // Actual delivered amount (base units), patched onto the row when the bridged
+  // note is consumed so the history hero reflects what really landed.
+  amount?: bigint
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const ei = tx.extraInputs as IEarnWithdrawExtraInputs;
+    tx.extraInputs = { ...ei, phase, ...(extra ?? {}) };
+    if (amount !== undefined) tx.amount = amount;
+    if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
 };
 

@@ -3,6 +3,7 @@ import React, { memo, RefObject, useMemo, useState } from 'react';
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
   cancelTransactionById,
+  existingTransactionIds,
   getCompletedTransactions,
   getUncompletedTransactions,
   isUserCancelledTransaction,
@@ -12,6 +13,7 @@ import {
   formatTransactionStatus,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
+  IEarnWithdrawExtraInputs,
   ITransactionStatus
 } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -21,7 +23,11 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest as isFaucetEntry, resolveSwapHistoryFields } from './transactionUtils';
+import {
+  formatEarnWithdrawAmount,
+  isFaucetRequest as isFaucetEntry,
+  resolveSwapHistoryFields
+} from './transactionUtils';
 
 type HistoryProps = {
   address: string;
@@ -149,7 +155,20 @@ async function fetchTransactionsAsHistoryEntries(
   tokenId?: string
 ): Promise<IHistoryEntry[]> {
   const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
-  const entries = transactions.map(async tx => {
+
+  // Suppress the auto-consume row that claimed a Smart Withdraw's bridged note when
+  // its `earn-withdraw` row still exists — that withdraw row is the single trace. A
+  // dangling reference (withdraw row gone) falls through to a normal bridge-in receive.
+  const linkedWithdrawIds = transactions
+    .map(tx => (tx.type === 'consume' ? tx.extraInputs?.bridgeIn?.earnWithdrawTxId : undefined))
+    .filter((id): id is string => Boolean(id));
+  const existingWithdrawIds = await existingTransactionIds(linkedWithdrawIds);
+  const visibleTransactions = transactions.filter(tx => {
+    const linkedId = tx.type === 'consume' ? tx.extraInputs?.bridgeIn?.earnWithdrawTxId : undefined;
+    return !(linkedId && existingWithdrawIds.has(linkedId));
+  });
+
+  const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
@@ -160,6 +179,8 @@ async function fetchTransactionsAsHistoryEntries(
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+    const earnWithdraw =
+      tx.type === 'earn-withdraw' ? (tx.extraInputs as IEarnWithdrawExtraInputs | undefined) : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
@@ -170,8 +191,17 @@ async function fetchTransactionsAsHistoryEntries(
       message: updateMessageForFailed,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
-      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
-      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      // Earn withdraw amounts are the human `sourceAmount` (USDC), NOT the row's
+      // atomic `amount` — its faucetId is the native asset, so formatAmount would
+      // mis-scale by the wrong decimals.
+      amount: earnWithdraw
+        ? formatEarnWithdrawAmount(earnWithdraw.sourceAmount)
+        : swapFields
+          ? swapFields.amount
+          : tx.amount
+            ? formatAmount(tx.amount, tokenMetadata?.decimals)
+            : undefined,
+      token: earnWithdraw ? earnWithdraw.sourceSymbol : swapFields ? swapFields.token : tokenMetadata?.symbol,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
@@ -195,7 +225,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInProvider: bridgeIn?.provider,
       bridgeInSourceAmount: bridgeIn?.sourceAmount,
       bridgeInSourceSymbol: bridgeIn?.sourceSymbol,
-      bridgeInEvmTxHash: bridgeIn?.evmTxHash
+      bridgeInEvmTxHash: bridgeIn?.evmTxHash,
+      earnWithdrawPhase: earnWithdraw?.phase
     } as IHistoryEntry;
 
     return entry;

@@ -21,6 +21,7 @@ export type ITransactionType =
   | 'execute'
   | 'bridged-send'
   | 'earn-deposit'
+  | 'earn-withdraw'
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
@@ -104,6 +105,49 @@ export interface IEarnDepositExtraInputs {
 }
 
 /**
+ * Lifecycle of an `earn-withdraw` row. The row is born `Completed` (never enters
+ * the prove/submit FIFO loop — see `EarnWithdrawTransaction`); its in-flight look
+ * comes entirely from this phase, mirroring `bridged-send`'s `epochStatus` chip.
+ *   - redeeming  : row created, the gasless withdraw+swap+bridge intent is in flight
+ *   - delivering : the Epoch intent settled; the bridged note is on its way to Miden
+ *   - received   : the bridged note was auto-consumed; `outputAmount` patched from it
+ *   - failed     : the intent failed / expired, or the row was reconciled dead
+ */
+export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
+
+/**
+ * `extraInputs` shape for an `EarnWithdrawTransaction`. Smart Withdraw redeems an
+ * Epoch lending position and bridges the underlying back to Miden as a single
+ * gasless intent (`sdk.helpers.executeActions`), so there is no Miden-side note to
+ * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
+ */
+export interface IEarnWithdrawExtraInputs {
+  /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
+  evmOwner: string;
+  /** Epoch market identifier (`PROTOCOL:chainId:token`) the withdrawal redeemed. */
+  marketUid: string;
+  /** Miden faucet the bridged funds land on (destination asset). */
+  destinationFaucetId: string;
+  /** Human-decimal amount the user asked to withdraw (source side). */
+  sourceAmount: string;
+  /** Source token symbol (e.g. `USDC`). */
+  sourceSymbol: string;
+  phase: IEarnWithdrawPhase;
+  /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
+  withdrawIntentNonce?: string;
+  /** solver/settlement EVM tx hash, once known. */
+  evmTxHash?: string;
+  /** Miden note id of the bridged-in note, once it lands and is consumed. */
+  midenNoteId?: string;
+  /** actual bridged amount (human-formatted) from the consumed note. */
+  outputAmount?: string;
+  /** destination token symbol of the consumed note. */
+  outputSymbol?: string;
+  /** failure reason, set alongside `phase === 'failed'`. */
+  error?: string;
+}
+
+/**
  * Bridge-in (EVM → Miden) metadata attached to the `consume` row that claimed
  * the bridged note. Epoch auto-consumes the note, so that consume row is the
  * only Miden-side trace of the deposit — tagging it lets the activity views
@@ -119,6 +163,15 @@ export interface IBridgeInInfo {
   intentNonce?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
+  /** Miden-side note id the bridge-in resolved to, copied on by `takeBridgeInInfoForNotes`. */
+  midenNoteId?: string;
+  /**
+   * When the bridged note originates from a Smart Withdraw, the `earn-withdraw`
+   * row id it belongs to. On consume, that row is patched to `received` and this
+   * consume row is suppressed from the activity list (the withdraw row is the
+   * single trace). Absent for plain EVM→Miden deposits.
+   */
+  earnWithdrawTxId?: string;
 }
 
 /** `extraInputs` shape for a `consume` row that claimed a bridged-in note. */
@@ -528,6 +581,58 @@ export class EarnDepositTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       recallBlocks: sendParams.recallBlocks,
       epochStatus: 'pending'
+    };
+  }
+}
+
+/**
+ * Tracking-only row for a Smart Withdraw (Epoch lending redeem → bridge to Miden).
+ * There is NO Miden-side note to prove/submit, so this row must **never** be born
+ * `Queued`: the FIFO prove/submit loop (`transaction/index.ts`) dispatches any
+ * `Queued` row type-blind and would crash on the missing request bytes, and the
+ * stale-queue canceller would kill a slow withdrawal. It is inserted `Completed`
+ * with `completedAt = initiatedAt`; the in-flight look comes from `extraInputs.phase`.
+ */
+export class EarnWithdrawTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  status: ITransactionStatus;
+  initiatedAt: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  extraInputs: IEarnWithdrawExtraInputs;
+
+  constructor(
+    accountId: string,
+    amount: bigint,
+    evmOwner: string,
+    marketUid: string,
+    faucetId: string,
+    sourceAmount: string,
+    sourceSymbol = 'USDC'
+  ) {
+    const now = Math.floor(Date.now() / 1000); // seconds
+    this.id = uuid();
+    this.type = 'earn-withdraw';
+    this.accountId = accountId;
+    this.amount = amount;
+    this.faucetId = faucetId;
+    this.status = ITransactionStatus.Completed;
+    this.initiatedAt = now;
+    this.completedAt = now;
+    this.displayIcon = 'DEFAULT';
+    this.displayMessage = 'Withdrawing from lending';
+    this.extraInputs = {
+      evmOwner,
+      marketUid,
+      destinationFaucetId: faucetId,
+      sourceAmount,
+      sourceSymbol,
+      phase: 'redeeming'
     };
   }
 }

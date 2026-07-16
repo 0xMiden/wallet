@@ -34,6 +34,10 @@ import { navigate } from 'lib/woozie';
 import { isHexAddress } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
+// Resume Smart Withdraw rows orphaned by an app kill exactly once per session
+// (post-unlock, when Explore first mounts). Module-level so it survives remounts.
+let earnWithdrawReconciled = false;
+
 const Explore: FC = () => {
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
@@ -107,6 +111,14 @@ const Explore: FC = () => {
       navigate('/reset-required');
     }
   }, [address]);
+
+  useEffect(() => {
+    if (earnWithdrawReconciled) return;
+    earnWithdrawReconciled = true;
+    import('lib/epoch')
+      .then(({ reconcileEarnWithdrawals }) => reconcileEarnWithdrawals())
+      .catch(err => console.warn('[earn-withdraw] reconcile on mount failed', err));
+  }, []);
 
   const fetchFaucetState = useCallback(async () => {
     fetch(`${MIDEN_FAUCET_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)}/get_metadata`)
