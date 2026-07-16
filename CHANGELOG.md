@@ -12,6 +12,8 @@
 
 ### Changes
 
+* [FEATURE][all] **Smart Withdraw activity tracking.** Redeeming an Epoch lending position now creates an `earn-withdraw` activity row that shows the withdrawal immediately and advances through Redeeming → Delivering → Received (Failed on error) as the gasless intent settles and the bridged note lands; the row is polled in the background and reconciled on app restart, its detail page links the market, position owner, redeem intent, and note. Also fixes the long-dead bridge-in consume tagging so plain EVM→Miden deposits finally render as "Bridged from EVM".
+
 * [CHANGE][all] The home-screen "Fund your wallet" prompt now also mints 100 MIDEN from the official Miden faucet (PoW-gated `faucet-api.*` REST API) in parallel with the existing forkchoice IMIDEN mint, and its "Fund now" button sits beside the prompt text instead of below it.
 
 * [CHANGE][all] **Merged the in-protocol-DEX branch and re-homed the Ethereum bridge onto its send flow.** The swap flow, the split `lib/miden/transaction/` module and the redesigned transaction-progress view land alongside the bridge work. Cross-chain sends now follow the same shape as same-chain ones: the destination network moved onto the recipient step (Miden for a bech32 address, Sepolia for a `0x` one), a 0x recipient then picks Fast (Epoch) vs Slow (Agglayer) on a Route step, and the full-screen `/send/review` page owns the whole submit pipeline for both routes plus the live "you receive" USDC quote. `bridged-send` rows are carried into the new transaction module (initiate/complete/Guardian-proposal arms), and batch consume (`Claim All`) moves there too.
@@ -22,11 +24,19 @@
 
 * [CHANGE][all] The transaction progress view now shows a per-step duration ("2 sec") on each completed step row, derived from the stage transitions observed while the screen is open.
 
+* [CHANGE][all] The transaction-progress/success summary badge separator is now a generalized `ReactNode` (default horizontal arrow), and the Opening Position (`earn-deposit`) view renders it as an up-arrow with a `{amount} USDC ↑ {protocol}-USDC` summary derived from the deposit's `marketUid`.
+
+* [FIX][all] Cross-chain sends now render a `{amount} {symbol} → {EVM recipient}` summary badge on the transaction-progress view (previously blank for `bridged-send`), and the Activity detail for a Fast (Epoch) bridge now shows the Fast route and its Epoch status/receiving-tx rows instead of defaulting to Slow — `HistoryDetails` was dropping the `bridge*` fields off the entry.
+
 * [CHANGE][all] The generating-transaction page is now addressed by transaction id (`/generating-transaction/:txId`) and observes that single transaction row directly instead of guessing which one to show by scanning the uncompleted-transactions queue. Completion and failure come straight off the row's status (`Completed` / `Failed`), removing the queue-emptying and failed-row-counting heuristics. The FIFO processing loop and the page's driver are unchanged.
 
 * [CHANGE][all] Animation polish pass: hover/press color feedback across buttons, list rows, chips, and inputs sped up from 300ms to a tokenized 150ms `ease` curve (`ease-hover`); dropdown close and react-modal transitions now use `ease-out` (modals settle from `scale(0.96)` instead of zooming from `0.75`); the toggle knob animates via `transform` instead of layout-thrashing `left`; and `prefers-reduced-motion` is honored by the page navigators, the Settings seed-phrase overlay, the mobile page slide-in, and the sync shimmer (movement dropped, fades kept). Audit plans live in `plans/`.
 
 ### Fixes
+
+* [FIX][mobile] **Mobile surfaces a report prompt on any hot-key signing failure, instead of hanging on the pending page.** When a native hot-key op rejects on iOS/Android, the secure-hot-key facade records the raw native error (prefixed with the plugin error code when present — e.g. the new `HARDWARE_UNAVAILABLE` code the plugins now raise for secure-hardware failures) and raises a home-screen prompt whose "Copy error" action copies it to the clipboard to report to us.
+
+* [FIX][mobile] **Android hot-key signing no longer fails with `INCOMPATIBLE_MGF_DIGEST` on TEE-only devices (e.g. tablets without biometric).** The Keystore RSA-OAEP wrapper key was authorized for the SHA-256 digest only; pre-Android-13 Keymaster reuses that same digest list to authorize the MGF1 function (default SHA-1) and refuses any OAEP-MGF1 op unless SHA-1 is present, so hardware decrypt threw while software public-key encrypt silently succeeded (generate looked fine, sign failed). The wrapper key now authorizes both SHA-256 and SHA-1 digests, and explicitly authorizes both MGF1 digests on Android 13+ (`setMgf1Digests`). Existing keys minted before this fix must be regenerated (rotate the hot key or re-add the account).
 
 * [FIX][all] **Receive-from-EVM bridge deposit keeps its state across the amount → route step.** The Receive screen drove the bridge deposit's two steps (amount entry, route selection) as separate outer-Navigator cards that both rendered a fresh `BridgeDeposit`, so advancing to the route step remounted `EvmBridgeDepositScreen` with empty state — the entered amount and Epoch quote were wiped and Confirm dead-ended. The bridge deposit now runs its own nested `Navigator` (mounted once, mirroring `SendManager`) so state survives step changes; the outer Receive navigator collapses to a single `ShowBridgePage` card, which also fixes the standalone `/bridge/deposit` route that previously threw for rendering without a `NavigatorProvider`.
 

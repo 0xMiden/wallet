@@ -5,7 +5,11 @@ import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 export enum WalletPromptType {
   Faucet = 'faucet',
-  VerifySeedPhrase = 'verifySeedPhrase'
+  VerifySeedPhrase = 'verifySeedPhrase',
+  // Mobile-only: the native hot-key plugin could not use the device's secure
+  // hardware (TEE / Secure Enclave), so transactions can't be signed. Surfaced
+  // so the user can copy the raw native error and report it to us.
+  HotKeyHardwareUnavailable = 'hotKeyHardwareUnavailable'
 }
 
 export enum WalletPromptStatus {
@@ -96,6 +100,40 @@ export const dismissWalletPrompt = (type: WalletPromptType) =>
 
 export const completeWalletPrompt = (type: WalletPromptType) =>
   setWalletPromptStatus(type, WalletPromptStatus.Completed);
+
+// -- Hot-key hardware failure report --------------------------------------
+//
+// When native hot-key signing fails because the device's secure hardware is
+// unusable, we stash the raw native error string alongside seeding the
+// HotKeyHardwareUnavailable prompt, so the prompt's "Copy error" action has
+// something concrete to hand back to us. Kept in its own storage key rather
+// than on WalletPromptStorage so the prompt-status shape stays a plain
+// type→status map.
+
+export const HOT_KEY_HARDWARE_ERROR_STORAGE_KEY = 'hot_key_hardware_error_v1';
+
+export type HotKeyHardwareErrorRecord = {
+  message: string;
+};
+
+export async function fetchHotKeyHardwareError(): Promise<HotKeyHardwareErrorRecord | null> {
+  const raw = await fetchFromStorage(HOT_KEY_HARDWARE_ERROR_STORAGE_KEY);
+  if (!raw || typeof raw !== 'object') return null;
+  const message = Reflect.get(raw, 'message');
+  return typeof message === 'string' ? { message } : null;
+}
+
+/**
+ * Record a native hot-key hardware failure and surface the report prompt.
+ * Called (via a lazy import) from the secure-hot-key facade on mobile when a
+ * native op rejects with the HARDWARE_UNAVAILABLE code. `seedWalletPrompt`
+ * respects an earlier dismiss/complete, so we don't re-nag a user who already
+ * acknowledged it.
+ */
+export async function reportHotKeyHardwareFailure(message: string): Promise<void> {
+  await putToStorage(HOT_KEY_HARDWARE_ERROR_STORAGE_KEY, { message });
+  await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
+}
 
 const FAUCET_API_URL = 'https://faucet-api.forkchoice.xyz/api/mint';
 // 10 IMIDEN in base units (8 decimals).

@@ -125,7 +125,10 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let sePrivateKey = SecKeyCreateRandomKey(seKeyAttributes as CFDictionary, &keyError) else {
             zeroBytes(&secretBytes)
             let msg = keyError?.takeRetainedValue().localizedDescription ?? "unknown"
-            call.reject("Failed to generate hot-key SE key: \(msg)")
+            // Secure Enclave genuinely unusable on this device — code it so the JS
+            // facade can surface the report prompt (parity with Android's
+            // ERR_HARDWARE_UNAVAILABLE).
+            call.reject("Secure hardware unavailable: \(msg)", "HARDWARE_UNAVAILABLE")
             return
         }
         guard let sePublicKey = SecKeyCopyPublicKey(sePrivateKey) else {
@@ -258,7 +261,9 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.authenticationFailed.rawValue {
                 call.reject("Authentication failed", "AUTH_FAILED")
             } else {
-                call.reject("Failed to unwrap hot-key secret: \(msg)")
+                // Not a user-driven cancel/auth failure: the SE couldn't unwrap.
+                // Code it so the JS facade surfaces the report prompt.
+                call.reject("Secure hardware unavailable: \(msg)", "HARDWARE_UNAVAILABLE")
             }
             return
         }
@@ -366,7 +371,8 @@ public class HotKeyPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.authenticationFailed.rawValue {
                 call.reject("Authentication failed", "AUTH_FAILED")
             } else {
-                call.reject("Failed to unwrap hot-key secret: \(msg)")
+                // Not a user-driven cancel/auth failure: the SE couldn't unwrap.
+                call.reject("Secure hardware unavailable: \(msg)", "HARDWARE_UNAVAILABLE")
             }
             return
         }
