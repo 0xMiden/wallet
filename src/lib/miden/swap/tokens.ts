@@ -55,20 +55,48 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   SWAP_TOKENS.find(token => token.symbol === symbol);
 
-interface PriceResponse {
-  /** USD price for 1 whole token (i.e. 1 * 10^decimals base units). */
-  price: number;
+/**
+ * A single quote for an (offered, requested) pair from the DEX `swap-eta`
+ * endpoint. It rolls the oracle fair rate together with live fill signals, so
+ * the swap flow needs just this one call instead of two per-token price fetches.
+ */
+export interface SwapEta {
+  /** Does the order cross resting liquidity right now (at the asked price)? */
+  canFill: boolean;
+  /** Next-batch ETA in seconds, set when `canFill` is true. */
+  estimatedSeconds: number | null;
+  /** Is the asked price worse than the live oracle? */
+  offMarket: boolean;
+  /** Oracle fair rate: requested whole tokens per 1 offered whole token. */
+  marketPrice: string;
+  /** Median settle time (s) for this pair over the last 24h, null if no data. */
+  median24hSeconds: number | null;
 }
 
-/** Fetch the USD price of 1 whole `token` from the in-protocol DEX price feed. */
-export async function getSwapTokenPrice(token: SwapToken): Promise<number> {
-  const faucetHexId = accountIdStringToSdk(token.faucetId).toString();
-  const res = await fetch(`https://35-175-40-181.sslip.io/v1/price/${faucetHexId}`);
+/**
+ * Fetch a `SwapEta` for an offered → requested pair. Amounts are raw base units
+ * (bigint); faucets are converted to their canonical hex account ids. The
+ * oracle `marketPrice` is amount-independent, so passing `0n` for
+ * `requestAmountRaw` still returns a usable rate to seed the receive field.
+ */
+export async function getSwapEta(
+  offerToken: SwapToken,
+  offerAmountRaw: bigint,
+  requestToken: SwapToken,
+  requestAmountRaw: bigint
+): Promise<SwapEta> {
+  const params = new URLSearchParams({
+    offered_faucet: accountIdStringToSdk(offerToken.faucetId).toString(),
+    offered_amount: offerAmountRaw.toString(),
+    requested_faucet: accountIdStringToSdk(requestToken.faucetId).toString(),
+    requested_amount: requestAmountRaw.toString()
+  });
+  const res = await fetch(`https://35-175-40-181.sslip.io/v1/swap-eta?${params.toString()}`);
   if (!res.ok) {
-    throw new Error(`Price request failed for ${token.symbol}: ${res.status}`);
+    throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
   }
-  const json: PriceResponse = await res.json();
-  return json.price;
+  const json: SwapEta = await res.json();
+  return json;
 }
 
 /**
@@ -79,24 +107,20 @@ export async function getSwapTokenPrice(token: SwapToken): Promise<number> {
 export const SOLVER_MARGIN = 0.05;
 
 /**
- * Derive the requested-token amount from the offered amount via each token's
- * USD price. Both prices are per 1 whole token, so the decimals cancel and we
- * can work directly in display units: the fair quote is
- * `offered * offerP / requestP`, then discounted by `SOLVER_MARGIN`.
- * Rounded down to the requested token's precision; returns '' when the inputs
- * aren't usable yet (no amount, prices not loaded, or a non-positive result).
+ * Derive the requested-token amount from the offered amount and the oracle
+ * `marketPrice` (requested whole tokens per 1 offered whole token): the fair
+ * quote is `offered * marketPrice`, discounted by `SOLVER_MARGIN` so a filler
+ * has margin to take the order. Rounded down to the requested token's
+ * precision; returns '' when the inputs aren't usable yet (no amount, no rate,
+ * or a non-positive result).
  */
-export function deriveRequestAmount(
-  offerAmount: string,
-  offerPrice: number | undefined,
-  requestPrice: number | undefined,
-  decimals: number
-): string {
+export function deriveRequestAmount(offerAmount: string, marketPrice: string | undefined, decimals: number): string {
   const offered = Number(offerAmount);
-  if (!offered || !offerPrice || !requestPrice) {
+  const rate = Number(marketPrice);
+  if (!offered || !rate || !Number.isFinite(rate)) {
     return '';
   }
-  const quote = ((offered * offerPrice) / requestPrice) * (1 - SOLVER_MARGIN);
+  const quote = offered * rate * (1 - SOLVER_MARGIN);
   if (!Number.isFinite(quote) || quote <= 0) {
     return '';
   }

@@ -1,35 +1,45 @@
 import React from 'react';
 
+import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { SwapToken } from 'lib/miden/swap/tokens';
+import { SwapEta, SwapToken } from 'lib/miden/swap/tokens';
 
 export interface ReviewSwapProps {
   offerToken: SwapToken;
   offerAmount: string;
   requestToken: SwapToken;
   requestAmount: string;
-  /** USD price per whole token, used to render the (wired) Rate row. */
-  offerPrice?: number;
-  requestPrice?: number;
+  /** Latest quote for the pair; drives the Rate and "Usually fills in" rows. */
+  swapEta?: SwapEta;
   submitError?: string | null;
   onGoBack: () => void;
   onSubmit: () => void;
 }
 
-/** "1 {offer} ≈ {ratio} {request}" from the two USD prices, or undefined if unavailable. */
-function formatRate(
-  offerSymbol: string,
-  requestSymbol: string,
-  offerPrice?: number,
-  requestPrice?: number
-): string | undefined {
-  if (!offerPrice || !requestPrice) return undefined;
-  const ratio = offerPrice / requestPrice;
-  if (!Number.isFinite(ratio) || ratio <= 0) return undefined;
-  const formatted = Number(ratio.toPrecision(4)).toString();
+/** "1 {offer} ≈ {marketPrice} {request}" from the oracle rate, or undefined if unavailable. */
+function formatRate(offerSymbol: string, requestSymbol: string, marketPrice?: string): string | undefined {
+  const rate = Number(marketPrice);
+  if (!rate || !Number.isFinite(rate)) return undefined;
+  const formatted = Number(rate.toPrecision(4)).toString();
   return `1 ${offerSymbol} ≈ ${formatted} ${requestSymbol}`;
+}
+
+/**
+ * Human "usually fills in" estimate. Prefers the live next-batch ETA when the
+ * order crosses resting liquidity, then the pair's 24h median, then a static
+ * fallback (both live signals are often null on the current testnet book).
+ */
+function formatFillsIn(t: TFunction, swapEta?: SwapEta): string {
+  const seconds =
+    swapEta?.canFill && swapEta.estimatedSeconds != null ? swapEta.estimatedSeconds : swapEta?.median24hSeconds;
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
+    return t('swapEtaFallback');
+  }
+  return seconds < 90
+    ? t('swapEtaSeconds', { seconds: Math.round(seconds) })
+    : t('swapEtaMinutes', { minutes: Math.round(seconds / 60) });
 }
 
 const SwapArrows: React.FC = () => (
@@ -63,8 +73,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   offerAmount,
   requestToken,
   requestAmount,
-  offerPrice,
-  requestPrice,
+  swapEta,
   submitError,
   onGoBack,
   onSubmit
@@ -104,11 +113,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       primary={{ label: t('swap'), onPress: onSubmit }}
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
-      <ReviewRow
-        label={t('rate')}
-        value={formatRate(offerToken.symbol, requestToken.symbol, offerPrice, requestPrice)}
-      />
-      <ReviewRow label={t('usuallyFillsIn')} value={t('swapUsuallyFillsInValue')} />
+      <ReviewRow label={t('rate')} value={formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice)} />
+      <ReviewRow label={t('usuallyFillsIn')} value={formatFillsIn(t, swapEta)} />
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
   );

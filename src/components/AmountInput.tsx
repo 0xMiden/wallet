@@ -32,6 +32,8 @@ export interface AmountInputProps {
   tokenSelector?: React.ReactNode;
   autoFocus?: boolean;
   disabled?: boolean;
+  /** Show a skeleton in place of the value while the amount is being computed. */
+  loading?: boolean;
   className?: string;
   'data-testid'?: string;
 }
@@ -52,6 +54,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   tokenSelector,
   autoFocus,
   disabled,
+  loading,
   className,
   'data-testid': dataTestId
 }) => {
@@ -67,25 +70,29 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         ))}
 
       <div className="flex cursor-text items-baseline mt-3" onClick={() => inputRef.current?.focus()}>
-        <CurrencyInput
-          ref={inputRef}
-          className={classNames(
-            'w-full bg-transparent p-0 outline-none font-heading font-bold leading-none text-left text-[4rem]',
-            amountTextSize(value),
-            error ? 'text-red-500 placeholder-red-500' : value ? 'text-black' : 'text-grey-300 placeholder-grey-300'
-          )}
-          value={value}
-          onValueChange={onValueChange}
-          placeholder={placeholder}
-          disableGroupSeparators
-          decimalSeparator="."
-          decimalsLimit={6}
-          allowNegativeValue={false}
-          maxLength={16}
-          autoFocus={autoFocus}
-          disabled={disabled}
-          data-testid={dataTestId}
-        />
+        {loading ? (
+          <div className="h-14 w-40 animate-pulse rounded-xl bg-heading-gray/10" />
+        ) : (
+          <CurrencyInput
+            ref={inputRef}
+            className={classNames(
+              'w-full bg-transparent p-0 outline-none font-heading font-bold leading-none text-left text-[4rem]',
+              amountTextSize(value),
+              error ? 'text-red-500 placeholder-red-500' : value ? 'text-black' : 'text-grey-300 placeholder-grey-300'
+            )}
+            value={value}
+            onValueChange={onValueChange}
+            placeholder={placeholder}
+            disableGroupSeparators
+            decimalSeparator="."
+            decimalsLimit={6}
+            allowNegativeValue={false}
+            maxLength={16}
+            autoFocus={autoFocus}
+            disabled={disabled}
+            data-testid={dataTestId}
+          />
+        )}
       </div>
 
       {error ? (

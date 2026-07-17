@@ -7,25 +7,23 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
-import { deriveRequestAmount, getSwapTokenPrice, SwapToken, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import { deriveRequestAmount, SwapToken, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { useRetryableSWR } from 'lib/swr';
 import { navigate } from 'lib/woozie';
 
 import { ReviewSwap } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 import { SwapAmounts } from './SwapAmounts';
 import { SwapFlowStep, SwapSide } from './types';
+import { useSwapEta } from './useSwapEta';
 
 const ROUTES: Route[] = [
   { name: SwapFlowStep.SwapAmounts, animationIn: 'push', animationOut: 'pop' },
   { name: SwapFlowStep.ReviewSwap, animationIn: 'push', animationOut: 'pop' }
 ];
-
-const PRICE_SWR_CONFIG = { refreshInterval: 60_000, dedupingInterval: 30_000 };
 
 const SwapManager: React.FC = () => {
   const { t } = useTranslation();
@@ -76,33 +74,19 @@ const SwapManager: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // USD price per 1 whole token, keyed by faucet id and deduped across the two
-  // selectors (so picking the same token on both sides reuses one fetch).
-  const {
-    data: offerPrice,
-    isLoading: offerPriceLoading,
-    error: offerPriceError
-  } = useRetryableSWR<number, Error>(
-    ['swap-token-price', offerToken.faucetId],
-    () => getSwapTokenPrice(offerToken),
-    PRICE_SWR_CONFIG
-  );
-  const {
-    data: requestPrice,
-    isLoading: requestPriceLoading,
-    error: requestPriceError
-  } = useRetryableSWR<number, Error>(
-    ['swap-token-price', requestToken.faucetId],
-    () => getSwapTokenPrice(requestToken),
-    PRICE_SWR_CONFIG
-  );
+  const sameToken = offerToken.faucetId === requestToken.faucetId;
 
-  // The price-fair quote for the receive amount. The field is auto-filled from
-  // this but stays editable, so `quote` and `requestAmount` can diverge once
-  // the user overrides it.
+  // Single quote for the whole pair from the DEX swap-eta endpoint: the oracle
+  // rate seeds the receive field and the fill signals drive the review screen.
+  const swapEta = useSwapEta({ offerToken, requestToken, offerAmount, requestAmount, enabled: !sameToken });
+  const marketPrice = swapEta.eta?.marketPrice;
+
+  // The market-fair quote for the receive amount (offered * marketPrice, less
+  // the solver margin). The field is auto-filled from this but stays editable,
+  // so `quote` and `requestAmount` can diverge once the user overrides it.
   const quote = useMemo(
-    () => deriveRequestAmount(offerAmount, offerPrice, requestPrice, requestToken.decimals),
-    [offerAmount, offerPrice, requestPrice, requestToken.decimals]
+    () => deriveRequestAmount(offerAmount, marketPrice, requestToken.decimals),
+    [offerAmount, marketPrice, requestToken.decimals]
   );
 
   // Mirror the quote into the editable receive field unless the user has taken
@@ -114,7 +98,6 @@ const SwapManager: React.FC = () => {
     }
   }, [quote, requestEdited]);
 
-  const sameToken = offerToken.faucetId === requestToken.faucetId;
   const offerBalance = useMemo(
     () => balanceData.find(balance => balance.tokenId === offerToken.faucetId)?.balance ?? 0,
     [balanceData, offerToken.faucetId]
@@ -122,8 +105,11 @@ const SwapManager: React.FC = () => {
   const offerAmountValue = Number(offerAmount);
   const hasOfferAmount = offerAmountValue > 0;
   const offerAmountExceedsBalance = offerAmountValue > offerBalance;
-  const pricesLoading = offerPriceLoading || requestPriceLoading;
-  const priceUnavailable = Boolean(offerPriceError || requestPriceError);
+  const quoteUnavailable = Boolean(swapEta.error);
+  // The receive field is auto-derived: show a skeleton from the moment a pay
+  // amount is entered until the first quote lands (or errors). Subsequent edits
+  // recompute in place from the cached rate, so no skeleton flash there.
+  const requestCalculating = !sameToken && hasOfferAmount && !requestEdited && !requestAmount && !quoteUnavailable;
   const canProceed =
     !submitting && !sameToken && hasOfferAmount && !offerAmountExceedsBalance && Number(requestAmount) > 0;
 
@@ -205,12 +191,11 @@ const SwapManager: React.FC = () => {
 
   const statusMessage = useMemo(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true };
-    if (hasOfferAmount && priceUnavailable) return { text: t('swapPriceUnavailable'), isError: true };
-    if (hasOfferAmount && !requestEdited && pricesLoading && !requestAmount) {
-      return { text: t('swapFetchingPrice'), isError: false };
-    }
+    if (hasOfferAmount && quoteUnavailable) return { text: t('swapPriceUnavailable'), isError: true };
+    // The skeleton on the receive field conveys the "computing quote" state, so
+    // there's no separate fetching-price line.
     return undefined;
-  }, [sameToken, hasOfferAmount, priceUnavailable, requestEdited, pricesLoading, requestAmount, t]);
+  }, [sameToken, hasOfferAmount, quoteUnavailable, t]);
 
   const renderStep = useCallback(
     (route: Route) => {
@@ -227,6 +212,7 @@ const SwapManager: React.FC = () => {
               requestAmount={requestAmount}
               onRequestAmountChange={onRequestAmountChange}
               onSelectRequestToken={onSelectRequestToken}
+              requestLoading={requestCalculating}
               onSwapDirection={onSwapDirection}
               onConfirm={() => navigateTo(SwapFlowStep.ReviewSwap)}
               canProceed={canProceed}
@@ -241,8 +227,7 @@ const SwapManager: React.FC = () => {
               offerAmount={offerAmount}
               requestToken={requestToken}
               requestAmount={requestAmount}
-              offerPrice={offerPrice}
-              requestPrice={requestPrice}
+              swapEta={swapEta.eta}
               submitError={submitError}
               onGoBack={goBack}
               onSubmit={onSubmit}
@@ -258,10 +243,10 @@ const SwapManager: React.FC = () => {
       offerAmount,
       requestToken,
       requestAmount,
-      offerPrice,
-      requestPrice,
+      swapEta.eta,
       submitError,
       canProceed,
+      requestCalculating,
       statusMessage,
       onOfferAmountChange,
       onRequestAmountChange,
