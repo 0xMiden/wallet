@@ -561,6 +561,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
               slowEnabled={isBridgeableToken}
+              footerClassName="pt-4 pb-6"
               onConfirm={goToReview}
             />
           );
