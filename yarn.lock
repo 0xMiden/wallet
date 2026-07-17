@@ -1491,20 +1491,20 @@
   dependencies:
     tslib "^2.4.0"
 
-"@epoch-protocol/epoch-commons-sdk@^0.1.17":
-  version "0.1.17"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-commons-sdk/-/epoch-commons-sdk-0.1.17.tgz#4e51eacb6017766ddab4e340c8c22ee0bf8ffa62"
-  integrity sha512-7fE8F9KQST7TKayjVi5kBufvvf8mimQjSxDI8/jDSH+Q28GOSDxl2sEgiyGlDn8VfChktg4JroeRTRtBrWyuHg==
+"@epoch-protocol/epoch-commons-sdk@^0.1.18":
+  version "0.1.18"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-commons-sdk/-/epoch-commons-sdk-0.1.18.tgz#7578c9fdcc6f8ea1496b545eac2e6ce7c9583a5b"
+  integrity sha512-FJ15pOddF5ndbkRUO6ZJr67zHQe1YfVw3sQgtrxzsgsv8mc+MPKaWCkvaTQ9uSvNKJcvwqQmgqn4gcayejJtug==
   dependencies:
     ethers "^6.0.0"
     viem "2.42.0"
 
-"@epoch-protocol/epoch-intents-sdk@^1.0.32":
-  version "1.0.32"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.32.tgz#97e8826d412fd6c26bd49be7b3092c3c40eafec4"
-  integrity sha512-HLy3nd4wKpe714Wxao+GIurrMQZ908wfiDnCyOTh9TLbuK/WtlzzObgZQF8XYX0YRE1Nji8Vfuxaqrv0j7pk7w==
+"@epoch-protocol/epoch-intents-sdk@^1.0.35":
+  version "1.0.35"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.35.tgz#f7e9283d22a623dd05eaea9b5e1f82b424ffd74e"
+  integrity sha512-69rFadIgAFKVgYgnZW3zyFKEYbpRUS3GXF7gAUEUqbojJzBWEVwCv/EwAQfd9tNVT6EVWFtJd2m29QZUE3sijQ==
   dependencies:
-    "@epoch-protocol/epoch-commons-sdk" "^0.1.17"
+    "@epoch-protocol/epoch-commons-sdk" "^0.1.18"
     "@metamask/delegation-toolkit" "^0.13.0"
     viem "^2.29.2"
 
@@ -2580,7 +2580,7 @@
     "@miden-sdk/node-darwin-x64" "0.15.2"
     "@miden-sdk/node-linux-x64-gnu" "0.15.2"
 
-"@miden-sdk/miden-sdk@0.15.5", "@miden-sdk/miden-sdk@^0.15.0", "@miden-sdk/miden-sdk@file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client":
+"@miden-sdk/miden-sdk@^0.15.0", "@miden-sdk/miden-sdk@file:../web-sdk/crates/web-client", "@miden-sdk/miden-sdk@file:/Users/utkarshdagoat/dev/miden/web-sdk/crates/web-client":
   version "0.15.5"
   dependencies:
     dexie "^4.0.1"

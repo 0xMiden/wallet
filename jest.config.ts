@@ -65,7 +65,7 @@ export default {
   transform: {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
-  transformIgnorePatterns: ['/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie)/)'],
+  transformIgnorePatterns: ['/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol)/)'],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a
   // plain `jest` run discovers their stale test files and emits haste-map

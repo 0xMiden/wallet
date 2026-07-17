@@ -139,15 +139,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
             </div> */}
-            {/* <div className="flex items-center gap-4 text-accent-primary">
+            <div className="flex items-center gap-4 text-accent-primary" onClick={handleOpenEvm}>
               <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
               <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Cross-chain</span>
-            </div> */}
-          </div>
-          <div className="w-full border-t border-rule-strong pt-4">
-            <Button variant={ButtonVariant.Ghost} onClick={handleOpenEvm} className="w-full text-heading-gray">
-              {t('receiveFromEvm')}
-            </Button>
+            </div>
           </div>
         </div>
       </div>
