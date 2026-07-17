@@ -1,5 +1,6 @@
 import React, { FC, useEffect, useRef } from 'react';
 
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 
@@ -9,6 +10,11 @@ import { PropsWithChildren } from 'lib/props-with-children';
  */
 const FullScreenPage: FC<PropsWithChildren> = ({ children }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Full-screen routes replace TabLayout entirely. Keep the shared hidden
+  // state active so mobile also repaints the safe-area strip into which the
+  // old BottomNav shadow extended.
+  useHideNavbarWhileOpen();
 
   useEffect(() => {
     if (!containerRef.current) return;
