@@ -153,7 +153,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           <Button
             variant={ButtonVariant.Secondary}
             onClick={onAddressBook}
-            className="h-auto! w-fit! rounded-full bg-surface-interactive! px-1! py-1! text-base font-bold hover:bg-surface-interactive!"
+            className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
           >
             <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
             <span>{t('addressBook')}</span>
@@ -162,7 +162,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             <Button
               variant={ButtonVariant.Secondary}
               onClick={onScan}
-              className="h-auto! w-fit! rounded-full bg-surface-interactive! px-1! py-1! text-base font-bold hover:bg-surface-interactive!"
+              className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
             >
               <ScanFrameIcon data-testid="send-scan-icon" className="h-4 w-4 shrink-0" />
               <span>{scanQrCodeLabel}</span>

@@ -8,17 +8,16 @@ import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
-import { ButtonVariant, Button } from 'components/Button';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
+import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
   address: string;
-  onBridgeDeposit: () => void;
 }
 
 const QR_FILE_NAME = 'miden-address.png';
@@ -39,31 +38,27 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
     reader.readAsDataURL(blob);
   });
 
-export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
+export const AddressTab: React.FC<AddressTabProps> = ({ address }) => {
   const { t } = useTranslation();
   const { fieldRef, copy } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
   const qrRef = useRef<QRCodeHandle>(null);
 
-  const openBridgeDeposit = useCallback(() => {
-    onBridgeDeposit();
-  }, [onBridgeDeposit]);
-
   const handleOpenEvm = useCallback(() => {
     hapticLight();
     if (evmConnected && evmAddress) {
-      openBridgeDeposit();
+      navigate('/bridge/deposit');
       return;
     }
     setEvmOpen(true);
-  }, [evmAddress, evmConnected, openBridgeDeposit]);
+  }, [evmAddress, evmConnected]);
 
   useEffect(() => {
     if (!evmOpen || !evmConnected || !evmAddress) return;
     setEvmOpen(false);
-    openBridgeDeposit();
-  }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
+    navigate('/bridge/deposit');
+  }, [evmAddress, evmConnected, evmOpen]);
 
   const handleShare = useCallback(async () => {
     hapticLight();

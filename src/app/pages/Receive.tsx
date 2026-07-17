@@ -17,16 +17,12 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
   const account = useAccount();
   const address = account.publicKey;
 
-  const openBridgeDeposit = useCallback(() => {
-    navigate('/bridge/deposit');
-  }, []);
-
   return (
     <div
       className={classNames('h-full w-full mx-auto overflow-hidden flex flex-col bg-app-bg relative')}
       data-testid="receive-flow"
     >
-      <AddressTab address={address} onBridgeDeposit={openBridgeDeposit} />
+      <AddressTab address={address} />
     </div>
   );
 };

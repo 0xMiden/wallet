@@ -120,6 +120,16 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
     genre: 'Naming Service',
     brandColor: '#10B981',
     category: 'tools'
+  },
+  {
+    id: 'swap-faucet',
+    name: 'Miden Swap Faucet',
+    url: 'https://faucets.forkchoice.xyz',
+    shortDescription: 'The Faucet tokens for swap testing',
+    genre: 'tools',
+    brandColor: `#E77537`,
+    icon: midenIcon,
+    category: 'tools'
   }
 ];
 
@@ -127,6 +137,6 @@ export const FEATURED_DAPPS: FeaturedDapp[] = [
 export const CAROUSEL_DAPPS = FEATURED_DAPPS.filter(d => d.featured);
 
 /** The four curated apps shown on the simplified Explore grid, in display order. */
-export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['zoro', 'qash', 'faucet', 'miden-name'].flatMap(id =>
+export const EXPLORE_GRID_DAPPS: FeaturedDapp[] = ['swap-faucet', 'qash', 'faucet', 'miden-name'].flatMap(id =>
   FEATURED_DAPPS.filter(d => d.id === id)
 );

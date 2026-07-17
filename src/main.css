@@ -337,10 +337,21 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
 }
 
 /* Surfaces that own the whole screen (e.g. the transaction success view)
- * call `useHideNavbarWhileOpen`, which sets this flag. The `!important`
- * beats the footer's inline `display: flex`. */
+ * call `useHideNavbarWhileOpen`, which sets this flag. Keep the absolute
+ * footer mounted and hide its composited layer instead of using `display:
+ * none`: iOS WKWebView can otherwise leave BottomNav's out-of-bounds shadow
+ * raster painted after the footer itself disappears. */
 body[data-hide-navbar] [data-tabbar-footer='true'] {
-  display: none !important;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Explicitly invalidate the separately composited, wide BottomNav shadow.
+ * This is intentionally scoped to the hidden footer so other nav shadows are
+ * untouched. */
+body[data-hide-navbar] [data-tabbar-footer='true'] nav {
+  box-shadow: none !important;
 }
 
 @layer base {

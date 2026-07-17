@@ -69,7 +69,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
           label
         ))}
 
-      <div className="flex cursor-text items-baseline mt-3" onClick={() => inputRef.current?.focus()}>
+      <div className="flex cursor-text items-baseline" onClick={() => inputRef.current?.focus()}>
         {loading ? (
           <div className="h-14 w-40 animate-pulse rounded-xl bg-heading-gray/10" />
         ) : (
