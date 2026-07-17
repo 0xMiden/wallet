@@ -660,6 +660,7 @@
   "noQrCodeFound": "No QR code found",
   "invalidMidenAddress": "Invalid Miden address",
   "scanCancelled": "Scan cancelled",
+  "scan": "Scan",
   "theme": "Theme",
   "themeSystem": "System",
   "themeLight": "Light",

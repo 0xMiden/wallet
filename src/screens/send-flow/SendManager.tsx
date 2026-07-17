@@ -13,6 +13,7 @@ import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } 
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
+import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -486,6 +487,19 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [onAction, setError, clearErrors]
   );
 
+  const onScan = useCallback(async () => {
+    const result = await scanQRCode();
+    if (result.success && result.address) {
+      clearErrors('recipientAddress');
+      onAction({
+        id: SendFlowActionId.SetFormValues,
+        payload: { recipientAddress: result.address }
+      });
+    } else if (result.errorKey && result.errorKey !== 'scanCancelled') {
+      setError('recipientAddress', { type: 'manual', message: result.errorKey });
+    }
+  }, [onAction, setError, clearErrors]);
+
   const onSelectContact = useCallback(
     (contact: Contact) => {
       clearErrors('recipientAddress');
@@ -537,6 +551,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onNetworkChange={id => onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: id } })}
               onAddressChange={onAddressChange}
               onAddressBook={() => setShowContactsDrawer(true)}
+              onScan={isScanAvailable() ? onScan : undefined}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );
@@ -575,6 +590,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
+      onScan,
       amount,
       onAmountChange,
       goToStep,

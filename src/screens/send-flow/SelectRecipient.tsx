@@ -25,6 +25,18 @@ const AddressBookIcon: React.FC = () => (
   </svg>
 );
 
+const QrCodeIcon: React.FC = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="2.5" y="2.5" width="7.5" height="7.5" rx="2" stroke="currentColor" strokeWidth="2.5" />
+    <rect x="14" y="2.5" width="7.5" height="7.5" rx="2" stroke="currentColor" strokeWidth="2.5" />
+    <rect x="2.5" y="14" width="7.5" height="7.5" rx="2" stroke="currentColor" strokeWidth="2.5" />
+    <rect x="14" y="14" width="3.25" height="3.25" rx="0.5" fill="currentColor" />
+    <rect x="18.25" y="14" width="3.25" height="3.25" rx="0.5" fill="currentColor" />
+    <rect x="14" y="18.25" width="3.25" height="3.25" rx="0.5" fill="currentColor" />
+    <rect x="18.25" y="18.25" width="3.25" height="3.25" rx="0.5" fill="currentColor" />
+  </svg>
+);
+
 export interface SelectRecipientProps {
   address: string;
   isValidAddress: boolean;
@@ -39,6 +51,8 @@ export interface SelectRecipientProps {
   onNetworkChange?: (network: BridgeNetworkId) => void;
   onAddressChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onAddressBook: () => void;
+  /** Scan a recipient address from a QR code. Omitted where scanning is unavailable (desktop/extension). */
+  onScan?: () => void;
   onConfirm: () => void;
 }
 
@@ -76,6 +90,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   onNetworkChange,
   onAddressChange,
   onAddressBook,
+  onScan,
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -116,25 +131,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
         {error && <p className="text-red-500 text-sm mt-2">{t(`${error}`)}</p>}
 
-        {/* Destination network follows the detected chain: a 0x recipient bridges to an
-            EVM network, anything else stays on Miden. */}
-        <div className="mt-4 flex items-center gap-2">
-          <span className="text-xs font-medium text-gray">{t('network')}</span>
-          {chain === 'ethereum' ? (
-            BRIDGE_NETWORKS.map(n => (
-              <NetworkChip
-                key={n.id}
-                label={n.name}
-                selected={network === n.id}
-                onSelect={BRIDGE_NETWORKS.length > 1 ? () => onNetworkChange?.(n.id) : undefined}
-              />
-            ))
-          ) : (
-            <NetworkChip label={t('miden')} selected />
-          )}
-        </div>
-
-        <div className="mt-4 flex">
+        <div className="mt-4 flex flex-col items-start gap-3">
           <Button
             variant={ButtonVariant.Secondary}
             title={t('addressBook')}
@@ -142,6 +139,15 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             onClick={onAddressBook}
             className="rounded-full text-base font-bold w-fit!"
           />
+          {onScan && (
+            <Button
+              variant={ButtonVariant.Secondary}
+              title={t('scan')}
+              iconLeft={<QrCodeIcon />}
+              onClick={onScan}
+              className="rounded-full text-base font-bold w-fit!"
+            />
+          )}
         </div>
       </div>
 
