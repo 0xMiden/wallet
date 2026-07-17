@@ -1048,6 +1048,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // 2. SelectRecipient: fill the recipient address and confirm.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
+    if (params.recipientAddress.trim().startsWith('0x')) {
+      await sendFlow.getByTestId('send-network-selector').click({ timeout: STEP_TIMEOUT_MS });
+      await this.page.getByTestId('send-network-sepolia').click({ timeout: STEP_TIMEOUT_MS });
+    }
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
 
     // 3. SelectAmount: open the token picker, pick a token, then fill the

@@ -13,18 +13,19 @@ import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } 
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
-import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
+import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidEthereumAddress, isValidMidenAddress, isValidRecipientAddress } from 'utils/miden';
 
 import { AccountsListDrawer } from './AccountsList';
-import { DEFAULT_BRIDGE_NETWORK } from './bridge-networks';
+import { SendNetworkId } from './bridge-networks';
 import { Route as RouteStep } from './Route';
 import { SelectAmount } from './SelectAmount';
+import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
@@ -86,6 +87,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
   // Contact picker is likewise a bottom sheet over the recipient step.
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
+  // EVM destination networks are selected in a bottom sheet from the recipient step.
+  const [showNetworkDrawer, setShowNetworkDrawer] = useState(false);
+  // Retain a choice made before the address determines whether the send is Miden or EVM.
+  const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
   // Hide the floating BottomNav once the user moves past recipient selection,
   // so the step CTAs can sit at the actual bottom of the screen. Gated on the
@@ -126,6 +131,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Handle mobile back button/gesture. Open bottom sheets close first;
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
+    if (showNetworkDrawer) {
+      setShowNetworkDrawer(false);
+      return true;
+    }
     if (showContactsDrawer) {
       setShowContactsDrawer(false);
       return true;
@@ -141,7 +150,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Dismiss any stale completion modal on send-flow entry.
   //
@@ -223,19 +232,36 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // A 0x recipient routes through the bridge instead of a same-chain Miden send.
   const chain = detectAddressChain(recipientAddress ?? '');
   const isBridge = !!recipientAddress && chain === 'ethereum';
+  const displayedNetwork: SendNetworkId | undefined = recipientAddress?.trim()
+    ? isBridge
+      ? bridgeNetwork
+      : 'miden'
+    : recipientNetwork;
+  const selectedContact = useMemo(() => {
+    const normalizedAddress = recipientAddress?.trim().toLowerCase();
+    if (!normalizedAddress) return undefined;
+    return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
+  }, [allContactsList, recipientAddress]);
 
   // Cross-chain sends over the Slow (Agglayer) route are restricted to the single
   // bridgeable faucet token; Fast (Epoch) bridges any token.
   const isBridgeableToken =
     !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === MIDEN_AGGLAYER_FAUCET_ID.toLowerCase();
 
-  // Default a cross-chain send to the only destination network (Sepolia) so the
-  // recipient step shows it selected without an extra tap.
+  // A destination selected before typing can carry into an EVM address. Once a
+  // non-empty Miden address is entered, the EVM destination is no longer meaningful.
   useEffect(() => {
-    if (isBridge && !bridgeNetwork) {
-      setValue('bridgeNetwork', DEFAULT_BRIDGE_NETWORK.id);
+    const hasRecipientAddress = !!recipientAddress?.trim();
+    if (hasRecipientAddress && !isBridge && bridgeNetwork) {
+      setValue('bridgeNetwork', undefined);
     }
-  }, [isBridge, bridgeNetwork, setValue]);
+    if (hasRecipientAddress && !isBridge && recipientNetwork !== 'miden') {
+      setRecipientNetwork('miden');
+    }
+    if (hasRecipientAddress && !isBridge && showNetworkDrawer) {
+      setShowNetworkDrawer(false);
+    }
+  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue, showNetworkDrawer]);
 
   // If Slow was selected and the token changes to one it can't bridge, fall back
   // to Fast so Review/submit don't dead-end on the bridgeable-token guard.
@@ -547,10 +573,11 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               isValidAddress={!errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress)}
               error={errors.recipientAddress?.message?.toString()}
               chain={chain}
-              network={bridgeNetwork}
-              onNetworkChange={id => onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: id } })}
+              network={displayedNetwork}
+              recipientName={selectedContact?.name}
               onAddressChange={onAddressChange}
               onAddressBook={() => setShowContactsDrawer(true)}
+              onSelectNetwork={() => setShowNetworkDrawer(true)}
               onScan={isScanAvailable() ? onScan : undefined}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
@@ -596,9 +623,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       goToStep,
       onConfirmAmount,
       chain,
-      bridgeNetwork,
+      displayedNetwork,
+      selectedContact?.name,
       bridgeRoute,
-      onAction,
       onRouteChange,
       fastFeeUsd,
       epochQuote.loading,
@@ -639,6 +666,19 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         recipientAccountId={recipientAddress}
         accounts={allContactsList}
         onSelectContact={onSelectContact}
+      />
+
+      <SelectNetworkDrawer
+        open={showNetworkDrawer}
+        selectedNetwork={displayedNetwork}
+        onOpenChange={setShowNetworkDrawer}
+        onSelect={selectedNetwork => {
+          setRecipientNetwork(selectedNetwork);
+          onAction({
+            id: SendFlowActionId.SetFormValues,
+            payload: { bridgeNetwork: selectedNetwork === 'miden' ? undefined : selectedNetwork }
+          });
+        }}
       />
     </div>
   );

@@ -303,6 +303,12 @@ export class AndroidWalletPage implements WalletPage {
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 
     await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
+    if (params.recipientAddress.trim().startsWith('0x')) {
+      await this.pollForSelector('[data-testid="send-network-selector"]', 15_000);
+      await this.click('[data-testid="send-network-selector"]');
+      await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
+      await this.click('[data-testid="send-network-sepolia"]');
+    }
     await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
 
     await this.pollForSelector('[data-testid="send-token-selector"]', 15_000);
