@@ -1,20 +1,23 @@
 import React from 'react';
 
-import { useTranslation } from 'react-i18next';
-
-import { Icon, IconName } from 'app/icons/v2';
 import { DEFAULT_BRIDGE_NETWORK, BRIDGE_OUTPUT_TOKEN_SYMBOL } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
+
+import { EvmWalletHeader } from './EvmWalletHeader';
 
 interface EvmBridgeDepositFormProps {
   token: UIToken;
   amount: string;
   isValidAmount: boolean;
   error?: string;
+  /** Connected EVM address, shown in the wallet header row. */
+  evmAddress: string;
   onAmountChange: (value: string) => void;
   /** Opens the ETH/USDC token picker drawer. */
   onSelectToken: () => void;
+  /** Switch/disconnect the connected EVM wallet from the header. */
+  onSwitch: () => void;
   onContinue: () => void;
 }
 
@@ -23,18 +26,13 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   amount,
   isValidAmount,
   error,
+  evmAddress,
   onAmountChange,
   onSelectToken,
+  onSwitch,
   onContinue
 }) => {
-  const { t } = useTranslation();
-
-  const title = (
-    <span className="flex items-center gap-1 text-xl font-heading font-bold text-[#80808080]">
-      <Icon name={IconName.CheckboxCircleFill} className="h-6 w-6 text-status-positive" fill="currentColor" />
-      {t('evmWalletConnected')}
-    </span>
-  );
+  const title = <EvmWalletHeader address={evmAddress} onSwitch={onSwitch} />;
 
   return (
     <SelectAmount
@@ -46,6 +44,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       network={DEFAULT_BRIDGE_NETWORK}
       outputSymbol={BRIDGE_OUTPUT_TOKEN_SYMBOL}
       title={title}
+      footerClassName="pt-4 pb-6"
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}
       onSelectNetwork={() => {}}

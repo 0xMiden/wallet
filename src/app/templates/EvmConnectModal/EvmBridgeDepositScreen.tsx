@@ -30,6 +30,7 @@ import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
+import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
 
 const MIDEN_USDC_FAUCET_ID = '0x2458e5446128e6b150b75b8ebd9ce1';
 
@@ -69,7 +70,8 @@ interface BridgeBalance {
 interface EvmBridgeDepositScreenProps {
   evmAddress: string;
   midenAccount: WalletAccount;
-  onDisconnect: () => void;
+  /** Reopens the wallet picker to switch to (connect) a different EVM wallet. */
+  onConnectAnother: () => void;
   onClose: () => void;
 }
 
@@ -172,7 +174,12 @@ const BRIDGE_ROUTES: Route[] = [
   }
 ];
 
-const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAddress, midenAccount, onClose }) => {
+const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
+  evmAddress,
+  midenAccount,
+  onConnectAnother,
+  onClose
+}) => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
@@ -190,6 +197,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
 
   const [token, setToken] = useState<DepositToken>('USDC');
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
+  const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
   const [route, setRoute] = useState<BridgeRoute>('epoch');
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
@@ -574,8 +582,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
               amount={amount}
               isValidAmount={setupReady}
               error={error ?? selectedBalance.error ?? undefined}
+              evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
               onSelectToken={() => setTokenDrawerOpen(true)}
+              onSwitch={() => setSwitchDrawerOpen(true)}
               onContinue={handleContinue}
             />
           );
@@ -585,6 +595,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
       amount,
       bridgeTxId,
       error,
+      evmAddress,
       epochStatus,
       fastFeeUsd,
       handleAmountChange,
@@ -626,6 +637,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
         ethLoading={ethBalance.loading}
         usdcLoading={usdcBalance.loading}
         onSelect={handleTokenSelect}
+      />
+      <EvmSwitchWalletDrawer
+        open={switchDrawerOpen}
+        onOpenChange={setSwitchDrawerOpen}
+        address={evmAddress}
+        ethBalance={ethBalance.formatted}
+        ethLoading={ethBalance.loading}
+        onConnectAnother={onConnectAnother}
       />
     </div>
   );

@@ -13,6 +13,8 @@
 
 ### Changes
 
+* [CHANGE][all] **Bridge-deposit amount screen shows the connected wallet.** The deposit amount step now leads with a wallet header — the connected wallet's logo (from AppKit's `useWalletInfo`, with a generic-glyph fallback on native mobile), the front-truncated EVM address, and a switch button — replacing the old "EVM wallet connected" line. The switch button opens a "Switch wallet" bottom sheet listing the current wallet (logo, address, ETH balance) with a "Connect another wallet" action that reopens the wallet picker.
+
 * [FEATURE][all] **Smart Withdraw activity tracking.** Redeeming an Epoch lending position now creates an `earn-withdraw` activity row that shows the withdrawal immediately and advances through Redeeming → Delivering → Received (Failed on error) as the gasless intent settles and the bridged note lands; the row is polled in the background and reconciled on app restart, its detail page links the market, position owner, redeem intent, and note. Also fixes the long-dead bridge-in consume tagging so plain EVM→Miden deposits finally render as "Bridged from EVM".
 
 * [CHANGE][all] The home-screen "Fund your wallet" prompt now also mints 100 MIDEN from the official Miden faucet (PoW-gated `faucet-api.*` REST API) in parallel with the existing forkchoice IMIDEN mint, and its "Fund now" button sits beside the prompt text instead of below it.

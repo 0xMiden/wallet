@@ -43,25 +43,29 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
     }
   }, [connect, nativeReown, useNativeReownWallet]);
 
-  const handleDisconnect = useCallback(async () => {
+  // AppKit won't open the Connect view while a wallet is already connected, so
+  // "switch wallet" = disconnect the current one, then reopen the picker.
+  const handleSwitchWallet = useCallback(async () => {
     hapticMedium();
     try {
       if (useNativeReownWallet) {
         await nativeReown.disconnect();
+        await nativeReown.present();
         return;
       }
       await disconnect();
+      await connect({ view: 'Connect', namespace: 'eip155' });
     } catch (err) {
-      console.error('[BridgeDeposit] disconnect failed', err);
+      console.error('[BridgeDeposit] switch wallet failed', err);
     }
-  }, [disconnect, nativeReown, useNativeReownWallet]);
+  }, [connect, disconnect, nativeReown, useNativeReownWallet]);
 
   if (connected && address && currentMidenAccount) {
     return (
       <EvmBridgeDepositScreen
         evmAddress={address}
         midenAccount={currentMidenAccount}
-        onDisconnect={handleDisconnect}
+        onConnectAnother={handleSwitchWallet}
         onClose={handleClose}
       />
     );
