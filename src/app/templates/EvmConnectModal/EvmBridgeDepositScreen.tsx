@@ -8,6 +8,7 @@ import { useWriteContract } from 'wagmi';
 
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { ScreenHeader } from 'components/ScreenHeader';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
 import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import {
@@ -15,16 +16,19 @@ import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
 } from 'lib/epoch/bridgeable-token';
+import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletAccount } from 'lib/shared/types';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
-import { isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
+import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
+import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
+import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 
 const MIDEN_USDC_FAUCET_ID = '0x2458e5446128e6b150b75b8ebd9ce1';
@@ -160,12 +164,17 @@ const BRIDGE_ROUTES: Route[] = [
     name: ReceiveStep.ShowBridgePageReview,
     animationIn: 'push',
     animationOut: 'pop'
+  },
+  {
+    name: ReceiveStep.ShowBridgePageStatus,
+    animationIn: 'push',
+    animationOut: 'pop'
   }
 ];
 
 const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAddress, midenAccount, onClose }) => {
   const { t } = useTranslation();
-  const { navigateTo, goBack, cardStack } = useNavigator();
+  const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
   const { walletProvider } = useAppKitProvider<EIP1193Provider>('eip155');
   const nativeReownAvailable = isNativeReownAvailable();
   const writeContract = useWriteContract();
@@ -187,6 +196,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
   const [ethBalance, setEthBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
   const [slowError, setSlowError] = useState<string | null>(null);
+  const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
+  const [creatingBridgeRow, setCreatingBridgeRow] = useState(false);
 
   const selectedBalance = token === 'ETH' ? ethBalance : usdcBalance;
   // Only USDC on the Fast (Epoch) route is quotable today; ETH-fast wraps to WETH
@@ -197,13 +208,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
   );
 
   useMobileBackHandler(() => {
+    if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
+      onClose();
+      return true;
+    }
     if (cardStack.length > 1) {
       goBack();
       return true;
     }
     onClose();
     return true;
-  }, [cardStack.length, goBack, onClose]);
+  }, [activeRoute?.name, cardStack.length, goBack, onClose]);
 
   useEffect(() => {
     resetEpoch();
@@ -305,56 +320,71 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
     [resetEpoch, route]
   );
 
-  const handleSlowBridge = useCallback(async () => {
-    if (!isValidAmount(amount)) return;
-    if (!nativeReownAvailable && !walletProvider) return;
-
-    hapticMedium();
-    setSlowStatus('signing');
-    setSlowError(null);
-
-    try {
-      const amountInBaseUnits = parseUnits(amount.trim(), 18);
-      const contractAddress = AGGLAYER_CONTRACT_ADDRESS.get('sepolia')! as `0x${string}`;
-      const args = [
-        MIDEN_CHAIN_ID,
-        midenAddrToEvmAddr(midenAccount.publicKey),
-        amountInBaseUnits,
-        '0x0000000000000000000000000000000000000000',
-        true,
-        '0x'
-      ] as const;
-
-      if (nativeReownAvailable) {
-        const data = encodeFunctionData({
-          abi: AGGLAYER_BRIDGE_ABI,
-          functionName: 'bridgeAsset',
-          args
-        });
-        await NativeReown.sendTransaction({
-          chainId: DEFAULT_CHAIN_ID,
-          from: evmAddress,
-          to: contractAddress,
-          value: toHex(amountInBaseUnits),
-          data
-        });
-      } else {
-        await writeContract.mutateAsync({
-          abi: AGGLAYER_BRIDGE_ABI,
-          address: contractAddress,
-          functionName: 'bridgeAsset',
-          args,
-          value: amountInBaseUnits
-        });
+  const handleSlowBridge = useCallback(
+    async (trackingTxId: string) => {
+      if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
+        const message = 'The connected EVM wallet provider is unavailable.';
+        setSlowError(message);
+        setSlowStatus('failed');
+        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message });
+        return;
       }
 
-      setSlowStatus('submitted');
-    } catch (err) {
-      console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
-      setSlowError(errorMessage(err));
-      setSlowStatus('failed');
-    }
-  }, [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, walletProvider, writeContract]);
+      hapticMedium();
+      setSlowStatus('signing');
+      setSlowError(null);
+
+      try {
+        const amountInBaseUnits = parseUnits(amount.trim(), 18);
+        const contractAddress = AGGLAYER_CONTRACT_ADDRESS.get('sepolia')! as `0x${string}`;
+        const args = [
+          MIDEN_CHAIN_ID,
+          midenAddrToEvmAddr(midenAccount.publicKey),
+          amountInBaseUnits,
+          '0x0000000000000000000000000000000000000000',
+          true,
+          '0x'
+        ] as const;
+
+        let hash: `0x${string}`;
+        if (nativeReownAvailable) {
+          const data = encodeFunctionData({
+            abi: AGGLAYER_BRIDGE_ABI,
+            functionName: 'bridgeAsset',
+            args
+          });
+          const result = await NativeReown.sendTransaction({
+            chainId: DEFAULT_CHAIN_ID,
+            from: evmAddress,
+            to: contractAddress,
+            value: toHex(amountInBaseUnits),
+            data
+          });
+          hash = unwrapNativeResult(result.hash) as `0x${string}`;
+        } else {
+          hash = await writeContract.mutateAsync({
+            abi: AGGLAYER_BRIDGE_ABI,
+            address: contractAddress,
+            functionName: 'bridgeAsset',
+            args,
+            value: amountInBaseUnits
+          });
+        }
+
+        await updateBridgedReceivePhase(trackingTxId, 'submitting', { evmTxHash: hash });
+        await waitForSepoliaReceipt(hash);
+        await updateBridgedReceivePhase(trackingTxId, 'delivering', { evmTxHash: hash });
+        setSlowStatus('submitted');
+      } catch (err) {
+        console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
+        const message = errorMessage(err);
+        setSlowError(message);
+        setSlowStatus('failed');
+        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
+      }
+    },
+    [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, walletProvider, writeContract]
+  );
 
   const setupReady = isValidAmount(amount);
   const setupToken: UIToken = useMemo(() => {
@@ -426,7 +456,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
 
   // Review-step confirm state: spin while the submit is signing, and block
   // re-submits once it's in flight / done.
-  const submitting = route === 'epoch' ? epochStatus === 'signing' : slowStatus === 'signing';
+  const submitting = creatingBridgeRow || (route === 'epoch' ? epochStatus === 'signing' : slowStatus === 'signing');
   const submitted =
     route === 'epoch' ? epochStatus === 'pending' || epochStatus === 'done' : slowStatus === 'submitted';
   const reviewCanConfirm = canConfirmRoute && !submitting && !submitted;
@@ -437,6 +467,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
     navigateTo(ReceiveStep.ShowBridgePageRoute);
   }, [navigateTo, setupReady]);
 
+  const handleHeaderBack = useCallback(() => {
+    if (cardStack.length > 1) {
+      goBack();
+      return;
+    }
+    onClose();
+  }, [cardStack.length, goBack, onClose]);
+
   // From the Route step: proceed to Review (once the route is confirmable) rather
   // than submitting directly. The Review step's Confirm runs handleConfirm.
   const handleContinueToReview = useCallback(() => {
@@ -445,19 +483,59 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
     navigateTo(ReceiveStep.ShowBridgePageReview);
   }, [canConfirmRoute, navigateTo]);
 
-  const handleConfirm = useCallback(() => {
-    if (!canConfirmRoute) return;
-    if (route === 'agglayer') {
-      handleSlowBridge();
-      return;
+  const handleConfirm = useCallback(async () => {
+    if (!canConfirmRoute || creatingBridgeRow) return;
+    setCreatingBridgeRow(true);
+    try {
+      hapticMedium();
+      const expectedAmount =
+        route === 'agglayer'
+          ? parseUnits(amount.trim(), ETH_DECIMALS)
+          : BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
+      const txId = await initiateBridgedReceiveTransaction({
+        accountId: midenAccount.publicKey,
+        amount: expectedAmount,
+        faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
+        provider: route,
+        sourceAddress: evmAddress,
+        sourceAmount: amount.trim(),
+        sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+        outputAmount,
+        outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
+      });
+      setBridgeTxId(txId);
+      navigateTo(ReceiveStep.ShowBridgePageStatus);
+      if (route === 'agglayer') {
+        void handleSlowBridge(txId);
+      } else {
+        void executeEVMToMiden(txId);
+      }
+    } catch (err) {
+      console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
+      setSlowError(errorMessage(err));
+    } finally {
+      setCreatingBridgeRow(false);
     }
-    hapticMedium();
-    executeEVMToMiden().catch(err => console.error('[EvmBridgeDepositScreen] execute failed', err));
-  }, [canConfirmRoute, executeEVMToMiden, handleSlowBridge, route]);
+  }, [
+    amount,
+    canConfirmRoute,
+    creatingBridgeRow,
+    epochQuote?.quoteResult.tokenOut,
+    evmAddress,
+    executeEVMToMiden,
+    handleSlowBridge,
+    midenAccount.publicKey,
+    navigateTo,
+    outputAmount,
+    route,
+    token
+  ]);
 
   const renderStep = useCallback(
     (activeRoute: Route) => {
       switch (activeRoute.name) {
+        case ReceiveStep.ShowBridgePageStatus:
+          return bridgeTxId ? <EvmBridgeDepositStatus txId={bridgeTxId} onDone={onClose} /> : null;
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
@@ -505,6 +583,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
     },
     [
       amount,
+      bridgeTxId,
       error,
       epochStatus,
       fastFeeUsd,
@@ -523,6 +602,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
       submitting,
       reviewCanConfirm,
       goBack,
+      onClose,
       setupToken,
       selectedBalance.error,
       setupReady
@@ -531,6 +611,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({ evmAdd
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-heading-gray">
+      {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
+        <div className="shrink-0 px-4">
+          <ScreenHeader title={t('midenBridge')} backLabel={t('back')} onBack={handleHeaderBack} />
+        </div>
+      )}
       <Navigator renderRoute={renderStep} />
       <EvmBridgeTokenDrawer
         open={tokenDrawerOpen}

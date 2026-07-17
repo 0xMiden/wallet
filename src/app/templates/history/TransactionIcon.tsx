@@ -43,7 +43,7 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
 
   // Bridge rows keep the swap glyph through every state (incl. pending) — the
   // Pending/Confirmed status is surfaced in text, not by swapping the icon.
-  if (entry.txType === 'bridged-send') {
+  if (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider) {
     return (
       <div
         className={`${config.container} rounded-10 flex items-center justify-center`}

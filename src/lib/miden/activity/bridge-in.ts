@@ -1,6 +1,8 @@
+import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
 import * as Repo from 'lib/miden/repo';
 
-import { IBridgeInInfo, ITransactionStatus } from '../db/types';
+import { compareAccountIds } from './utils';
+import { IBridgeInInfo, IBridgedReceiveExtraInputs, ITransactionStatus } from '../db/types';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 
 /**
@@ -116,6 +118,19 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
     tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn: { ...info, midenNoteId: noteId } };
     tx.displayMessage = 'Bridged from EVM';
   });
+  if (info.bridgeReceiveTxId && row.amount !== undefined && row.faucetId) {
+    try {
+      const { updateBridgedReceivePhase } = await import('../transaction/complete');
+      await updateBridgedReceivePhase(
+        info.bridgeReceiveTxId,
+        'received',
+        { midenNoteId: noteId, outputSymbol: info.sourceSymbol },
+        { amount: row.amount, faucetId: row.faucetId, transactionId: row.transactionId }
+      );
+    } catch (err) {
+      console.warn('[bridge-in] bridge receive patch (resolve path) failed', err);
+    }
+  }
   // Race cover: if the consume already completed before this intent was resolved,
   // `completeConsumeTransaction` never saw the bridge-in, so flip the linked
   // Smart Withdraw row to `received` here instead. Lazy import avoids a cycle.
@@ -133,6 +148,44 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
     }
   }
   return true;
+}
+
+/**
+ * Match an AggLayer-delivered note to the oldest compatible tracking row.
+ * The fixed sender is authoritative; amount + recipient prevent two deposits
+ * to the same wallet from being paired in the wrong order.
+ */
+export async function takeAgglayerBridgeInInfo(args: {
+  accountId: string;
+  senderAccountId: string;
+  amount: bigint;
+}): Promise<IBridgeInInfo | undefined> {
+  const configuredSender = AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID.trim();
+  if (!configuredSender || !compareAccountIds(configuredSender, args.senderAccountId)) return undefined;
+
+  const matches = await Repo.transactions
+    .filter(tx => {
+      if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
+      const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
+      return (
+        inputs?.provider === 'agglayer' &&
+        inputs.phase !== 'received' &&
+        inputs.phase !== 'failed' &&
+        tx.amount === args.amount
+      );
+    })
+    .toArray();
+  matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
+  const match = matches[0];
+  if (!match) return undefined;
+  const inputs = match.extraInputs as IBridgedReceiveExtraInputs;
+  return {
+    provider: 'agglayer',
+    sourceAmount: inputs.sourceAmount,
+    sourceSymbol: inputs.sourceSymbol,
+    evmTxHash: inputs.evmTxHash,
+    bridgeReceiveTxId: match.id
+  };
 }
 
 /**

@@ -6,13 +6,15 @@ import * as Repo from 'lib/miden/repo';
 
 import { setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { takeBridgeInInfoForNotes } from '../activity/bridge-in';
+import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import {
   BridgedSendTransaction,
   EarnDepositTransaction,
   IBridgeClaimStatus,
+  IBridgedReceiveExtraInputs,
+  IBridgedReceivePhase,
   IBridgedSendExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -128,7 +130,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // fail the consume itself.
   try {
     const consumedNoteIds = dbTransaction?.noteIds ?? (dbTransaction?.noteId ? [dbTransaction.noteId] : []);
-    const bridgeIn = await takeBridgeInInfoForNotes(consumedNoteIds);
+    const bridgeIn =
+      (await takeBridgeInInfoForNotes(consumedNoteIds)) ??
+      (await takeAgglayerBridgeInInfo({
+        accountId: dbTransaction?.accountId ?? '',
+        senderAccountId: sender,
+        amount
+      }));
     if (bridgeIn) {
       await Repo.transactions.where({ id }).modify(tx => {
         tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
@@ -143,6 +151,17 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
             outputSymbol: bridgeIn.sourceSymbol
           },
           amount
+        );
+      }
+      if (bridgeIn.bridgeReceiveTxId) {
+        await updateBridgedReceivePhase(
+          bridgeIn.bridgeReceiveTxId,
+          'received',
+          {
+            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
+            outputSymbol: bridgeIn.sourceSymbol
+          },
+          { amount, faucetId, transactionId: executedTransaction.id().toHex() }
         );
       }
     }
@@ -474,6 +493,31 @@ export const updateEarnWithdrawPhase = async (
     const ei = tx.extraInputs as IEarnWithdrawExtraInputs;
     tx.extraInputs = { ...ei, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
+    if (phase === 'failed' && extra?.error) tx.error = extra.error;
+  });
+};
+
+/** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
+export const updateBridgedReceivePhase = async (
+  id: string,
+  phase: IBridgedReceivePhase,
+  extra?: Partial<
+    Pick<
+      IBridgedReceiveExtraInputs,
+      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+    >
+  >,
+  received?: { amount: bigint; faucetId: string; transactionId?: string }
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    if (received) {
+      tx.amount = received.amount;
+      tx.faucetId = received.faucetId;
+      if (received.transactionId) tx.transactionId = received.transactionId;
+      tx.displayMessage = 'Bridged from EVM';
+    }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
 };

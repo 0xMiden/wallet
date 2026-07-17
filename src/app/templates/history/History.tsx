@@ -11,6 +11,7 @@ import {
 } from 'lib/miden/activity';
 import {
   formatTransactionStatus,
+  IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
   IBridgeInInfo,
   IEarnWithdrawExtraInputs,
@@ -159,13 +160,20 @@ async function fetchTransactionsAsHistoryEntries(
   // Suppress the auto-consume row that claimed a Smart Withdraw's bridged note when
   // its `earn-withdraw` row still exists — that withdraw row is the single trace. A
   // dangling reference (withdraw row gone) falls through to a normal bridge-in receive.
-  const linkedWithdrawIds = transactions
-    .map(tx => (tx.type === 'consume' ? tx.extraInputs?.bridgeIn?.earnWithdrawTxId : undefined))
+  const linkedTrackingIds = transactions
+    .map(tx =>
+      tx.type === 'consume'
+        ? (tx.extraInputs?.bridgeIn?.earnWithdrawTxId ?? tx.extraInputs?.bridgeIn?.bridgeReceiveTxId)
+        : undefined
+    )
     .filter((id): id is string => Boolean(id));
-  const existingWithdrawIds = await existingTransactionIds(linkedWithdrawIds);
+  const existingTrackingIds = await existingTransactionIds(linkedTrackingIds);
   const visibleTransactions = transactions.filter(tx => {
-    const linkedId = tx.type === 'consume' ? tx.extraInputs?.bridgeIn?.earnWithdrawTxId : undefined;
-    return !(linkedId && existingWithdrawIds.has(linkedId));
+    const linkedId =
+      tx.type === 'consume'
+        ? (tx.extraInputs?.bridgeIn?.earnWithdrawTxId ?? tx.extraInputs?.bridgeIn?.bridgeReceiveTxId)
+        : undefined;
+    return !(linkedId && existingTrackingIds.has(linkedId));
   });
 
   const entries = visibleTransactions.map(async tx => {
@@ -179,6 +187,8 @@ async function fetchTransactionsAsHistoryEntries(
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+    const bridgedReceive =
+      tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw =
       tx.type === 'earn-withdraw' ? (tx.extraInputs as IEarnWithdrawExtraInputs | undefined) : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
@@ -189,6 +199,7 @@ async function fetchTransactionsAsHistoryEntries(
       key: `completed-${tx.id}`,
       timestamp: tx.completedAt,
       message: updateMessageForFailed,
+      status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
       transactionIcon: icon,
       // Earn withdraw amounts are the human `sourceAmount` (USDC), NOT the row's
@@ -222,10 +233,15 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
-      bridgeInProvider: bridgeIn?.provider,
-      bridgeInSourceAmount: bridgeIn?.sourceAmount,
-      bridgeInSourceSymbol: bridgeIn?.sourceSymbol,
-      bridgeInEvmTxHash: bridgeIn?.evmTxHash,
+      bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
+      bridgeInSourceAddress: bridgedReceive?.sourceAddress,
+      bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
+      bridgeInSourceSymbol: bridgedReceive?.sourceSymbol ?? bridgeIn?.sourceSymbol,
+      bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
+      bridgeInPhase: bridgedReceive?.phase,
+      bridgeInOutputAmount: bridgedReceive?.outputAmount,
+      bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId,
       earnWithdrawPhase: earnWithdraw?.phase
     } as IHistoryEntry;
 
@@ -252,6 +268,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,
       message: tx.displayMessage || 'Generating transaction',
+      status: tx.status,
       amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
       requestedAmount: swapFields?.requestedAmount,

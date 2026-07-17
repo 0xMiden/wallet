@@ -1,6 +1,7 @@
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
+  IBridgedReceivePhase,
   IEarnWithdrawPhase,
   ITransactionIcon,
   ITransactionStatus,
@@ -57,9 +58,14 @@ export interface IHistoryEntry {
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
+  bridgeInSourceAddress?: string;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;
+  bridgeInPhase?: IBridgedReceivePhase;
+  bridgeInOutputAmount?: string;
+  bridgeInOutputSymbol?: string;
+  bridgeInMidenNoteId?: string;
 
   // `earn-withdraw` (Smart Withdraw) lifecycle phase, driving the row's status chip.
   earnWithdrawPhase?: IEarnWithdrawPhase;

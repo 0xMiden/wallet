@@ -11,6 +11,7 @@ import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeTransaction,
+  reconcileBridgedReceives,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
@@ -37,6 +38,7 @@ import { truncateAddress } from 'utils/string';
 // Resume Smart Withdraw rows orphaned by an app kill exactly once per session
 // (post-unlock, when Explore first mounts). Module-level so it survives remounts.
 let earnWithdrawReconciled = false;
+let bridgeReceivesReconciled = false;
 
 const Explore: FC = () => {
   const account = useAccount();
@@ -118,6 +120,12 @@ const Explore: FC = () => {
     import('lib/epoch')
       .then(({ reconcileEarnWithdrawals }) => reconcileEarnWithdrawals())
       .catch(err => console.warn('[earn-withdraw] reconcile on mount failed', err));
+  }, []);
+
+  useEffect(() => {
+    if (bridgeReceivesReconciled) return;
+    bridgeReceivesReconciled = true;
+    reconcileBridgedReceives().catch(err => console.warn('[bridge-receive] reconcile on mount failed', err));
   }, []);
 
   const fetchFaucetState = useCallback(async () => {

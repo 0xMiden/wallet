@@ -2,7 +2,13 @@ export const BRIDGE_ASSET_ABI = [
   // Human readable abi
   'function bridgeAsset(uint32 destinationNetwork,address destinationAddress,uint256 amount,address token,bool forceUpdateGlobalExitRoot,bytes calldata permitData)'
 ];
-export const MIDEN_CHAIN_ID = 76;
+export const MIDEN_CHAIN_ID = 78;
+/**
+ * Miden account that sends notes created by AggLayer bridge-ins.
+ * Matching is intentionally disabled whenever this is empty so ordinary
+ * incoming notes cannot be mistaken for bridge deliveries.
+ */
+export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aqu8zjdwvcgkeug5a67kpwmnsymvmkg0_qr7qqq9wr6w';
 export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
   ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
 ]);

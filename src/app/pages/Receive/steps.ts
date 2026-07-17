@@ -1,9 +1,7 @@
 export enum ReceiveStep {
-  Default = 'Default',
-  // Outer Receive navigator: the whole bridge-deposit flow as a single card.
-  ShowBridgePage = 'ShowBridgePage',
-  // Inner bridge navigator: amount entry → route selection → review.
+  // Full-screen bridge navigator: amount entry → route selection → review → status.
   ShowBridgePageTakeAmount = 'ShowBridgePageTakeAmount',
   ShowBridgePageRoute = 'ShowBridgePageRoute',
-  ShowBridgePageReview = 'ShowBridgePageReview'
+  ShowBridgePageReview = 'ShowBridgePageReview',
+  ShowBridgePageStatus = 'ShowBridgePageStatus'
 }

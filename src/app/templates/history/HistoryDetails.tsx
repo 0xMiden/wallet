@@ -18,7 +18,12 @@ import {
   SwapOrderTracking,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
-import { IBridgedSendExtraInputs, IEarnWithdrawExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
+import {
+  IBridgedReceiveExtraInputs,
+  IBridgedSendExtraInputs,
+  IEarnWithdrawExtraInputs,
+  ITransactionStatus
+} from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -37,12 +42,14 @@ import { IHistoryEntry } from './IHistoryEntry';
 import TransactionIcon from './TransactionIcon';
 import {
   BRIDGE_STATUS_LABEL_KEY,
+  bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
   EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnWithdrawToneOf,
   formatDate,
-  formatEarnWithdrawAmount
+  formatEarnWithdrawAmount,
+  isBridgeInEntry
 } from './transactionUtils';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
@@ -73,8 +80,9 @@ const DISPLAY_DECIMAL_PLACES = 3;
 
 /** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
-  const { inSymbol, outSymbol, outAmount } = bridgeRowDisplay(entry);
-  const inAmount = entry.amount?.toString() ?? '—';
+  const bridgeIn = isBridgeInEntry(entry);
+  const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+  const inAmount = (bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
   return (
     <div className="mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
       <span className="text-heading-gray">{inAmount}</span>
@@ -210,6 +218,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
       // Slow (Agglayer) and defaults every bridge to the Slow route.
       const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
+      const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
+        tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
       const earnWithdrawExtra = tx.type === 'earn-withdraw' ? (tx.extraInputs as IEarnWithdrawExtraInputs) : undefined;
       const historyEntry = {
         address: tx.accountId,
@@ -245,7 +255,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         bridgeIntentNonce: bridge?.intentNonce,
         bridgeFillTxHash: bridge?.fillTxHash,
         bridgeFillChainId: bridge?.fillChainId,
-        bridgeEpochStatus: bridge?.epochStatus
+        bridgeEpochStatus: bridge?.epochStatus,
+        bridgeInProvider: bridgeReceive?.provider,
+        bridgeInSourceAddress: bridgeReceive?.sourceAddress,
+        bridgeInSourceAmount: bridgeReceive?.sourceAmount,
+        bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
+        bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
+        bridgeInPhase: bridgeReceive?.phase,
+        bridgeInOutputAmount: bridgeReceive?.outputAmount,
+        bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
+        bridgeInMidenNoteId: bridgeReceive?.midenNoteId
       } as IHistoryEntry;
 
       if (tx.type === 'swap') {
@@ -278,6 +297,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();
   }, [loadTransaction, entry, loadError]);
+
+  // A detail page can be opened while proving/submission is still in progress.
+  // Keep reloading until the Miden transaction reaches a terminal state so a
+  // bridge failure replaces Pending without requiring the user to leave.
+  useEffect(() => {
+    if (entry?.status !== ITransactionStatus.Queued && entry?.status !== ITransactionStatus.GeneratingTransaction) {
+      return;
+    }
+
+    const timer = setInterval(() => void loadTransaction(), 3000);
+    return () => clearInterval(timer);
+  }, [entry?.status, loadTransaction]);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
@@ -394,10 +425,24 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
-  const isBridge = entry?.txType === 'bridged-send' && !entry.isCancelled;
+  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
+  const isBridgeIn = entry ? isBridgeInEntry(entry) && entry.txType === 'bridged-receive' : false;
+  const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
-  const fromAddress = isBridge ? entry?.address : entry?.message === 'Sent' ? entry?.address : entry?.secondaryAddress;
-  const toAddress = isBridge ? undefined : entry?.message === 'Sent' ? entry?.secondaryAddress : entry?.address;
+  const fromAddress = isBridgeOut
+    ? entry?.address
+    : isBridgeIn
+      ? undefined
+      : entry?.message === 'Sent'
+        ? entry?.address
+        : entry?.secondaryAddress;
+  const toAddress = isBridgeOut
+    ? undefined
+    : isBridgeIn
+      ? entry?.address
+      : entry?.message === 'Sent'
+        ? entry?.secondaryAddress
+        : entry?.address;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
@@ -461,6 +506,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         <HashChip hash={entry.externalTxId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
                       }
                       href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                    />
+                  </DetailRow>
+                )}
+
+                {isBridgeIn && entry.bridgeInSourceAddress && (
+                  <DetailRow label={t('from')}>
+                    <ExternalLinkValue
+                      displayValue={
+                        <HashChip
+                          hash={entry.bridgeInSourceAddress}
+                          trimHash
+                          fill="#9E9E9E"
+                          className="ml-2"
+                          copyIcon={false}
+                        />
+                      }
+                      href={SEPOLIA_ADDRESS_URL(entry.bridgeInSourceAddress)}
                     />
                   </DetailRow>
                 )}
@@ -564,23 +626,67 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             )}
 
             {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
-            {entry.status === ITransactionStatus.Failed && entry.errorMessage && (
-              <div className="mt-6">
-                <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
-                  <p
-                    className={clsx(
-                      'px-4 py-3 text-sm font-medium wrap-break-word select-text',
-                      entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
-                    )}
-                  >
-                    {entry.errorMessage}
-                  </p>
+            {(entry.status === ITransactionStatus.Failed || (isBridgeIn && entry.bridgeInPhase === 'failed')) &&
+              entry.errorMessage && (
+                <div className="mt-6">
+                  <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
+                    <p
+                      className={clsx(
+                        'px-4 py-3 text-sm font-medium wrap-break-word select-text',
+                        entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
+                      )}
+                    >
+                      {entry.errorMessage}
+                    </p>
+                  </DetailCard>
+                </div>
+              )}
+
+            {/* Bridge route + EVM-side claim (bridged-send only) */}
+            {isBridgeOut && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
+
+            {isBridgeIn && (
+              <div className="mt-6 mb-4">
+                <DetailCard title={t('bridgeDetails')}>
+                  <DetailRow label={t('route')}>
+                    <span className="text-sm text-heading-gray font-medium">
+                      {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
+                    </span>
+                  </DetailRow>
+                  {entry.bridgeInEvmTxHash && (
+                    <DetailRow label={t('txIdLabel')}>
+                      <ExternalLinkValue
+                        displayValue={
+                          <HashChip
+                            hash={entry.bridgeInEvmTxHash}
+                            trimHash
+                            fill="#9E9E9E"
+                            className="ml-2"
+                            copyIcon={false}
+                          />
+                        }
+                        href={SEPOLIA_TX_URL(entry.bridgeInEvmTxHash)}
+                      />
+                    </DetailRow>
+                  )}
+                  <DetailRow label="Note" isLast>
+                    <span className="text-sm text-heading-gray font-medium">
+                      {entry.bridgeInMidenNoteId ? (
+                        <HashChip
+                          hash={entry.bridgeInMidenNoteId}
+                          trimHash
+                          fill="#9E9E9E"
+                          className="ml-2"
+                          copyIcon={false}
+                        />
+                      ) : (
+                        t('pending')
+                      )}
+                    </span>
+                  </DetailRow>
                 </DetailCard>
               </div>
             )}
-
-            {/* Bridge route + EVM-side claim (bridged-send only) */}
-            {isBridge && <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />}
 
             {/* Swap order tracking */}
             {entry.txType === 'swap' && orderId != null && (

@@ -11,6 +11,7 @@ import { getIntercom } from 'lib/store';
 import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import {
+  BridgedReceiveTransaction,
   BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
@@ -368,6 +369,33 @@ export const initiateEarnWithdrawTransaction = async (
     faucetId,
     sourceAmount,
     sourceSymbol
+  );
+  await Repo.transactions.add(dbTransaction);
+  return dbTransaction.id;
+};
+
+/** Insert a tracking-only EVM → Miden bridge row. */
+export const initiateBridgedReceiveTransaction = async (args: {
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  provider: IBridgeProvider;
+  sourceAddress: string;
+  sourceAmount: string;
+  sourceSymbol: string;
+  outputAmount?: string;
+  outputSymbol?: string;
+}): Promise<string> => {
+  const dbTransaction = new BridgedReceiveTransaction(
+    args.accountId,
+    args.amount,
+    args.faucetId,
+    args.provider,
+    args.sourceAddress,
+    args.sourceAmount,
+    args.sourceSymbol,
+    args.outputAmount,
+    args.outputSymbol
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;

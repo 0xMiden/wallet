@@ -1,6 +1,10 @@
+import {
+  existingTransactionIds,
+  registerPendingBridgeIn,
+  takeAgglayerBridgeInInfo,
+  takeBridgeInInfoForNotes
+} from './bridge-in';
 import { IBridgeInInfo } from '../db/types';
-
-import { existingTransactionIds, registerPendingBridgeIn, takeBridgeInInfoForNotes } from './bridge-in';
 
 const mockStore: Record<string, unknown> = {};
 
@@ -12,9 +16,14 @@ jest.mock('../front/storage', () => ({
 }));
 
 const mockPrimaryKeys = jest.fn();
+const mockTransactions: any[] = [];
+jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender' }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ primaryKeys: mockPrimaryKeys })) }))
+    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ primaryKeys: mockPrimaryKeys })) })),
+    filter: jest.fn((predicate: (tx: any) => boolean) => ({
+      toArray: jest.fn(async () => mockTransactions.filter(predicate))
+    }))
   }
 }));
 
@@ -24,6 +33,52 @@ const EVM_OWNER = '0x1111111111111111111111111111111111111111';
 beforeEach(() => {
   jest.clearAllMocks();
   for (const key of Object.keys(mockStore)) delete mockStore[key];
+  mockTransactions.splice(0);
+});
+
+describe('takeAgglayerBridgeInInfo', () => {
+  it('matches sender, recipient and amount and selects the oldest pending row', async () => {
+    mockTransactions.push(
+      {
+        id: 'newer',
+        type: 'bridged-receive',
+        accountId: 'miden-account_tag',
+        amount: 5n,
+        initiatedAt: 2,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      },
+      {
+        id: 'older',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'submitting', sourceAmount: '5', sourceSymbol: 'ETH' }
+      }
+    );
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ provider: 'agglayer', bridgeReceiveTxId: 'older' });
+  });
+
+  it('does not match a different sender or amount', async () => {
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'other', amount: 5n })
+    ).resolves.toBeUndefined();
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 6n })
+    ).resolves.toBeUndefined();
+  });
 });
 
 describe('takeBridgeInInfoForNotes', () => {
