@@ -203,10 +203,11 @@ function getBridgeAmount(
 function buildBridgeRowProps(entry: IHistoryEntry, t: Translate): ActivityRowProps {
   const bridgeIn = entry.txType !== 'bridged-send';
   const display = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+  const failed = display.status === 'failed';
 
   return {
-    icon: <SwapIcon className="w-5 h-5" />,
-    iconBg: 'bg-[#777487]',
+    icon: failed ? <FailedCrossIcon /> : <SwapIcon className="w-5 h-5" />,
+    iconBg: failed ? 'bg-[#CC5D5D]' : 'bg-[#777487]',
     title: t('bridgeRowTitle', { from: display.inSymbol, to: display.outSymbol }),
     subtitle: t('bridgeRowVia', { provider: display.providerLabel, network: display.network }),
     amount: getBridgeAmount(display.outAmount, display.outSymbol, bridgeIn),

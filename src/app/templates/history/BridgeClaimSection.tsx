@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
 import { pollEpochIntentFill } from 'lib/epoch';
 import { updateBridgeClaimStatus } from 'lib/miden/activity';
-import { IBridgeClaimStatus } from 'lib/miden/db/types';
+import { IBridgeClaimStatus, ITransactionStatus } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { Button } from 'lib/ui/button';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
@@ -65,11 +65,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   const [fillTxHash, setFillTxHash] = useState<string | undefined>(entry.bridgeFillTxHash);
 
   const connectedMatchesDestination = !!evmAddress && evmAddress.toLowerCase() === destination.toLowerCase();
+  const transactionFailed = entry.status === ITransactionStatus.Failed;
 
   // Poll the bridge indexer for a claimable deposit to the destination. Stateless
   // / indexer-driven, so it surfaces deposits from a previous session too.
   useBridgeTracker({
-    active: isAgglayer && status !== 'claimed' && !!destination,
+    active: isAgglayer && !transactionFailed && status !== 'claimed' && !!destination,
     intervalMs: 8000,
     poll: async () => {
       const deposit = await findClaimableMidenToEvmDeposit(destination);
@@ -156,7 +157,11 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
         <DetailRow label={t('destinationNetwork')} value="Sepolia" />
         <DetailRow label={isEpoch ? t('status') : t('claimStatus')} isLast={!(isEpoch && fillTxHash)}>
           <span className="text-sm text-heading-gray font-medium">
-            {isEpoch ? t(EPOCH_STATUS_LABEL[epochStatus]) : t(CLAIM_STATUS_LABEL[status])}
+            {transactionFailed
+              ? t('bridgeFailed')
+              : isEpoch
+                ? t(EPOCH_STATUS_LABEL[epochStatus])
+                : t(CLAIM_STATUS_LABEL[status])}
           </span>
         </DetailRow>
         {isEpoch && fillTxHash && (
@@ -171,6 +176,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
 
       {/* Claim UI is Agglayer-only — Epoch (Fast) auto-settles, so it shows none. */}
       {isAgglayer &&
+        !transactionFailed &&
         (status !== 'claimed' ? (
           <div className="mt-3 flex flex-col gap-2">
             {error && (

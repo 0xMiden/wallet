@@ -9,7 +9,7 @@ import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
-import { isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
+import { bridgeStatusOf, isFaucetRequest, TRANSACTION_COLORS } from './transactionUtils';
 
 /** Slate square behind the white swap glyph for bridge rows (matches the design). */
 const BRIDGE_ICON_BG = '#777487';
@@ -41,9 +41,18 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     );
   }
 
-  // Bridge rows keep the swap glyph through every state (incl. pending) — the
-  // Pending/Confirmed status is surfaced in text, not by swapping the icon.
+  // A terminal bridge failure takes precedence over the route glyph. This also
+  // covers the detail page, where `transactionIcon` retains the original SEND
+  // icon and failure is represented by the raw transaction status.
   if (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider) {
+    if (bridgeStatusOf(entry) === 'failed') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-[#CC5D5D]`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
+    }
+
     return (
       <div
         className={`${config.container} rounded-10 flex items-center justify-center`}
