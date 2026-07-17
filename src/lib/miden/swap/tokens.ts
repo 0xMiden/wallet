@@ -71,47 +71,65 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   _swapTokens.find(token => token.symbol === symbol);
 
-interface PriceResponse {
-  /** USD price for 1 whole token (i.e. 1 * 10^decimals base units). */
-  price: number;
+/**
+ * A single quote for an (offered, requested) pair from the DEX `swap-eta`
+ * endpoint. It rolls the oracle fair rate together with live fill signals, so
+ * the swap flow needs just this one call instead of two per-token price fetches.
+ */
+export interface SwapEta {
+  /** Does the order cross resting liquidity right now (at the asked price)? */
+  canFill: boolean;
+  /** Next-batch ETA in seconds, set when `canFill` is true. */
+  estimatedSeconds: number | null;
+  /** Is the asked price worse than the live oracle? */
+  offMarket: boolean;
+  /** Oracle fair rate: requested whole tokens per 1 offered whole token. */
+  marketPrice: string;
+  /** Median settle time (s) for this pair over the last 24h, null if no data. */
+  median24hSeconds: number | null;
 }
 
 /**
- * Base URL of the in-protocol DEX price feed.
+ * Fetch a `SwapEta` for an offered → requested pair. Amounts are raw base units
+ * (bigint); faucets are converted to their canonical hex account ids. The
+ * oracle `marketPrice` is amount-independent, so passing `0n` for
+ * `requestAmountRaw` still returns a usable rate to seed the receive field.
  *
  * TODO: hardcoded devnet host — move to per-network config before any
  * non-devnet use so quotes point at the correct feed for the active network.
  */
-const PRICE_FEED_BASE_URL = 'https://35-175-40-181.sslip.io';
+const SWAP_ETA_BASE_URL = 'https://35-175-40-181.sslip.io';
 
-/** Abort a price request that hasn't responded within this window. */
-const PRICE_FETCH_TIMEOUT_MS = 10_000;
+/** Abort a quote request that hasn't responded within this window. */
+const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;
 
-/** Fetch the USD price of 1 whole `token` from the in-protocol DEX price feed. */
-export async function getSwapTokenPrice(token: SwapToken): Promise<number> {
-  const faucetHexId = accountIdStringToSdk(token.faucetId).toString();
+export async function getSwapEta(
+  offerToken: SwapToken,
+  offerAmountRaw: bigint,
+  requestToken: SwapToken,
+  requestAmountRaw: bigint
+): Promise<SwapEta> {
+  const params = new URLSearchParams({
+    offered_faucet: accountIdStringToSdk(offerToken.faucetId).toString(),
+    offered_amount: offerAmountRaw.toString(),
+    requested_faucet: accountIdStringToSdk(requestToken.faucetId).toString(),
+    requested_amount: requestAmountRaw.toString()
+  });
+
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PRICE_FETCH_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), SWAP_ETA_FETCH_TIMEOUT_MS);
 
   let res: Response;
   try {
-    res = await fetch(`${PRICE_FEED_BASE_URL}/v1/price/${faucetHexId}`, { signal: controller.signal });
+    res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
-
   if (!res.ok) {
-    throw new Error(`Price request failed for ${token.symbol}: ${res.status}`);
+    throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
   }
-
-  const json = (await res.json()) as PriceResponse;
-  const price = Number(json?.price);
-  // Guard against a malformed feed response (missing / 0 / negative / NaN),
-  // which would otherwise flow into the quote math as a bogus rate.
-  if (!Number.isFinite(price) || price <= 0) {
-    throw new Error(`Price feed returned an invalid price for ${token.symbol}: ${json?.price}`);
-  }
-  return price;
+  const json: SwapEta = await res.json();
+  return json;
 }
 
 /**
@@ -122,24 +140,20 @@ export async function getSwapTokenPrice(token: SwapToken): Promise<number> {
 export const SOLVER_MARGIN = 0.05;
 
 /**
- * Derive the requested-token amount from the offered amount via each token's
- * USD price. Both prices are per 1 whole token, so the decimals cancel and we
- * can work directly in display units: the fair quote is
- * `offered * offerP / requestP`, then discounted by `SOLVER_MARGIN`.
- * Rounded down to the requested token's precision; returns '' when the inputs
- * aren't usable yet (no amount, prices not loaded, or a non-positive result).
+ * Derive the requested-token amount from the offered amount and the oracle
+ * `marketPrice` (requested whole tokens per 1 offered whole token): the fair
+ * quote is `offered * marketPrice`, discounted by `SOLVER_MARGIN` so a filler
+ * has margin to take the order. Rounded down to the requested token's
+ * precision; returns '' when the inputs aren't usable yet (no amount, no rate,
+ * or a non-positive result).
  */
-export function deriveRequestAmount(
-  offerAmount: string,
-  offerPrice: number | undefined,
-  requestPrice: number | undefined,
-  decimals: number
-): string {
+export function deriveRequestAmount(offerAmount: string, marketPrice: string | undefined, decimals: number): string {
   const offered = Number(offerAmount);
-  if (!offered || !offerPrice || !requestPrice) {
+  const rate = Number(marketPrice);
+  if (!offered || !rate || !Number.isFinite(rate)) {
     return '';
   }
-  const quote = ((offered * offerPrice) / requestPrice) * (1 - SOLVER_MARGIN);
+  const quote = offered * rate * (1 - SOLVER_MARGIN);
   if (!Number.isFinite(quote) || quote <= 0) {
     return '';
   }

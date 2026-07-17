@@ -673,12 +673,7 @@ const generateGuardianTransaction = async (
       );
       break;
     case 'replace-hot-key':
-      await completeReplaceHotKeyTransaction(
-        transaction as ReplaceHotKeyTransaction,
-        result,
-        guardianProvider,
-        service
-      );
+      await completeReplaceHotKeyTransaction(transaction as ReplaceHotKeyTransaction, result, guardianProvider);
       break;
     case 'update-procedure-threshold':
       await completeUpdateProcedureThresholdTransaction(

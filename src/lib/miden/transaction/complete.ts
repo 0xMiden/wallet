@@ -21,7 +21,7 @@ import {
   UpdateProcedureThresholdTransaction
 } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
 
@@ -152,11 +152,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
-  guardianProvider: GuardianAccountProvider,
-  // The cold MultisigService used to drive the rotation. Supplied on the normal
-  // path so we can push the rotated state to the guardian below; absent on the
-  // apply-after-submit-failed reconcile path (runSync self-heals that case).
-  service?: MultisigService
+  guardianProvider: GuardianAccountProvider
 ) => {
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
@@ -168,19 +164,44 @@ export const completeReplaceHotKeyTransaction = async (
       throw new Error('swapHotKey not implemented in this provider');
     }
 
-    // The OZ lib submitted `update_signers` on-chain but did NOT re-register the
-    // rotated state on the guardian (it only does that for switch_guardian). Push
-    // it now — BEFORE `swapHotKey`, which sets `hotPublicKey` and thereby arms the
-    // ~3s guardian hot-sync. If we let the hot-sync start with the guardian's blob
-    // still pre-rotation, every tick throws on the guardian-vs-on-chain mismatch
-    // until a reinstall. Best-effort: an on-chain-successful rotation must not be
-    // failed by a guardian blip — runSync re-registers on a later tick if this slips.
-    if (service) {
-      try {
-        await service.reRegisterCurrentStateOnGuardian();
-      } catch (e) {
-        console.warn('Failed to re-register rotated state on guardian post-replace-hot-key (non-fatal):', e);
+    // Re-register on the guardian — REQUIRED, and it must carry the
+    // POST-rotation signer set. The guardian's request-auth allowlist
+    // (`auth.cosigner_commitments`) is written ONLY by `/configure`
+    // (`registerOnGuardian`); the delta pipeline canonicalizes the state blob
+    // but never touches the allowlist, so without this push every request
+    // signed by the NEW hot key 401s ("session expired") forever.
+    // `registerOnGuardian` derives the allowlist from the service's in-memory
+    // `signerCommitments`, so the cold service is built FRESH here from the
+    // freshly-synced on-chain account (now [new-hot, cold]). Reusing the
+    // pre-rotation service that drove the tx pushed the OLD allowlist — the
+    // historical permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s
+    // hot-sync. Best-effort: an on-chain-successful rotation must not be
+    // failed by a guardian blip (registerOnGuardian retries 5× internally).
+    try {
+      const accounts = await guardianProvider.getAccounts();
+      const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
+      if (!walletAccount) {
+        throw new Error(`Guardian account ${tx.accountId} not found in provider`);
       }
+      const sdkAccount = await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        await midenClient.syncState();
+        return midenClient.getAccount(tx.accountId);
+      });
+      if (!sdkAccount) {
+        throw new Error(`Guardian account ${tx.accountId} not found in local client`);
+      }
+      const coldService = await MultisigService.buildColdMultisigService(
+        sdkAccount,
+        walletAccount,
+        guardianProvider.signWord
+      );
+      await coldService.reRegisterCurrentStateOnGuardian();
+    } catch (e) {
+      console.error(
+        'Failed to re-register post-rotation signer set on guardian — the new hot key stays unauthorized (401) until a re-register lands:',
+        e
+      );
     }
 
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted

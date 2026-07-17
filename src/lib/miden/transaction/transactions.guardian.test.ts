@@ -1571,10 +1571,12 @@ describe('completeReplaceHotKeyTransaction', () => {
     expect(row.displayMessage).toBe('Device key rotated');
   });
 
-  it('re-registers the rotated state on the guardian BEFORE swapping the hot pointer', async () => {
-    // The OZ lib doesn't push update_signers state to the guardian; we must, and
-    // before swapHotKey arms the 3s hot-sync — otherwise the guardian's stale blob
-    // makes every subsequent sync diverge.
+  it('re-registers via a FRESH cold service (post-rotation allowlist) BEFORE swapping the hot pointer', async () => {
+    // The guardian's request-auth allowlist is written only by /configure and
+    // registerOnGuardian derives it from the service's in-memory signer set —
+    // so completion must rebuild the cold service from the freshly-synced
+    // post-rotation account (NOT reuse the pre-rotation one that drove the tx,
+    // which pushed the old allowlist and left the new hot key 401ing forever).
     const tx = new ReplaceHotKeyTransaction('acc-1', false);
     tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
@@ -1583,18 +1585,26 @@ describe('completeReplaceHotKeyTransaction', () => {
     const reRegisterCurrentStateOnGuardian = jest.fn(async () => {
       order.push('reregister');
     });
+    mockBuildColdMultisigService.mockResolvedValue({ reRegisterCurrentStateOnGuardian });
+    const syncState = jest.fn(async () => {});
+    const freshSdkAccount = { id: () => ({ toString: () => 'acc-1' }) };
+    mockGetMidenClient.mockResolvedValue({ syncState, getAccount: async () => freshSdkAccount });
+
     const swapHotKey = jest.fn(async () => {
       order.push('swap');
     });
-    const provider = { ...makeGuardianProvider(true), swapHotKey };
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey
+    };
 
-    await completeReplaceHotKeyTransaction(
-      tx,
-      makeResult() as never,
-      provider as never,
-      { reRegisterCurrentStateOnGuardian } as never
-    );
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
 
+    // The cold service is built from the freshly-synced account, not a stale one.
+    expect(syncState).toHaveBeenCalledTimes(1);
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+    expect(mockBuildColdMultisigService.mock.calls[0]![0]).toBe(freshSdkAccount);
     expect(reRegisterCurrentStateOnGuardian).toHaveBeenCalledTimes(1);
     expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
     expect(order).toEqual(['reregister', 'swap']);
@@ -1605,15 +1615,24 @@ describe('completeReplaceHotKeyTransaction', () => {
     tx.extraInputs = { newHotPublicKey: 'new-hot-pub' };
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
-    const swapHotKey = jest.fn(async () => {});
-    const provider = { ...makeGuardianProvider(true), swapHotKey };
-    const service = {
+    mockBuildColdMultisigService.mockResolvedValue({
       reRegisterCurrentStateOnGuardian: jest.fn(async () => {
         throw new Error('guardian down');
       })
+    });
+    mockGetMidenClient.mockResolvedValue({
+      syncState: async () => {},
+      getAccount: async () => ({ id: () => ({ toString: () => 'acc-1' }) })
+    });
+
+    const swapHotKey = jest.fn(async () => {});
+    const provider = {
+      ...makeGuardianProvider(true),
+      getAccounts: async () => [{ publicKey: 'acc-1', hotPublicKey: 'old-hot-pub', coldPublicKey: 'cold' }],
+      swapHotKey
     };
 
-    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never, service as never);
+    await completeReplaceHotKeyTransaction(tx, makeResult() as never, provider as never);
 
     expect(swapHotKey).toHaveBeenCalledWith('acc-1', 'new-hot-pub');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
