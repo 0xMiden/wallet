@@ -32,6 +32,7 @@ function getIntercom() {
 export const [MidenContextProvider, useMidenContext] = constate(() => {
   // Get state from Zustand store
   const status = useWalletStore(s => s.status);
+  const isInitialized = useWalletStore(s => s.isInitialized);
   const accounts = useWalletStore(s => s.accounts);
   const currentAccount = useWalletStore(s => s.currentAccount);
   const networks = useWalletStore(s => s.networks);
@@ -307,6 +308,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     idle,
     locked,
     ready,
+    hydrated: isInitialized,
 
     // Misc
     confirmation,
