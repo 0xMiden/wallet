@@ -723,6 +723,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "Введите свой пароль, чтобы открыть $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "Разблокируйте с помощью пароля, чтобы открыть $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -1119,6 +1128,14 @@
   "forgotPasscode": {
     "message": "Забыли пароль?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "Введите свой пароль",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "Неправильный пароль. Попробуйте еще раз.",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "Создайте 6-значный код",

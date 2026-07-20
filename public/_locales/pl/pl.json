@@ -466,5 +466,8 @@
   "andWord": "I",
   "enterDecryptionPassword": "Wprowadź hasło ustawione podczas eksportowania portfela. Spowoduje to odszyfrowanie pliku i przywrócenie dostępu.",
   "first": "Pierwszy",
-  "last": "Ostatni"
+  "last": "Ostatni",
+  "revealSecretPasscodeInputDescription": "Wprowadź swoje hasło, aby odsłonić $secretName$ .",
+  "enterYourPassword": "Wpisz swoje hasło",
+  "incorrectPassword": "Nieprawidłowe hasło. Spróbuj ponownie."
 }

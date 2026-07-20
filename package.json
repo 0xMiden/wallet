@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.15.6",
+  "version": "1.15.7",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -37,7 +37,7 @@
     "mobile:ios:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios",
     "mobile:ios:build": "yarn mobile:sync && xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' -configuration Debug -derivedDataPath ios/App/build build",
     "mobile:ios:build:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios:build",
-    "mobile:ios:run": "yarn mobile:ios:build && xcrun simctl install booted ios/App/build/Build/Products/Debug-iphonesimulator/App.app && yarn mobile:ios:faceid && xcrun simctl launch booted com.miden.wallet",
+    "mobile:ios:run": "yarn mobile:ios:build && xcrun simctl install booted ios/App/build/Build/Products/Debug-iphonesimulator/App.app && yarn mobile:ios:faceid && xcrun simctl launch booted com.miden.bread",
     "mobile:ios:run:devnet": "cross-env MIDEN_NETWORK=devnet yarn mobile:ios:run",
     "mobile:ios:faceid": "xcrun simctl spawn booted notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 && xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit.enrollmentChanged",
     "mobile:android": "yarn mobile:sync && npx cap open android",

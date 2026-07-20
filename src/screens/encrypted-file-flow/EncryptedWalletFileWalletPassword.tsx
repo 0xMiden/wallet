@@ -8,6 +8,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
+import { PasscodeEntry } from 'components/PasscodeEntry';
 import { Vault } from 'lib/miden/back/vault';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
@@ -34,7 +35,7 @@ const getTimeLeft = (start: number, end: number) => {
 export interface EncryptedWalletFileWalletPasswordProps {
   onGoNext: () => void;
   onGoBack: () => void;
-  onPasswordChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  onPasswordChange: (value: string) => void;
   walletPassword?: string;
 }
 
@@ -48,8 +49,12 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   const {
     setError,
     clearErrors,
-    formState: { errors, isSubmitting }
+    formState: { errors }
   } = useForm<FormData>();
+  // This form submits directly (not via react-hook-form's handleSubmit), so
+  // formState.isSubmitting never flips true; track the in-flight state ourselves
+  // so the guard, the loading spinner, and PasscodeEntry's auto-submit all work.
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [attempt, setAttempt] = useLocalStorage<number>('TridentSharedStorageKey.PasswordAttempts', 1);
@@ -67,42 +72,47 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     Vault.hasHardwareProtector().then(setHasHardwareProtector);
   }, []);
 
-  const onSubmit = useCallback(async () => {
-    if (isSubmitting) return;
+  const onSubmit = useCallback(
+    async (passcode?: string) => {
+      if (isSubmitting) return;
+      setIsSubmitting(true);
 
-    clearErrors('password');
-    try {
-      if (!hasHardwareProtector && attempt > LAST_ATTEMPT)
-        await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
-      await unlock(hasHardwareProtector ? undefined : walletPassword!);
+      clearErrors('password');
+      try {
+        if (!hasHardwareProtector && attempt > LAST_ATTEMPT)
+          await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
+        await unlock(hasHardwareProtector ? undefined : (passcode ?? walletPassword)!);
 
-      setAttempt(1);
-      onGoNext();
-    } catch (err: any) {
-      if (!hasHardwareProtector) {
-        if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
-        setAttempt(attempt + 1);
-        setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
+        setAttempt(1);
+        onGoNext();
+      } catch (err: any) {
+        if (!hasHardwareProtector) {
+          if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
+          setAttempt(attempt + 1);
+          setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
+        }
+
+        console.error(err);
+
+        // Human delay.
+        await new Promise(res => setTimeout(res, 300));
+        setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
+        setIsSubmitting(false);
       }
-
-      console.error(err);
-
-      // Human delay.
-      await new Promise(res => setTimeout(res, 300));
-      setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
-    }
-  }, [
-    isSubmitting,
-    clearErrors,
-    setError,
-    unlock,
-    attempt,
-    setAttempt,
-    setTimeLock,
-    onGoNext,
-    walletPassword,
-    hasHardwareProtector
-  ]);
+    },
+    [
+      isSubmitting,
+      clearErrors,
+      setError,
+      unlock,
+      attempt,
+      setAttempt,
+      setTimeLock,
+      onGoNext,
+      walletPassword,
+      hasHardwareProtector
+    ]
+  );
 
   const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -118,6 +128,11 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
     ? !!confirmed && !isSubmitting
     : !isDisabled && !!confirmed && !!walletPassword && !isSubmitting;
 
+  // Non-hardware mobile wallets are protected by the 6-digit onboarding
+  // passcode, so unlock with the numpad (auto-submits once six digits are
+  // entered); extension/desktop use a typed password.
+  const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
+
   if (hasHardwareProtector === null) {
     return null;
   }
@@ -129,7 +144,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           <p className="text-base font-medium leading-[130%]">
             {t(hasHardwareProtector ? 'encryptedWalletFileDescriptionHardware' : 'encryptedWalletFileDescription')}
           </p>
-          {!hasHardwareProtector && (
+          {!hasHardwareProtector && !usePasscodeEntry && (
             <div className="flex flex-col gap-y-4">
               <Input
                 type={isPasswordVisible ? 'text' : 'password'}
@@ -138,11 +153,11 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
                 disabled={isDisabled}
                 placeholder={t('enterPassword')}
                 icon={
-                  <button className="flex-1" onClick={onPasswordVisibilityToggle}>
+                  <button type="button" className="flex-1" onClick={onPasswordVisibilityToggle}>
                     <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
                   </button>
                 }
-                onChange={onPasswordChange}
+                onChange={e => onPasswordChange(e.target.value)}
                 onKeyDown={handleEnterKey}
                 autoFocus={!isMobile()}
                 labelClassName="text-base! font-medium leading-[20px]"
@@ -178,16 +193,30 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
           )}
         </div>
       </div>
-      <div className="mt-auto">
-        <Button
-          className="w-full justify-center"
-          variant={ButtonVariant.Primary}
-          title={t(hasHardwareProtector ? 'unlock' : 'continue')}
-          disabled={!continueEnabled}
-          onClick={onSubmit}
-          isLoading={isSubmitting}
+      {usePasscodeEntry ? (
+        <PasscodeEntry
+          onSubmit={code => onSubmit(code)}
+          onChange={value => {
+            onPasswordChange(value);
+            clearErrors('password');
+          }}
+          error={errors.password?.message ?? null}
+          disabled={isDisabled || !confirmed}
+          isSubmitting={isSubmitting}
+          className="mt-auto"
         />
-      </div>
+      ) : (
+        <div className="mt-auto">
+          <Button
+            className="w-full justify-center"
+            variant={ButtonVariant.Primary}
+            title={t(hasHardwareProtector ? 'unlock' : 'continue')}
+            disabled={!continueEnabled}
+            onClick={() => onSubmit()}
+            isLoading={isSubmitting}
+          />
+        </div>
+      )}
     </div>
   );
 };

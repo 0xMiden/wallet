@@ -723,6 +723,15 @@
       }
     }
   },
+  "revealSecretPasscodeInputDescription": {
+    "message": "비밀번호를 입력하면 공개됩니다 $secretName$ .",
+    "englishSource": "Enter your passcode to reveal the $secretName$.",
+    "placeholders": {
+      "secretname": {
+        "content": "$1"
+      }
+    }
+  },
   "revealSecretUnlockDescription": {
     "message": "비밀번호로 잠금을 해제하여 정보를 확인하세요. $secretName$ .",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
@@ -1119,6 +1128,14 @@
   "forgotPasscode": {
     "message": "비밀번호를 잊으셨나요?",
     "englishSource": "Forgot passcode?"
+  },
+  "enterYourPassword": {
+    "message": "비밀번호를 입력하세요",
+    "englishSource": "Enter your password"
+  },
+  "incorrectPassword": {
+    "message": "잘못된 비밀번호입니다. 다시 시도해 보세요.",
+    "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
     "message": "6자리 코드를 생성하세요",

@@ -476,5 +476,8 @@
   "first": "Erste",
   "last": "Zuletzt",
   "language": "Sprache",
-  "languageDescription": "Ändern Sie die Anzeigesprache"
+  "languageDescription": "Ändern Sie die Anzeigesprache",
+  "revealSecretPasscodeInputDescription": "Geben Sie Ihren Passcode ein, um das anzuzeigen $secretName$ .",
+  "enterYourPassword": "Geben Sie Ihr Passwort ein",
+  "incorrectPassword": "Falsches Passwort. Versuchen Sie es erneut."
 }
